@@ -22,15 +22,19 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.awt.Component
 import java.awt.Container
+import java.awt.Rectangle
+import java.awt.image.BufferedImage
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JSlider
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AyuIslandsEffectsPanelTest {
@@ -232,6 +236,8 @@ class AyuIslandsEffectsPanelTest {
     fun `shape switch shows waveform controls and restores dormant solid choices`() {
         state.glowPreset = GlowPreset.CUSTOM.name
         state.glowStyle = GlowStyle.SHARP_NEON.name
+        state.glowEditorPlacement = GlowPlacement.SIDE_EDGES.name
+        state.glowToolWindowPlacement = GlowPlacement.SIDE_EDGES.name
         state.setIntensityForStyle(GlowStyle.SHARP_NEON, 73)
         val effectsPanel = AyuIslandsEffectsPanel()
         val dialogPanel = buildDialogPanel(effectsPanel)
@@ -244,6 +250,9 @@ class AyuIslandsEffectsPanelTest {
         val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
         val loopDuration = waveformField<JSlider>(effectsPanel, "loopSlider")
+        val editorPlacement = placementSegmented(effectsPanel, "editorPlacement")
+        val toolWindowPlacement = placementSegmented(effectsPanel, "toolWindowPlacement")
+        val editorPlacementLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Editor placement" }
 
         shape.selectedItem = GlowShape.WAVEFORM.displayName
 
@@ -254,15 +263,56 @@ class AyuIslandsEffectsPanelTest {
         assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(loopDuration.isEffectivelyVisibleWithin(dialogPanel))
         assertFalse(style.isEffectivelyVisibleWithin(dialogPanel))
-        val editorPlacementLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Editor placement" }
-        assertTrue(editorPlacementLabel.isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(editorPlacementLabel.isEffectivelyVisibleWithin(dialogPanel))
 
         shape.selectedItem = GlowShape.SOLID.displayName
 
         assertTrue(style.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(editorPlacementLabel.isEffectivelyVisibleWithin(dialogPanel))
         assertEquals(GlowStyle.SHARP_NEON.displayName, style.selectedItem)
         assertEquals(73, solidIntensity.value)
         assertEquals(GlowPreset.CUSTOM, presetSegmented(effectsPanel).selectedItem)
+        assertEquals(GlowPlacement.SIDE_EDGES, editorPlacement.selectedItem)
+        assertEquals(GlowPlacement.SIDE_EDGES, toolWindowPlacement.selectedItem)
+    }
+
+    @Test
+    fun `waveform controls share aligned rows and a uniform tick rail`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        dialogPanel.setSize(TEST_PANEL_WIDTH, dialogPanel.preferredSize.height)
+        layoutRecursively(dialogPanel)
+
+        val enumBounds =
+            listOf("shapeCombo", "directionCombo", "baselineCombo")
+                .map { waveformField<JComboBox<*>>(effectsPanel, it).boundsIn(dialogPanel) }
+        assertEquals(1, enumBounds.map(Rectangle::x).distinct().size)
+        assertEquals(1, enumBounds.map(Rectangle::width).distinct().size)
+
+        val sliderRows =
+            listOf(
+                "Loop duration" to "loopSlider",
+                "Spike density" to "densitySlider",
+                "Trace length (px)" to "traceLengthSlider",
+                "Amplitude (px)" to "amplitudeSlider",
+                "Intensity" to "intensitySlider",
+            )
+        val sliders = sliderRows.map { (_, fieldName) -> waveformField<JSlider>(effectsPanel, fieldName) }
+        val sliderBounds = sliders.map { it.boundsIn(dialogPanel) }
+        assertEquals(1, sliderBounds.map(Rectangle::x).distinct().size)
+        assertEquals(1, sliderBounds.map(Rectangle::width).distinct().size, "Slider bounds: $sliderBounds")
+        sliderRows.zip(sliders).forEach { (row, slider) ->
+            val rowLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == row.first }
+            assertSame(slider, rowLabel.labelFor)
+        }
+
+        val tickStrips = descendants(dialogPanel, SliderTickStrip::class.java)
+        assertEquals(5, tickStrips.size)
+        assertEquals(EXPECTED_TICK_COUNT, tickStrips.first().tickCount)
+        assertEquals(1, tickStrips.map(SliderTickStrip::tickCount).distinct().size)
+        assertTrue(tickStrips.all { it.isEffectivelyVisibleWithin(dialogPanel) && it.width > 0 && it.height > 0 })
+        assertTrue(tickStrips.all { it.hasPaintedTicks() })
     }
 
     @Test
@@ -367,7 +417,6 @@ class AyuIslandsEffectsPanelTest {
 
         waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
         val loopSlider = waveformField<JSlider>(effectsPanel, "loopSlider")
-        assertEquals(10, loopSlider.minorTickSpacing)
         loopSlider.value = 37
 
         effectsPanel.apply()
@@ -537,6 +586,30 @@ class AyuIslandsEffectsPanelTest {
             visit(container)
         }
 
+    private fun layoutRecursively(container: Container) {
+        container.doLayout()
+        container.components.filterIsInstance<Container>().forEach(::layoutRecursively)
+    }
+
+    private fun Component.boundsIn(root: Container): Rectangle =
+        SwingUtilities.convertRectangle(requireNotNull(parent), bounds, root)
+
+    private fun SliderTickStrip.hasPaintedTicks(): Boolean {
+        val image = BufferedImage(TICK_STRIP_WIDTH, preferredSize.height, BufferedImage.TYPE_INT_ARGB)
+        setSize(image.width, image.height)
+        val graphics = image.createGraphics()
+        try {
+            paint(graphics)
+        } finally {
+            graphics.dispose()
+        }
+        val paintedColumns =
+            (0 until image.width).count { x ->
+                (0 until image.height).any { y -> image.getRGB(x, y).ushr(24) != 0 }
+            }
+        return paintedColumns >= tickCount
+    }
+
     private fun Component.isEffectivelyVisibleWithin(root: Component): Boolean {
         var current: Component? = this
         while (current != null && current !== root) {
@@ -544,5 +617,11 @@ class AyuIslandsEffectsPanelTest {
             current = current.parent
         }
         return current === root && root.isVisible
+    }
+
+    private companion object {
+        const val EXPECTED_TICK_COUNT = 39
+        const val TEST_PANEL_WIDTH = 800
+        const val TICK_STRIP_WIDTH = 320
     }
 }
