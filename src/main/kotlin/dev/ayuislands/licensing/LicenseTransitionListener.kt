@@ -7,10 +7,11 @@ import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
 /**
- * Listens for license-state transitions and reacts on three axes:
+ * Listens for license-state transitions and reacts on four axes:
  *
  *  1. **Premium wizard re-arm** — on unlicensed → licensed transitions only, resets
  *     [dev.ayuislands.settings.AyuIslandsState.premiumOnboardingShown] to `false` so
@@ -24,7 +25,10 @@ import dev.ayuislands.settings.AyuIslandsSettings
  *     chrome surfaces also re-evaluate their runtime entitlement without rewriting
  *     the stored preference.
  *
- *  3. **Workspace renderer cleanup** — on licensed → unlicensed transitions,
+ *  3. **Glow refresh** — re-evaluates overlay entitlement for every open project
+ *     so a downgrade removes premium overlays and a later renewal restores them.
+ *
+ *  4. **Workspace renderer cleanup** — on licensed → unlicensed transitions,
  *     re-applies Commit panel workspace management for open projects so paid
  *     path-display renderers are removed immediately, not only after restart.
  *
@@ -73,6 +77,11 @@ internal class LicenseTransitionListener : LicensingFacade.LicenseStateListener 
                             cleanupCommitPanelPathRendering()
                         }
 
+                        try {
+                            GlowOverlayManager.syncGlowForAllProjects()
+                        } catch (exception: RuntimeException) {
+                            LOG.warn("Ayu license: failed to refresh glow overlays", exception)
+                        }
                         val context = AccentContext.detect()
                         if (context != null) {
                             AccentApplicator.applyForFocusedProject(context)

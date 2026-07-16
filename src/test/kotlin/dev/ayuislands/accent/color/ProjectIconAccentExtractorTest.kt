@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Behavior locks for [ProjectIconAccentExtractor]. Fixture icons are built
@@ -105,6 +106,15 @@ class ProjectIconAccentExtractorTest {
         Files.writeString(corrupt, "definitely not a png")
 
         assertNull(ProjectIconAccentExtractor.extract(corrupt.toFile()))
+    }
+
+    @Test
+    fun `compressed png exceeding the decoded pixel limit yields no accent`() {
+        val iconFile = iconDir().resolve("icon.png").toFile()
+        ImageIO.write(solidImage(Color(0x5C, 0xCF, 0xE6), width = 1025, height = 1024), "png", iconFile)
+
+        assertTrue(iconFile.length() < ProjectIconAccentExtractor.MAX_ICON_FILE_BYTES)
+        assertNull(ProjectIconAccentExtractor.extract(iconFile))
     }
 
     @Test

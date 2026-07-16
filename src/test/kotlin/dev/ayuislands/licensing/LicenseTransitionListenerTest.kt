@@ -9,9 +9,12 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -56,6 +59,8 @@ class LicenseTransitionListenerTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(CommitPanelAutoFitManager.Companion)
+        mockkObject(GlowOverlayManager.Companion)
+        every { GlowOverlayManager.syncGlowForAllProjects() } just Runs
     }
 
     @AfterTest
@@ -184,8 +189,6 @@ class LicenseTransitionListenerTest {
         assertEquals("platform glitch", loggedErrors[0]?.message)
     }
 
-    // ── Chrome-refresh on license transitions ───────────────────────────────
-    //
     // AccentResolver short-circuits per-project/per-language overrides when the
     // user is unlicensed so chrome tinting falls back to the global accent. On
     // either transition direction (licensed↔unlicensed) the listener MUST
@@ -203,6 +206,7 @@ class LicenseTransitionListenerTest {
         LicenseTransitionListener().licenseStateChanged(facade)
 
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
+        verify(exactly = 0) { GlowOverlayManager.syncGlowForAllProjects() }
     }
 
     @Test
@@ -222,6 +226,7 @@ class LicenseTransitionListenerTest {
         LicenseTransitionListener().licenseStateChanged(facade)
 
         verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
         verify(exactly = 1) { manager.apply() }
     }
 
@@ -309,6 +314,37 @@ class LicenseTransitionListenerTest {
             "unlicensed→licensed transition must re-arm premium wizard for next startup",
         )
         verify(exactly = 2) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
+    }
+
+    @Test
+    fun `glow refresh follows license loss and recovery`() {
+        val listener = LicenseTransitionListener()
+
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        listener.licenseStateChanged(facade)
+        verify(exactly = 0) { GlowOverlayManager.syncGlowForAllProjects() }
+
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        listener.licenseStateChanged(facade)
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        listener.licenseStateChanged(facade)
+        verify(exactly = 2) { GlowOverlayManager.syncGlowForAllProjects() }
+    }
+
+    @Test
+    fun `glow refresh failure does not block accent reconciliation`() {
+        val listener = LicenseTransitionListener()
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        listener.licenseStateChanged(facade)
+        every { GlowOverlayManager.syncGlowForAllProjects() } throws RuntimeException("glow refresh failed")
+
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        listener.licenseStateChanged(facade)
+
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test

@@ -2,7 +2,17 @@ package dev.ayuislands.settings
 
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.glow.GlowRenderer
+import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.BeatMorphology
+import dev.ayuislands.glow.waveform.FrameTrace
+import dev.ayuislands.glow.waveform.SolidFrameSpec
+import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.glow.waveform.WaveformFrame
+import dev.ayuislands.glow.waveform.WaveformPaintRequest
+import dev.ayuislands.glow.waveform.WaveformPainter
+import dev.ayuislands.glow.waveform.paint
+import dev.ayuislands.glow.waveform.traceComplexCount
 import java.awt.AlphaComposite
 import java.awt.BorderLayout
 import java.awt.Color
@@ -11,8 +21,20 @@ import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.awt.geom.Area
+import java.awt.geom.Rectangle2D
 import java.awt.geom.RoundRectangle2D
 import javax.swing.JPanel
+import kotlin.math.roundToInt
+
+internal data class GlowPreview(
+    val shape: GlowShape,
+    val style: GlowStyle,
+    val intensity: Int,
+    val width: Int,
+    val color: Color,
+    val visible: Boolean,
+    val waveformConfig: WaveformConfig,
+)
 
 /**
  * JPanel that paints a glow border around its content using [GlowRenderer].
@@ -26,8 +48,12 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
     var glowWidth: Int = DEFAULT_WIDTH
     var glowColor: Color = Color.decode(DEFAULT_COLOR_HEX)
     var glowVisible: Boolean = false
+    var glowShape: GlowShape = GlowShape.SOLID
+    var waveformConfig: WaveformConfig = WaveformConfig()
 
     private val renderer = GlowRenderer()
+    private val waveformPainter = WaveformPainter(renderer)
+    private val previewMorphology = BeatMorphology.standard()
 
     init {
         border = JBUI.Borders.empty(FIXED_PADDING)
@@ -35,12 +61,18 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
 
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
-        if (!glowVisible || glowIntensity <= 0) return
+        if (!glowVisible) return
+        if (glowShape == GlowShape.SOLID && glowIntensity <= 0) return
 
         val g2 = g.create() as Graphics2D
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.composite = AlphaComposite.SrcOver.derive(OVERLAY_ALPHA)
+
+            if (glowShape == GlowShape.WAVEFORM) {
+                paintWaveform(g2)
+                return
+            }
 
             val outer =
                 Area(
@@ -92,19 +124,64 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         }
     }
 
-    fun updateFromPreset(
-        style: GlowStyle,
-        intensity: Int,
-        width: Int,
-        color: Color,
-        visible: Boolean,
-    ) {
-        glowStyle = style
-        glowIntensity = intensity
-        glowWidth = width
-        glowColor = color
-        glowVisible = visible
+    internal fun updatePreview(preview: GlowPreview) {
+        glowShape = preview.shape
+        glowStyle = preview.style
+        glowIntensity = preview.intensity
+        glowWidth = preview.width
+        glowColor = preview.color
+        glowVisible = preview.visible
+        waveformConfig = preview.waveformConfig
         repaint()
+    }
+
+    private fun paintWaveform(graphics: Graphics2D) {
+        val margin = WaveformPainter.marginFor(waveformConfig.amplitude, glowWidth)
+        val gutter = JBUI.scale(PREVIEW_GUTTER)
+        val shift = (margin - gutter).roundToInt().coerceAtLeast(0)
+        val bounds = Rectangle(-shift, -shift, width + shift * 2, height + shift * 2)
+        val content =
+            Rectangle2D.Float(
+                insets.left.toFloat(),
+                insets.top.toFloat(),
+                (width - insets.left - insets.right).toFloat(),
+                (height - insets.top - insets.bottom).toFloat(),
+            )
+        val borderArea = Area(Rectangle2D.Float(0f, 0f, width.toFloat(), height.toFloat()))
+        borderArea.subtract(Area(content))
+        graphics.clip(borderArea)
+        val frame =
+            WaveformFrame(
+                config = waveformConfig,
+                trace =
+                    FrameTrace(
+                        anchorOffset = 0f,
+                        history = List(waveformConfig.traceComplexCount) { previewMorphology },
+                    ),
+            )
+        waveformPainter.paint(
+            graphics,
+            WaveformPaintRequest(
+                bounds = bounds,
+                arcWidth = ARC_F.toInt(),
+                accent = glowColor,
+                frame = frame,
+                solidFrame =
+                    SolidFrameSpec(
+                        bounds =
+                            Rectangle(
+                                gutter,
+                                gutter,
+                                (width - gutter * 2).coerceAtLeast(0),
+                                (height - gutter * 2).coerceAtLeast(0),
+                            ),
+                        style = glowStyle,
+                        intensity = glowIntensity,
+                        width = glowWidth,
+                    ),
+                displacementScale = PREVIEW_DISPLACEMENT_SCALE,
+            ),
+        )
     }
 
     companion object {
@@ -116,5 +193,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
         private const val DEFAULT_WIDTH = 8
         private const val DEFAULT_COLOR_HEX = "#FFCC66"
         private const val FIXED_PADDING = 10
+        private const val PREVIEW_GUTTER = 4
+        private const val PREVIEW_DISPLACEMENT_SCALE = 0.25f
     }
 }

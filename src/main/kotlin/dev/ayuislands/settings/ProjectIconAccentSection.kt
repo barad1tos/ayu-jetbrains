@@ -39,6 +39,7 @@ internal class ProjectIconAccentSection {
                 pending = box.isSelected
             }
             checkbox = box
+            newFeatureBadge("accent-from-project-icon")
         }
         panel.row {
             comment(

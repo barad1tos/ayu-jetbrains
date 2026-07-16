@@ -1,5 +1,8 @@
 package dev.ayuislands.commitpanel
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -9,6 +12,8 @@ import dev.ayuislands.settings.PanelWidthMode
 import java.awt.Component
 import java.awt.Container
 import java.awt.Font
+import java.lang.reflect.Method
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.JComponent
 import javax.swing.JTree
 import javax.swing.ToolTipManager
@@ -17,6 +22,7 @@ import javax.swing.tree.TreeCellRenderer
 internal class CommitPathShorteningRenderer(
     internal val delegate: TreeCellRenderer,
     private val stateProvider: () -> AyuIslandsState = { AyuIslandsSettings.getInstance().state },
+    private val isLockProhibited: () -> Boolean = Companion::isLockProhibited,
 ) : TreeCellRenderer {
     override fun getTreeCellRendererComponent(
         tree: JTree,
@@ -27,16 +33,38 @@ internal class CommitPathShorteningRenderer(
         row: Int,
         hasFocus: Boolean,
     ): Component {
+        // The macOS accessibility bridge walks tree nodes from EDT dispatches
+        // that prohibit taking the platform RW lock (`Dispatchers.UI` /
+        // `prohibitTakingLocksInsideAndRun`), but the platform changes-tree
+        // renderers this delegates to still take read actions while rendering
+        // (`ChangesBrowserChangeNode.render`, Git hover icons). Some delegates
+        // log and swallow `LockAccessDisallowed` internally, so preflight the
+        // lock context instead of relying only on the exception guard. The
+        // accessibility walk only needs a component for role/state/bounds.
+        if (isLockProhibited()) return fallbackComponent(value)
+
         val component =
-            delegate.getTreeCellRendererComponent(
-                tree,
-                value,
-                selected,
-                expanded,
-                leaf,
-                row,
-                hasFocus,
-            )
+            try {
+                delegate.getTreeCellRendererComponent(
+                    tree,
+                    value,
+                    selected,
+                    expanded,
+                    leaf,
+                    row,
+                    hasFocus,
+                )
+            } catch (exception: RuntimeException) {
+                if (!exception.isLockAccessDisallowed()) throw exception
+                if (lockDisallowedLogged.compareAndSet(false, true)) {
+                    log.warn(
+                        "Commit path renderer: platform delegate required a read action in a " +
+                            "lock-prohibited context (accessibility walk); serving fallback text",
+                        exception,
+                    )
+                }
+                return fallbackComponent(value)
+            }
         component.clearRendererTooltips()
         val textComponent = component.findPathTextComponent() ?: return component
         shortenPathFragment(
@@ -265,7 +293,90 @@ internal class CommitPathShorteningRenderer(
         return result
     }
 
+    private fun Throwable.isLockAccessDisallowed(): Boolean {
+        var current: Throwable? = this
+        while (current != null) {
+            if (current.javaClass.name.endsWith(LOCK_DISALLOWED_CLASS_SUFFIX)) return true
+            current = current.cause.takeIf { it !== current }
+        }
+        return false
+    }
+
+    private fun fallbackComponent(value: Any?): Component =
+        SimpleColoredComponent().apply {
+            append(value?.toString().orEmpty(), SimpleTextAttributes.REGULAR_ATTRIBUTES)
+        }
+
     companion object {
+        private val log = logger<CommitPathShorteningRenderer>()
+
+        /**
+         * One WARN per IDE session, not per walked node — the accessibility
+         * bridge re-renders every visible row on each walk, so an unlatched
+         * warning floods idea.log within seconds.
+         */
+        private val lockDisallowedLogged = AtomicBoolean(false)
+
+        private val probeFailureLogged = AtomicBoolean(false)
+
+        private val lockAdviceMethod by lazy { resolveLockAdvice(Application::class.java) }
+
+        internal fun resolveLockAdvice(type: Class<*>): Method? =
+            try {
+                LOCK_ADVICE_METHODS.firstNotNullOfOrNull { methodName ->
+                    type.methods.firstOrNull { method ->
+                        // Both supported platform names return nullable advice text;
+                        // keep Boolean lookalikes out of the non-null advice contract.
+                        method.name == methodName &&
+                            method.parameterCount == 0 &&
+                            method.returnType == String::class.java
+                    }
+                }
+            } catch (exception: SecurityException) {
+                reportProbeFailure(exception)
+                null
+            }
+
+        internal fun reportsLockProhibited(
+            application: Any?,
+            method: Method?,
+        ): Boolean {
+            if (application == null || method == null) return false
+            return try {
+                method.invoke(application) != null
+            } catch (exception: ReflectiveOperationException) {
+                reportProbeFailure(exception)
+            } catch (exception: RuntimeException) {
+                reportProbeFailure(exception)
+            }
+        }
+
+        private fun isLockProhibited(): Boolean =
+            reportsLockProhibited(ApplicationManager.getApplication(), lockAdviceMethod)
+
+        private fun reportProbeFailure(exception: Exception): Boolean {
+            if (probeFailureLogged.compareAndSet(false, true)) {
+                log.warn("Commit path renderer could not inspect the platform lock context", exception)
+            }
+            return false
+        }
+
+        /**
+         * Matched by name: `ThreadingSupport.LockAccessDisallowed` is not part
+         * of the 2025.1 compile-time API surface this plugin builds against.
+         */
+        private const val LOCK_DISALLOWED_CLASS_SUFFIX = "LockAccessDisallowed"
+
+        private val LOCK_ADVICE_METHODS =
+            listOf(
+                "getLockProhibitedAdvice",
+                "isLockingProhibited",
+            )
+
+        // The platform exception is absent from the 2025.1 compile classpath,
+        // so the fallback catches its `RuntimeException` hierarchy and matches
+        // the inaccessible type by name throughout the cause chain.
+
         private const val DEFAULT_FONT_SIZE = 12
         private const val UNIX_SEPARATOR = "/"
         private const val WINDOWS_SEPARATOR = "\\"

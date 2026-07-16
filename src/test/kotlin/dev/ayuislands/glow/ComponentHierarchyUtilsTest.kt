@@ -102,6 +102,41 @@ class ComponentHierarchyUtilsTest {
     }
 
     @Test
+    fun `findGlowHost prefers island holder over the decorator inside it`() {
+        // 2026.1 islands UI shape: holder wraps the decorator which wraps content.
+        val holder = FakeXNextIslandHolder()
+        val decorator = FakeInternalDecoratorImpl()
+        val content = JPanel()
+        holder.add(decorator)
+        decorator.add(content)
+
+        val result = ComponentHierarchyUtils.findGlowHost(content)
+        assertEquals(holder, result)
+    }
+
+    @Test
+    fun `findGlowHost falls back to decorator when no island holder exists`() {
+        val decorator = FakeInternalDecoratorImpl()
+        val content = JPanel()
+        decorator.add(content)
+
+        val result = ComponentHierarchyUtils.findGlowHost(content)
+        assertEquals(decorator, result)
+    }
+
+    @Test
+    fun `describeAncestry names each level with its bounds`() {
+        val parent = FakeInternalDecoratorImpl()
+        val child = JPanel()
+        parent.add(child)
+        child.setBounds(1, 2, 30, 40)
+
+        val chain = ComponentHierarchyUtils.describeAncestry(child)
+
+        assertEquals(true, chain.startsWith("JPanel[1,2 30x40] < FakeInternalDecoratorImpl["))
+    }
+
+    @Test
     fun `findEditorHost returns null when no EditorsSplitters ancestor found`() {
         val panel = JPanel()
         val child = JPanel()
@@ -111,3 +146,8 @@ class ComponentHierarchyUtilsTest {
         assertNull(result)
     }
 }
+
+// Class names must contain the platform substrings findGlowHost matches on.
+private class FakeXNextIslandHolder : JPanel()
+
+private class FakeInternalDecoratorImpl : JPanel()

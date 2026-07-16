@@ -105,7 +105,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "c89bd796"
+          last_verified_sha: "a3e58ca4"
           last_verified_date: "2026-06-30"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
@@ -127,7 +127,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "c89bd796"
+          last_verified_sha: "a3e58ca4"
           last_verified_date: "2026-06-30"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
@@ -216,8 +216,8 @@ categories:
         introduced: "2.8.0"
         tier: paid
         description: >
-          Projects without an override take their accent from the project
-          icon (.idea/icon.png) automatically on open; the Add Override
+          When enabled, projects without an override take their accent from
+          the project icon (.idea/icon.png) automatically on open; the Add Override
           dialog offers the icon's dominant color as a one-click pick.
 
       - id: vcs-color-customization
@@ -324,9 +324,22 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "5cccc809"
-          last_verified_date: "2026-06-16"
+          last_verified_sha: "a3e58ca4"
+          last_verified_date: "2026-07-15"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
+
+      - id: glow-waveform
+        title: "ECG waveform glow"
+        keyword: "Glow"
+        introduced: "2.8.0"
+        tier: paid
+        description: >
+          Trace the focused island with a continuous perimeter loop rendered as
+          a phosphor comet with a white-hot head. Its heart rate follows your
+          typing tempo, so sustained typing accelerates the waveform. Configure
+          direction, loop duration, trace length, spike density from 1x to 4x,
+          trace position outside or centered on the border, amplitude, and
+          signal intensity without changing saved solid-glow preferences.
 
       - id: glow-external-themes
         title: "Glow on external themes"
@@ -343,8 +356,9 @@ categories:
         introduced: "2.8.0"
         tier: paid
         description: >
-          Choose where glow renders per surface: the full island frame, a
-          strip under the editor tabs, or tool-window side edges only.
+          Choose where glow renders per surface: the full island frame or
+          its side edges only, for the editor and for tool windows.
+          Selection previews on live windows before Apply.
           Existing setups keep the full-island default.
 
   fonts:
@@ -489,7 +503,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "c89bd796"
+          last_verified_sha: "a3e58ca4"
           last_verified_date: "2026-06-16"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 

@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
@@ -8,9 +9,11 @@ import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.licensing.LicenseChecker
 import java.awt.BorderLayout
 import java.awt.Color
@@ -41,54 +44,13 @@ private data class SliderConfig(
  */
 @Suppress("TooManyFunctions") // Settings panel with grouped UI builders
 class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
-    private data class GlowSettings(
-        val enabled: Boolean = false,
-        val preset: GlowPreset = GlowPreset.WHISPER,
-        val style: GlowStyle = GlowStyle.SOFT,
-        val intensity: Map<GlowStyle, Int> = emptyMap(),
-        val width: Map<GlowStyle, Int> = emptyMap(),
-        val animation: GlowAnimation = GlowAnimation.NONE,
-        val islandToggles: Map<String, Boolean> = emptyMap(),
-        val editorPlacement: GlowPlacement = GlowPlacement.ISLAND,
-        val toolWindowPlacement: GlowPlacement = GlowPlacement.ISLAND,
-    ) {
-        /**
-         * Folds [preset]'s canonical style/intensity/width/animation into the
-         * snapshot. Returns `this` unchanged for presets without canonical
-         * values (i.e. [GlowPreset.CUSTOM]).
-         */
-        fun withPresetValues(preset: GlowPreset): GlowSettings {
-            val presetStyle = preset.style ?: return this
-            val presetIntensity = preset.intensity ?: return this
-            val presetWidth = preset.width ?: return this
-            val presetAnimation = preset.animation ?: return this
-            return copy(
-                style = presetStyle,
-                intensity = intensity + (presetStyle to presetIntensity),
-                width = width + (presetStyle to presetWidth),
-                animation = presetAnimation,
-            )
-        }
-    }
-
     private val section =
         SettingsSection(initial = GlowSettings()) {
             val state = AyuIslandsSettings.getInstance().state
-            GlowSettings(
-                enabled = state.glowEnabled,
-                preset = GlowPreset.fromName(migratePresetIfNeeded(state)),
-                style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name),
-                intensity = GlowStyle.entries.associateWith { state.getIntensityForStyle(it) },
-                width = GlowStyle.entries.associateWith { state.getWidthForStyle(it) },
-                animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name),
-                islandToggles = ISLAND_IDS.associateWith { state.isIslandEnabled(it) },
-                editorPlacement = GlowPlacement.forEditor(state.glowEditorPlacement),
-                toolWindowPlacement = GlowPlacement.forToolWindow(state.glowToolWindowPlacement),
-            )
+            loadGlowSettings(state, migratePresetIfNeeded(state), ISLAND_IDS)
         }
 
-    // Observable property for Custom mode visibility
-    private val customModeVisible = AtomicBooleanProperty(false)
+    private val visibility = GlowVisibility()
 
     // UI components
     private var masterToggle: JCheckBox? = null
@@ -96,6 +58,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var widthSlider: JSlider? = null
     private var styleCombo: ComboBox<String>? = null
     private var animationCombo: ComboBox<String>? = null
+    private var waveformControls: WaveformSettingsControls? = null
     private var intensityValueLabel: JLabel? = null
     private var widthValueLabel: JLabel? = null
     private val islandCheckboxes = mutableMapOf<String, JCheckBox>()
@@ -105,9 +68,20 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var toolWindowPlacement: SegmentedButton<GlowPlacement>? = null
     private var glowGroupPanel: GlowGroupPanel? = null
 
+    // Live-preview seam (same idea as the Appearance theme preview): a
+    // placement click restyles live overlays before Apply; reset/dispose
+    // reverts to stored state. Tests inject recorders.
+    internal var placementPreview: (GlowPlacement, GlowPlacement) -> Unit = { editor, toolWindow ->
+        forEachOpenGlowManager { it.previewPlacements(editor, toolWindow) }
+    }
+    internal var placementPreviewRevert: () -> Unit = {
+        forEachOpenGlowManager { it.previewPlacements(null, null) }
+    }
+
     // Suppress listener events during programmatic updates
     private var suppressListeners = false
     private var stateLoaded = false
+    private var controlsLicensed = false
 
     /** Not used — the Glow panel is built via [buildGlowPanel]. */
     override fun buildPanel(
@@ -118,7 +92,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private fun ensureStateLoaded() {
         if (stateLoaded) return
         section.load()
-        customModeVisible.set(section.pending.preset == GlowPreset.CUSTOM)
         stateLoaded = true
     }
 
@@ -134,6 +107,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                         "Preview style, animation, width, intensity, and target controls here.",
                 requestMessage = "Unlock glow effects",
             )
+        controlsLicensed = gate.isUnlocked
+        refreshVisibility()
 
         buildStyleGroup(panel, gate)
 
@@ -157,9 +132,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
             if (licensed) {
                 link("Reset defaults") {
-                    section.update {
-                        it.withPresetValues(GlowPreset.WHISPER).copy(preset = GlowPreset.WHISPER)
-                    }
+                    section.update(GlowSettings::withDefaults)
                     refreshAllControls()
                 }
             }
@@ -184,6 +157,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 premiumFeatureNotice(gate)
                 buildMasterToggleRow(this, licensed)
                 group("Style") {
+                    buildWaveformControls(this, gate)
                     buildPresetRow(this)
                     buildStyleComboRow(this, gate)
                     buildSliderRow(
@@ -230,8 +204,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     buildAnimationRows(this, gate)
                 }
                 buildPlacementGroup(this, gate)
-                buildTargetsGroup(this, gate, customModeVisible)
+                buildTargetsGroup(this, gate)
             }
+        innerContent.isOpaque = false
 
         glowPanel.add(innerContent, BorderLayout.CENTER)
         updateGlowGroupPanel()
@@ -242,35 +217,69 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     }
 
     private fun buildPresetRow(group: Panel) {
-        group.row {
-            label("Preset")
-            val segmented =
-                segmentedButton(GlowPreset.entries) { preset ->
-                    text = preset.displayName
-                }
-            segmented.maxButtonsCount(GlowPreset.entries.size)
-            segmented.selectedItem = section.pending.preset
-            @Suppress("UnstableApiUsage")
-            segmented.whenItemSelected { preset ->
-                if (!suppressListeners && LicenseChecker.isLicensedOrGrace()) {
-                    section.update { current ->
-                        if (preset == GlowPreset.CUSTOM) {
-                            current.copy(preset = preset)
-                        } else {
-                            current.withPresetValues(preset).copy(preset = preset)
+        group
+            .row {
+                label("Preset")
+                val segmented =
+                    segmentedButton(GlowPreset.entries) { preset ->
+                        text = preset.displayName
+                    }
+                segmented.maxButtonsCount(GlowPreset.entries.size)
+                segmented.selectedItem = section.pending.preset
+                @Suppress("UnstableApiUsage")
+                segmented.whenItemSelected { preset ->
+                    if (!suppressListeners && LicenseChecker.isLicensedOrGrace()) {
+                        section.update { current ->
+                            if (preset == GlowPreset.CUSTOM) {
+                                current.copy(preset = preset)
+                            } else {
+                                current.withPresetValues(preset).copy(preset = preset)
+                            }
                         }
+                        if (preset != GlowPreset.CUSTOM) {
+                            refreshSliders()
+                            refreshStyleAndAnimation()
+                        }
+                        refreshVisibility()
+                        updateControlStates()
+                        updateGlowGroupPanel()
                     }
-                    if (preset != GlowPreset.CUSTOM) {
-                        refreshSliders()
-                        refreshStyleAndAnimation()
+                }
+                presetSegmentedButton = segmented
+            }.visibleIf(visibility.solidShape)
+    }
+
+    private fun buildWaveformControls(
+        group: Panel,
+        gate: PremiumFeatureGate,
+    ) {
+        val pending = section.pending
+        waveformControls =
+            WaveformSettingsControls(
+                initial = pending.waveformValue(),
+                gate = gate,
+                visibility =
+                    WaveformControlVisibility(
+                        visibility.waveform,
+                    ),
+                onChange = { waveform ->
+                    section.update {
+                        it.copy(
+                            shape = waveform.shape,
+                            waveformDirection = waveform.direction,
+                            waveformBaseline = waveform.baseline,
+                            waveformTraceDensity = waveform.traceDensity,
+                            waveformTraceLength = waveform.traceLength,
+                            waveformAmplitude = waveform.amplitude,
+                            waveformIntensity = waveform.intensity,
+                            waveformLoopSeconds = waveform.loopSeconds,
+                        )
                     }
-                    customModeVisible.set(preset == GlowPreset.CUSTOM)
+                    refreshVisibility()
                     updateControlStates()
                     updateGlowGroupPanel()
-                }
-            }
-            presetSegmentedButton = segmented
-        }
+                },
+            ).also { it.build(group) }
     }
 
     private fun buildStyleComboRow(
@@ -296,7 +305,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 }
                 styleCombo = combo
                 cell(combo)
-            }.visibleIfUnlockedOrPreview(customModeVisible, gate)
+            }.visibleIf(visibility.solidControls)
     }
 
     private fun buildSliderRow(
@@ -325,7 +334,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 onCreated(slider, valueLabel)
                 cell(slider).resizableColumn().align(Align.FILL)
                 cell(valueLabel)
-            }.visibleIfUnlockedOrPreview(customModeVisible, gate)
+            }.visibleIf(visibility.solidControls)
     }
 
     private fun buildAnimationRows(
@@ -351,62 +360,66 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 }
                 animationCombo = combo
                 cell(combo)
-            }.visibleIfUnlockedOrPreview(customModeVisible, gate)
+            }.visibleIf(visibility.solidControls)
         group
             .row {
                 val descCell = comment(animationDescription(section.pending.animation))
                 animationDescriptionLabel = descCell.component
-            }.visibleIfUnlockedOrPreview(customModeVisible, gate)
+            }.visibleIf(visibility.solidControls)
     }
 
     private fun buildTargetsGroup(
         panel: Panel,
         gate: PremiumFeatureGate,
-        customVisible: AtomicBooleanProperty,
     ) {
         val licensed = gate.isUnlocked
-        panel
-            .collapsibleGroup("Targets") {
-                row {
-                    comment(
-                        "Fine-tune where glow appears. All targets are enabled by default.",
+        val targetsGroup =
+            panel
+                .collapsibleGroup("Targets") {
+                    row {
+                        comment(
+                            "Fine-tune where glow appears. All targets are enabled by default.",
+                        )
+                    }
+                    row {
+                        link("Enable all") {
+                            section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { true }) }
+                            refreshIslandCheckboxes()
+                        }.enabled(licensed && section.pending.enabled)
+                        link("Disable all") {
+                            section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { false }) }
+                            refreshIslandCheckboxes()
+                        }.enabled(licensed && section.pending.enabled)
+                    }
+                    row {
+                        comment("Waveform runs the full island perimeter.")
+                    }.visibleIf(visibility.waveform)
+                    // Headers row
+                    threeColumnsRow(
+                        { label("Workspace").bold() },
+                        { label("Output").bold() },
+                        { label("VCS").bold() },
+                    )
+                    // Row 1: Editor | Terminal | Git
+                    threeColumnsRow(
+                        { islandCheckbox("Editor", licensed) },
+                        { islandCheckbox("Terminal", licensed) },
+                        { islandCheckbox("Git", licensed) },
+                    )
+                    // Row 2: Project | Run | Services
+                    threeColumnsRow(
+                        { islandCheckbox("Project", licensed) },
+                        { islandCheckbox("Run", licensed) },
+                        { islandCheckbox("Services", licensed) },
+                    )
+                    // Row 3: (empty) | Debug | (empty)
+                    threeColumnsRow(
+                        { },
+                        { islandCheckbox("Debug", licensed) },
+                        { },
                     )
                 }
-                row {
-                    link("Enable all") {
-                        section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { true }) }
-                        refreshIslandCheckboxes()
-                    }.enabled(licensed && section.pending.enabled)
-                    link("Disable all") {
-                        section.update { s -> s.copy(islandToggles = s.islandToggles.mapValues { false }) }
-                        refreshIslandCheckboxes()
-                    }.enabled(licensed && section.pending.enabled)
-                }
-                // Headers row
-                threeColumnsRow(
-                    { label("Workspace").bold() },
-                    { label("Output").bold() },
-                    { label("VCS").bold() },
-                )
-                // Row 1: Editor | Terminal | Git
-                threeColumnsRow(
-                    { islandCheckbox("Editor", licensed) },
-                    { islandCheckbox("Terminal", licensed) },
-                    { islandCheckbox("Git", licensed) },
-                )
-                // Row 2: Project | Run | Services
-                threeColumnsRow(
-                    { islandCheckbox("Project", licensed) },
-                    { islandCheckbox("Run", licensed) },
-                    { islandCheckbox("Services", licensed) },
-                )
-                // Row 3: (empty) | Debug | (empty)
-                threeColumnsRow(
-                    { },
-                    { islandCheckbox("Debug", licensed) },
-                    { },
-                )
-            }.visibleIfUnlockedOrPreview(customVisible, gate)
+        targetsGroup.visibleIf(visibility.targets)
     }
 
     private fun buildPlacementGroup(
@@ -418,38 +431,47 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             editorPlacement =
                 buildPlacementRow(
                     labelText = "Editor placement",
-                    items = listOf(GlowPlacement.ISLAND, GlowPlacement.TAB_BAR),
                     selected = section.pending.editorPlacement,
                     licensed = licensed,
-                ) { placement -> section.update { it.copy(editorPlacement = placement) } }
+                    badgeAnchorId = "glow-placement",
+                ) { placement ->
+                    section.update { it.copy(editorPlacement = placement) }
+                    pushPlacementPreview()
+                }
             toolWindowPlacement =
                 buildPlacementRow(
                     labelText = "Tool window placement",
-                    items = listOf(GlowPlacement.ISLAND, GlowPlacement.SIDE_EDGES),
                     selected = section.pending.toolWindowPlacement,
                     licensed = licensed,
-                ) { placement -> section.update { it.copy(toolWindowPlacement = placement) } }
+                ) { placement ->
+                    section.update { it.copy(toolWindowPlacement = placement) }
+                    pushPlacementPreview()
+                }
             row {
-                comment("Island glows the full frame; Under tabs and Side edges glow only that strip.")
+                comment(
+                    "Island glows the full frame; Side edges glows only the left and right strips. " +
+                        "Waveform always runs the full island perimeter.",
+                )
             }
         }
     }
 
     private fun Panel.buildPlacementRow(
         labelText: String,
-        items: List<GlowPlacement>,
         selected: GlowPlacement,
         licensed: Boolean,
+        badgeAnchorId: String? = null,
         onSelected: (GlowPlacement) -> Unit,
     ): SegmentedButton<GlowPlacement> {
+        val placements = GlowPlacement.entries
         lateinit var segmented: SegmentedButton<GlowPlacement>
         row {
             label(labelText)
             segmented =
-                segmentedButton(items) { placement ->
+                segmentedButton(placements) { placement ->
                     text = placement.displayName
                 }
-            segmented.maxButtonsCount(items.size)
+            segmented.maxButtonsCount(placements.size)
             segmented.selectedItem = selected
             segmented.enabled(licensed && section.pending.enabled)
             @Suppress("UnstableApiUsage")
@@ -458,6 +480,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     onSelected(placement)
                 }
             }
+            badgeAnchorId?.let { newFeatureBadge(it) }
         }
         return segmented
     }
@@ -480,7 +503,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private fun switchToCustom() {
         if (section.pending.preset != GlowPreset.CUSTOM) {
             section.update { it.copy(preset = GlowPreset.CUSTOM) }
-            customModeVisible.set(true)
+            refreshVisibility()
             suppressListeners = true
             presetSegmentedButton?.selectedItem = GlowPreset.CUSTOM
             suppressListeners = false
@@ -558,7 +581,26 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         val width = pending.width[style] ?: style.defaultWidth
         val color = resolveAccentColor()
         val visible = pending.enabled || !LicenseChecker.isLicensedOrGrace()
-        panel.updateFromPreset(style, intensity, width, color, visible)
+        panel.updatePreview(
+            GlowPreview(
+                shape = pending.shape,
+                style = style,
+                intensity = intensity,
+                width = width,
+                color = color,
+                visible = visible,
+                waveformConfig =
+                    WaveformConfig(
+                        direction = pending.waveformDirection,
+                        baseline = pending.waveformBaseline,
+                        traceDensity = pending.waveformTraceDensity,
+                        traceLength = pending.waveformTraceLength,
+                        amplitude = pending.waveformAmplitude,
+                        intensity = pending.waveformIntensity,
+                        loopSeconds = pending.waveformLoopSeconds,
+                    ),
+            ),
+        )
     }
 
     private fun updateControlStates() {
@@ -568,6 +610,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         widthSlider?.isEnabled = enabled
         styleCombo?.isEnabled = enabled
         animationCombo?.isEnabled = enabled
+        waveformControls?.setEnabled(enabled)
         presetSegmentedButton?.enabled(enabled)
         editorPlacement?.enabled(enabled)
         toolWindowPlacement?.enabled(enabled)
@@ -582,14 +625,15 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         presetSegmentedButton?.selectedItem = section.pending.preset
         editorPlacement?.selectedItem = section.pending.editorPlacement
         toolWindowPlacement?.selectedItem = section.pending.toolWindowPlacement
-        customModeVisible.set(section.pending.preset == GlowPreset.CUSTOM)
         styleCombo?.selectedItem = section.pending.style.displayName
         animationCombo?.selectedItem = section.pending.animation.displayName
+        waveformControls?.refresh(section.pending.waveformValue())
         refreshSliders()
         refreshIslandCheckboxes()
         masterToggle?.isSelected = section.pending.enabled
         updateAnimationDescription()
         suppressListeners = false
+        refreshVisibility()
         updateControlStates()
         updateGlowGroupPanel()
     }
@@ -602,14 +646,10 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         if (!isModified()) return
         if (!LicenseChecker.isLicensedOrGrace()) return
 
-        // Write-through: preset values → raw state fields (GlowOverlayManager reads
-        // raw fields). Folding before commit lets stored converge onto the folded
-        // pending values, exactly like the previous copy-pending-to-stored did.
-        section.update { if (it.preset == GlowPreset.CUSTOM) it else it.withPresetValues(it.preset) }
-
         section.commit { pending, _ ->
             val state = AyuIslandsSettings.getInstance().state
             state.glowEnabled = pending.enabled
+            state.glowShape = pending.shape.name
             state.glowPreset = pending.preset.name
             state.glowStyle = pending.style.name
             state.glowAnimation = pending.animation.name
@@ -625,12 +665,33 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
             state.glowEditorPlacement = pending.editorPlacement.name
             state.glowToolWindowPlacement = pending.toolWindowPlacement.name
+            state.waveformDirection = pending.waveformDirection.name
+            state.waveformBaseline = pending.waveformBaseline.name
+            state.waveformTraceDensity = pending.waveformTraceDensity
+            state.waveformTraceLength = pending.waveformTraceLength
+            state.waveformAmplitude = pending.waveformAmplitude
+            state.waveformIntensity = pending.waveformIntensity
+            state.waveformLoopSeconds = pending.waveformLoopSeconds
         }
     }
 
     override fun reset() {
         section.resetToStored()
         refreshAllControls()
+        placementPreviewRevert()
+    }
+
+    override fun dispose() {
+        // A previewed-but-not-applied placement must not outlive the dialog.
+        placementPreviewRevert()
+    }
+
+    private fun pushPlacementPreview() {
+        placementPreview(section.pending.editorPlacement, section.pending.toolWindowPlacement)
+    }
+
+    private fun refreshVisibility() {
+        visibility.refresh(section.pending, controlsLicensed)
     }
 
     companion object {
@@ -644,5 +705,16 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         private const val WIDTH_MAJOR_TICK = 2
         private const val FALLBACK_COLOR_HEX = "#FFCC66"
         private val ISLAND_IDS = listOf("Editor", "Project", "Terminal", "Run", "Debug", "Git", "Services")
+    }
+}
+
+private fun forEachOpenGlowManager(action: (GlowOverlayManager) -> Unit) {
+    for (openProject in ProjectManager.getInstance().openProjects) {
+        try {
+            action(GlowOverlayManager.getInstance(openProject))
+        } catch (exception: RuntimeException) {
+            logger<AyuIslandsEffectsPanel>()
+                .warn("Glow placement preview failed for project ${openProject.name}", exception)
+        }
     }
 }

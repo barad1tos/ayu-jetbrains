@@ -8,6 +8,8 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.io.IOException
 import javax.imageio.ImageIO
+import javax.imageio.ImageReader
+import javax.imageio.stream.ImageInputStream
 
 /**
  * Derives an accent color from a project icon (`.idea/icon.png`).
@@ -25,6 +27,7 @@ object ProjectIconAccentExtractor {
     private val log = logger<ProjectIconAccentExtractor>()
 
     internal const val MAX_ICON_FILE_BYTES = 2L * 1024 * 1024
+    internal const val MAX_ICON_PIXELS = 1_048_576L
     private const val SAMPLE_GRID = 64
     private const val MIN_ALPHA = 128
     private const val MIN_SATURATION = 0.15f
@@ -51,21 +54,53 @@ object ProjectIconAccentExtractor {
 
     /** Dominant clamped accent from [iconFile], or null on any read/decode failure. */
     fun extract(iconFile: File): AccentHex? {
-        val image =
-            try {
-                ImageIO.read(iconFile)
-            } catch (exception: IOException) {
-                log.warn("Project icon accent: failed to read '${iconFile.path}'", exception)
-                return null
-            } catch (exception: RuntimeException) {
-                log.warn("Project icon accent: failed to decode '${iconFile.path}'", exception)
+        val image = readBoundedImage(iconFile) ?: return null
+        return extract(image)
+    }
+
+    private fun readBoundedImage(iconFile: File): BufferedImage? {
+        try {
+            val imageInput: ImageInputStream? = ImageIO.createImageInputStream(iconFile)
+            if (imageInput == null) {
+                log.warn("Project icon accent: failed to open '${iconFile.path}'")
                 return null
             }
-        if (image == null) {
-            log.warn("Project icon accent: no registered image reader for '${iconFile.path}'")
+            return imageInput.use { input ->
+                val readers: Iterator<ImageReader> = ImageIO.getImageReaders(input)
+                if (!readers.hasNext()) {
+                    log.warn("Project icon accent: no registered image reader for '${iconFile.path}'")
+                    return@use null
+                }
+
+                val reader: ImageReader = readers.next()
+                try {
+                    reader.setInput(input, true, true)
+                    val width = reader.getWidth(0)
+                    val height = reader.getHeight(0)
+                    if (width <= 0 || height <= 0) {
+                        log.warn("Project icon accent: '${iconFile.path}' has invalid dimensions ${width}x$height")
+                        return@use null
+                    }
+                    val pixelCount = width.toLong() * height.toLong()
+                    if (pixelCount > MAX_ICON_PIXELS) {
+                        log.warn(
+                            "Project icon accent: '${iconFile.path}' skipped " +
+                                "(${width}x$height exceeds pixel gate)",
+                        )
+                        return@use null
+                    }
+                    reader.read(0)
+                } finally {
+                    reader.dispose()
+                }
+            }
+        } catch (exception: IOException) {
+            log.warn("Project icon accent: failed to read '${iconFile.path}'", exception)
+            return null
+        } catch (exception: RuntimeException) {
+            log.warn("Project icon accent: failed to decode '${iconFile.path}'", exception)
             return null
         }
-        return extract(image)
     }
 
     /**

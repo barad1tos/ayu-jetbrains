@@ -10,6 +10,7 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.SettingsBadges
 import dev.ayuislands.whatsnew.WhatsNewLauncher
 import io.mockk.every
 import io.mockk.mockk
@@ -22,6 +23,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class UpdateNotifierTest {
     private val project = mockk<Project>(relaxed = true)
@@ -72,6 +74,51 @@ class UpdateNotifierTest {
         UpdateNotifier.showIfUpdated(project)
 
         assertEquals("2.2.0", state.lastSeenVersion)
+    }
+
+    @Test
+    fun `same-version startup expires overdue settings badges`() {
+        state.lastSeenVersion = "2.8.0"
+        for (anchor in SettingsBadges.registry) state.settingsBadgeDeadlines[anchor.id] = "1"
+        every {
+            AyuPlugin.findLoadedPlugin(any<PluginId>())
+        } returns descriptor
+        every { descriptor.version } returns "2.8.0"
+
+        UpdateNotifier.showIfUpdated(project)
+
+        assertTrue(SettingsBadges.pendingAnchors(state).isEmpty())
+        assertTrue(state.settingsBadgeDeadlines.isEmpty())
+    }
+
+    @Test
+    fun `version transition expires an old badge without shortening a new badge`() {
+        val overdueId = "glow-placement"
+        val newlyRegisteredId = "glow-waveform"
+        state.lastSeenVersion = "2.7.8"
+        state.acknowledgedSettingsBadges.addAll(
+            SettingsBadges.registry
+                .map { it.id }
+                .filterNot { it == overdueId || it == newlyRegisteredId },
+        )
+        state.settingsBadgeDeadlines[overdueId] = "1"
+        every {
+            AyuPlugin.findLoadedPlugin(any<PluginId>())
+        } returns descriptor
+        every { descriptor.version } returns "2.8.0"
+
+        val beforeUpdateMs = System.currentTimeMillis()
+        UpdateNotifier.showIfUpdated(project)
+        val afterUpdateMs = System.currentTimeMillis()
+
+        assertEquals("2.8.0", state.lastSeenVersion)
+        assertTrue(overdueId in state.acknowledgedSettingsBadges)
+        assertTrue(SettingsBadges.isPending(state, newlyRegisteredId))
+        val newDeadline = state.settingsBadgeDeadlines.getValue(newlyRegisteredId).toLong()
+        assertTrue(
+            newDeadline in
+                (beforeUpdateMs + SettingsBadges.BADGE_LIFETIME_MS)..(afterUpdateMs + SettingsBadges.BADGE_LIFETIME_MS),
+        )
     }
 
     @Test

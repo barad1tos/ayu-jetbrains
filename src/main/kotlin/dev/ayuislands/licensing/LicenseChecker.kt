@@ -291,7 +291,6 @@ object LicenseChecker {
 
             // Stop accent rotation (premium feature)
             state.accentRotationEnabled = false
-
         }
 
         resetSyntaxIntensityToFreeDefaults()

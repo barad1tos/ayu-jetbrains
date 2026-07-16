@@ -5,11 +5,26 @@
 - [Paid] **Chrome tint on external themes** — selected chrome surfaces and the
   active tab underline can now follow the Ayu accent on non-Ayu themes when
   explicitly enabled; external chrome tint stays off by default.
-- [Paid] **Glow placement** — choose where glow renders: the full island, a
-  strip under the editor tabs, or tool-window side edges only.
-- [Paid] **Accent from project icon** — projects without an override can take
-  their accent from `.idea/icon.png` automatically when they open, and the
+- [Paid] **Glow placement** — choose where glow renders: the full island
+  frame or its side edges only, per surface (editor and tool windows).
+  Placement clicks preview on the live window instantly; Apply keeps them,
+  Cancel puts everything back.
+- [Paid] **ECG waveform glow** — trace the focused island with a continuous
+  phosphor-comet perimeter loop whose pace responds to typing. Configure its
+  direction, loop duration, trace length, spike density, border position,
+  amplitude, and intensity without changing saved solid-glow preferences.
+- [Paid] **Accent from project icon** — when enabled, projects without an
+  override take their accent from `.idea/icon.png` automatically when they open, and the
   Add Override dialog offers the icon's dominant color as a one-click pick.
+- [Fix] **Commit panel accessibility crash** — screen-reader and macOS
+  accessibility walks over the commit changes tree no longer flood idea.log
+  with "Attempt to take read lock was prevented" errors; the path renderer
+  now serves plain text when the platform forbids model access mid-walk.
+- [Free] **Find what's new faster** — the settings page now points at newly
+  added controls: a "New in this release" index at the top with a Review
+  jump link, an accent dot on tabs that contain new settings, and small
+  "New" marks on the rows themselves. Everything clears as you visit the
+  tabs, never outlives 45 days, and fresh installs see no badges at all.
 
 ## [2.7.8] - 2026-07-06
 

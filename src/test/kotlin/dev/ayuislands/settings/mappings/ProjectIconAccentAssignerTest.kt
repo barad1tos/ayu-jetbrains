@@ -2,6 +2,7 @@ package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentHex
+import dev.ayuislands.accent.color.ProjectIconAccentExtractor
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -9,12 +10,20 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.io.TempDir
 import java.awt.Color
 import java.awt.image.BufferedImage
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -68,7 +77,7 @@ class ProjectIconAccentAssignerTest {
         writeIcon(Color(0x5C, 0xCF, 0xE6))
         val project = stubProject()
 
-        assertTrue(ProjectIconAccentAssigner.assignIfAbsent(project))
+        assertTrue(assign(project))
 
         val key = tempDir.toFile().canonicalPath
         assertEquals("#5CCFE6", mappingsState.projectAccents[key])
@@ -80,7 +89,7 @@ class ProjectIconAccentAssignerTest {
     fun `does nothing while the toggle is off`() {
         writeIcon(Color(0x5C, 0xCF, 0xE6))
 
-        assertFalse(ProjectIconAccentAssigner.assignIfAbsent(stubProject()))
+        assertFalse(assign(stubProject()))
         assertTrue(mappingsState.projectAccents.isEmpty())
     }
 
@@ -90,7 +99,7 @@ class ProjectIconAccentAssignerTest {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         writeIcon(Color(0x5C, 0xCF, 0xE6))
 
-        assertFalse(ProjectIconAccentAssigner.assignIfAbsent(stubProject()))
+        assertFalse(assign(stubProject()))
         assertTrue(mappingsState.projectAccents.isEmpty())
     }
 
@@ -102,7 +111,7 @@ class ProjectIconAccentAssignerTest {
         mappingsState.projectAccents[key] = "#FFCC66"
         mappingsState.projectDisplayNames[key] = "pinned-by-hand"
 
-        assertFalse(ProjectIconAccentAssigner.assignIfAbsent(stubProject()))
+        assertFalse(assign(stubProject()))
         assertEquals("#FFCC66", mappingsState.projectAccents[key], "existing mapping is user intent")
         assertEquals("pinned-by-hand", mappingsState.projectDisplayNames[key])
     }
@@ -111,7 +120,7 @@ class ProjectIconAccentAssignerTest {
     fun `does nothing when the project has no icon`() {
         state.projectIconAccentEnabled = true
 
-        assertFalse(ProjectIconAccentAssigner.assignIfAbsent(stubProject()))
+        assertFalse(assign(stubProject()))
         assertTrue(mappingsState.projectAccents.isEmpty())
     }
 
@@ -120,9 +129,51 @@ class ProjectIconAccentAssignerTest {
         state.projectIconAccentEnabled = true
         writeIcon(Color(0x80, 0x80, 0x80))
 
-        assertFalse(ProjectIconAccentAssigner.assignIfAbsent(stubProject()))
+        assertFalse(assign(stubProject()))
         assertTrue(mappingsState.projectAccents.isEmpty())
     }
+
+    @Test
+    fun `preserves a manual pin created while icon extraction is running`() {
+        state.projectIconAccentEnabled = true
+        writeIcon(Color(0x5C, 0xCF, 0xE6))
+        val project = stubProject()
+        val key = tempDir.toFile().canonicalPath
+        val extractionStarted = CompletableDeferred<Unit>()
+        val allowExtraction = CountDownLatch(1)
+        mockkObject(ProjectIconAccentExtractor)
+        every { ProjectIconAccentExtractor.extract(any<File>()) } answers {
+            extractionStarted.complete(Unit)
+            check(allowExtraction.await(5, TimeUnit.SECONDS)) { "Timed out waiting for the manual pin" }
+            AccentHex.of("#5CCFE6")
+        }
+
+        try {
+            runBlocking {
+                val assignment =
+                    async {
+                        ProjectIconAccentAssigner.assignIfAbsent(project, EmptyCoroutineContext)
+                    }
+                try {
+                    withTimeout(5_000) { extractionStarted.await() }
+                    mappingsState.projectAccents[key] = "#FFCC66"
+                    mappingsState.projectDisplayNames[key] = "pinned-by-hand"
+                } finally {
+                    allowExtraction.countDown()
+                }
+
+                assertFalse(withTimeout(5_000) { assignment.await() })
+            }
+        } finally {
+            unmockkObject(ProjectIconAccentExtractor)
+        }
+
+        assertEquals("#FFCC66", mappingsState.projectAccents[key], "manual accent must win the decode race")
+        assertEquals("pinned-by-hand", mappingsState.projectDisplayNames[key])
+    }
+
+    private fun assign(project: Project): Boolean =
+        runBlocking { ProjectIconAccentAssigner.assignIfAbsent(project, EmptyCoroutineContext) }
 
     private fun stubProject(): Project =
         mockk(relaxed = true) {
