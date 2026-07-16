@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.ui.dsl.builder.SegmentedButton
+import com.intellij.ui.dsl.builder.components.SegmentedButtonComponent
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.licensing.LicenseChecker
@@ -136,18 +137,63 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
+    fun `licensed default preset keeps placement visible while targets stay hidden`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val labels = descendants(dialogPanel, JLabel::class.java)
+
+        assertTrue(
+            labels.first { it.text == "Editor placement" }.isEffectivelyVisibleWithin(dialogPanel),
+            "Editor placement must remain reachable outside the Custom preset",
+        )
+        assertTrue(
+            labels.first { it.text == "Tool window placement" }.isEffectivelyVisibleWithin(dialogPanel),
+            "Tool window placement must remain reachable outside the Custom preset",
+        )
+        assertFalse(
+            labels.first { it.text == "Targets" }.isEffectivelyVisibleWithin(dialogPanel),
+            "Licensed default presets must keep fine-grained Targets hidden until Custom is selected",
+        )
+    }
+
+    @Test
+    fun `licensed disabled glow keeps placement visible but locked`() {
+        state.glowEnabled = false
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val placementLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Editor placement" }
+        val placementControl =
+            descendants(dialogPanel, SegmentedButtonComponent::class.java)
+                .first { GlowPlacement.TAB_BAR in it.items }
+
+        assertTrue(
+            placementLabel.isEffectivelyVisibleWithin(dialogPanel),
+            "disabled Glow must keep placement visible",
+        )
+        assertFalse(
+            placementControl.isEnabled,
+            "disabled Glow must lock placement options",
+        )
+    }
+
+    @Test
     fun `licensed placement selection persists through apply into state`() {
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
 
-        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
-        placementSegmented(effectsPanel, "toolWindowPlacementSegmented").selectedItem = GlowPlacement.SIDE_EDGES
+        placementSegmented(effectsPanel, "editorPlacement").selectedItem = GlowPlacement.TAB_BAR
+        placementSegmented(effectsPanel, "toolWindowPlacement").selectedItem = GlowPlacement.SIDE_EDGES
 
         assertTrue(effectsPanel.isModified(), "placement change must dirty the panel")
         effectsPanel.apply()
 
         assertEquals(GlowPlacement.TAB_BAR.name, state.glowEditorPlacement)
         assertEquals(GlowPlacement.SIDE_EDGES.name, state.glowToolWindowPlacement)
+        assertEquals(
+            GlowPreset.WHISPER.name,
+            state.glowPreset,
+            "placement is independent from the selected visual preset",
+        )
         assertFalse(effectsPanel.isModified(), "apply must converge stored onto pending")
     }
 
@@ -155,9 +201,15 @@ class AyuIslandsEffectsPanelTest {
     fun `unlicensed glow placement preview cannot mutate pending state`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         val effectsPanel = AyuIslandsEffectsPanel()
-        buildDialogPanel(effectsPanel)
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val placementLabel = descendants(dialogPanel, JLabel::class.java).first { it.text == "Editor placement" }
 
-        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
+        assertTrue(
+            placementLabel.isEffectivelyVisibleWithin(dialogPanel),
+            "locked placement preview must remain visible outside the Custom preset",
+        )
+
+        placementSegmented(effectsPanel, "editorPlacement").selectedItem = GlowPlacement.TAB_BAR
 
         assertFalse(
             effectsPanel.isModified(),
@@ -170,7 +222,7 @@ class AyuIslandsEffectsPanelTest {
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
 
-        placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem = GlowPlacement.TAB_BAR
+        placementSegmented(effectsPanel, "editorPlacement").selectedItem = GlowPlacement.TAB_BAR
         assertTrue(effectsPanel.isModified(), "precondition: selection dirtied the panel")
 
         effectsPanel.reset()
@@ -178,7 +230,7 @@ class AyuIslandsEffectsPanelTest {
         assertFalse(effectsPanel.isModified(), "reset must drop the pending placement change")
         assertEquals(
             GlowPlacement.ISLAND,
-            placementSegmented(effectsPanel, "editorPlacementSegmented").selectedItem,
+            placementSegmented(effectsPanel, "editorPlacement").selectedItem,
             "reset must restore the stored placement selection",
         )
     }
