@@ -47,24 +47,61 @@ object ComponentHierarchyUtils {
     /**
      * Locate the glow host for a tool window component.
      *
-     * Tries InternalDecoratorImpl first, then IslandHolder. If neither is found,
-     * logs a warning and returns the original [component] as a safe fallback.
+     * Tries IslandHolder first, then InternalDecoratorImpl. On the 2026.1+
+     * islands UI the visible rounded island is `XNextIslandHolder`, which wraps
+     * the decorator (divider North, decorator Center) — hosting the overlay on
+     * the decorator there paints glow strips inside the island instead of
+     * hugging its edges. Older UIs have no holder and keep the decorator host.
+     * If neither is found, logs a warning and returns [component] as a safe
+     * fallback.
      */
     fun findGlowHost(
         component: JComponent,
-        maxDepth: Int = 6,
+        maxDepth: Int = 8,
     ): JComponent {
-        val decorator = findAncestorByClassName(component, "InternalDecoratorImpl", maxDepth)
-        if (decorator != null) return decorator as JComponent
-
         val island = findAncestorByClassName(component, "IslandHolder", maxDepth)
         if (island != null) return island as JComponent
 
+        val decorator = findAncestorByClassName(component, "InternalDecoratorImpl", maxDepth)
+        if (decorator != null) return decorator as JComponent
+
         log.warn(
-            "No InternalDecoratorImpl or IslandHolder found for ${component.javaClass.name}, " +
+            "No IslandHolder or InternalDecoratorImpl found for ${component.javaClass.name}, " +
                 "using component directly",
         )
         return component
+    }
+
+    /**
+     * One-line ancestry description for attach-time diagnostics:
+     * `Class[x,y WxH] < Parent[..] < ...` from [component] upward, so idea.log
+     * shows which containers host resolution actually saw on the running
+     * platform version.
+     */
+    fun describeAncestry(
+        component: Component,
+        maxDepth: Int = 10,
+    ): String {
+        val chain = StringBuilder()
+        var current: Component? = component
+        var depth = 0
+        while (current != null && depth < maxDepth) {
+            if (depth > 0) chain.append(" < ")
+            chain
+                .append(current.javaClass.simpleName.ifEmpty { "?" })
+                .append('[')
+                .append(current.x)
+                .append(',')
+                .append(current.y)
+                .append(' ')
+                .append(current.width)
+                .append('x')
+                .append(current.height)
+                .append(']')
+            current = current.parent
+            depth++
+        }
+        return chain.toString()
     }
 
     /**

@@ -296,6 +296,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
                             pendingSettings.externalInheritance.copy(isChromeTintEnabled = isSelected),
                     )
             }
+        newFeatureBadge("chrome-tint-external-themes")
     }
 
     private fun Row.buildLicensedCheckbox(

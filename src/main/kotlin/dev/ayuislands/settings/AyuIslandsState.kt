@@ -10,7 +10,24 @@ import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
+import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.DEFAULT_LOOP_SECONDS
+import dev.ayuislands.glow.waveform.DEFAULT_TRACE_DENSITY
+import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
+import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
+import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
+import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
+import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
+import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.MIN_TRACE_DENSITY
+import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
+import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
+import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
+import dev.ayuislands.glow.waveform.WaveformBaseline
+import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.normalizedLoopSeconds
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.vcs.VcsColorCategory
@@ -111,6 +128,9 @@ class AyuIslandsState : BaseState() {
     // Glow effect
     var glowEnabled by property(false)
 
+    // Glow rendering shape (solid frame or ECG waveform)
+    var glowShape by string(GlowShape.SOLID.name)
+
     // Glow preset (null = legacy state, needs migration via GlowPreset.detect())
     var glowPreset by string(GlowPreset.WHISPER.name)
 
@@ -129,6 +149,15 @@ class AyuIslandsState : BaseState() {
 
     // Animation
     var glowAnimation by string(GlowAnimation.NONE.name)
+
+    // Waveform-specific controls. Solid preferences remain stored independently.
+    var waveformDirection by string(WaveformDirection.CLOCKWISE.name)
+    var waveformBaseline by string(WaveformBaseline.OUTSIDE.name)
+    var waveformTraceDensity by property(DEFAULT_TRACE_DENSITY)
+    var waveformTraceLength by property(DEFAULT_TRACE_LENGTH)
+    var waveformAmplitude by property(DEFAULT_WAVEFORM_AMPLITUDE)
+    var waveformIntensity by property(DEFAULT_WAVEFORM_INTENSITY)
+    var waveformLoopSeconds by property(DEFAULT_LOOP_SECONDS)
 
     // Per-island toggles (all ON by default — glow visibility is controlled by glowEnabled)
     var glowEditor by property(true)
@@ -152,7 +181,8 @@ class AyuIslandsState : BaseState() {
     var glowFocusRing by property(true)
 
     // Glow placement per surface family; normalized through
-    // GlowPlacement.forEditor / forToolWindow at read sites.
+    // GlowPlacement.fromName at read sites (retired TAB_BAR migrates to
+    // SIDE_EDGES, unknown names fall back to ISLAND).
     var glowEditorPlacement by string(GlowPlacement.ISLAND.name)
     var glowToolWindowPlacement by string(GlowPlacement.ISLAND.name)
 
@@ -270,6 +300,17 @@ class AyuIslandsState : BaseState() {
 
     // Accent rotation
     var accentRotationEnabled by property(false)
+
+    // Auto-assign per-project accent from .idea/icon.png on project open (premium)
+    var projectIconAccentEnabled by property(false)
+
+    // Settings wayfinding: "New" badge acknowledgment + per-anchor lifetime caps (see SettingsBadges)
+    var acknowledgedSettingsBadges by stringSet()
+    var settingsBadgeDeadlines by map<String, String>()
+
+    // Compatibility bridge for dogfood builds that persisted one shared deadline.
+    var settingsBadgesExpireAtMs by property(0L)
+
     var accentRotationMode by string(AccentRotationMode.PRESET.name)
     var accentRotationIntervalHours by property(DEFAULT_ROTATION_INTERVAL_HOURS)
     var accentRotationLastSwitchMs by property(0L)
@@ -563,6 +604,10 @@ class AyuIslandsState : BaseState() {
         }
     }
 
+    fun effectiveWaveformAmplitude(): Int = waveformAmplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
+
+    fun effectiveWaveformIntensity(): Int = waveformIntensity.coerceIn(MIN_WAVEFORM_INTENSITY, MAX_WAVEFORM_INTENSITY)
+
     fun isIslandEnabled(toolWindowId: String): Boolean =
         when (toolWindowId) {
             "Editor" -> glowEditor
@@ -657,6 +702,12 @@ class AyuIslandsState : BaseState() {
         const val MAX_CHROME_TINT_INTENSITY = 50
     }
 }
+
+fun AyuIslandsState.effectiveTraceDensity(): Int = waveformTraceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
+
+fun AyuIslandsState.effectiveTraceLength(): Int = waveformTraceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH)
+
+fun AyuIslandsState.effectiveLoopSeconds(): Float = waveformLoopSeconds.normalizedLoopSeconds()
 
 private fun AyuIslandsState.isAccentElementEnabled(id: AccentElementId): Boolean =
     when (id) {

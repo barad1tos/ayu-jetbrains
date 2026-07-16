@@ -11,6 +11,9 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.glow.GlowShape
+import dev.ayuislands.glow.waveform.WaveformBaseline
+import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -102,6 +105,29 @@ class FreeTierLockdownTest {
     }
 
     @Test
+    fun `revertToFreeDefaults preserves waveform preferences`() {
+        state.glowEnabled = true
+        state.glowShape = GlowShape.WAVEFORM.name
+        state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+        state.waveformBaseline = WaveformBaseline.CENTERED.name
+        state.waveformTraceDensity = 4
+        state.waveformTraceLength = 640
+        state.waveformAmplitude = 16
+        state.waveformIntensity = 88
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertFalse(state.glowEnabled)
+        assertEquals(GlowShape.WAVEFORM.name, state.glowShape)
+        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
+        assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
+        assertEquals(4, state.waveformTraceDensity)
+        assertEquals(640, state.waveformTraceLength)
+        assertEquals(16, state.waveformAmplitude)
+        assertEquals(88, state.waveformIntensity)
+    }
+
+    @Test
     fun `revertToFreeDefaults disables accent rotation and stops the service`() {
         state.accentRotationEnabled = true
 
@@ -150,6 +176,15 @@ class FreeTierLockdownTest {
 
         assertEquals(75, state.chromeTintIntensity)
         assertTrue(state.chromeTintingGroupExpanded)
+    }
+
+    @Test
+    fun `revertToFreeDefaults preserves the project icon accent preference`() {
+        state.projectIconAccentEnabled = true
+
+        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+
+        assertTrue(state.projectIconAccentEnabled)
     }
 
     @Test

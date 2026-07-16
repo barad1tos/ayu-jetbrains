@@ -1,5 +1,6 @@
 package dev.ayuislands.commitpanel
 
+import com.intellij.openapi.application.Application
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
 import dev.ayuislands.settings.AyuIslandsState
@@ -17,7 +18,9 @@ import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.TreeCellRenderer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -452,6 +455,170 @@ class CommitPathShorteningRendererTest {
         }
     }
 
+    @Test
+    fun `lock probe supports the current platform advice method`() {
+        val application = ModernLockAdvice("Dispatchers.UI")
+        assertTrue(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                application,
+                CommitPathShorteningRenderer.resolveLockAdvice(application.javaClass),
+            ),
+        )
+    }
+
+    @Test
+    fun `lock probe supports the compile target advice method`() {
+        val application = LegacyLockAdvice("Dispatchers.UI")
+
+        assertTrue(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                application,
+                CommitPathShorteningRenderer.resolveLockAdvice(application.javaClass),
+            ),
+        )
+    }
+
+    @Test
+    fun `lock probe permits model access when the platform returns no advice`() {
+        val application = ModernLockAdvice(null)
+
+        assertFalse(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                application,
+                CommitPathShorteningRenderer.resolveLockAdvice(application.javaClass),
+            ),
+        )
+    }
+
+    @Test
+    fun `lock probe fails open when the platform advice method is unavailable`() {
+        val application = MissingLockAdvice()
+
+        assertNull(CommitPathShorteningRenderer.resolveLockAdvice(application.javaClass))
+        assertFalse(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                application,
+                CommitPathShorteningRenderer.resolveLockAdvice(application.javaClass),
+            ),
+        )
+    }
+
+    @Test
+    fun `lock probe ignores methods with an incompatible return type`() {
+        val application = BooleanLockAdvice(true)
+
+        assertNull(CommitPathShorteningRenderer.resolveLockAdvice(application.javaClass))
+        assertFalse(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                application,
+                CommitPathShorteningRenderer.resolveLockAdvice(application.javaClass),
+            ),
+        )
+    }
+
+    @Test
+    fun `lock probe fails open when the platform advice call throws`() {
+        val application = BrokenLockAdvice()
+
+        assertFalse(
+            CommitPathShorteningRenderer.reportsLockProhibited(
+                application,
+                CommitPathShorteningRenderer.resolveLockAdvice(application.javaClass),
+            ),
+        )
+    }
+
+    @Test
+    fun `lock probe resolves the compile target application contract`() {
+        val method = assertNotNull(CommitPathShorteningRenderer.resolveLockAdvice(Application::class.java))
+
+        assertTrue(method.name in setOf("getLockProhibitedAdvice", "isLockingProhibited"))
+        assertEquals(0, method.parameterCount)
+        assertEquals(String::class.java, method.returnType)
+    }
+
+    @Test
+    fun `renderer skips the delegate when platform locks are prohibited`() {
+        SwingUtilities.invokeAndWait {
+            var delegateCalls = 0
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate =
+                        TreeCellRenderer { _, _, _, _, _, _, _ ->
+                            delegateCalls += 1
+                            SimpleColoredComponent().apply {
+                                append("delegate", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                            }
+                        },
+                    stateProvider = { AyuIslandsState() },
+                    isLockProhibited = { true },
+                )
+
+            val component = render(renderer, treeWithVisibleWidth(260), value = "ChangeNode.txt")
+
+            assertEquals(0, delegateCalls)
+            assertEquals(listOf("ChangeNode.txt"), component.fragmentsForTest())
+        }
+    }
+
+    @Test
+    fun `renderer serves fallback text when the delegate hits a lock-prohibited context`() {
+        SwingUtilities.invokeAndWait {
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate = TreeCellRenderer { _, _, _, _, _, _, _ -> throw FakeLockAccessDisallowed() },
+                    stateProvider = { AyuIslandsState() },
+                    isLockProhibited = { false },
+                )
+
+            val component = render(renderer, treeWithVisibleWidth(260), value = "ChangeNode.txt")
+
+            assertEquals(listOf("ChangeNode.txt"), component.fragmentsForTest())
+        }
+    }
+
+    @Test
+    fun `renderer serves fallback text when the lock error is wrapped as a cause`() {
+        SwingUtilities.invokeAndWait {
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate =
+                        TreeCellRenderer { _, _, _, _, _, _, _ ->
+                            throw IllegalStateException("render failed", FakeLockAccessDisallowed())
+                        },
+                    stateProvider = { AyuIslandsState() },
+                    isLockProhibited = { false },
+                )
+
+            val component = render(renderer, treeWithVisibleWidth(260), value = "WrappedNode.txt")
+
+            assertEquals(listOf("WrappedNode.txt"), component.fragmentsForTest())
+        }
+    }
+
+    @Test
+    fun `renderer rethrows unrelated delegate failures`() {
+        SwingUtilities.invokeAndWait {
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate = TreeCellRenderer { _, _, _, _, _, _, _ -> throw IllegalStateException("boom") },
+                    stateProvider = { AyuIslandsState() },
+                    isLockProhibited = { false },
+                )
+
+            assertFailsWith<IllegalStateException> {
+                renderComponent(renderer, treeWithVisibleWidth(260))
+            }
+        }
+    }
+
+    /**
+     * Stand-in for the platform's `ThreadingSupport$LockAccessDisallowed`,
+     * which is not on the 2025.1 compile classpath — the production guard
+     * matches by class-name suffix, which this fake's name satisfies too.
+     */
+    private class FakeLockAccessDisallowed : RuntimeException("lock guard test double")
+
     private fun render(
         renderer: TreeCellRenderer,
         tree: JTree,
@@ -544,4 +711,28 @@ class CommitPathShorteningRendererTest {
         }
         return fragments
     }
+}
+
+private class ModernLockAdvice(
+    private val advice: String?,
+) {
+    fun getLockProhibitedAdvice(): String? = advice
+}
+
+private class LegacyLockAdvice(
+    private val advice: String?,
+) {
+    fun isLockingProhibited(): String? = advice
+}
+
+private class BooleanLockAdvice(
+    private val advice: Boolean,
+) {
+    fun getLockProhibitedAdvice(): Boolean = advice
+}
+
+private class MissingLockAdvice
+
+private class BrokenLockAdvice {
+    fun getLockProhibitedAdvice(): String = error("lock probe failed")
 }

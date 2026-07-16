@@ -39,6 +39,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
 
     private var pendingRotationEnabled: Boolean = false
     private var storedRotationEnabled: Boolean = false
+    private val projectIconAccent = ProjectIconAccentSection()
     private var pendingRotationMode: String = AccentRotationMode.PRESET.name
     private var storedRotationMode: String = AccentRotationMode.PRESET.name
     private var pendingRotationInterval: Int = AyuIslandsState.DEFAULT_ROTATION_INTERVAL_HOURS
@@ -90,7 +91,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         updateHeroGlow()
         panel.buildAccentColorGroup(colorPanel)
         beforeOverridesInjection?.invoke(panel)
-        overrides.buildGroup(panel, contextProject)
+        overrides.buildGroup(panel, contextProject) { projectIconAccent.buildRow(this) }
         afterOverridesInjection?.invoke(panel)
         quickSwitcher.buildGroup(panel)
         panel.buildAccentRotationGroup()
@@ -115,6 +116,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         pendingFollowSystem = storedFollowSystem
         storedRotationEnabled = settings.state.accentRotationEnabled
         pendingRotationEnabled = storedRotationEnabled
+        projectIconAccent.load()
         storedRotationMode =
             settings.state.accentRotationMode
                 ?: AccentRotationMode.PRESET.name
@@ -285,20 +287,33 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         languageDetail: String? = overrides.activeSourceDetailPending(contextProject, source, cacheOnly = true),
     ): String =
         when (source) {
-            AccentResolver.Source.PROJECT_OVERRIDE ->
+            AccentResolver.Source.PROJECT_OVERRIDE -> {
                 "project override for \"${contextProject?.name ?: "?"}\""
-            AccentResolver.Source.LANGUAGE_OVERRIDE ->
+            }
+
+            AccentResolver.Source.LANGUAGE_OVERRIDE -> {
                 sourceWithDetail(AccentResolver.sourceLabel(source), languageDetail)
-            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE ->
+            }
+
+            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE -> {
                 sourceWithDetail("Language override", languageDetail)
-            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE ->
+            }
+
+            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE -> {
                 sourceWithDetail(AccentResolver.sourceLabel(source), languageDetail)
+            }
+
             AccentResolver.Source.PROJECT_FALLBACK,
             AccentResolver.Source.MATERIAL_THEME,
             AccentResolver.Source.IDE_ACCENT,
             AccentResolver.Source.EXTERNAL_ACCENT,
-            -> AccentResolver.sourceLabel(source)
-            AccentResolver.Source.GLOBAL -> "global"
+            -> {
+                AccentResolver.sourceLabel(source)
+            }
+
+            AccentResolver.Source.GLOBAL -> {
+                "global"
+            }
         }
 
     private fun Panel.buildAccentRotationGroup() {
@@ -506,6 +521,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     override fun isModified(): Boolean {
         if (pendingFollowSystem != storedFollowSystem) return true
         if (pendingRotationEnabled != storedRotationEnabled) return true
+        if (projectIconAccent.isModified()) return true
         if (pendingRotationMode != storedRotationMode) return true
         if (pendingRotationInterval != storedRotationInterval) return true
         if (overrides.isModified()) return true
@@ -542,6 +558,8 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         storedAccent = effectiveAccent
 
         applyRotationChangeIfAllowed(settings, currentVariant)
+
+        projectIconAccent.apply()
 
         if (overridesDirty) {
             overrides.apply()
@@ -592,6 +610,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 onAccentChanged?.invoke(rotationHex)
                 service.startRotation()
             }
+
             AccentRotationMode.PRESET -> {
                 val currentIndex = settings.state.accentRotationPresetIndex
                 val nextIndex = (currentIndex + 1) % AYU_ACCENT_PRESETS.size
@@ -622,6 +641,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         pendingRotationMode = storedRotationMode
         pendingRotationInterval = storedRotationInterval
         rotationEnabledCheckbox?.isSelected = storedRotationEnabled
+        projectIconAccent.reset()
         accentPanel?.let { applyInitialSelection(it, storedAccent) }
         overrides.reset()
         quickSwitcher.reset()

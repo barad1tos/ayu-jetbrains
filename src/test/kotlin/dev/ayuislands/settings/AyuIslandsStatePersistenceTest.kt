@@ -3,7 +3,10 @@ package dev.ayuislands.settings
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.WaveformBaseline
+import dev.ayuislands.glow.waveform.WaveformDirection
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -85,6 +88,30 @@ class AyuIslandsStatePersistenceTest {
     }
 
     @Test
+    fun `waveform settings survive save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.glowShape = GlowShape.WAVEFORM.name
+                state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+                state.waveformBaseline = WaveformBaseline.CENTERED.name
+                state.waveformTraceDensity = 4
+                state.waveformTraceLength = 640
+                state.waveformAmplitude = 16
+                state.waveformIntensity = 88
+                state.waveformLoopSeconds = 3.7f
+            }
+
+        assertEquals(GlowShape.WAVEFORM.name, reloaded.state.glowShape)
+        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, reloaded.state.waveformDirection)
+        assertEquals(WaveformBaseline.CENTERED.name, reloaded.state.waveformBaseline)
+        assertEquals(4, reloaded.state.waveformTraceDensity)
+        assertEquals(640, reloaded.state.waveformTraceLength)
+        assertEquals(16, reloaded.state.waveformAmplitude)
+        assertEquals(88, reloaded.state.waveformIntensity)
+        assertEquals(3.7f, reloaded.state.waveformLoopSeconds)
+    }
+
+    @Test
     fun `onboarding flags survive save reload cycle`() {
         val reloaded =
             roundTrip { state ->
@@ -96,6 +123,25 @@ class AyuIslandsStatePersistenceTest {
         assertTrue(reloaded.state.freeOnboardingShown)
         assertTrue(reloaded.state.premiumOnboardingShown)
         assertEquals("2.4.1", reloaded.state.lastSeenVersion)
+    }
+
+    @Test
+    fun `settings badge deadlines survive save reload cycle`() {
+        val reloaded =
+            roundTrip { state ->
+                state.settingsBadgeDeadlines["glow-waveform"] = "123456"
+                state.settingsBadgeDeadlines["accent-from-project-icon"] = "654321"
+                state.settingsBadgesExpireAtMs = 111111L
+            }
+
+        assertEquals(
+            mapOf(
+                "glow-waveform" to "123456",
+                "accent-from-project-icon" to "654321",
+            ),
+            reloaded.state.settingsBadgeDeadlines,
+        )
+        assertEquals(111111L, reloaded.state.settingsBadgesExpireAtMs)
     }
 
     @Test

@@ -1,9 +1,31 @@
 package dev.ayuislands.glow
 
+import dev.ayuislands.glow.waveform.WaveformDirection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class GlowEnumsTest {
+    // GlowShape
+
+    @Test
+    fun `GlowShape decodes persisted names and falls back to SOLID`() {
+        assertEquals(GlowShape.SOLID, GlowShape.fromName("SOLID"))
+        assertEquals(GlowShape.WAVEFORM, GlowShape.fromName("WAVEFORM"))
+        assertEquals(GlowShape.SOLID, GlowShape.fromName("UNKNOWN"))
+        assertEquals(GlowShape.SOLID, GlowShape.fromName(null))
+    }
+
+    @Test
+    fun `WaveformDirection decodes persisted names and falls back to CLOCKWISE`() {
+        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName("CLOCKWISE"))
+        assertEquals(
+            WaveformDirection.COUNTER_CLOCKWISE,
+            WaveformDirection.fromName("COUNTER_CLOCKWISE"),
+        )
+        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName("UNKNOWN"))
+        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName(null))
+    }
+
     // GlowStyle
 
     @Test
@@ -94,7 +116,7 @@ class GlowEnumsTest {
         assertEquals(3, GlowStyle.entries.size)
         assertEquals(3, GlowTabMode.entries.size)
         assertEquals(4, GlowAnimation.entries.size)
-        assertEquals(3, GlowPlacement.entries.size)
+        assertEquals(2, GlowPlacement.entries.size)
     }
 
     // GlowPlacement
@@ -102,37 +124,27 @@ class GlowEnumsTest {
     @Test
     fun `GlowPlacement fromName returns correct entry for valid names`() {
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName("ISLAND"))
-        assertEquals(GlowPlacement.TAB_BAR, GlowPlacement.fromName("TAB_BAR"))
         assertEquals(GlowPlacement.SIDE_EDGES, GlowPlacement.fromName("SIDE_EDGES"))
     }
 
     @Test
-    fun `GlowPlacement fromName falls back to ISLAND for invalid name`() {
+    fun `GlowPlacement fromName falls back to ISLAND for invalid names`() {
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName("NONEXISTENT"))
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName(""))
         assertEquals(GlowPlacement.ISLAND, GlowPlacement.fromName(null))
     }
 
     @Test
-    fun `GlowPlacement forEditor normalizes the tool-window-only placement to ISLAND`() {
-        assertEquals(GlowPlacement.TAB_BAR, GlowPlacement.forEditor("TAB_BAR"))
-        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("ISLAND"))
-        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("SIDE_EDGES"))
-        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forEditor("GARBAGE"))
-    }
-
-    @Test
-    fun `GlowPlacement forToolWindow normalizes the editor-only placement to ISLAND`() {
-        assertEquals(GlowPlacement.SIDE_EDGES, GlowPlacement.forToolWindow("SIDE_EDGES"))
-        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forToolWindow("ISLAND"))
-        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forToolWindow("TAB_BAR"))
-        assertEquals(GlowPlacement.ISLAND, GlowPlacement.forToolWindow(null))
+    fun `GlowPlacement fromName migrates retired TAB_BAR to its successor`() {
+        // 2.8.0 pre-release value: side edges replaced under-tabs, so a saved
+        // partial placement must stay partial instead of silently going
+        // full-frame ISLAND.
+        assertEquals(GlowPlacement.SIDE_EDGES, GlowPlacement.fromName("TAB_BAR"))
     }
 
     @Test
     fun `GlowPlacement entries have correct display names`() {
         assertEquals("Island", GlowPlacement.ISLAND.displayName)
-        assertEquals("Under tabs", GlowPlacement.TAB_BAR.displayName)
         assertEquals("Side edges", GlowPlacement.SIDE_EDGES.displayName)
     }
 }
