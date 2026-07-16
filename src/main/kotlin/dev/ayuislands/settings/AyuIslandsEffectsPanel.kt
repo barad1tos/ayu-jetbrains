@@ -8,6 +8,7 @@ import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.licensing.LicenseChecker
@@ -48,6 +49,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         val width: Map<GlowStyle, Int> = emptyMap(),
         val animation: GlowAnimation = GlowAnimation.NONE,
         val islandToggles: Map<String, Boolean> = emptyMap(),
+        val editorPlacement: GlowPlacement = GlowPlacement.ISLAND,
+        val toolWindowPlacement: GlowPlacement = GlowPlacement.ISLAND,
     ) {
         /**
          * Folds [preset]'s canonical style/intensity/width/animation into the
@@ -79,6 +82,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 width = GlowStyle.entries.associateWith { state.getWidthForStyle(it) },
                 animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name),
                 islandToggles = ISLAND_IDS.associateWith { state.isIslandEnabled(it) },
+                editorPlacement = GlowPlacement.forEditor(state.glowEditorPlacement),
+                toolWindowPlacement = GlowPlacement.forToolWindow(state.glowToolWindowPlacement),
             )
         }
 
@@ -96,6 +101,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private val islandCheckboxes = mutableMapOf<String, JCheckBox>()
     private var animationDescriptionLabel: javax.swing.JEditorPane? = null
     private var presetSegmentedButton: SegmentedButton<GlowPreset>? = null
+    private var editorPlacement: SegmentedButton<GlowPlacement>? = null
+    private var toolWindowPlacement: SegmentedButton<GlowPlacement>? = null
     private var glowGroupPanel: GlowGroupPanel? = null
 
     // Suppress listener events during programmatic updates
@@ -222,6 +229,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     )
                     buildAnimationRows(this, gate)
                 }
+                buildPlacementGroup(this, gate)
                 buildTargetsGroup(this, gate, customModeVisible)
             }
 
@@ -401,6 +409,59 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             }.visibleIfUnlockedOrPreview(customVisible, gate)
     }
 
+    private fun buildPlacementGroup(
+        panel: Panel,
+        gate: PremiumFeatureGate,
+    ) {
+        val licensed = gate.isUnlocked
+        panel.group("Placement") {
+            editorPlacement =
+                buildPlacementRow(
+                    labelText = "Editor placement",
+                    items = listOf(GlowPlacement.ISLAND, GlowPlacement.TAB_BAR),
+                    selected = section.pending.editorPlacement,
+                    licensed = licensed,
+                ) { placement -> section.update { it.copy(editorPlacement = placement) } }
+            toolWindowPlacement =
+                buildPlacementRow(
+                    labelText = "Tool window placement",
+                    items = listOf(GlowPlacement.ISLAND, GlowPlacement.SIDE_EDGES),
+                    selected = section.pending.toolWindowPlacement,
+                    licensed = licensed,
+                ) { placement -> section.update { it.copy(toolWindowPlacement = placement) } }
+            row {
+                comment("Island glows the full frame; Under tabs and Side edges glow only that strip.")
+            }
+        }
+    }
+
+    private fun Panel.buildPlacementRow(
+        labelText: String,
+        items: List<GlowPlacement>,
+        selected: GlowPlacement,
+        licensed: Boolean,
+        onSelected: (GlowPlacement) -> Unit,
+    ): SegmentedButton<GlowPlacement> {
+        lateinit var segmented: SegmentedButton<GlowPlacement>
+        row {
+            label(labelText)
+            segmented =
+                segmentedButton(items) { placement ->
+                    text = placement.displayName
+                }
+            segmented.maxButtonsCount(items.size)
+            segmented.selectedItem = selected
+            segmented.enabled(licensed && section.pending.enabled)
+            @Suppress("UnstableApiUsage")
+            segmented.whenItemSelected { placement ->
+                if (!suppressListeners && LicenseChecker.isLicensedOrGrace()) {
+                    onSelected(placement)
+                }
+            }
+        }
+        return segmented
+    }
+
     private fun Row.islandCheckbox(
         islandId: String,
         licensed: Boolean,
@@ -508,6 +569,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         styleCombo?.isEnabled = enabled
         animationCombo?.isEnabled = enabled
         presetSegmentedButton?.enabled(enabled)
+        editorPlacement?.enabled(enabled)
+        toolWindowPlacement?.enabled(enabled)
 
         for ((_, cb) in islandCheckboxes) {
             cb.isEnabled = enabled
@@ -517,6 +580,8 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private fun refreshAllControls() {
         suppressListeners = true
         presetSegmentedButton?.selectedItem = section.pending.preset
+        editorPlacement?.selectedItem = section.pending.editorPlacement
+        toolWindowPlacement?.selectedItem = section.pending.toolWindowPlacement
         customModeVisible.set(section.pending.preset == GlowPreset.CUSTOM)
         styleCombo?.selectedItem = section.pending.style.displayName
         animationCombo?.selectedItem = section.pending.animation.displayName
@@ -557,6 +622,9 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
             for (id in ISLAND_IDS) {
                 state.setIslandEnabled(id, pending.islandToggles[id] ?: false)
             }
+
+            state.glowEditorPlacement = pending.editorPlacement.name
+            state.glowToolWindowPlacement = pending.toolWindowPlacement.name
         }
     }
 

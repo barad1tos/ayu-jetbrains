@@ -304,6 +304,7 @@ class GlowOverlayManager(
                 glowIntensity = state.getIntensityForStyle(style),
                 glowWidth = state.getWidthForStyle(style),
                 isEditorOverlay = isEditorOverlay,
+                glowPlacement = resolveGlowPlacement(isEditorOverlay, state),
             )
 
         layeredPane.setLayer(glassPane, JLayeredPane.PALETTE_LAYER)
@@ -475,11 +476,13 @@ class GlowOverlayManager(
         accent: Color,
         style: GlowStyle,
     ) {
-        for ((_, entry) in overlays) {
+        for (entry in overlays.values) {
             entry.glassPane.glowColor = accent
             entry.glassPane.glowStyle = style
             entry.glassPane.glowIntensity = state.getIntensityForStyle(style)
             entry.glassPane.glowWidth = state.getWidthForStyle(style)
+            entry.glassPane.glowPlacement =
+                resolveGlowPlacement(isEditorOverlay = entry.glassPane.isEditorOverlay, state = state)
             entry.glassPane.invalidateRendererCache()
             entry.glassPane.repaint()
         }
@@ -549,3 +552,13 @@ private fun resolveCurrentGlowAccentHex(
     state: AyuIslandsState,
     context: AccentContext,
 ): String = state.trustedCachedAccent()?.value ?: AccentResolver.resolve(project, context)
+
+private fun resolveGlowPlacement(
+    isEditorOverlay: Boolean,
+    state: AyuIslandsState,
+): GlowPlacement =
+    if (isEditorOverlay) {
+        GlowPlacement.forEditor(state.glowEditorPlacement)
+    } else {
+        GlowPlacement.forToolWindow(state.glowToolWindowPlacement)
+    }

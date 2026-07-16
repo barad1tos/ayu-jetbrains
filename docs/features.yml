@@ -314,7 +314,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "aa35c9b2"
+          last_verified_sha: "5cccc809"
           last_verified_date: "2026-06-16"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
 
@@ -326,6 +326,16 @@ categories:
         description: >
           Glow can follow Ayu accents on non-Ayu themes when explicitly
           enabled; external Glow stays off by default.
+
+      - id: glow-placement
+        title: "Glow placement variants"
+        keyword: "Glow"
+        introduced: "2.8.0"
+        tier: paid
+        description: >
+          Choose where glow renders per surface: the full island frame, a
+          strip under the editor tabs, or tool-window side edges only.
+          Existing setups keep the full-island default.
 
   fonts:
     title: "Font presets"

@@ -4,6 +4,7 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import kotlin.test.Test
@@ -418,6 +419,13 @@ class AyuIslandsStateTest {
     fun `glow preset defaults to WHISPER`() {
         val state = freshState()
         assertEquals(GlowPreset.WHISPER.name, state.glowPreset)
+    }
+
+    @Test
+    fun `glow placement defaults to full island for both surfaces`() {
+        val state = freshState()
+        assertEquals(GlowPlacement.ISLAND.name, state.glowEditorPlacement)
+        assertEquals(GlowPlacement.ISLAND.name, state.glowToolWindowPlacement)
     }
 
     @Test
