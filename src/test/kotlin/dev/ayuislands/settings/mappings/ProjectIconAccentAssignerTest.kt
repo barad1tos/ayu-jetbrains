@@ -172,6 +172,43 @@ class ProjectIconAccentAssignerTest {
         assertEquals("pinned-by-hand", mappingsState.projectDisplayNames[key])
     }
 
+    @Test
+    fun `disabling auto assignment during extraction preserves the empty mapping`() {
+        state.projectIconAccentEnabled = true
+        writeIcon(Color(0x5C, 0xCF, 0xE6))
+        val project = stubProject()
+        val extractionStarted = CompletableDeferred<Unit>()
+        val allowExtraction = CountDownLatch(1)
+        mockkObject(ProjectIconAccentExtractor)
+        every { ProjectIconAccentExtractor.extract(any<File>()) } answers {
+            extractionStarted.complete(Unit)
+            check(allowExtraction.await(5, TimeUnit.SECONDS)) { "Timed out waiting for the toggle change" }
+            AccentHex.of("#5CCFE6")
+        }
+
+        try {
+            runBlocking {
+                val assignment =
+                    async {
+                        ProjectIconAccentAssigner.assignIfAbsent(project, EmptyCoroutineContext)
+                    }
+                try {
+                    withTimeout(5_000) { extractionStarted.await() }
+                    state.projectIconAccentEnabled = false
+                } finally {
+                    allowExtraction.countDown()
+                }
+
+                assertFalse(withTimeout(5_000) { assignment.await() })
+            }
+        } finally {
+            unmockkObject(ProjectIconAccentExtractor)
+        }
+
+        assertTrue(mappingsState.projectAccents.isEmpty(), "a disabled feature must reject the late result")
+        assertTrue(mappingsState.projectDisplayNames.isEmpty())
+    }
+
     private fun assign(project: Project): Boolean =
         runBlocking { ProjectIconAccentAssigner.assignIfAbsent(project, EmptyCoroutineContext) }
 

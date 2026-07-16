@@ -144,7 +144,7 @@ class KeystrokeHubTest {
     }
 
     @Test
-    fun `Power Save topic broadcasts the current mode`() {
+    fun `initialization is idempotent and Power Save changes broadcast the current mode`() {
         val application = mockk<Application>()
         val messageBus = mockk<MessageBus>()
         val connection = mockk<MessageBusConnection>(relaxed = true)
@@ -161,8 +161,10 @@ class KeystrokeHubTest {
         every { GlowOverlayManager.broadcastPowerSave(any()) } returns Unit
 
         hub.initialize()
+        hub.initialize()
         listener.captured.powerSaveStateChanged()
 
+        verify(exactly = 1) { messageBus.connect(hub) }
         verify(exactly = 1) { GlowOverlayManager.broadcastPowerSave(true) }
     }
 
