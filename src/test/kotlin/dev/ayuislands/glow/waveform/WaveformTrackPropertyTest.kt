@@ -154,12 +154,18 @@ class WaveformTrackPropertyTest {
     @Test
     fun `top gaps below minimum move the anchor to the upper right edge`() {
         val direction = WaveformDirection.CLOCKWISE
+        val traceLength = 167
         val track =
             WaveformTrack.create(
                 overlayBounds = Rectangle(0, 0, 500, 360),
                 margin = 16f,
                 arcRadius = 12f,
-                config = WaveformConfig(direction = direction),
+                config =
+                    WaveformConfig(
+                        direction = direction,
+                        baseline = WaveformBaseline.OUTSIDE,
+                        traceLength = traceLength,
+                    ),
                 occupiedTopSpans = listOf(0..170, 290..499),
             )
 
@@ -168,7 +174,7 @@ class WaveformTrackPropertyTest {
         assertEquals(484f, midpoint.x, 0.1f)
         assertEquals(120f, midpoint.y, 2f)
         assertEquals(
-            DEFAULT_TRACE_LENGTH.toFloat().coerceAtMost(track.length * 0.3f),
+            traceLength.toFloat().coerceAtMost(track.length * 0.3f),
             track.signalSpan * TRACE_PHASE_SPAN,
             0.1f,
         )

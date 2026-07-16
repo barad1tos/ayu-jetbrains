@@ -63,7 +63,7 @@ class WaveformEngineTest {
         assertEquals(TimerDirective.KEEP, input.timerDirective)
         assertEquals(0.5f, rising.energy, 0.001f)
         assertEquals(0.925f, rising.brightness, 0.001f)
-        assertEquals(24.667f, trace(rising).anchorOffset, 0.001f)
+        assertEquals(37f, trace(rising).anchorOffset, 0.001f)
         assertEquals(1f, peak.energy, 0.001f)
         assertEquals(0.5f, decaying.energy, 0.001f)
         assertEquals(0f, resting.energy, 0.001f)
@@ -115,8 +115,8 @@ class WaveformEngineTest {
             counterClockwise.handle(WaveformEvent.Tick(nowMs = 700L, trackLength = 1_000f)).frame
                 ?: error("perimeter tick must produce a frame")
 
-        assertEquals(23.333f, trace(clockwiseFrame).anchorOffset, 0.001f)
-        assertEquals(976.667f, trace(counterFrame).anchorOffset, 0.001f)
+        assertEquals(35f, trace(clockwiseFrame).anchorOffset, 0.001f)
+        assertEquals(965f, trace(counterFrame).anchorOffset, 0.001f)
     }
 
     @Test
@@ -129,7 +129,7 @@ class WaveformEngineTest {
 
         assertIs<WaveformState.Looping>(engine.state)
         assertEquals(TimerDirective.KEEP, update.timerDirective)
-        assertEquals(186.667f, trace(requireNotNull(update.frame)).anchorOffset, 0.001f)
+        assertEquals(280f, trace(requireNotNull(update.frame)).anchorOffset, 0.001f)
         assertTrue(update.needsRepaint)
     }
 
@@ -218,7 +218,7 @@ class WaveformEngineTest {
         val engine = WaveformEngine(WaveformConfig(), Random(81))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
         engine.handle(WaveformEvent.PowerSaveChanged(enabled = true))
-        val updatedConfig = WaveformConfig(amplitude = 24)
+        val updatedConfig = WaveformConfig(amplitude = 32)
 
         val update = engine.handle(WaveformEvent.Configure(updatedConfig))
 
@@ -246,7 +246,7 @@ class WaveformEngineTest {
         val update = engine.handle(WaveformEvent.Configure(updatedConfig))
 
         val running = assertIs<WaveformState.Looping>(engine.state)
-        assertEquals(0.024_667f, running.travelPhase, 0.001f)
+        assertEquals(0.037f, running.travelPhase, 0.001f)
         assertEquals(0.5f, requireNotNull(running.energyEnvelope).levelAt(740L), 0.001f)
         assertEquals(updatedConfig, running.config)
         assertEquals(TimerDirective.KEEP, update.timerDirective)

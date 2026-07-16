@@ -12,11 +12,7 @@ import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
-import dev.ayuislands.glow.waveform.DEFAULT_LOOP_SECONDS
 import dev.ayuislands.glow.waveform.DEFAULT_TRACE_DENSITY
-import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
-import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
-import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
 import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
@@ -152,12 +148,16 @@ class AyuIslandsState : BaseState() {
 
     // Waveform-specific controls. Solid preferences remain stored independently.
     var waveformDirection by string(WaveformDirection.CLOCKWISE.name)
+
+    // Keep legacy delegate defaults as the deserialization fallback for existing
+    // settings files that predate the calibrated ECG profile. Fresh installs are
+    // seeded explicitly by AyuIslandsSettings.
     var waveformBaseline by string(WaveformBaseline.OUTSIDE.name)
     var waveformTraceDensity by property(DEFAULT_TRACE_DENSITY)
-    var waveformTraceLength by property(DEFAULT_TRACE_LENGTH)
-    var waveformAmplitude by property(DEFAULT_WAVEFORM_AMPLITUDE)
-    var waveformIntensity by property(DEFAULT_WAVEFORM_INTENSITY)
-    var waveformLoopSeconds by property(DEFAULT_LOOP_SECONDS)
+    var waveformTraceLength by property(LEGACY_TRACE_LENGTH)
+    var waveformAmplitude by property(LEGACY_WAVEFORM_AMPLITUDE)
+    var waveformIntensity by property(LEGACY_WAVEFORM_INTENSITY)
+    var waveformLoopSeconds by property(LEGACY_LOOP_SECONDS)
 
     // Per-island toggles (all ON by default — glow visibility is controlled by glowEnabled)
     var glowEditor by property(true)
@@ -702,6 +702,11 @@ class AyuIslandsState : BaseState() {
         const val MAX_CHROME_TINT_INTENSITY = 50
     }
 }
+
+private const val LEGACY_TRACE_LENGTH = 167
+private const val LEGACY_WAVEFORM_AMPLITUDE = 10
+private const val LEGACY_WAVEFORM_INTENSITY = 70
+private const val LEGACY_LOOP_SECONDS = 30f
 
 fun AyuIslandsState.effectiveTraceDensity(): Int = waveformTraceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
 

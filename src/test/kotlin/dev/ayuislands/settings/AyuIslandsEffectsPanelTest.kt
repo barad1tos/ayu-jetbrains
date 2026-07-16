@@ -6,6 +6,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.dsl.builder.SegmentedButton
+import com.intellij.util.ui.JBUI
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
@@ -44,7 +45,7 @@ class AyuIslandsEffectsPanelTest {
     @BeforeTest
     fun setUp() {
         state =
-            AyuIslandsState().apply {
+            AyuIslandsSettings().state.apply {
                 glowEnabled = true
                 glowPreset = GlowPreset.WHISPER.name
             }
@@ -313,6 +314,67 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(1, tickStrips.map(SliderTickStrip::tickCount).distinct().size)
         assertTrue(tickStrips.all { it.isEffectivelyVisibleWithin(dialogPanel) && it.width > 0 && it.height > 0 })
         assertTrue(tickStrips.all { it.hasPaintedTicks() })
+
+        val glowPanel = field<GlowGroupPanel>(effectsPanel, "glowGroupPanel")
+        val readouts =
+            listOf("loopLabel", "densityLabel", "traceLengthLabel", "amplitudeLabel", "intensityLabel")
+                .map { waveformField<JLabel>(effectsPanel, it).boundsIn(glowPanel) }
+        val innerRightEdge = glowPanel.width - glowPanel.insets.right
+        assertTrue(
+            readouts.all { innerRightEdge - (it.x + it.width) >= JBUI.scale(READOUT_INSET) },
+            "Waveform readouts must keep a visible right inset: $readouts",
+        )
+    }
+
+    @Test
+    fun `first waveform selection uses the calibrated ECG profile`() {
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
+
+        assertEquals(
+            WaveformDirection.CLOCKWISE.displayName,
+            waveformField<JComboBox<*>>(effectsPanel, "directionCombo").selectedItem,
+        )
+        assertEquals(
+            WaveformBaseline.CENTERED.displayName,
+            waveformField<JComboBox<*>>(effectsPanel, "baselineCombo").selectedItem,
+        )
+        assertEquals(200, waveformField<JSlider>(effectsPanel, "loopSlider").value)
+        assertEquals(1, waveformField<JSlider>(effectsPanel, "densitySlider").value)
+        assertEquals(199, waveformField<JSlider>(effectsPanel, "traceLengthSlider").value)
+
+        val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+        val intensity = waveformField<JSlider>(effectsPanel, "intensitySlider")
+        assertEquals(24, amplitude.value)
+        assertEquals(amplitude.minimum + amplitude.maximum, amplitude.value * 2)
+        assertEquals(100, intensity.value)
+        assertEquals(intensity.minimum + intensity.maximum, intensity.value * 2)
+    }
+
+    @Test
+    fun `waveform selection preserves dormant custom ECG choices`() {
+        state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+        state.waveformBaseline = WaveformBaseline.OUTSIDE.name
+        state.waveformLoopSeconds = 3.7f
+        state.waveformTraceDensity = 4
+        state.waveformTraceLength = 640
+        state.waveformAmplitude = 36
+        state.waveformIntensity = 150
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+
+        waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
+        effectsPanel.apply()
+
+        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
+        assertEquals(WaveformBaseline.OUTSIDE.name, state.waveformBaseline)
+        assertEquals(3.7f, state.waveformLoopSeconds)
+        assertEquals(4, state.waveformTraceDensity)
+        assertEquals(640, state.waveformTraceLength)
+        assertEquals(36, state.waveformAmplitude)
+        assertEquals(150, state.waveformIntensity)
     }
 
     @Test
@@ -344,12 +406,12 @@ class AyuIslandsEffectsPanelTest {
         assertEquals(GlowShape.SOLID, reset.shape)
         assertEquals(GlowPreset.WHISPER, reset.preset)
         assertEquals(WaveformDirection.CLOCKWISE, reset.waveformDirection)
-        assertEquals(WaveformBaseline.OUTSIDE, reset.waveformBaseline)
+        assertEquals(WaveformBaseline.CENTERED, reset.waveformBaseline)
         assertEquals(1, reset.waveformTraceDensity)
         assertEquals(DEFAULT_TRACE_LENGTH, reset.waveformTraceLength)
-        assertEquals(10, reset.waveformAmplitude)
-        assertEquals(70, reset.waveformIntensity)
-        assertEquals(30f, reset.waveformLoopSeconds)
+        assertEquals(24, reset.waveformAmplitude)
+        assertEquals(100, reset.waveformIntensity)
+        assertEquals(20f, reset.waveformLoopSeconds)
     }
 
     @Test
@@ -621,6 +683,7 @@ class AyuIslandsEffectsPanelTest {
 
     private companion object {
         const val EXPECTED_TICK_COUNT = 39
+        const val READOUT_INSET = 12
         const val TEST_PANEL_WIDTH = 800
         const val TICK_STRIP_WIDTH = 320
     }

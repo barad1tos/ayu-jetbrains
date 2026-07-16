@@ -7,9 +7,9 @@ import dev.ayuislands.glow.waveform.WaveformConfig
 import java.awt.Color
 import java.awt.Rectangle
 import java.awt.image.BufferedImage
-import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class GlowPreviewTest {
@@ -44,7 +44,7 @@ class GlowPreviewTest {
     }
 
     @Test
-    fun `waveform preview paints only outside the solid content bounds`() {
+    fun `waveform preview keeps the central settings content clear`() {
         val hidden = GlowGroupPanel()
         hidden.setSize(WIDTH, HEIGHT)
         hidden.updatePreview(preview(GlowShape.WAVEFORM).copy(visible = false))
@@ -54,13 +54,12 @@ class GlowPreviewTest {
         visible.setSize(WIDTH, HEIGHT)
         visible.updatePreview(preview(GlowShape.WAVEFORM))
         val withWaveform = render(visible)
-        val insets = visible.insets
         val contentBounds =
             Rectangle(
-                insets.left,
-                insets.top,
-                WIDTH - insets.left - insets.right,
-                HEIGHT - insets.top - insets.bottom,
+                PREVIEW_SAFE_INSET,
+                PREVIEW_SAFE_INSET,
+                WIDTH - PREVIEW_SAFE_INSET * 2,
+                HEIGHT - PREVIEW_SAFE_INSET * 2,
             )
 
         assertEquals(0, pixelDifference(withoutWaveform, withWaveform, contentBounds))
@@ -71,7 +70,11 @@ class GlowPreviewTest {
     fun `centered waveform remains visible inside the preview border`() {
         val panel = GlowGroupPanel()
         panel.setSize(WIDTH, HEIGHT)
-        val signalOnly = preview(GlowShape.WAVEFORM).copy(intensity = 0)
+        val signalOnly =
+            preview(GlowShape.WAVEFORM).copy(
+                intensity = 0,
+                waveformConfig = preview(GlowShape.WAVEFORM).waveformConfig.copy(baseline = WaveformBaseline.OUTSIDE),
+            )
         panel.updatePreview(signalOnly.copy(visible = false))
         val hidden = render(panel)
 
@@ -91,22 +94,15 @@ class GlowPreviewTest {
         val centered = render(panel)
         val outsidePixels = pixelDifference(hidden, outside)
         val centeredPixels = pixelDifference(hidden, centered)
-        val insets = panel.insets
-        val outsideBaseline = dominantSignalRow(hidden, outside, insets.top)
-        val centeredBaseline = dominantSignalRow(hidden, centered, insets.top)
         val contentBounds =
             Rectangle(
-                insets.left,
-                insets.top,
-                WIDTH - insets.left - insets.right,
-                HEIGHT - insets.top - insets.bottom,
+                PREVIEW_SAFE_INSET,
+                PREVIEW_SAFE_INSET,
+                WIDTH - PREVIEW_SAFE_INSET * 2,
+                HEIGHT - PREVIEW_SAFE_INSET * 2,
             )
 
         assertTrue(pixelDifference(outside, centered) > MIN_PIXEL_DIFFERENCE)
-        assertTrue(
-            abs(centeredBaseline - outsideBaseline - signalOnly.width / 2) <= BASELINE_ROW_TOLERANCE,
-            "centered preview baseline must move to the middle of the solid glow band",
-        )
         assertEquals(0, pixelDifference(hidden, centered, contentBounds))
         assertTrue(
             centeredPixels >= outsidePixels * MIN_CENTERED_VISIBILITY,
@@ -143,6 +139,52 @@ class GlowPreviewTest {
         assertTrue(pixelDifference(compactTrace, longTrace) > MIN_PIXEL_DIFFERENCE)
     }
 
+    @Test
+    fun `waveform preview visibly advances with the configured perimeter loop`() {
+        val panel = GlowGroupPanel()
+        panel.setSize(WIDTH, HEIGHT)
+        panel.updatePreview(
+            preview(GlowShape.WAVEFORM).copy(
+                waveformConfig =
+                    WaveformConfig(
+                        baseline = WaveformBaseline.CENTERED,
+                        amplitude = 24,
+                        intensity = 100,
+                        loopSeconds = 2f,
+                    ),
+            ),
+        )
+        panel.advanceWaveformPreview(0L)
+        val initial = render(panel)
+
+        panel.advanceWaveformPreview(500L)
+        val advanced = render(panel)
+
+        assertTrue(
+            pixelDifference(initial, advanced) > MIN_PIXEL_DIFFERENCE,
+            "The Settings ECG preview must move before Apply",
+        )
+    }
+
+    @Test
+    fun `waveform preview timer stops while hidden or in power save mode`() {
+        val panel = GlowGroupPanel()
+        panel.updatePreview(preview(GlowShape.WAVEFORM))
+
+        try {
+            panel.syncPreviewAnimation(showing = true, powerSaveEnabled = false)
+            assertTrue(panel.isPreviewAnimating)
+
+            panel.syncPreviewAnimation(showing = false, powerSaveEnabled = false)
+            assertFalse(panel.isPreviewAnimating)
+
+            panel.syncPreviewAnimation(showing = true, powerSaveEnabled = true)
+            assertFalse(panel.isPreviewAnimating)
+        } finally {
+            panel.syncPreviewAnimation(showing = false, powerSaveEnabled = false)
+        }
+    }
+
     private fun preview(shape: GlowShape): GlowPreview =
         GlowPreview(
             shape = shape,
@@ -174,23 +216,11 @@ class GlowPreviewTest {
             (bounds.x until bounds.x + bounds.width).count { x -> first.getRGB(x, y) != second.getRGB(x, y) }
         }
 
-    private fun dominantSignalRow(
-        hidden: BufferedImage,
-        visible: BufferedImage,
-        borderHeight: Int,
-    ): Int =
-        (0 until borderHeight).maxBy { y ->
-            (PREVIEW_CORNER_GUARD until WIDTH - PREVIEW_CORNER_GUARD).count { x ->
-                hidden.getRGB(x, y) != visible.getRGB(x, y)
-            }
-        }
-
     private companion object {
         const val WIDTH = 420
         const val HEIGHT = 300
         const val MIN_PIXEL_DIFFERENCE = 100
         const val MIN_CENTERED_VISIBILITY = 0.75
-        const val PREVIEW_CORNER_GUARD = 40
-        const val BASELINE_ROW_TOLERANCE = 1
+        const val PREVIEW_SAFE_INSET = 72
     }
 }

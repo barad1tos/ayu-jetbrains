@@ -95,7 +95,7 @@ class WaveformPainterPixelTest {
         val idle = render(WaveformFrame(config = config, brightness = config.brightnessAt(0f)))
         val peak =
             idle.plan.track.samples.minBy { sample ->
-                kotlin.math.abs(sample.distance - idle.plan.track.signalAnchorDistance)
+                abs(sample.distance - idle.plan.track.signalAnchorDistance)
             }
         val probeDistance = config.amplitude * MIN_ACTIVE_HEIGHT_FRACTION
         val probeX = (peak.x + peak.normalX * probeDistance).roundToInt()
@@ -111,6 +111,61 @@ class WaveformPainterPixelTest {
         val expected = renderSolidBase()
 
         assertEquals(0, pixelDifference(expected, waveform.image))
+    }
+
+    @Test
+    fun `expanded waveform intensity adds visible bloom above the former maximum`() {
+        val currentConfig = WaveformConfig(amplitude = 24, intensity = 100)
+        val maximumConfig = currentConfig.copy(intensity = MAX_WAVEFORM_INTENSITY)
+        val morphology = BeatMorphology.standard()
+        val emptyBase = solidFrame().copy(intensity = 0)
+        val base = render(WaveformFrame(config = currentConfig.copy(intensity = 0)), solidFrame = emptyBase)
+        val current = render(frame(currentConfig, 0f, morphology), solidFrame = emptyBase)
+        val maximum = render(frame(maximumConfig, 0f, morphology), solidFrame = emptyBase)
+
+        assertTrue(
+            addedAlpha(base.image, maximum.image, bounds) > addedAlpha(base.image, current.image, bounds),
+            "Intensity values above 100 must produce a visibly stronger ECG",
+        )
+    }
+
+    @Test
+    fun `expanded waveform amplitude increases the visible peak beyond 24 pixels`() {
+        val currentConfig =
+            WaveformConfig(
+                baseline = WaveformBaseline.CENTERED,
+                amplitude = 24,
+                intensity = 100,
+            )
+        val maximumConfig = currentConfig.copy(amplitude = MAX_WAVEFORM_AMPLITUDE)
+        val emptyBase = solidFrame().copy(intensity = 0)
+        val current =
+            render(
+                WaveformFrame(config = currentConfig, energy = 1f, brightness = 1f),
+                solidFrame = emptyBase,
+                inwardEdges = setOf(WaveformEdge.TOP),
+            )
+        val maximum =
+            render(
+                WaveformFrame(config = maximumConfig, energy = 1f, brightness = 1f),
+                solidFrame = emptyBase,
+                inwardEdges = setOf(WaveformEdge.TOP),
+            )
+        val currentBaseline =
+            current.plan.track.samples
+                .first { it.normalY < -0.999f }
+                .y
+                .roundToInt()
+        val maximumBaseline =
+            maximum.plan.track.samples
+                .first { it.normalY < -0.999f }
+                .y
+                .roundToInt()
+
+        assertTrue(
+            topCoreExtents(maximum).last - maximumBaseline > topCoreExtents(current).last - currentBaseline,
+            "Amplitude values above 24 px must extend the ECG peak farther from its baseline",
+        )
     }
 
     @Test
@@ -342,7 +397,7 @@ class WaveformPainterPixelTest {
         val corner =
             flat.plan.track.samples
                 .filter { it.normalX > 0f && it.normalY < 0f }
-                .minBy { kotlin.math.abs(it.normalX + it.normalY) }
+                .minBy { abs(it.normalX + it.normalY) }
         val beat =
             render(
                 frame(
@@ -363,7 +418,12 @@ class WaveformPainterPixelTest {
 
     @Test
     fun `R peak stays tall and needle sharp`() {
-        val config = WaveformConfig(amplitude = 24, intensity = 100)
+        val config =
+            WaveformConfig(
+                baseline = WaveformBaseline.OUTSIDE,
+                amplitude = 24,
+                intensity = 100,
+            )
         val active = render(WaveformFrame(config = config, energy = 1f, brightness = 1f))
         val base = renderSolidBase()
         val anchor = active.plan.track.sampleNearest(active.plan.track.signalAnchorDistance)
@@ -595,7 +655,14 @@ class WaveformPainterPixelTest {
     @Test
     fun `comet trail paints behind the head and cuts off ahead of it`() {
         for (direction in WaveformDirection.entries) {
-            val config = WaveformConfig(direction = direction, amplitude = 14, intensity = 100)
+            val config =
+                WaveformConfig(
+                    direction = direction,
+                    baseline = WaveformBaseline.OUTSIDE,
+                    amplitude = 14,
+                    intensity = 100,
+                    traceLength = 167,
+                )
             val base = renderSolidBase()
             val flat = render(WaveformFrame(config = config))
             val track = flat.plan.track
@@ -839,6 +906,7 @@ class WaveformPainterPixelTest {
     fun `centered waveform straddles the middle of the solid glow band`() {
         val outsideConfig =
             WaveformConfig(
+                baseline = WaveformBaseline.OUTSIDE,
                 amplitude = MAX_WAVEFORM_AMPLITUDE,
                 intensity = MAX_WAVEFORM_INTENSITY,
             )
@@ -1181,7 +1249,7 @@ class WaveformPainterPixelTest {
     )
 
     private fun WaveformTrack.sampleNearest(distance: Float): WaveformSample =
-        samples.minBy { sample -> kotlin.math.abs(sample.distance - distance) }
+        samples.minBy { sample -> abs(sample.distance - distance) }
 
     private companion object {
         const val WIDTH = 240

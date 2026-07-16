@@ -6,7 +6,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.DslComponentProperty
 import com.intellij.ui.dsl.builder.Panel
-import com.intellij.ui.dsl.builder.RightGap
+import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
@@ -244,7 +244,9 @@ internal class WaveformSettingsControls(
                 loopSlider = slider
                 loopLabel = label
                 cell(sliderRail(slider)).resizableColumn().align(Align.FILL)
-                cell(label).widthGroup(WAVEFORM_VALUE_GROUP).gap(RightGap.SMALL)
+                cell(label)
+                    .widthGroup(WAVEFORM_VALUE_GROUP)
+                    .customize(UnscaledGaps(0, 0, 0, VALUE_RIGHT_INSET))
             }.visibleIf(visibility.waveform)
     }
 
@@ -264,7 +266,9 @@ internal class WaveformSettingsControls(
                 }
                 spec.onCreated(slider, label)
                 cell(sliderRail(slider)).resizableColumn().align(Align.FILL)
-                cell(label).widthGroup(WAVEFORM_VALUE_GROUP).gap(RightGap.SMALL)
+                cell(label)
+                    .widthGroup(WAVEFORM_VALUE_GROUP)
+                    .customize(UnscaledGaps(0, 0, 0, VALUE_RIGHT_INSET))
             }.visibleIf(spec.visibleWhen)
     }
 
@@ -308,6 +312,7 @@ internal class WaveformSettingsControls(
         const val TENTHS_PER_SECOND = 10f
         const val WAVEFORM_COMBO_GROUP = "waveform-combo"
         const val WAVEFORM_VALUE_GROUP = "waveform-value"
+        const val VALUE_RIGHT_INSET = 12
     }
 }
 

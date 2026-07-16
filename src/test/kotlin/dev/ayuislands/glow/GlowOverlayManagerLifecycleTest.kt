@@ -296,7 +296,7 @@ class GlowOverlayManagerLifecycleTest {
                     baseline = WaveformBaseline.CENTERED,
                     traceDensity = 4,
                     traceLength = MAX_TRACE_LENGTH,
-                    amplitude = 24,
+                    amplitude = 40,
                     intensity = 0,
                     loopSeconds = 40f,
                 ),

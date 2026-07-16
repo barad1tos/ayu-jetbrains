@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.font.FontPreset
+import dev.ayuislands.glow.waveform.WaveformBaseline
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -26,6 +27,30 @@ class AyuIslandsSettingsTest {
     @AfterTest
     fun tearDown() {
         unmockkAll()
+    }
+
+    @Test
+    fun `fresh settings use the calibrated ECG profile`() {
+        val state = AyuIslandsSettings().state
+
+        assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
+        assertEquals(199, state.waveformTraceLength)
+        assertEquals(24, state.waveformAmplitude)
+        assertEquals(100, state.waveformIntensity)
+        assertEquals(20f, state.waveformLoopSeconds)
+    }
+
+    @Test
+    fun `loading legacy settings preserves the existing ECG profile`() {
+        val legacy = AyuIslandsState()
+
+        val settings = createSettings(legacy)
+
+        assertEquals(WaveformBaseline.OUTSIDE.name, settings.state.waveformBaseline)
+        assertEquals(167, settings.state.waveformTraceLength)
+        assertEquals(10, settings.state.waveformAmplitude)
+        assertEquals(70, settings.state.waveformIntensity)
+        assertEquals(30f, settings.state.waveformLoopSeconds)
     }
 
     @Test
