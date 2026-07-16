@@ -476,12 +476,13 @@ class GlowOverlayManager(
         accent: Color,
         style: GlowStyle,
     ) {
-        for ((id, entry) in overlays) {
+        for (entry in overlays.values) {
             entry.glassPane.glowColor = accent
             entry.glassPane.glowStyle = style
             entry.glassPane.glowIntensity = state.getIntensityForStyle(style)
             entry.glassPane.glowWidth = state.getWidthForStyle(style)
-            entry.glassPane.glowPlacement = resolveGlowPlacement(isEditorOverlay = id == EDITOR_ID, state = state)
+            entry.glassPane.glowPlacement =
+                resolveGlowPlacement(isEditorOverlay = entry.glassPane.isEditorOverlay, state = state)
             entry.glassPane.invalidateRendererCache()
             entry.glassPane.repaint()
         }

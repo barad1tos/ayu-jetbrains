@@ -222,6 +222,8 @@ class GlowOverlayManagerLifecycleTest {
         val manager = GlowOverlayManager(project)
         val editorPane = mockk<GlowGlassPane>(relaxed = true)
         val toolWindowPane = mockk<GlowGlassPane>(relaxed = true)
+        every { editorPane.isEditorOverlay } returns true
+        every { toolWindowPane.isEditorOverlay } returns false
         seedOverlaysMapWithMocks(
             manager,
             editorPane,
@@ -636,8 +638,8 @@ class GlowOverlayManagerLifecycleTest {
      * assigns properties on the glassPane mock, which relaxed-mock no-ops.
      *
      * Seeds under [DISPOSAL_TARGET_KEY] by default (the disposal-path tests
-     * don't vary the key); the placement-push test overrides [key] with the
-     * editor overlay id to hit the editor branch of the placement resolver.
+     * don't vary the key); the placement-push test varies [key] only to seed
+     * two entries, while each pane's `isEditorOverlay` flag selects placement.
      */
     private fun seedOverlaysMapWithMocks(
         manager: GlowOverlayManager,
