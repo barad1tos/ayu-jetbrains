@@ -27,9 +27,10 @@
 - [Free] **Find what's new faster** — the settings page now points at newly
   added controls: a "New in this release" index at the top with a Review
   jump link, an accent dot on tabs that contain new settings, and small
-  "New" marks on the rows themselves. Marks clear when their controls become
-  visible—on tab visit or collapsed-group expansion—never outlive 45 days,
-  and stay hidden on fresh installs.
+  "New" marks on the rows themselves. Tab and group dots clear as their
+  controls become visible, while row marks disappear the next time Settings
+  opens. Expired badges retire on the next IDE startup, and fresh installs
+  show none.
 - [Fix] **Commit panel accessibility crash** — screen-reader and macOS
   accessibility walks over the commit changes tree no longer flood idea.log
   with "Attempt to take read lock was prevented" errors; the path renderer
