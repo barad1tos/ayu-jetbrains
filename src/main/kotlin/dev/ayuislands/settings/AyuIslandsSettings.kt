@@ -9,11 +9,7 @@ import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.font.FontCatalog
-import dev.ayuislands.glow.waveform.DEFAULT_LOOP_SECONDS
-import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
-import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
-import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
-import dev.ayuislands.glow.waveform.WaveformBaseline
+import dev.ayuislands.glow.waveform.WaveformConfig
 import java.awt.GraphicsEnvironment
 
 @Service
@@ -93,11 +89,15 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(fresh
     }
 }
 
-private fun freshSettingsState(): AyuIslandsState =
-    AyuIslandsState().apply {
-        waveformBaseline = WaveformBaseline.CENTERED.name
-        waveformTraceLength = DEFAULT_TRACE_LENGTH
-        waveformAmplitude = DEFAULT_WAVEFORM_AMPLITUDE
-        waveformIntensity = DEFAULT_WAVEFORM_INTENSITY
-        waveformLoopSeconds = DEFAULT_LOOP_SECONDS
+private fun freshSettingsState(): AyuIslandsState {
+    val waveform = WaveformConfig()
+    return AyuIslandsState().apply {
+        waveformDirection = waveform.direction.name
+        waveformBaseline = waveform.baseline.name
+        waveformTraceDensity = waveform.traceDensity
+        waveformTraceLength = waveform.traceLength
+        waveformAmplitude = waveform.amplitude
+        waveformIntensity = waveform.intensity
+        waveformLoopSeconds = waveform.loopSeconds
     }
+}
