@@ -1,30 +1,40 @@
 # Changelog
 
-## [2.8.0] - 2026-07-09
+## [2.8.0] - 2026-07-18
 
 - [Paid] **Chrome tint on external themes** — selected chrome surfaces and the
   active tab underline can now follow the Ayu accent on non-Ayu themes when
-  explicitly enabled; external chrome tint stays off by default.
-- [Paid] **Glow placement** — choose where glow renders: the full island
-  frame or its side edges only, per surface (editor and tool windows).
-  Placement clicks preview on the live window instantly; Apply keeps them,
-  Cancel puts everything back.
-- [Paid] **ECG waveform glow** — trace the focused island with a continuous
-  phosphor-comet perimeter loop whose pace responds to typing. Configure its
-  direction, loop duration, trace length, spike density, border position,
-  amplitude, and intensity without changing saved solid-glow preferences.
+  explicitly enabled. It stays off by default, respects individual tint
+  targets, and restores the host theme cleanly when disabled.
+- [Paid] **Glow placement** — render solid glow around the full island or only
+  along its straight side edges, independently for editors and tool windows.
+  Placement changes preview on the live window immediately; Apply keeps them,
+  Cancel restores the previous layout.
+- [Paid] **ECG waveform glow** — trace the focused island with a compact,
+  angular phosphor-comet loop whose signal and brightness respond to typing.
+  The fixed-length trace travels continuously around islands of any size,
+  stays correctly oriented inside floating windows, and settles into a visible
+  resting waveform when focus moves elsewhere.
+- [Paid] **ECG controls and preview** — configure direction, loop duration,
+  1x–4x spike density, trace length, border position, amplitude, and intensity
+  with snapping sliders whose ticks match real values. The live preview mirrors
+  the selected behavior, while fresh installs start from the calibrated
+  centered profile and existing solid-glow preferences remain untouched.
 - [Paid] **Accent from project icon** — when enabled, projects without an
-  override take their accent from `.idea/icon.png` automatically when they open, and the
-  Add Override dialog offers the icon's dominant color as a one-click pick.
+  override take their accent from `.idea/icon.png` automatically when they
+  open, and the Add Override dialog offers the icon's dominant color as a
+  one-click pick. Existing manual project accents are never overwritten.
+- [Free] **Find what's new faster** — the settings page now points at newly
+  added controls: a "New in this release" index at the top with a Review
+  jump link, an accent dot on tabs that contain new settings, and small
+  "New" marks on the rows themselves. Tab and group dots clear as their
+  controls become visible, while row marks disappear the next time Settings
+  opens. Expired badges retire on the next IDE startup, and fresh installs
+  show none.
 - [Fix] **Commit panel accessibility crash** — screen-reader and macOS
   accessibility walks over the commit changes tree no longer flood idea.log
   with "Attempt to take read lock was prevented" errors; the path renderer
   now serves plain text when the platform forbids model access mid-walk.
-- [Free] **Find what's new faster** — the settings page now points at newly
-  added controls: a "New in this release" index at the top with a Review
-  jump link, an accent dot on tabs that contain new settings, and small
-  "New" marks on the rows themselves. Everything clears as you visit the
-  tabs, never outlives 45 days, and fresh installs see no badges at all.
 
 ## [2.7.8] - 2026-07-06
 
