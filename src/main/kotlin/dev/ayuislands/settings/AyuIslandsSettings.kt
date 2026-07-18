@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
 import dev.ayuislands.font.FontCatalog
+import dev.ayuislands.glow.waveform.WaveformConfig
 import java.awt.GraphicsEnvironment
 
 @Service
@@ -16,7 +17,7 @@ import java.awt.GraphicsEnvironment
     name = "AyuIslandsSettings",
     storages = [Storage("ayuIslands.xml")],
 )
-class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIslandsState()) {
+class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(freshSettingsState()) {
     companion object {
         private val LOG = logger<AyuIslandsSettings>()
 
@@ -85,5 +86,18 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(AyuIs
             AyuVariant.DARK -> state.darkAccent = hex
             AyuVariant.LIGHT -> state.lightAccent = hex
         }
+    }
+}
+
+private fun freshSettingsState(): AyuIslandsState {
+    val waveform = WaveformConfig()
+    return AyuIslandsState().apply {
+        waveformDirection = waveform.direction.name
+        waveformBaseline = waveform.baseline.name
+        waveformTraceDensity = waveform.traceDensity
+        waveformTraceLength = waveform.traceLength
+        waveformAmplitude = waveform.amplitude
+        waveformIntensity = waveform.intensity
+        waveformLoopSeconds = waveform.loopSeconds
     }
 }

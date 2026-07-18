@@ -427,33 +427,32 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         gate: PremiumFeatureGate,
     ) {
         val licensed = gate.isUnlocked
-        panel.group("Placement") {
-            editorPlacement =
-                buildPlacementRow(
-                    labelText = "Editor placement",
-                    selected = section.pending.editorPlacement,
-                    licensed = licensed,
-                    badgeAnchorId = "glow-placement",
-                ) { placement ->
-                    section.update { it.copy(editorPlacement = placement) }
-                    pushPlacementPreview()
+        val placementGroup =
+            panel.group("Placement") {
+                editorPlacement =
+                    buildPlacementRow(
+                        labelText = "Editor placement",
+                        selected = section.pending.editorPlacement,
+                        licensed = licensed,
+                        badgeAnchorId = "glow-placement",
+                    ) { placement ->
+                        section.update { it.copy(editorPlacement = placement) }
+                        pushPlacementPreview()
+                    }
+                toolWindowPlacement =
+                    buildPlacementRow(
+                        labelText = "Tool window placement",
+                        selected = section.pending.toolWindowPlacement,
+                        licensed = licensed,
+                    ) { placement ->
+                        section.update { it.copy(toolWindowPlacement = placement) }
+                        pushPlacementPreview()
+                    }
+                row {
+                    comment("Island glows the full frame; Side edges glows only the left and right strips.")
                 }
-            toolWindowPlacement =
-                buildPlacementRow(
-                    labelText = "Tool window placement",
-                    selected = section.pending.toolWindowPlacement,
-                    licensed = licensed,
-                ) { placement ->
-                    section.update { it.copy(toolWindowPlacement = placement) }
-                    pushPlacementPreview()
-                }
-            row {
-                comment(
-                    "Island glows the full frame; Side edges glows only the left and right strips. " +
-                        "Waveform always runs the full island perimeter.",
-                )
             }
-        }
+        placementGroup.visibleIf(visibility.solidShape)
     }
 
     private fun Panel.buildPlacementRow(

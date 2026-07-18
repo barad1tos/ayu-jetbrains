@@ -1,18 +1,18 @@
 package dev.ayuislands.glow.waveform
 
-const val DEFAULT_WAVEFORM_AMPLITUDE = 10
-const val MIN_WAVEFORM_AMPLITUDE = 8
-const val MAX_WAVEFORM_AMPLITUDE = 24
-const val DEFAULT_WAVEFORM_INTENSITY = 70
+const val DEFAULT_WAVEFORM_AMPLITUDE = 24
+const val MIN_WAVEFORM_AMPLITUDE = 1
+const val MAX_WAVEFORM_AMPLITUDE = 40
+const val DEFAULT_WAVEFORM_INTENSITY = 100
 const val MIN_WAVEFORM_INTENSITY = 0
-const val MAX_WAVEFORM_INTENSITY = 100
-const val DEFAULT_LOOP_SECONDS = 30f
+const val MAX_WAVEFORM_INTENSITY = 200
+const val DEFAULT_LOOP_SECONDS = 20f
 const val MIN_WAVEFORM_LOOP_SECONDS = 1.5f
 const val MAX_WAVEFORM_LOOP_SECONDS = 40f
 const val DEFAULT_TRACE_DENSITY = 1
 const val MIN_TRACE_DENSITY = 1
 const val MAX_TRACE_DENSITY = 4
-const val DEFAULT_TRACE_LENGTH = 167
+const val DEFAULT_TRACE_LENGTH = 199
 const val MIN_TRACE_LENGTH = 120
 const val MAX_TRACE_LENGTH = 800
 internal const val BASE_COMPLEX_COUNT = 4
@@ -23,7 +23,7 @@ private const val IDLE_BRIGHTNESS = 0.85f
 /** Effective waveform settings consumed by the engine and painter. */
 data class WaveformConfig(
     val direction: WaveformDirection = WaveformDirection.CLOCKWISE,
-    val baseline: WaveformBaseline = WaveformBaseline.OUTSIDE,
+    val baseline: WaveformBaseline = WaveformBaseline.CENTERED,
     val amplitude: Int = DEFAULT_WAVEFORM_AMPLITUDE,
     val intensity: Int = DEFAULT_WAVEFORM_INTENSITY,
     val loopSeconds: Float = DEFAULT_LOOP_SECONDS,
@@ -56,7 +56,7 @@ enum class WaveformBaseline(
     ;
 
     companion object {
-        fun fromName(name: String?): WaveformBaseline = entries.firstOrNull { it.name == name } ?: OUTSIDE
+        fun fromName(name: String?): WaveformBaseline = entries.firstOrNull { it.name == name } ?: CENTERED
     }
 }
 

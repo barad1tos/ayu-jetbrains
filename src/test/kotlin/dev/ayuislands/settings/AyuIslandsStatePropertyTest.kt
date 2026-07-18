@@ -6,10 +6,12 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
-import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
 import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
+import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
+import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
+import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformDirection
 import kotlin.test.Test
@@ -121,29 +123,29 @@ class AyuIslandsStatePropertyTest {
     }
 
     @Test
-    fun `waveform settings default safely and clamp corrupted persisted numbers`() {
+    fun `legacy waveform defaults deserialize safely and clamp corrupted persisted numbers`() {
         val state = AyuIslandsState()
 
         assertEquals(GlowShape.SOLID.name, state.glowShape)
         assertEquals(WaveformDirection.CLOCKWISE.name, state.waveformDirection)
         assertEquals(WaveformBaseline.OUTSIDE.name, state.waveformBaseline)
         assertEquals(1, state.effectiveTraceDensity())
-        assertEquals(DEFAULT_TRACE_LENGTH, state.effectiveTraceLength())
-        assertEquals(10, state.effectiveWaveformAmplitude())
-        assertEquals(70, state.effectiveWaveformIntensity())
+        assertEquals(LEGACY_TRACE_LENGTH, state.effectiveTraceLength())
+        assertEquals(LEGACY_AMPLITUDE, state.effectiveWaveformAmplitude())
+        assertEquals(LEGACY_INTENSITY, state.effectiveWaveformIntensity())
 
         state.waveformAmplitude = Int.MIN_VALUE
         state.waveformIntensity = Int.MAX_VALUE
         state.waveformTraceDensity = Int.MAX_VALUE
         state.waveformTraceLength = Int.MAX_VALUE
 
-        assertEquals(8, state.effectiveWaveformAmplitude())
-        assertEquals(100, state.effectiveWaveformIntensity())
+        assertEquals(MIN_WAVEFORM_AMPLITUDE, state.effectiveWaveformAmplitude())
+        assertEquals(MAX_WAVEFORM_INTENSITY, state.effectiveWaveformIntensity())
         assertEquals(MAX_TRACE_DENSITY, state.effectiveTraceDensity())
         assertEquals(MAX_TRACE_LENGTH, state.effectiveTraceLength())
 
         state.waveformAmplitude = Int.MAX_VALUE
-        assertEquals(24, state.effectiveWaveformAmplitude())
+        assertEquals(MAX_WAVEFORM_AMPLITUDE, state.effectiveWaveformAmplitude())
 
         state.waveformAmplitude = 16
         assertEquals(16, state.effectiveWaveformAmplitude())
@@ -155,14 +157,14 @@ class AyuIslandsStatePropertyTest {
 
         state.waveformTraceLength = 360
         assertEquals(360, state.effectiveTraceLength())
-        assertEquals(WaveformBaseline.OUTSIDE, WaveformBaseline.fromName("retired-value"))
+        assertEquals(WaveformBaseline.CENTERED, WaveformBaseline.fromName("retired-value"))
     }
 
     @Test
-    fun `waveform loop period defaults safely and clamps corrupted persisted numbers`() {
+    fun `legacy waveform loop period deserializes safely and clamps corrupted persisted numbers`() {
         val state = AyuIslandsState()
 
-        assertEquals(30f, state.effectiveLoopSeconds())
+        assertEquals(LEGACY_LOOP_SECONDS, state.effectiveLoopSeconds())
 
         state.waveformLoopSeconds = Float.NEGATIVE_INFINITY
         assertEquals(1.5f, state.effectiveLoopSeconds())
@@ -174,7 +176,7 @@ class AyuIslandsStatePropertyTest {
         assertEquals(3.7f, state.effectiveLoopSeconds())
 
         state.waveformLoopSeconds = Float.NaN
-        assertEquals(30f, state.effectiveLoopSeconds())
+        assertEquals(20f, state.effectiveLoopSeconds())
     }
 
     @Test
@@ -230,5 +232,12 @@ class AyuIslandsStatePropertyTest {
         for ((name, value) in flags) {
             assertFalse(value, "Flag '$name' must default to false")
         }
+    }
+
+    private companion object {
+        const val LEGACY_TRACE_LENGTH = 167
+        const val LEGACY_AMPLITUDE = 10
+        const val LEGACY_INTENSITY = 70
+        const val LEGACY_LOOP_SECONDS = 30f
     }
 }

@@ -96,8 +96,8 @@ class AyuIslandsStatePersistenceTest {
                 state.waveformBaseline = WaveformBaseline.CENTERED.name
                 state.waveformTraceDensity = 4
                 state.waveformTraceLength = 640
-                state.waveformAmplitude = 16
-                state.waveformIntensity = 88
+                state.waveformAmplitude = 36
+                state.waveformIntensity = 150
                 state.waveformLoopSeconds = 3.7f
             }
 
@@ -106,8 +106,8 @@ class AyuIslandsStatePersistenceTest {
         assertEquals(WaveformBaseline.CENTERED.name, reloaded.state.waveformBaseline)
         assertEquals(4, reloaded.state.waveformTraceDensity)
         assertEquals(640, reloaded.state.waveformTraceLength)
-        assertEquals(16, reloaded.state.waveformAmplitude)
-        assertEquals(88, reloaded.state.waveformIntensity)
+        assertEquals(36, reloaded.state.waveformAmplitude)
+        assertEquals(150, reloaded.state.waveformIntensity)
         assertEquals(3.7f, reloaded.state.waveformLoopSeconds)
     }
 
