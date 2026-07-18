@@ -31,7 +31,6 @@ import java.awt.RenderingHints
 import java.awt.event.ActionEvent
 import java.awt.event.ActionListener
 import java.awt.event.KeyEvent
-import java.util.Locale
 import javax.swing.AbstractAction
 import javax.swing.DefaultComboBoxModel
 import javax.swing.JComponent
@@ -249,7 +248,11 @@ internal class WaveformSettingsControls(
                     )
                 slider.paintTicks = false
                 slider.applyPremiumLock(gate, enabledWhenUnlocked = true)
-                val label = JLabel(formatSeconds(displayedSeconds)).apply { horizontalAlignment = SwingConstants.RIGHT }
+                val label =
+                    JLabel(formatSeconds(displayedSeconds)).apply {
+                        horizontalAlignment = SwingConstants.RIGHT
+                        isOpaque = true
+                    }
                 slider.addChangeListener {
                     val seconds = slider.value / TENTHS_PER_SECOND
                     if (!refreshing && gate.isUnlocked) update(value.copy(loopSeconds = seconds))
@@ -286,7 +289,11 @@ internal class WaveformSettingsControls(
                 slider.paintTicks = false
                 slider.applyPremiumLock(gate, enabledWhenUnlocked = true)
                 installSnapKeyActions(slider, spec.snapValues)
-                val label = JLabel(spec.formatValue(slider.value)).apply { horizontalAlignment = SwingConstants.RIGHT }
+                val label =
+                    JLabel(spec.formatValue(slider.value)).apply {
+                        horizontalAlignment = SwingConstants.RIGHT
+                        isOpaque = true
+                    }
                 slider.addChangeListener {
                     label.text = spec.formatValue(slider.value)
                     if (refreshing || !gate.isUnlocked) return@addChangeListener
@@ -317,27 +324,32 @@ internal class WaveformSettingsControls(
     ) {
         if (snapValues.isEmpty()) return
 
+        val previousValue = { snapValues.lastOrNull { it < slider.value } ?: snapValues.first() }
+        val nextValue = { snapValues.firstOrNull { it > slider.value } ?: snapValues.last() }
+        val isVisualAscending = { slider.componentOrientation.isLeftToRight != slider.inverted }
+
+        fun snapAction(targetValue: () -> Int): AbstractAction =
+            object : AbstractAction() {
+                override fun actionPerformed(event: ActionEvent?) {
+                    slider.value = targetValue()
+                }
+            }
+
         slider.getInputMap(JComponent.WHEN_FOCUSED).apply {
-            put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), PREVIOUS_SNAP_ACTION)
+            put(KeyStroke.getKeyStroke(KeyEvent.VK_LEFT, 0), LEFT_SNAP_ACTION)
             put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), PREVIOUS_SNAP_ACTION)
-            put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), NEXT_SNAP_ACTION)
+            put(KeyStroke.getKeyStroke(KeyEvent.VK_RIGHT, 0), RIGHT_SNAP_ACTION)
             put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), NEXT_SNAP_ACTION)
         }
+        slider.actionMap.put(PREVIOUS_SNAP_ACTION, snapAction(previousValue))
+        slider.actionMap.put(NEXT_SNAP_ACTION, snapAction(nextValue))
         slider.actionMap.put(
-            PREVIOUS_SNAP_ACTION,
-            object : AbstractAction() {
-                override fun actionPerformed(event: ActionEvent?) {
-                    slider.value = snapValues.lastOrNull { it < slider.value } ?: snapValues.first()
-                }
-            },
+            LEFT_SNAP_ACTION,
+            snapAction { if (isVisualAscending()) previousValue() else nextValue() },
         )
         slider.actionMap.put(
-            NEXT_SNAP_ACTION,
-            object : AbstractAction() {
-                override fun actionPerformed(event: ActionEvent?) {
-                    slider.value = snapValues.firstOrNull { it > slider.value } ?: snapValues.last()
-                }
-            },
+            RIGHT_SNAP_ACTION,
+            snapAction { if (isVisualAscending()) nextValue() else previousValue() },
         )
     }
 
@@ -369,7 +381,7 @@ internal class WaveformSettingsControls(
 
     private fun secondsToTenths(seconds: Float): Int = (seconds * TENTHS_PER_SECOND).roundToInt()
 
-    private fun formatSeconds(seconds: Float): String = String.format(Locale.ROOT, "%.1f s", seconds)
+    private fun formatSeconds(seconds: Float): String = String.format(java.util.Locale.ROOT, "%.1f s", seconds)
 
     private data class WaveformSliderSpec(
         val label: String,
@@ -388,6 +400,8 @@ internal class WaveformSettingsControls(
         const val LOOP_MAJOR_SECONDS = 10f
         const val LOOP_TICK_SECONDS = 2f
         const val TENTHS_PER_SECOND = 10f
+        const val LEFT_SNAP_ACTION = "waveform.leftSnap"
+        const val RIGHT_SNAP_ACTION = "waveform.rightSnap"
         const val PREVIOUS_SNAP_ACTION = "waveform.previousSnap"
         const val NEXT_SNAP_ACTION = "waveform.nextSnap"
         const val WAVEFORM_COMBO_GROUP = "waveform-combo"
@@ -395,7 +409,11 @@ internal class WaveformSettingsControls(
         const val VALUE_RIGHT_INSET = 12
 
         val DENSITY_TICKS = (MIN_TRACE_DENSITY..MAX_TRACE_DENSITY).toList()
-        val AMPLITUDE_TICKS = listOf(MIN_WAVEFORM_AMPLITUDE) + (5..MAX_WAVEFORM_AMPLITUDE step 5)
+        val AMPLITUDE_TICKS =
+            buildList {
+                add(MIN_WAVEFORM_AMPLITUDE)
+                addAll(5..MAX_WAVEFORM_AMPLITUDE step 5)
+            }
         val AMPLITUDE_MAJOR_TICKS = setOf(MIN_WAVEFORM_AMPLITUDE, 10, 20, 30, 40)
     }
 }
@@ -433,9 +451,11 @@ internal class SliderTickStrip(
         val trackInset = JBUI.scale(TRACK_INSET)
         val trackWidth = (width - trackInset * 2 - 1).coerceAtLeast(0)
         val sliderSpan = slider.maximum - slider.minimum
+        val isVisualAscending = slider.componentOrientation.isLeftToRight != slider.inverted
         for (value in tickValues) {
             val fraction = (value - slider.minimum).toFloat() / sliderSpan
-            val x = trackInset + (trackWidth * fraction).roundToInt()
+            val visualFraction = if (isVisualAscending) fraction else 1f - fraction
+            val x = trackInset + (trackWidth * visualFraction).roundToInt()
             val height = if (value in majorTickValues) MAJOR_TICK_HEIGHT else MINOR_TICK_HEIGHT
             graphics.drawLine(x, 0, x, (JBUI.scale(height) - 1).coerceAtLeast(0))
         }

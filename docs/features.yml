@@ -324,8 +324,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "c6b87a5"
-          last_verified_date: "2026-07-16"
+          last_verified_sha: "a572f75"
+          last_verified_date: "2026-07-18"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
 
       - id: glow-waveform

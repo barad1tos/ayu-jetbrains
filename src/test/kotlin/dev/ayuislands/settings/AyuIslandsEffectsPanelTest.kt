@@ -13,6 +13,7 @@ import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.WaveformBaseline
+import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
@@ -21,7 +22,9 @@ import io.mockk.mockkClass
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import java.awt.Color
 import java.awt.Component
+import java.awt.ComponentOrientation
 import java.awt.Container
 import java.awt.Rectangle
 import java.awt.event.ActionEvent
@@ -318,7 +321,13 @@ class AyuIslandsEffectsPanelTest {
                 TickScale((20..400 step 20).toList(), (100..400 step 100).toSet()),
                 TickScale((1..4).toList(), (1..4).toSet()),
                 TickScale((120..800 step 40).toList(), (200..800 step 200).toSet()),
-                TickScale(listOf(1) + (5..40 step 5), setOf(1, 10, 20, 30, 40)),
+                TickScale(
+                    buildList {
+                        add(1)
+                        addAll(5..40 step 5)
+                    },
+                    setOf(1, 10, 20, 30, 40),
+                ),
                 TickScale((0..200 step 10).toList(), (0..200 step 50).toSet()),
             )
         val tickStrips =
@@ -343,6 +352,94 @@ class AyuIslandsEffectsPanelTest {
             readouts.all { innerRightEdge - (it.x + it.width) >= JBUI.scale(READOUT_INSET) },
             "Waveform readouts must keep a visible right inset: $readouts",
         )
+    }
+
+    @Test
+    fun `RTL amplitude slider follows visual arrow direction`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        dialogPanel.applyComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+        amplitude.value = 25
+
+        performFocusedAction(amplitude, KeyEvent.VK_LEFT)
+        assertEquals(30, amplitude.value)
+
+        performFocusedAction(amplitude, KeyEvent.VK_RIGHT)
+        assertEquals(25, amplitude.value)
+    }
+
+    @Test
+    fun `RTL waveform tick strip mirrors the slider scale`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        dialogPanel.applyComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT)
+        val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
+        val tickStrip =
+            amplitude.parent.components
+                .filterIsInstance<SliderTickStrip>()
+                .single()
+        val scale =
+            TickScale(
+                buildList {
+                    add(1)
+                    addAll(5..40 step 5)
+                },
+                setOf(1, 10, 20, 30, 40),
+            )
+        val mirroredTicks =
+            expectedTicks(amplitude, scale)
+                .map { it.copy(x = TICK_STRIP_WIDTH - 1 - it.x) }
+                .sortedBy(PaintedTick::x)
+
+        assertEquals(mirroredTicks, tickStrip.paintedTicks())
+    }
+
+    @Test
+    fun `waveform preview keeps numeric readouts clear throughout the loop`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        dialogPanel.setSize(TEST_PANEL_WIDTH, dialogPanel.preferredSize.height)
+        layoutRecursively(dialogPanel)
+        val glowPanel = field<GlowGroupPanel>(effectsPanel, "glowGroupPanel")
+        val readouts =
+            listOf("loopLabel", "densityLabel", "traceLengthLabel", "amplitudeLabel", "intensityLabel")
+                .associateWith { fieldName -> waveformField<JLabel>(effectsPanel, fieldName).boundsIn(glowPanel) }
+        val preview =
+            GlowPreview(
+                shape = GlowShape.WAVEFORM,
+                style = GlowStyle.SHARP_NEON,
+                intensity = 0,
+                width = 4,
+                color = Color(0xFF6B6B),
+                visible = true,
+                waveformConfig =
+                    WaveformConfig(
+                        baseline = WaveformBaseline.CENTERED,
+                        traceDensity = 4,
+                        amplitude = 24,
+                        intensity = 100,
+                        loopSeconds = 20f,
+                    ),
+            )
+        glowPanel.updatePreview(preview.copy(visible = false))
+        val withoutWaveform = render(glowPanel)
+        glowPanel.updatePreview(preview)
+
+        val overlap =
+            (0L..20_000L step 250L).firstNotNullOfOrNull { nowMs ->
+                glowPanel.advanceWaveformPreview(nowMs)
+                val withWaveform = render(glowPanel)
+                readouts.entries
+                    .firstOrNull { (_, bounds) ->
+                        pixelDifference(withoutWaveform, withWaveform, bounds) > 0
+                    }?.let { (fieldName, _) -> fieldName to nowMs }
+            }
+
+        assertEquals(null, overlap, "Waveform preview crossed a numeric readout at $overlap")
     }
 
     @Test
@@ -468,7 +565,7 @@ class AyuIslandsEffectsPanelTest {
         val effectsPanel = AyuIslandsEffectsPanel()
         buildDialogPanel(effectsPanel)
         val glowPanel = field<GlowGroupPanel>(effectsPanel, "glowGroupPanel")
-        val content = glowPanel.components.filterIsInstance<javax.swing.JComponent>()
+        val content = glowPanel.components.filterIsInstance<JComponent>()
 
         assertTrue(content.isNotEmpty())
         assertTrue(content.all { !it.isOpaque })
@@ -797,6 +894,26 @@ class AyuIslandsEffectsPanelTest {
             if (start >= 0) add(PaintedTick((start + columnHeights.lastIndex) / 2, currentHeight))
         }
     }
+
+    private fun render(component: JComponent): BufferedImage {
+        val image = BufferedImage(component.width, component.height, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        try {
+            component.paint(graphics)
+        } finally {
+            graphics.dispose()
+        }
+        return image
+    }
+
+    private fun pixelDifference(
+        first: BufferedImage,
+        second: BufferedImage,
+        bounds: Rectangle,
+    ): Int =
+        (bounds.y until bounds.y + bounds.height).sumOf { y ->
+            (bounds.x until bounds.x + bounds.width).count { x -> first.getRGB(x, y) != second.getRGB(x, y) }
+        }
 
     private fun expectedTicks(
         slider: JSlider,
