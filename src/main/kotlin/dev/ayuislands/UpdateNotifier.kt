@@ -70,6 +70,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.0" to
+                releaseNotes(
+                    "[Paid] External chrome tint and project-icon accents extend automatic color across more projects",
+                    "[Paid] Solid glow can render around the full island or only along its side edges",
+                    "[Paid] Typing-responsive ECG glow adds a configurable perimeter trace and live preview",
+                    "[Free] New-setting wayfinding points directly to recently added controls",
+                    "[Fix] Commit panel accessibility no longer triggers forbidden read-lock errors",
+                ),
             "2.7.8" to
                 releaseNotes(
                     "[Fix] Failed What's New or onboarding opens retry instead of blocking the session",

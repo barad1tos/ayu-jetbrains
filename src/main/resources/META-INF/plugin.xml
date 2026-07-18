@@ -123,12 +123,13 @@
     <change-notes><![CDATA[
     <h3>2.8.0</h3>
     <ul>
-      <li>[Paid] <b>Chrome tint on external themes</b> — selected chrome surfaces and the active tab underline can now follow the Ayu accent on non-Ayu themes when explicitly enabled; external chrome tint stays off by default.</li>
-      <li>[Paid] <b>Glow placement</b> — choose where glow renders: the full island frame or its side edges only, per surface (editor and tool windows); clicks preview on the live window instantly, Apply keeps them.</li>
-      <li>[Paid] <b>ECG waveform glow</b> — trace the focused island with a continuous phosphor-comet perimeter loop whose pace responds to typing; configure its direction, loop duration, trace length, spike density, border position, amplitude, and intensity without changing saved solid-glow preferences.</li>
-      <li>[Paid] <b>Accent from project icon</b> — when enabled, projects without an override take their accent from .idea/icon.png automatically when they open; the Add Override dialog offers the icon's dominant color as a one-click pick.</li>
+      <li>[Paid] <b>Chrome tint on external themes</b> — selected chrome surfaces and the active tab underline can follow the Ayu accent on non-Ayu themes when explicitly enabled. It stays off by default, respects individual tint targets, and restores the host theme cleanly when disabled.</li>
+      <li>[Paid] <b>Glow placement</b> — render solid glow around the full island or only along its straight side edges, independently for editors and tool windows. Placement changes preview immediately; Apply keeps them and Cancel restores the previous layout.</li>
+      <li>[Paid] <b>ECG waveform glow</b> — trace the focused island with a compact, angular phosphor-comet loop whose signal and brightness respond to typing. The fixed-length trace travels continuously around islands of any size, stays correctly oriented inside floating windows, and settles into a visible resting waveform when focus moves elsewhere.</li>
+      <li>[Paid] <b>ECG controls and preview</b> — configure direction, loop duration, 1x–4x spike density, trace length, border position, amplitude, and intensity with snapping sliders whose ticks match real values. The live preview mirrors the selected behavior, fresh installs start from the calibrated centered profile, and existing solid-glow preferences remain untouched.</li>
+      <li>[Paid] <b>Accent from project icon</b> — projects without an override can take their accent from .idea/icon.png automatically, and the Add Override dialog offers the icon's dominant color as a one-click pick. Existing manual project accents are never overwritten.</li>
+      <li>[Free] <b>Find what's new faster</b> — the settings page points at newly added controls with a "New in this release" index, Review jump link, tab dots, and small row marks. Marks clear when their controls become visible on tab visit or collapsed-group expansion, never outlive 45 days, and stay hidden on fresh installs.</li>
       <li>[Fix] <b>Commit panel accessibility crash</b> — screen-reader and macOS accessibility walks over the commit changes tree no longer flood idea.log with "Attempt to take read lock was prevented" errors; the path renderer serves plain text when the platform forbids model access mid-walk.</li>
-      <li>[Free] <b>Find what's new faster</b> — the settings page now points at newly added controls: a "New in this release" index with a Review jump link, an accent dot on tabs that contain new settings, and small "New" marks on the rows themselves; everything clears as you visit and never outlives 45 days.</li>
     </ul>
     <h3>2.7.8</h3>
     <ul>
@@ -344,8 +345,8 @@
          Marketplace reject the upload. -->
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260529"
-            release-version="27"
+            release-date="20260718"
+            release-version="28"
             optional="true"/>
 
     <extensionPoints>

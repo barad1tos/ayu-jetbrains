@@ -107,6 +107,15 @@ class UpdateNotifierTest {
         } returns descriptor
         every { descriptor.version } returns "2.8.0"
 
+        val notification = mockk<Notification>(relaxed = true)
+        val group = mockk<NotificationGroup>(relaxed = true)
+        val groupManager = mockk<NotificationGroupManager>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+        every { groupManager.getNotificationGroup("Ayu Islands") } returns group
+        every {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns notification
+
         val beforeUpdateMs = System.currentTimeMillis()
         UpdateNotifier.showIfUpdated(project)
         val afterUpdateMs = System.currentTimeMillis()
@@ -119,6 +128,40 @@ class UpdateNotifierTest {
             newDeadline in
                 (beforeUpdateMs + SettingsBadges.BADGE_LIFETIME_MS)..(afterUpdateMs + SettingsBadges.BADGE_LIFETIME_MS),
         )
+    }
+
+    @Test
+    fun `2_8 release notification summarizes user-facing changes`() {
+        state.lastSeenVersion = "2.7.8"
+        every {
+            AyuPlugin.findLoadedPlugin(any<PluginId>())
+        } returns descriptor
+        every { descriptor.version } returns "2.8.0"
+
+        val notification = mockk<Notification>(relaxed = true)
+        val group = mockk<NotificationGroup>(relaxed = true)
+        val groupManager = mockk<NotificationGroupManager>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+        every { groupManager.getNotificationGroup("Ayu Islands") } returns group
+        every {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns notification
+
+        UpdateNotifier.showIfUpdated(project)
+
+        verify(exactly = 1) {
+            group.createNotification(
+                "Ayu Islands updated to 2.8.0",
+                match<String> { body ->
+                    body.contains("[Paid] External chrome tint") &&
+                        body.contains("[Paid] Typing-responsive ECG glow") &&
+                        body.contains("[Free] New-setting wayfinding") &&
+                        body.contains("[Fix] Commit panel accessibility")
+                },
+                NotificationType.INFORMATION,
+            )
+        }
+        verify(exactly = 1) { notification.notify(project) }
     }
 
     @Test
