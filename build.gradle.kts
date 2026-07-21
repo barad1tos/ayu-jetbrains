@@ -13,7 +13,7 @@ plugins {
     // 2.18.1 breaks the verifyPlugin compatibility matrix; keep in sync with Dependabot.
     id("org.jetbrains.intellij.platform") version "2.17.0"
     kotlin("jvm") version "2.4.0"
-    id("org.jetbrains.kotlinx.kover") version "0.9.8"
+    id("org.jetbrains.kotlinx.kover") version "0.9.9"
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
     id("io.gitlab.arturbosch.detekt") version "1.23.8"
 }
