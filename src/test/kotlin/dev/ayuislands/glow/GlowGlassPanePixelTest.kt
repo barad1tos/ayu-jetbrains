@@ -213,7 +213,7 @@ class GlowGlassPanePixelTest {
     }
 
     @Test
-    fun `waveform timer follows engine start and stop directives`() {
+    fun `waveform timer follows engine start stop and resume directives`() {
         val pane = waveformPane(WaveformConfig())
         pane.activateWaveform(powerSaveEnabled = false)
 
@@ -223,6 +223,10 @@ class GlowGlassPanePixelTest {
         pane.deactivateWaveform()
         assertNull(readWaveformTimer(pane))
         assertNull(readWaveformFrame(pane))
+
+        pane.activateWaveform(powerSaveEnabled = false)
+        assertNotNull(readWaveformTimer(pane))
+        pane.deactivateWaveform()
     }
 
     @Test

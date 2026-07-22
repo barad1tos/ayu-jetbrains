@@ -2,6 +2,8 @@ package dev.ayuislands.glow
 
 import com.intellij.ide.PowerSaveMode
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationActivationListener
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -10,6 +12,7 @@ import com.intellij.openapi.fileEditor.FileEditorManagerListener
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
@@ -58,6 +61,33 @@ class GlowOverlayManager(
 
     // Global focus listener
     private var focusChangeListener: PropertyChangeListener? = null
+
+    private val activationListener =
+        object : ApplicationActivationListener {
+            override fun applicationActivated(ideFrame: IdeFrame) {
+                if (ideFrame.project === project) syncWaveform(isActive = true)
+            }
+
+            override fun applicationDeactivated(ideFrame: IdeFrame) {
+                if (ideFrame.project === project) syncWaveform(isActive = false)
+            }
+
+            private fun syncWaveform(isActive: Boolean) {
+                val update =
+                    Runnable {
+                        if (disposed) return@Runnable
+                        val glassPane = activeGlowId?.let { overlays[it]?.glassPane } ?: return@Runnable
+                        if (!glassPane.isWaveform) return@Runnable
+
+                        if (isActive) {
+                            glassPane.activateWaveform(PowerSaveMode.isEnabled())
+                        } else {
+                            glassPane.deactivateWaveform()
+                        }
+                    }
+                if (SwingUtilities.isEventDispatchThread()) update.run() else SwingUtilities.invokeLater(update)
+            }
+        }
 
     // Continuous glow animation (Pulse/Breathe/Reactive)
     private var animator: GlowAnimator? = null
@@ -255,6 +285,15 @@ class GlowOverlayManager(
                 }
             },
         )
+
+        ApplicationManager
+            .getApplication()
+            .messageBus
+            .connect(this)
+            .subscribe(
+                ApplicationActivationListener.TOPIC,
+                activationListener,
+            )
     }
 
     private fun installFocusTracker() {
@@ -342,12 +381,12 @@ class GlowOverlayManager(
                         contentBounds.width + margin * 2,
                         contentBounds.height + margin * 2,
                     )
-                glassPane.setBounds(overlayBounds)
+                glassPane.bounds = overlayBounds
                 glassPane.waveformInwardEdges = clippedWaveformEdges(overlayBounds, layeredPane.visibleRect)
             } else if (glassPane.isEditorOverlay) {
                 glassPane.waveformInwardEdges = emptySet()
                 val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
-                glassPane.setBounds(point.x + bounds.x, point.y + bounds.y, bounds.width, bounds.height)
+                glassPane.bounds = Rectangle(point.x + bounds.x, point.y + bounds.y, bounds.width, bounds.height)
             } else {
                 glassPane.waveformInwardEdges = emptySet()
                 glassPane.setBounds(point.x, point.y, host.width, host.height)
@@ -602,12 +641,12 @@ class GlowOverlayManager(
         toolWindowPlacement: GlowPlacement?,
     ) {
         val state = AyuIslandsSettings.getInstance().state
-        for (entry in overlays.values) {
-            val isEditor = entry.glassPane.isEditorOverlay
-            entry.glassPane.glowPlacement =
+        for ((glassPane) in overlays.values) {
+            val isEditor = glassPane.isEditorOverlay
+            glassPane.glowPlacement =
                 (if (isEditor) editorPlacement else toolWindowPlacement)
                     ?: resolveGlowPlacement(isEditorOverlay = isEditor, state = state)
-            entry.glassPane.repaint()
+            glassPane.repaint()
         }
     }
 
@@ -616,17 +655,17 @@ class GlowOverlayManager(
         accent: Color,
         style: GlowStyle,
     ) {
-        for (entry in overlays.values) {
-            entry.glassPane.glowColor = accent
-            entry.glassPane.glowStyle = style
-            entry.glassPane.glowIntensity = state.getIntensityForStyle(style)
-            entry.glassPane.glowWidth = state.getWidthForStyle(style)
-            entry.glassPane.glowPlacement =
-                resolveGlowPlacement(isEditorOverlay = entry.glassPane.isEditorOverlay, state = state)
-            entry.glassPane.configureWaveform(GlowShape.fromName(state.glowShape), resolveWaveformConfig(state))
-            updateOverlayBounds(entry.glassPane, entry.host, entry.layeredPane)
-            entry.glassPane.invalidateRendererCache()
-            entry.glassPane.repaint()
+        for ((glassPane, host, layeredPane) in overlays.values) {
+            glassPane.glowColor = accent
+            glassPane.glowStyle = style
+            glassPane.glowIntensity = state.getIntensityForStyle(style)
+            glassPane.glowWidth = state.getWidthForStyle(style)
+            glassPane.glowPlacement =
+                resolveGlowPlacement(isEditorOverlay = glassPane.isEditorOverlay, state = state)
+            glassPane.configureWaveform(GlowShape.fromName(state.glowShape), resolveWaveformConfig(state))
+            updateOverlayBounds(glassPane, host, layeredPane)
+            glassPane.invalidateRendererCache()
+            glassPane.repaint()
         }
     }
 

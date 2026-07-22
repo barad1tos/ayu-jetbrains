@@ -2,9 +2,11 @@ package dev.ayuislands.glow
 
 import com.intellij.ide.PowerSaveMode
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AccentChangeListener
@@ -41,6 +43,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -161,7 +164,7 @@ class GlowOverlayManagerLifecycleTest {
         manager.updateGlow()
 
         verify(exactly = 1) { animator.dispose() }
-        assertTrue(readAnimator(manager) == null)
+        assertNull(readAnimator(manager))
     }
 
     @Test
@@ -314,7 +317,7 @@ class GlowOverlayManagerLifecycleTest {
         every { active.isWaveform } returns true
         seedOverlaysMapWithMocks(manager, active, mockk(relaxed = true), mockk(relaxed = true), key = "active")
         seedOverlaysMapWithMocks(manager, inactive, mockk(relaxed = true), mockk(relaxed = true), key = "inactive")
-        setActiveGlow(manager, "active")
+        setActiveGlow(manager)
 
         manager.input.onKeystroke()
 
@@ -330,7 +333,7 @@ class GlowOverlayManagerLifecycleTest {
         val active = mockk<GlowGlassPane>(relaxed = true)
         every { active.isWaveform } returns false
         seedOverlaysMapWithMocks(manager, active, mockk(relaxed = true), mockk(relaxed = true), key = "active")
-        setActiveGlow(manager, "active")
+        setActiveGlow(manager)
 
         manager.input.onKeystroke()
 
@@ -367,7 +370,7 @@ class GlowOverlayManagerLifecycleTest {
         val manager = GlowOverlayManager(stubProject("power-save-input-project"))
         val active = mockk<GlowGlassPane>(relaxed = true)
         seedOverlaysMapWithMocks(manager, active, mockk(relaxed = true), mockk(relaxed = true), key = "active")
-        setActiveGlow(manager, "active")
+        setActiveGlow(manager)
 
         manager.input.onPowerSaveChanged(enabled = true)
 
@@ -393,6 +396,59 @@ class GlowOverlayManagerLifecycleTest {
         verify(exactly = 0) { old.activateWaveform(any()) }
         verify(exactly = 1) { old.startFadeOut() }
         verify(exactly = 1) { new.startFadeIn() }
+    }
+
+    @Test
+    fun `application focus changes freeze and resume only the matching active waveform`() {
+        state.glowShape = GlowShape.WAVEFORM.name
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+        val project = stubProject("application-focus-project")
+        val manager = GlowOverlayManager(project)
+        val projectBus = mockk<MessageBus>()
+        val projectConnection = mockk<MessageBusConnection>(relaxed = true)
+        every { project.messageBus } returns projectBus
+        every { projectBus.connect(any<Disposable>()) } returns projectConnection
+        val applicationBus = mockk<MessageBus>()
+        val applicationConnection = mockk<MessageBusConnection>(relaxed = true)
+        every { mockApplication.messageBus } returns applicationBus
+        every { applicationBus.connect(manager) } returns applicationConnection
+        val activationListener = slot<ApplicationActivationListener>()
+        every {
+            applicationConnection.subscribe(
+                eq(ApplicationActivationListener.TOPIC),
+                capture(activationListener),
+            )
+        } just Runs
+        every { mockApplication.getService(KeystrokeHub::class.java) } returns mockk(relaxed = true)
+        val pane = mockk<GlowGlassPane>(relaxed = true)
+        every { pane.isWaveform } returns true
+        seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), mockk(relaxed = true), key = "active")
+        setActiveGlow(manager)
+        val matchingFrame = mockk<IdeFrame>()
+        every { matchingFrame.project } returns project
+
+        manager.initialize()
+        activationListener.captured.applicationDeactivated(matchingFrame)
+        activationListener.captured.applicationActivated(matchingFrame)
+
+        verify(exactly = 1) { pane.deactivateWaveform() }
+        verify(exactly = 1) { pane.activateWaveform(powerSaveEnabled = false) }
+
+        val otherFrame = mockk<IdeFrame>()
+        every { otherFrame.project } returns stubProject("other-project")
+        activationListener.captured.applicationDeactivated(otherFrame)
+        activationListener.captured.applicationActivated(otherFrame)
+        verify(exactly = 1) { pane.deactivateWaveform() }
+        verify(exactly = 1) { pane.activateWaveform(powerSaveEnabled = false) }
+
+        val solidPane = mockk<GlowGlassPane>(relaxed = true)
+        every { solidPane.isWaveform } returns false
+        seedOverlaysMapWithMocks(manager, solidPane, mockk(relaxed = true), mockk(relaxed = true), key = "active")
+        activationListener.captured.applicationDeactivated(matchingFrame)
+        activationListener.captured.applicationActivated(matchingFrame)
+        verify(exactly = 0) { solidPane.deactivateWaveform() }
+        verify(exactly = 0) { solidPane.activateWaveform(any()) }
     }
 
     @Test
@@ -1024,13 +1080,10 @@ class GlowOverlayManagerLifecycleTest {
         return field.get(entry) as GlowGlassPane
     }
 
-    private fun setActiveGlow(
-        manager: GlowOverlayManager,
-        key: String,
-    ) {
+    private fun setActiveGlow(manager: GlowOverlayManager) {
         val field = GlowOverlayManager::class.java.getDeclaredField("activeGlowId")
         field.isAccessible = true
-        field.set(manager, key)
+        field.set(manager, "active")
     }
 
     private fun markManagerWarm(manager: GlowOverlayManager) {
