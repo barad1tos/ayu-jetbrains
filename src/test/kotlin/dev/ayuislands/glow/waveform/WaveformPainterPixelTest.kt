@@ -12,6 +12,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -24,8 +25,8 @@ class WaveformPainterPixelTest {
     @Test
     fun `signal strokes derive from the solid width`() {
         assertEquals(
-            WaveformPainter.SignalStrokes(core = 2f, inner = 4f, bloom = 8f, outer = 14f),
-            WaveformPainter.strokeWidths(solidWidth = 4),
+            expected = WaveformPainter.SignalStrokes(core = 2f, inner = 4f, bloom = 8f, outer = 14f),
+            actual = WaveformPainter.strokeWidths(solidWidth = 4),
         )
     }
 
@@ -43,6 +44,26 @@ class WaveformPainterPixelTest {
         val resized = painter.trackLength(mutableBounds, ARC_WIDTH, frame, SOLID_WIDTH)
 
         assertTrue(resized > initial)
+    }
+
+    @Test
+    fun `track cache snapshots occupied spans`() {
+        val occupiedTopSpans = mutableListOf(0..WIDTH)
+        val spec =
+            WaveformTrackSpec(
+                bounds = bounds,
+                arcWidth = ARC_WIDTH,
+                config = WaveformConfig(),
+                solidWidth = SOLID_WIDTH,
+                occupiedTopSpans = occupiedTopSpans,
+                direction = TravelDirection.CLOCKWISE,
+            )
+        val masked = painter.track(spec)
+
+        occupiedTopSpans.clear()
+        val exposed = painter.track(spec)
+
+        assertNotEquals(masked.signalAnchorDistance, exposed.signalAnchorDistance)
     }
 
     @Test
@@ -352,7 +373,7 @@ class WaveformPainterPixelTest {
     fun `R peaks extend outward on right bottom and left edges`() {
         val config = WaveformConfig(amplitude = 16, intensity = 100)
         val flat = render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config))
-        val edgeSamples =
+        val edgeProbes =
             listOf(
                 flat.plan.track.samples
                     .first { it.normalX > 0.999f && it.y > HEIGHT * 0.45f },
@@ -360,19 +381,23 @@ class WaveformPainterPixelTest {
                     .first { it.normalY > 0.999f && it.x < WIDTH * 0.55f },
                 flat.plan.track.samples
                     .first { it.normalX < -0.999f && it.y < HEIGHT * 0.55f },
-            )
+            ).map { sample ->
+                Triple(
+                    (sample.x + sample.normalX * OUTWARD_PROBE).roundToInt(),
+                    (sample.y + sample.normalY * OUTWARD_PROBE).roundToInt(),
+                    sample.distance,
+                )
+            }
 
-        for (sample in edgeSamples) {
+        for ((x, y, distance) in edgeProbes) {
             val beat =
                 render(
                     frame(
                         config,
-                        sample.distance - flat.plan.track.signalAnchorDistance,
+                        distance - flat.plan.track.signalAnchorDistance,
                         BeatMorphology.standard(),
                     ),
                 )
-            val x = (sample.x + sample.normalX * OUTWARD_PROBE).roundToInt()
-            val y = (sample.y + sample.normalY * OUTWARD_PROBE).roundToInt()
             assertTrue(alphaAt(beat.image, x, y) > alphaAt(flat.image, x, y), "R peak must paint outward at $x,$y")
         }
     }
@@ -764,7 +789,7 @@ class WaveformPainterPixelTest {
     }
 
     @Test
-    fun `toward white lerps every channel to white`() {
+    fun `toward white blends channels`() {
         assertEquals(accent, WaveformPainter.towardWhite(accent, 0f))
         assertEquals(Color.WHITE, WaveformPainter.towardWhite(accent, 1f))
         val half = WaveformPainter.towardWhite(accent, 0.5f)

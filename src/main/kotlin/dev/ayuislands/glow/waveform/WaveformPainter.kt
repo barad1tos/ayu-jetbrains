@@ -270,7 +270,7 @@ internal open class WaveformPainter(
         val arcWidth = spec.arcWidth
         val config = spec.config
         val solidWidth = spec.solidWidth
-        val occupiedTopSpans = spec.occupiedTopSpans
+        val occupiedTopSpans = spec.occupiedTopSpans.toList()
         val direction = spec.direction
         val amplitude = config.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
         val key =
