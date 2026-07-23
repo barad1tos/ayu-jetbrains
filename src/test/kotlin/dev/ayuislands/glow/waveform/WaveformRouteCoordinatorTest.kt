@@ -251,6 +251,39 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
+    fun `additive topology preserves the planned connector`() {
+        val initial =
+            testGraph(
+                lengths = mapOf("Editor" to 400f, "Commit" to 400f),
+                edges = listOf(TestEdge("Editor", "Commit")),
+            )
+        val expanded =
+            testGraph(
+                lengths = mapOf("Editor" to 400f, "Commit" to 400f, "Problems" to 400f),
+                edges =
+                    listOf(
+                        TestEdge("Editor", "Commit"),
+                        TestEdge("Editor", "Problems"),
+                    ),
+            )
+
+        val plannedTargets =
+            (101..116).map { seed ->
+                val coordinator = testCoordinator(seededRandom(seed))
+                coordinator.handle(RouteEvent.Activate(initial, "Editor", false))
+                coordinator.handle(RouteEvent.Tick(0L))
+                assertEquals("Commit", coordinator.snapshot.plannedTargetId)
+
+                coordinator.handle(RouteEvent.GraphChanged(expanded))
+                coordinator.handle(RouteEvent.Tick(20_000L))
+
+                coordinator.snapshot.plannedTargetId
+            }
+
+        assertEquals(setOf("Commit"), plannedTargets.toSet())
+    }
+
+    @TestCase
     fun `identical topology rebinds geometry immediately with normalized progress`() {
         val coordinator = testCoordinator(seededRandom(29))
         val initial = testGraph(mapOf("Editor" to 400f), emptyList())
@@ -377,6 +410,23 @@ class WaveformRouteCoordinatorTest {
 
         coordinator.handle(RouteEvent.Tick(901_000L))
         assertTrue(coordinator.snapshot.distanceOnLeg > before)
+    }
+
+    @TestCase
+    fun `resume preserves the pre-suspend frame`() {
+        val coordinator = testCoordinator(seededRandom(97))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        coordinator.handle(RouteEvent.Keystroke(500L))
+        val suspended = requireNotNull(coordinator.handle(RouteEvent.ApplicationActiveChanged(false)).frame)
+
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+        val resumed = requireNotNull(coordinator.handle(RouteEvent.Tick(10_000L)).frame)
+
+        assertEquals(0f, coordinator.snapshot.distanceOnLeg, 0.001f)
+        assertEquals(suspended.centerDistance, resumed.centerDistance, 0.001f)
+        assertEquals(suspended.signal, resumed.signal)
     }
 
     @TestCase

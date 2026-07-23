@@ -185,7 +185,7 @@ private sealed interface TargetPolicy {
     data object Select : TargetPolicy
 
     data class Preserve(
-        val targetId: String?,
+        val connector: RouteConnector?,
     ) : TargetPolicy
 }
 
@@ -533,7 +533,7 @@ internal class WaveformRouteCoordinator(
         current: LiveState,
         reason: SuspensionReason,
     ): Transition {
-        clock.resetWallTick()
+        clock.pause()
         val stableFrame = lastFrame
         return Transition(
             LifecycleState.Suspended(setOf(reason), current, stableFrame),
@@ -705,7 +705,11 @@ internal class WaveformRouteCoordinator(
                 graph,
                 previousSurfaceId,
                 leg.surfaceId,
-                PerimeterEntry(entryDistance, leg.direction),
+                PerimeterEntry(
+                    distance = entryDistance,
+                    direction = leg.direction,
+                    targetPolicy = TargetPolicy.Preserve(leg.connector),
+                ),
             ),
             0f,
         )
@@ -781,7 +785,7 @@ internal class WaveformRouteCoordinator(
                             PerimeterEntry(
                                 distance = leg.entryDistance / oldTrack.length * newTrack.length,
                                 direction = leg.direction,
-                                targetPolicy = TargetPolicy.Preserve(leg.connector?.targetId),
+                                targetPolicy = TargetPolicy.Preserve(leg.connector),
                             ),
                     )
                 }
@@ -960,9 +964,7 @@ private class RoutePlanner(
             when (val targetPolicy = entry.targetPolicy) {
                 TargetPolicy.Select -> chooseConnector(graph, previousSurfaceId, surfaceId)
                 is TargetPolicy.Preserve ->
-                    targetPolicy.targetId?.let { targetId ->
-                        shortestConnector(graph, surfaceId, targetId)
-                    }
+                    preserveConnector(graph, previousSurfaceId, surfaceId, targetPolicy.connector)
             }
         val exitDistance =
             connector?.let { planned ->
@@ -986,6 +988,20 @@ private class RoutePlanner(
             signalSpan = surface.track.signalSpan,
         )
     }
+
+    private fun preserveConnector(
+        graph: RouteGraph,
+        previousSurfaceId: String?,
+        surfaceId: String,
+        planned: RouteConnector?,
+    ): RouteConnector? =
+        planned
+            ?.let { connector ->
+                graph.connectorsFrom(surfaceId).firstOrNull { candidate ->
+                    candidate.id == connector.id &&
+                        candidate.targetId == connector.targetId
+                }
+            } ?: chooseConnector(graph, previousSurfaceId, surfaceId)
 
     fun createConnector(
         graph: RouteGraph,
@@ -1225,6 +1241,11 @@ private class RouteClock {
     }
 
     fun resetWallTick() {
+        lastWallTickMs = null
+    }
+
+    fun pause() {
+        engineTimeMs = logicalTimeMs
         lastWallTickMs = null
     }
 
