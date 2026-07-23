@@ -47,6 +47,44 @@ class RouteGraphBuilderTest {
     }
 
     @Test
+    fun `gap at twenty four logical pixels is adjacent`() {
+        val left = surface("Editor", root = 1, bounds = Rectangle(0, 0, 400, 300))
+        val right = surface("Commit", root = 1, bounds = Rectangle(424, 40, 220, 180))
+
+        assertEquals(
+            "Commit",
+            builder()
+                .build(listOf(left, right))
+                .connectorsFrom("Editor")
+                .single()
+                .targetId,
+        )
+    }
+
+    @Test
+    fun `zero gap is adjacent`() {
+        val left = surface("Editor", root = 1, bounds = Rectangle(0, 0, 400, 300))
+        val right = surface("Commit", root = 1, bounds = Rectangle(400, 40, 220, 180))
+
+        assertEquals(
+            "Commit",
+            builder()
+                .build(listOf(left, right))
+                .connectorsFrom("Editor")
+                .single()
+                .targetId,
+        )
+    }
+
+    @Test
+    fun `overlapping rectangles are not adjacent`() {
+        val left = surface("Editor", root = 1, bounds = Rectangle(0, 0, 400, 300))
+        val overlapping = surface("Commit", root = 1, bounds = Rectangle(399, 40, 220, 180))
+
+        assertTrue(builder().build(listOf(left, overlapping)).connectorsFrom("Editor").isEmpty())
+    }
+
+    @Test
     fun `neighbors without straight edge projection overlap are not adjacent`() {
         val left = surface("Editor", root = 1, bounds = Rectangle(0, 0, 400, 300))
         val right = surface("Commit", root = 1, bounds = Rectangle(408, 300, 220, 180))
@@ -58,6 +96,14 @@ class RouteGraphBuilderTest {
     fun `rounded corner endpoint overlap is not adjacent`() {
         val left = surface("Editor", root = 1, bounds = Rectangle(0, 0, 400, 300))
         val right = surface("Commit", root = 1, bounds = Rectangle(408, 268, 220, 180))
+
+        assertTrue(builder().build(listOf(left, right)).connectorsFrom("Editor").isEmpty())
+    }
+
+    @Test
+    fun `bounds overlap formed only by rounded arcs is not adjacent`() {
+        val left = surface("Editor", root = 1, bounds = Rectangle(0, 0, 400, 300))
+        val right = surface("Commit", root = 1, bounds = Rectangle(408, 269, 220, 180))
 
         assertTrue(builder().build(listOf(left, right)).connectorsFrom("Editor").isEmpty())
     }
