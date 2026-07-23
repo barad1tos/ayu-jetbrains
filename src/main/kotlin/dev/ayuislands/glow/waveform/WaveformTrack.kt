@@ -55,9 +55,40 @@ class WaveformTrack internal constructor(
                     (next.amplitudeMask - previous.amplitudeMask) * progress,
         )
     }
+
+    internal fun translated(
+        deltaX: Float,
+        deltaY: Float,
+    ): WaveformTrack =
+        WaveformTrack(
+            samples =
+                samples.map { sample ->
+                    sample.copy(
+                        x = sample.x + deltaX,
+                        y = sample.y + deltaY,
+                    )
+                },
+            length = length,
+            signalAnchorDistance = signalAnchorDistance,
+            signalSpan = signalSpan,
+        )
+
+    internal fun traversal(
+        startDistance: Float,
+        travelDistance: Float,
+        direction: TravelDirection,
+    ): List<WaveformSample> {
+        require(isClosed) { "Perimeter traversal requires a closed waveform track" }
+        require(travelDistance >= 0f) { "Travel distance must not be negative" }
+        val stepCount = ceil(travelDistance / ROUTE_SAMPLE_STEP).toInt().coerceAtLeast(1)
+        return List(stepCount + 1) { index ->
+            val offset = travelDistance * index / stepCount
+            sampleAt(startDistance + offset * direction.travelSign)
+        }
+    }
 }
 
-private const val DEFAULT_SAMPLE_STEP = 2f
+private const val ROUTE_SAMPLE_STEP = 2f
 private const val HALF_DIVISOR = 2f
 private const val HALF_PI = PI / 2
 private const val THREE_HALVES_PI = PI * 1.5
@@ -82,7 +113,7 @@ internal fun Rectangle.toWaveformTrack(
             arcRadius.coerceAtLeast(0f),
             min((right - left) / HALF_DIVISOR, (bottom - top) / HALF_DIVISOR),
         )
-    val builder = TrackBuilder(DEFAULT_SAMPLE_STEP)
+    val builder = TrackBuilder(ROUTE_SAMPLE_STEP)
     builder.addLine(
         LineSpec(left + radius, top, right - radius, top, 0f, -1f),
         topLineMask(left + radius, right - radius, occupiedTopSpans, overlayBounds.x),

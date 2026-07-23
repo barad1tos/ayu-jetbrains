@@ -350,6 +350,91 @@ class WaveformTrackPropertyTest {
     }
 
     @Test
+    fun `translation preserves track geometry while shifting every sample`() {
+        val track =
+            Rectangle(0, 0, 240, 160).toWaveformTrack(
+                margin = 16f,
+                arcRadius = 12f,
+                config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
+            )
+        val originalFirst = track.samples.first()
+
+        val translated = track.translated(deltaX = 41f, deltaY = -13f)
+
+        assertEquals(track.length, translated.length)
+        assertEquals(track.signalAnchorDistance, translated.signalAnchorDistance)
+        assertEquals(track.signalSpan, translated.signalSpan)
+        assertEquals(originalFirst, track.samples.first())
+        track.samples.zip(translated.samples).forEach { (original, shifted) ->
+            assertEquals(original.x + 41f, shifted.x)
+            assertEquals(original.y - 13f, shifted.y)
+            assertEquals(original.normalX, shifted.normalX)
+            assertEquals(original.normalY, shifted.normalY)
+            assertEquals(original.distance, shifted.distance)
+            assertEquals(original.amplitudeMask, shifted.amplitudeMask)
+        }
+    }
+
+    @Test
+    fun `traversal follows each direction in ordered two pixel samples`() {
+        val track =
+            Rectangle(0, 0, 240, 160).toWaveformTrack(
+                margin = 16f,
+                arcRadius = 12f,
+                config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
+            )
+        val startDistance = track.length - 3f
+        val travelDistance = 7f
+
+        for (direction in TravelDirection.entries) {
+            val traversal = track.traversal(startDistance, travelDistance, direction)
+            val expectedEnd = track.sampleAt(startDistance + travelDistance * direction.travelSign)
+
+            assertEquals(5, traversal.size)
+            assertEquals(track.sampleAt(startDistance), traversal.first())
+            assertEquals(expectedEnd, traversal.last())
+            assertTrue(
+                traversal.zipWithNext().all { (first, second) ->
+                    val directedDistance =
+                        if (direction == TravelDirection.CLOCKWISE) {
+                            (second.distance - first.distance + track.length) % track.length
+                        } else {
+                            (first.distance - second.distance + track.length) % track.length
+                        }
+                    directedDistance in 0f..2f
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `traversal rejects open tracks and negative distance`() {
+        val closed =
+            Rectangle(0, 0, 240, 160).toWaveformTrack(
+                margin = 16f,
+                arcRadius = 12f,
+                config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
+            )
+        val open =
+            Rectangle(0, 0, 20, 20).toWaveformTrack(
+                margin = 12f,
+                arcRadius = 8f,
+                config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
+            )
+
+        assertFailsWith<IllegalArgumentException> {
+            open.traversal(0f, 10f, TravelDirection.CLOCKWISE)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            closed.traversal(0f, -1f, TravelDirection.CLOCKWISE)
+        }
+    }
+
+    @Test
     fun `interpolation rejects a track that does not start at distance zero`() {
         val invalidTrack =
             WaveformTrack(
