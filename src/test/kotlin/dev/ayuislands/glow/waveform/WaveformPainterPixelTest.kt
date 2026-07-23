@@ -256,7 +256,7 @@ class WaveformPainterPixelTest {
         val counterClockwise =
             render(
                 WaveformFrame(
-                    direction = TravelDirection.CLOCKWISE,
+                    direction = TravelDirection.COUNTER_CLOCKWISE,
                     config =
                         WaveformConfig(
                             amplitude = 16,

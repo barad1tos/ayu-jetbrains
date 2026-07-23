@@ -75,7 +75,12 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
                 TravelDirection.entries.size,
             ),
         ]
-    private val previewEngine = WaveformEngine(waveformConfig, Random(PREVIEW_RANDOM_SEED))
+    private val previewEngine =
+        WaveformEngine(
+            waveformConfig,
+            Random(PREVIEW_RANDOM_SEED),
+            chaoticDirection = previewDirection,
+        )
     private var waveformFrame = restingPreviewFrame(waveformConfig)
     private var powerSaveConnection: MessageBusConnection? = null
     private val previewTimer =

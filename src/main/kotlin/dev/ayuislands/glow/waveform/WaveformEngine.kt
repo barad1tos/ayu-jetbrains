@@ -148,6 +148,7 @@ internal data class WaveformUpdate(
 internal class WaveformEngine(
     initialConfig: WaveformConfig,
     private val random: Random = Random.Default,
+    private val chaoticDirection: TravelDirection? = null,
 ) {
     internal var state: WaveformState = WaveformState.Inactive(initialConfig)
         private set
@@ -372,6 +373,7 @@ internal class WaveformEngine(
 
     private fun directionFor(config: WaveformConfig): TravelDirection =
         config.movement.fixedDirection
+            ?: chaoticDirection
             ?: if (random.nextBoolean()) {
                 TravelDirection.CLOCKWISE
             } else {

@@ -131,8 +131,19 @@ class WaveformEngineTest {
 
         val first = requireNotNull(engine.handle(WaveformEvent.Tick(500L, 1_000f)).frame)
         val second = requireNotNull(engine.handle(WaveformEvent.Tick(1_000L, 1_000f)).frame)
+        engine.handle(
+            WaveformEvent.Configure(
+                WaveformConfig(
+                    movement = WaveformMovement.CHAOTIC,
+                    amplitude = 24,
+                ),
+            ),
+        )
+        val configured = assertIs<WaveformState.Looping>(engine.state)
 
+        assertEquals(TravelDirection.CLOCKWISE, first.direction)
         assertEquals(first.direction, second.direction)
+        assertEquals(first.direction, configured.direction)
         assertTrue(trace(first).anchorOffset != trace(second).anchorOffset)
     }
 
@@ -253,6 +264,7 @@ class WaveformEngineTest {
         engine.handle(WaveformEvent.Tick(700L, 1_000f))
         engine.handle(WaveformEvent.Keystroke(700L))
         engine.handle(WaveformEvent.Tick(740L, 1_000f))
+        assertEquals(TravelDirection.CLOCKWISE, assertIs<WaveformState.Looping>(engine.state).direction)
         val updatedConfig =
             WaveformConfig(
                 movement = WaveformMovement.COUNTER_CLOCKWISE,
@@ -266,6 +278,7 @@ class WaveformEngineTest {
         assertEquals(0.037f, running.travelPhase, 0.001f)
         assertEquals(0.5f, requireNotNull(running.energyEnvelope).levelAt(740L), 0.001f)
         assertEquals(updatedConfig, running.config)
+        assertEquals(TravelDirection.COUNTER_CLOCKWISE, running.direction)
         assertEquals(TimerDirective.KEEP, update.timerDirective)
         assertTrue(update.needsRepaint)
     }
