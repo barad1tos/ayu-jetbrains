@@ -1,8 +1,11 @@
 package dev.ayuislands.glow
 
-import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.TravelDirection
+import dev.ayuislands.glow.waveform.WaveformMovement
+import dev.ayuislands.glow.waveform.fixedDirection
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class GlowEnumsTest {
     // GlowShape
@@ -16,14 +19,19 @@ class GlowEnumsTest {
     }
 
     @Test
-    fun `WaveformDirection decodes persisted names and falls back to CLOCKWISE`() {
-        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName("CLOCKWISE"))
-        assertEquals(
-            WaveformDirection.COUNTER_CLOCKWISE,
-            WaveformDirection.fromName("COUNTER_CLOCKWISE"),
-        )
-        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName("UNKNOWN"))
-        assertEquals(WaveformDirection.CLOCKWISE, WaveformDirection.fromName(null))
+    fun `WaveformMovement preserves old persisted names and decodes chaotic`() {
+        assertEquals(WaveformMovement.CLOCKWISE, WaveformMovement.fromName("CLOCKWISE"))
+        assertEquals(WaveformMovement.COUNTER_CLOCKWISE, WaveformMovement.fromName("COUNTER_CLOCKWISE"))
+        assertEquals(WaveformMovement.CHAOTIC, WaveformMovement.fromName("CHAOTIC"))
+        assertEquals(WaveformMovement.CLOCKWISE, WaveformMovement.fromName("UNKNOWN"))
+        assertEquals(WaveformMovement.CLOCKWISE, WaveformMovement.fromName(null))
+    }
+
+    @Test
+    fun `only fixed movements expose a fixed travel direction`() {
+        assertEquals(TravelDirection.CLOCKWISE, WaveformMovement.CLOCKWISE.fixedDirection)
+        assertEquals(TravelDirection.COUNTER_CLOCKWISE, WaveformMovement.COUNTER_CLOCKWISE.fixedDirection)
+        assertNull(WaveformMovement.CHAOTIC.fixedDirection)
     }
 
     // GlowStyle

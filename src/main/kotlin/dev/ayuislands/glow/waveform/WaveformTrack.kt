@@ -55,234 +55,227 @@ class WaveformTrack internal constructor(
                     (next.amplitudeMask - previous.amplitudeMask) * progress,
         )
     }
+}
 
-    companion object {
-        private const val DEFAULT_SAMPLE_STEP = 2f
-        private const val HALF_DIVISOR = 2f
-        private const val HALF_PI = PI / 2
-        private const val THREE_HALVES_PI = PI * 1.5
-        private const val MIN_NORMAL_LENGTH = 0.0001f
+private const val DEFAULT_SAMPLE_STEP = 2f
+private const val HALF_DIVISOR = 2f
+private const val HALF_PI = PI / 2
+private const val THREE_HALVES_PI = PI * 1.5
+private const val MIN_NORMAL_LENGTH = 0.0001f
 
-        fun create(
-            overlayBounds: Rectangle,
-            margin: Float,
-            arcRadius: Float,
-            config: WaveformConfig,
-            occupiedTopSpans: List<IntRange> = emptyList(),
-        ): WaveformTrack {
-            val left = overlayBounds.x + margin
-            val top = overlayBounds.y + margin
-            val right = overlayBounds.x + overlayBounds.width - margin
-            val bottom = overlayBounds.y + overlayBounds.height - margin
-            if (right <= left || bottom <= top) return WaveformTrack(emptyList(), 0f, 0f, 0f)
+internal fun Rectangle.toWaveformTrack(
+    margin: Float,
+    arcRadius: Float,
+    config: WaveformConfig,
+    direction: TravelDirection,
+    occupiedTopSpans: List<IntRange> = emptyList(),
+): WaveformTrack {
+    val overlayBounds = this
+    val left = overlayBounds.x + margin
+    val top = overlayBounds.y + margin
+    val right = overlayBounds.x + overlayBounds.width - margin
+    val bottom = overlayBounds.y + overlayBounds.height - margin
+    if (right <= left || bottom <= top) return WaveformTrack(emptyList(), 0f, 0f, 0f)
 
-            val radius =
-                min(
-                    arcRadius.coerceAtLeast(0f),
-                    min((right - left) / HALF_DIVISOR, (bottom - top) / HALF_DIVISOR),
-                )
-            val builder = TrackBuilder(DEFAULT_SAMPLE_STEP)
-            builder.addLine(
-                LineSpec(left + radius, top, right - radius, top, 0f, -1f),
-                topLineMask(left + radius, right - radius, occupiedTopSpans, overlayBounds.x),
-            )
-            builder.addArc(
-                ArcSpec(right - radius, top + radius, radius, -HALF_PI, 0.0),
-                topArcMask(right - radius, radius, -HALF_PI, occupiedTopSpans, overlayBounds.x),
-            )
-            builder.addLine(LineSpec(right, top + radius, right, bottom - radius, 1f, 0f))
-            builder.addArc(ArcSpec(right - radius, bottom - radius, radius, 0.0, HALF_PI))
-            builder.addLine(LineSpec(right - radius, bottom, left + radius, bottom, 0f, 1f))
-            builder.addArc(ArcSpec(left + radius, bottom - radius, radius, HALF_PI, PI))
-            builder.addLine(LineSpec(left, bottom - radius, left, top + radius, -1f, 0f))
-            builder.addArc(
-                ArcSpec(left + radius, top + radius, radius, PI, THREE_HALVES_PI),
-                topArcMask(left + radius, radius, PI, occupiedTopSpans, overlayBounds.x),
-            )
-            val track = builder.build()
-            return withSignalGeometry(track, overlayBounds, margin, config, occupiedTopSpans)
+    val radius =
+        min(
+            arcRadius.coerceAtLeast(0f),
+            min((right - left) / HALF_DIVISOR, (bottom - top) / HALF_DIVISOR),
+        )
+    val builder = TrackBuilder(DEFAULT_SAMPLE_STEP)
+    builder.addLine(
+        LineSpec(left + radius, top, right - radius, top, 0f, -1f),
+        topLineMask(left + radius, right - radius, occupiedTopSpans, overlayBounds.x),
+    )
+    builder.addArc(
+        ArcSpec(right - radius, top + radius, radius, -HALF_PI, 0.0),
+        topArcMask(right - radius, radius, -HALF_PI, occupiedTopSpans, overlayBounds.x),
+    )
+    builder.addLine(LineSpec(right, top + radius, right, bottom - radius, 1f, 0f))
+    builder.addArc(ArcSpec(right - radius, bottom - radius, radius, 0.0, HALF_PI))
+    builder.addLine(LineSpec(right - radius, bottom, left + radius, bottom, 0f, 1f))
+    builder.addArc(ArcSpec(left + radius, bottom - radius, radius, HALF_PI, PI))
+    builder.addLine(LineSpec(left, bottom - radius, left, top + radius, -1f, 0f))
+    builder.addArc(
+        ArcSpec(left + radius, top + radius, radius, PI, THREE_HALVES_PI),
+        topArcMask(left + radius, radius, PI, occupiedTopSpans, overlayBounds.x),
+    )
+    val track = builder.build()
+    return track.withSignalGeometry(overlayBounds, margin, config, direction, occupiedTopSpans)
+}
+
+private fun topLineMask(
+    startX: Float,
+    endX: Float,
+    occupiedSpans: List<IntRange>,
+    originX: Int,
+): (Float) -> Float =
+    { progress ->
+        val x = startX + (endX - startX) * progress
+        signalMask(x - originX, occupiedSpans)
+    }
+
+private fun topArcMask(
+    centerX: Float,
+    radius: Float,
+    startAngle: Double,
+    occupiedSpans: List<IntRange>,
+    originX: Int,
+): (Float) -> Float =
+    { progress ->
+        val angle = startAngle + HALF_PI * progress
+        val x = centerX + radius * cos(angle).toFloat()
+        signalMask(x - originX, occupiedSpans)
+    }
+
+private fun signalMask(
+    x: Float,
+    occupiedSpans: List<IntRange>,
+): Float =
+    occupiedSpans.minOfOrNull { span ->
+        when {
+            x < span.first -> smoothStep((span.first - x) / MASK_SHOULDER)
+            x > span.last -> smoothStep((x - span.last) / MASK_SHOULDER)
+            else -> 0f
         }
+    } ?: 1f
 
-        private fun topLineMask(
-            startX: Float,
-            endX: Float,
-            occupiedSpans: List<IntRange>,
-            originX: Int,
-        ): (Float) -> Float =
-            { progress ->
-                val x = startX + (endX - startX) * progress
-                signalMask(x - originX, occupiedSpans)
-            }
+private fun WaveformTrack.withSignalGeometry(
+    bounds: Rectangle,
+    margin: Float,
+    config: WaveformConfig,
+    direction: TravelDirection,
+    occupiedSpans: List<IntRange>,
+): WaveformTrack {
+    if (!isClosed) return this
 
-        private fun topArcMask(
-            centerX: Float,
-            radius: Float,
-            startAngle: Double,
-            occupiedSpans: List<IntRange>,
-            originX: Int,
-        ): (Float) -> Float =
-            { progress ->
-                val angle = startAngle + HALF_PI * progress
-                val x = centerX + radius * cos(angle).toFloat()
-                signalMask(x - originX, occupiedSpans)
-            }
-
-        private fun signalMask(
-            x: Float,
-            occupiedSpans: List<IntRange>,
-        ): Float =
-            occupiedSpans.minOfOrNull { span ->
-                when {
-                    x < span.first -> smoothStep((span.first - x) / MASK_SHOULDER)
-                    x > span.last -> smoothStep((x - span.last) / MASK_SHOULDER)
-                    else -> 0f
-                }
-            } ?: 1f
-
-        private fun withSignalGeometry(
-            track: WaveformTrack,
-            bounds: Rectangle,
-            margin: Float,
-            config: WaveformConfig,
-            occupiedSpans: List<IntRange>,
-        ): WaveformTrack {
-            if (!track.isClosed) return track
-
-            val top = bounds.y + margin
-            val right = bounds.x + bounds.width - margin
-            val bottom = bounds.y + bounds.height - margin
-            val freeSpan = largestFreeSpan(bounds, occupiedSpans)
-            val signalSpan = signalSpan(track.length, config)
-            val visibleLength = signalSpan * TRACE_PHASE_SPAN
-            val requiredTopSpan = max(MIN_TOP_SPAN.toFloat(), visibleLength)
-            val useRightEdge =
-                occupiedSpans.isNotEmpty() && (freeSpan == null || freeSpan.width < requiredTopSpan)
-            val anchorX =
-                when {
-                    useRightEdge -> right
-                    freeSpan != null -> freeSpan.center
-                    else -> bounds.x + bounds.width * FALLBACK_ANCHOR_FRACTION
-                }
-            val anchorY = if (useRightEdge) bounds.y + bounds.height * RIGHT_EDGE_FRACTION else top
-            val requestedAnchorDistance = track.nearestDistance(anchorX, anchorY.coerceIn(top, bottom))
-            val centeredAnchorDistance =
-                if (useRightEdge) {
-                    track.rightEdgeCenter(requestedAnchorDistance, visibleLength)
-                } else {
-                    requestedAnchorDistance
-                }
-            val anchorDistance =
-                adjustedAnchorDistance(
-                    centeredAnchorDistance,
-                    track.length,
-                    freeSpan != null || useRightEdge,
-                    signalSpan,
-                    config,
-                )
-            return WaveformTrack(track.samples, track.length, anchorDistance, signalSpan)
+    val top = bounds.y + margin
+    val right = bounds.x + bounds.width - margin
+    val bottom = bounds.y + bounds.height - margin
+    val freeSpan = largestFreeSpan(bounds, occupiedSpans)
+    val signalSpan =
+        min(config.effectiveTraceLength.toFloat(), length * MAX_PERIMETER_FRACTION) /
+            TRACE_PHASE_SPAN
+    val visibleLength = signalSpan * TRACE_PHASE_SPAN
+    val requiredTopSpan = max(MIN_TOP_SPAN.toFloat(), visibleLength)
+    val useRightEdge =
+        occupiedSpans.isNotEmpty() && (freeSpan == null || freeSpan.width < requiredTopSpan)
+    val anchorX =
+        when {
+            useRightEdge -> right
+            freeSpan != null -> freeSpan.center
+            else -> bounds.x + bounds.width * FALLBACK_ANCHOR_FRACTION
         }
-
-        private fun signalSpan(
-            trackLength: Float,
-            config: WaveformConfig,
-        ): Float {
-            val maximumVisibleLength = min(config.effectiveTraceLength.toFloat(), trackLength * MAX_PERIMETER_FRACTION)
-            return maximumVisibleLength / TRACE_PHASE_SPAN
+    val anchorY = if (useRightEdge) bounds.y + bounds.height * RIGHT_EDGE_FRACTION else top
+    val requestedAnchorDistance = nearestDistance(anchorX, anchorY.coerceIn(top, bottom))
+    val centeredAnchorDistance =
+        if (useRightEdge) {
+            rightEdgeCenter(requestedAnchorDistance, visibleLength)
+        } else {
+            requestedAnchorDistance
         }
+    val anchorDistance =
+        adjustedAnchorDistance(
+            centeredAnchorDistance,
+            length,
+            freeSpan != null || useRightEdge,
+            signalSpan,
+            direction,
+        )
+    return WaveformTrack(samples, length, anchorDistance, signalSpan)
+}
 
-        private fun adjustedAnchorDistance(
-            centeredDistance: Float,
-            trackLength: Float,
-            shouldCenter: Boolean,
-            signalSpan: Float,
-            config: WaveformConfig,
-        ): Float {
-            if (!shouldCenter) {
-                return centeredDistance
-            }
-            val centerOffset =
-                config.direction.travelSign *
-                    (TRACE_PHASE_SPAN / HALF_DIVISOR - TRACE_ANCHOR_PHASE) *
-                    signalSpan
-            return wrapDistance(centeredDistance - centerOffset, trackLength)
-        }
+private fun adjustedAnchorDistance(
+    centeredDistance: Float,
+    trackLength: Float,
+    shouldCenter: Boolean,
+    signalSpan: Float,
+    direction: TravelDirection,
+): Float {
+    if (!shouldCenter) {
+        return centeredDistance
+    }
+    val centerOffset =
+        direction.travelSign *
+            (TRACE_PHASE_SPAN / HALF_DIVISOR - TRACE_ANCHOR_PHASE) *
+            signalSpan
+    return wrapDistance(centeredDistance - centerOffset, trackLength)
+}
 
-        private fun largestFreeSpan(
-            bounds: Rectangle,
-            occupiedSpans: List<IntRange>,
-        ): FreeSpan? {
-            if (occupiedSpans.isEmpty() || bounds.width <= 0) return null
+private fun largestFreeSpan(
+    bounds: Rectangle,
+    occupiedSpans: List<IntRange>,
+): FreeSpan? {
+    if (occupiedSpans.isEmpty() || bounds.width <= 0) return null
 
-            val occupied =
-                occupiedSpans
-                    .mapNotNull { span ->
-                        val start = max(0, span.first)
-                        val end = min(bounds.width - 1, span.last)
-                        if (start <= end) start..end else null
-                    }.sortedBy(IntRange::first)
-            var cursor = 0
-            val free = mutableListOf<FreeSpan>()
-            for (span in occupied) {
-                if (span.first > cursor) free += FreeSpan(cursor.toFloat(), span.first.toFloat())
-                cursor = max(cursor, span.last + 1)
-            }
-            if (cursor < bounds.width) free += FreeSpan(cursor.toFloat(), bounds.width.toFloat())
-            return free.maxByOrNull(FreeSpan::width)?.shifted(bounds.x.toFloat())
-        }
+    val occupied =
+        occupiedSpans
+            .mapNotNull { span ->
+                val start = max(0, span.first)
+                val end = min(bounds.width - 1, span.last)
+                if (start <= end) start..end else null
+            }.sortedBy(IntRange::first)
+    var cursor = 0
+    val free = mutableListOf<FreeSpan>()
+    for (span in occupied) {
+        if (span.first > cursor) free += FreeSpan(cursor.toFloat(), span.first.toFloat())
+        cursor = max(cursor, span.last + 1)
+    }
+    if (cursor < bounds.width) free += FreeSpan(cursor.toFloat(), bounds.width.toFloat())
+    return free.maxByOrNull(FreeSpan::width)?.shifted(bounds.x.toFloat())
+}
 
-        private fun WaveformTrack.nearestDistance(
-            x: Float,
-            y: Float,
-        ): Float =
-            samples
-                .minBy { sample ->
-                    val deltaX = sample.x - x
-                    val deltaY = sample.y - y
-                    deltaX * deltaX + deltaY * deltaY
-                }.distance
+private fun WaveformTrack.nearestDistance(
+    x: Float,
+    y: Float,
+): Float =
+    samples
+        .minBy { sample ->
+            val deltaX = sample.x - x
+            val deltaY = sample.y - y
+            deltaX * deltaX + deltaY * deltaY
+        }.distance
 
-        private fun WaveformTrack.rightEdgeCenter(
-            requestedDistance: Float,
-            visibleLength: Float,
-        ): Float {
-            val safeStart =
-                samples.firstOrNull { it.normalX == 1f && it.normalY == 0f }?.distance
-                    ?: return requestedDistance
-            val safeEnd =
-                samples.lastOrNull { it.normalX == 1f && it.normalY == 0f }?.distance
-                    ?: return requestedDistance
-            val halfLength = visibleLength / HALF_DIVISOR
-            val minimumCenter = safeStart + halfLength
-            val maximumCenter = safeEnd - halfLength
-            return if (minimumCenter <= maximumCenter) {
-                requestedDistance.coerceIn(minimumCenter, maximumCenter)
-            } else {
-                requestedDistance
-            }
-        }
-
-        private fun wrapDistance(
-            distance: Float,
-            length: Float,
-        ): Float = ((distance % length) + length) % length
-
-        private data class FreeSpan(
-            val start: Float,
-            val end: Float,
-        ) {
-            val width: Int get() = (end - start).toInt()
-            val center: Float get() = (start + end) / HALF_DIVISOR
-
-            fun shifted(offset: Float): FreeSpan = FreeSpan(start + offset, end + offset)
-        }
-
-        private const val MASK_SHOULDER = 50f
-        private const val MIN_TOP_SPAN = 140
-        private const val MAX_PERIMETER_FRACTION = 0.3f
-        private const val FALLBACK_ANCHOR_FRACTION = 2f / 3f
-        private const val RIGHT_EDGE_FRACTION = 1f / 3f
+private fun WaveformTrack.rightEdgeCenter(
+    requestedDistance: Float,
+    visibleLength: Float,
+): Float {
+    val safeStart =
+        samples.firstOrNull { it.normalX == 1f && it.normalY == 0f }?.distance
+            ?: return requestedDistance
+    val safeEnd =
+        samples.lastOrNull { it.normalX == 1f && it.normalY == 0f }?.distance
+            ?: return requestedDistance
+    val halfLength = visibleLength / HALF_DIVISOR
+    val minimumCenter = safeStart + halfLength
+    val maximumCenter = safeEnd - halfLength
+    return if (minimumCenter <= maximumCenter) {
+        requestedDistance.coerceIn(minimumCenter, maximumCenter)
+    } else {
+        requestedDistance
     }
 }
+
+private fun wrapDistance(
+    distance: Float,
+    length: Float,
+): Float = ((distance % length) + length) % length
+
+private data class FreeSpan(
+    val start: Float,
+    val end: Float,
+) {
+    val width: Int get() = (end - start).toInt()
+    val center: Float get() = (start + end) / HALF_DIVISOR
+
+    fun shifted(offset: Float): FreeSpan = FreeSpan(start + offset, end + offset)
+}
+
+private const val MASK_SHOULDER = 50f
+private const val MIN_TOP_SPAN = 140
+private const val MAX_PERIMETER_FRACTION = 0.3f
+private const val FALLBACK_ANCHOR_FRACTION = 2f / 3f
+private const val RIGHT_EDGE_FRACTION = 1f / 3f
 
 private data class LineSpec(
     val startX: Float,

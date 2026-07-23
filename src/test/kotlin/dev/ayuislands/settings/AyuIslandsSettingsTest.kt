@@ -35,7 +35,7 @@ class AyuIslandsSettingsTest {
         val state = AyuIslandsSettings().state
         val waveform = WaveformConfig()
 
-        assertEquals(waveform.direction.name, state.waveformDirection)
+        assertEquals(waveform.movement.name, state.waveformDirection)
         assertEquals(waveform.baseline.name, state.waveformBaseline)
         assertEquals(waveform.traceDensity, state.waveformTraceDensity)
         assertEquals(waveform.traceLength, state.waveformTraceLength)

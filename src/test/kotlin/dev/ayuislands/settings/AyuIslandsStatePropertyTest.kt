@@ -13,7 +13,7 @@ import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.WaveformBaseline
-import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMovement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -127,7 +127,7 @@ class AyuIslandsStatePropertyTest {
         val state = AyuIslandsState()
 
         assertEquals(GlowShape.SOLID.name, state.glowShape)
-        assertEquals(WaveformDirection.CLOCKWISE.name, state.waveformDirection)
+        assertEquals(WaveformMovement.CLOCKWISE.name, state.waveformDirection)
         assertEquals(WaveformBaseline.OUTSIDE.name, state.waveformBaseline)
         assertEquals(1, state.effectiveTraceDensity())
         assertEquals(LEGACY_TRACE_LENGTH, state.effectiveTraceLength())

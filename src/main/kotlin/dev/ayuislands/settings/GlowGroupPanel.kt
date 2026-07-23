@@ -10,6 +10,7 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.BeatMorphology
 import dev.ayuislands.glow.waveform.FrameTrace
 import dev.ayuislands.glow.waveform.SolidFrameSpec
+import dev.ayuislands.glow.waveform.TravelDirection
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformEngine
@@ -18,6 +19,7 @@ import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.brightnessAt
+import dev.ayuislands.glow.waveform.fixedDirection
 import dev.ayuislands.glow.waveform.paint
 import dev.ayuislands.glow.waveform.traceComplexCount
 import java.awt.AlphaComposite
@@ -66,6 +68,13 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
     private val renderer = GlowRenderer()
     private val waveformPainter = WaveformPainter(renderer)
     private val previewMorphology = BeatMorphology.standard()
+    private val previewDirection =
+        TravelDirection.entries[
+            Math.floorMod(
+                PREVIEW_RANDOM_SEED,
+                TravelDirection.entries.size,
+            ),
+        ]
     private val previewEngine = WaveformEngine(waveformConfig, Random(PREVIEW_RANDOM_SEED))
     private var waveformFrame = restingPreviewFrame(waveformConfig)
     private var powerSaveConnection: MessageBusConnection? = null
@@ -194,7 +203,13 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
 
         previewEngine.handle(WaveformEvent.Activate(powerSaveEnabled = false)).frame?.let { waveformFrame = it }
         val bounds = waveformBounds()
-        val trackLength = waveformPainter.trackLength(bounds, ARC_F.toInt(), waveformConfig, glowWidth)
+        val trackLength =
+            waveformPainter.trackLength(
+                bounds,
+                ARC_F.toInt(),
+                waveformFrame,
+                glowWidth,
+            )
         previewEngine.handle(WaveformEvent.Tick(nowMs, trackLength)).frame?.let { waveformFrame = it }
         repaint()
     }
@@ -255,6 +270,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
     private fun restingPreviewFrame(config: WaveformConfig): WaveformFrame =
         WaveformFrame(
             config = config,
+            direction = config.movement.fixedDirection ?: previewDirection,
             trace =
                 FrameTrace(
                     anchorOffset = 0f,

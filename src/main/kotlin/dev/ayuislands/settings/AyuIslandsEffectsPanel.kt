@@ -266,7 +266,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                     section.update {
                         it.copy(
                             shape = waveform.shape,
-                            waveformDirection = waveform.direction,
+                            waveformMovement = waveform.movement,
                             waveformBaseline = waveform.baseline,
                             waveformTraceDensity = waveform.traceDensity,
                             waveformTraceLength = waveform.traceLength,
@@ -590,7 +590,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
                 visible = visible,
                 waveformConfig =
                     WaveformConfig(
-                        direction = pending.waveformDirection,
+                        movement = pending.waveformMovement,
                         baseline = pending.waveformBaseline,
                         traceDensity = pending.waveformTraceDensity,
                         traceLength = pending.waveformTraceLength,
@@ -664,7 +664,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
             state.glowEditorPlacement = pending.editorPlacement.name
             state.glowToolWindowPlacement = pending.toolWindowPlacement.name
-            state.waveformDirection = pending.waveformDirection.name
+            state.waveformDirection = pending.waveformMovement.name
             state.waveformBaseline = pending.waveformBaseline.name
             state.waveformTraceDensity = pending.waveformTraceDensity
             state.waveformTraceLength = pending.waveformTraceLength

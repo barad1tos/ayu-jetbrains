@@ -20,9 +20,8 @@ internal const val TRACE_ANCHOR_PHASE = 0.275f
 internal const val TRACE_PHASE_SPAN = 0.76f
 private const val IDLE_BRIGHTNESS = 0.85f
 
-/** Effective waveform settings consumed by the engine and painter. */
 data class WaveformConfig(
-    val direction: WaveformDirection = WaveformDirection.CLOCKWISE,
+    val movement: WaveformMovement = WaveformMovement.CLOCKWISE,
     val baseline: WaveformBaseline = WaveformBaseline.CENTERED,
     val amplitude: Int = DEFAULT_WAVEFORM_AMPLITUDE,
     val intensity: Int = DEFAULT_WAVEFORM_INTENSITY,
@@ -68,16 +67,31 @@ internal fun smoothStep(progress: Float): Float {
 private const val SMOOTH_STEP_HIGH = 3f
 private const val SMOOTH_STEP_LOW = 2f
 
-/** Direction along the clockwise-sampled perimeter. Values persist by [Enum.name]. */
-enum class WaveformDirection(
+/** User-selected perimeter movement. Values persist by [Enum.name]. */
+enum class WaveformMovement(
     val displayName: String,
-    val travelSign: Float,
 ) {
-    CLOCKWISE("Clockwise", 1f),
-    COUNTER_CLOCKWISE("Counter-clockwise", -1f),
+    CLOCKWISE("Clockwise"),
+    COUNTER_CLOCKWISE("Counter-clockwise"),
+    CHAOTIC("Chaotic"),
     ;
 
     companion object {
-        fun fromName(name: String?): WaveformDirection = entries.firstOrNull { it.name == name } ?: CLOCKWISE
+        fun fromName(name: String?): WaveformMovement = entries.firstOrNull { it.name == name } ?: CLOCKWISE
     }
 }
+
+enum class TravelDirection(
+    val travelSign: Float,
+) {
+    CLOCKWISE(1f),
+    COUNTER_CLOCKWISE(-1f),
+}
+
+internal val WaveformMovement.fixedDirection: TravelDirection?
+    get() =
+        when (this) {
+            WaveformMovement.CLOCKWISE -> TravelDirection.CLOCKWISE
+            WaveformMovement.COUNTER_CLOCKWISE -> TravelDirection.COUNTER_CLOCKWISE
+            WaveformMovement.CHAOTIC -> null
+        }

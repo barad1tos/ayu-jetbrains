@@ -3,6 +3,7 @@ package dev.ayuislands.glow
 import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.glow.waveform.SolidFrameSpec
 import dev.ayuislands.glow.waveform.TimerDirective
+import dev.ayuislands.glow.waveform.TravelDirection
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformEngine
@@ -13,6 +14,7 @@ import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.WaveformRenderPlan
 import dev.ayuislands.glow.waveform.WaveformUpdate
 import dev.ayuislands.glow.waveform.brightnessAt
+import dev.ayuislands.glow.waveform.fixedDirection
 import java.awt.AlphaComposite
 import java.awt.Color
 import java.awt.Dimension
@@ -209,14 +211,23 @@ class GlowGlassPane(
     }
 
     internal val waveformTrackLength: Float
-        get() =
-            waveformPainter.trackLength(
+        get() {
+            val frame =
+                waveformFrame
+                    ?: WaveformFrame(
+                        config = waveformConfig,
+                        direction =
+                            waveformConfig.movement.fixedDirection
+                                ?: TravelDirection.CLOCKWISE,
+                    )
+            return waveformPainter.trackLength(
                 bounds = Rectangle(0, 0, width, height),
                 arcWidth = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_ARC_FALLBACK },
-                config = waveformConfig,
+                frame = frame,
                 solidWidth = glowWidth,
                 occupiedTopSpans = waveformTopSpans,
             )
+        }
 
     private fun paintSolid(
         graphics: Graphics2D,
@@ -297,7 +308,10 @@ class GlowGlassPane(
                 waveformFrame
                     ?: waveformPlan?.request?.frame?.takeIf { it.config == waveformConfig }
                     ?: WaveformFrame(
-                        waveformConfig,
+                        config = waveformConfig,
+                        direction =
+                            waveformConfig.movement.fixedDirection
+                                ?: TravelDirection.CLOCKWISE,
                         brightness = waveformConfig.brightnessAt(0f),
                     ),
             solidFrame =
@@ -388,7 +402,6 @@ class GlowGlassPane(
         val dirtyBounds =
             when {
                 previousBounds != null && nextBounds != null -> previousBounds.union(nextBounds)
-
                 previousBounds != null -> previousBounds
                 nextBounds != null -> nextBounds
                 else -> null
@@ -402,7 +415,10 @@ class GlowGlassPane(
 
     private fun applyTimerDirective(directive: TimerDirective) {
         when (directive) {
-            TimerDirective.KEEP -> Unit
+            TimerDirective.KEEP -> {
+                // Keep the current timer state.
+            }
+
             TimerDirective.START -> {
                 if (waveformTimer != null || waveformFailed) return
                 waveformTimer =

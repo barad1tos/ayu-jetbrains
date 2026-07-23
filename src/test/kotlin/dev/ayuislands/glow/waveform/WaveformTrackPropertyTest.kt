@@ -11,11 +11,11 @@ class WaveformTrackPropertyTest {
     @Test
     fun `perimeter is closed with monotonic distance and outward unit normals`() {
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 240, 160),
+            Rectangle(0, 0, 240, 160).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
             )
 
         assertTrue(track.isClosed)
@@ -40,11 +40,11 @@ class WaveformTrackPropertyTest {
     @Test
     fun `occupied top spans mask only the signal with smooth shoulders`() {
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 600, 240),
+            Rectangle(0, 0, 600, 240).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
                 occupiedTopSpans = listOf(0..220),
             )
         val topEdge = track.samples.filter { it.normalY < -0.999f && it.normalX in -0.001f..0.001f }
@@ -61,11 +61,11 @@ class WaveformTrackPropertyTest {
     @Test
     fun `empty occupancy anchors the signal at two thirds of the top edge`() {
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 900, 400),
+            Rectangle(0, 0, 900, 400).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
             )
 
         val anchor = track.sampleNearest(track.signalAnchorDistance)
@@ -76,13 +76,13 @@ class WaveformTrackPropertyTest {
 
     @Test
     fun `largest free top span centers a full complex`() {
-        val direction = WaveformDirection.CLOCKWISE
+        val direction = TravelDirection.CLOCKWISE
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 900, 400),
+            Rectangle(0, 0, 900, 400).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
-                config = WaveformConfig(direction = direction),
+                config = WaveformConfig(),
+                direction = direction,
                 occupiedTopSpans = listOf(0..300, 700..899),
             )
 
@@ -95,26 +95,26 @@ class WaveformTrackPropertyTest {
 
     @Test
     fun `moving trace stays centered inside a free top span in both directions`() {
-        for (direction in WaveformDirection.entries) {
-            val config = WaveformConfig(direction = direction, traceLength = 360)
+        for (direction in TravelDirection.entries) {
+            val config = WaveformConfig(traceLength = 360)
             val track =
-                WaveformTrack.create(
-                    overlayBounds = Rectangle(0, 0, 900, 400),
+                Rectangle(0, 0, 900, 400).toWaveformTrack(
                     margin = 16f,
                     arcRadius = 12f,
                     config = config,
+                    direction = direction,
                     occupiedTopSpans = listOf(0..300, 700..899),
                 )
             val beginning =
                 track.sampleAt(
                     track.signalAnchorDistance -
-                        WaveformPainter.R_PEAK_PHASE * track.signalSpan / config.direction.travelSign,
+                        WaveformPainter.R_PEAK_PHASE * track.signalSpan / direction.travelSign,
                 )
             val end =
                 track.sampleAt(
                     track.signalAnchorDistance +
                         (TRACE_PHASE_SPAN - WaveformPainter.R_PEAK_PHASE) *
-                        track.signalSpan / config.direction.travelSign,
+                        track.signalSpan / direction.travelSign,
                 )
             val midpoint = track.sampleAt((beginning.distance + end.distance) / 2f)
 
@@ -126,22 +126,22 @@ class WaveformTrackPropertyTest {
 
     @Test
     fun `tab occupancy moves the perimeter trace to the right edge without changing its length`() {
-        for (direction in WaveformDirection.entries) {
-            val config = WaveformConfig(direction = direction, traceLength = 360)
+        for (direction in TravelDirection.entries) {
+            val config = WaveformConfig(traceLength = 360)
             val roomyTrack =
-                WaveformTrack.create(
-                    overlayBounds = Rectangle(0, 0, 900, 400),
+                Rectangle(0, 0, 900, 400).toWaveformTrack(
                     margin = 16f,
                     arcRadius = 12f,
                     config = config,
+                    direction = direction,
                     occupiedTopSpans = listOf(0..300, 700..899),
                 )
             val crowdedTrack =
-                WaveformTrack.create(
-                    overlayBounds = Rectangle(0, 0, 900, 400),
+                Rectangle(0, 0, 900, 400).toWaveformTrack(
                     margin = 16f,
                     arcRadius = 12f,
                     config = config,
+                    direction = direction,
                     occupiedTopSpans = listOf(0..400, 650..899),
                 )
             assertEquals(360f, roomyTrack.signalSpan * TRACE_PHASE_SPAN, 0.1f)
@@ -153,19 +153,18 @@ class WaveformTrackPropertyTest {
 
     @Test
     fun `top gaps below minimum move the anchor to the upper right edge`() {
-        val direction = WaveformDirection.CLOCKWISE
+        val direction = TravelDirection.CLOCKWISE
         val traceLength = 167
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 500, 360),
+            Rectangle(0, 0, 500, 360).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config =
                     WaveformConfig(
-                        direction = direction,
                         baseline = WaveformBaseline.OUTSIDE,
                         traceLength = traceLength,
                     ),
+                direction = direction,
                 occupiedTopSpans = listOf(0..170, 290..499),
             )
 
@@ -187,13 +186,13 @@ class WaveformTrackPropertyTest {
         val radius = 12f
         val traceLength = 240
 
-        for (direction in WaveformDirection.entries) {
+        for (direction in TravelDirection.entries) {
             val track =
-                WaveformTrack.create(
-                    overlayBounds = bounds,
+                bounds.toWaveformTrack(
                     margin = margin,
                     arcRadius = radius,
-                    config = WaveformConfig(direction = direction, traceLength = traceLength),
+                    config = WaveformConfig(traceLength = traceLength),
+                    direction = direction,
                     occupiedTopSpans = listOf(0..400, 600..899),
                 )
             val (beginning, end) = track.visibleTraceEndpoints(direction)
@@ -213,13 +212,13 @@ class WaveformTrackPropertyTest {
         val radius = 12f
         val traceLength = 360
 
-        for (direction in WaveformDirection.entries) {
+        for (direction in TravelDirection.entries) {
             val track =
-                WaveformTrack.create(
-                    overlayBounds = bounds,
+                bounds.toWaveformTrack(
                     margin = margin,
                     arcRadius = radius,
-                    config = WaveformConfig(direction = direction, traceLength = traceLength),
+                    config = WaveformConfig(traceLength = traceLength),
+                    direction = direction,
                     occupiedTopSpans = listOf(0..400, 650..899),
                 )
             val midpoint = track.visibleTraceMidpoint(direction)
@@ -233,11 +232,11 @@ class WaveformTrackPropertyTest {
     @Test
     fun `complex span is capped at thirty percent of a small perimeter`() {
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 180, 120),
+            Rectangle(0, 0, 180, 120).toWaveformTrack(
                 margin = 8f,
                 arcRadius = 8f,
                 config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
             )
 
         assertEquals(track.length * 0.3f, track.signalSpan * TRACE_PHASE_SPAN, 0.1f)
@@ -246,18 +245,18 @@ class WaveformTrackPropertyTest {
     @Test
     fun `perimeter trace keeps the configured span on large islands`() {
         val compactTrack =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 256, 1_323),
+            Rectangle(0, 0, 256, 1_323).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config = WaveformConfig(traceLength = 360),
+                direction = TravelDirection.CLOCKWISE,
             )
         val wideTrack =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 1_498, 1_323),
+            Rectangle(0, 0, 1_498, 1_323).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config = WaveformConfig(traceLength = 360),
+                direction = TravelDirection.CLOCKWISE,
             )
 
         assertEquals(360f, compactTrack.signalSpan * TRACE_PHASE_SPAN, 0.1f)
@@ -267,18 +266,18 @@ class WaveformTrackPropertyTest {
     @Test
     fun `perimeter trace clamps raw configured lengths before rendering`() {
         val minimum =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 1_498, 1_323),
+            Rectangle(0, 0, 1_498, 1_323).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config = WaveformConfig(traceLength = Int.MIN_VALUE),
+                direction = TravelDirection.CLOCKWISE,
             )
         val maximum =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 1_498, 1_323),
+            Rectangle(0, 0, 1_498, 1_323).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config = WaveformConfig(traceLength = Int.MAX_VALUE),
+                direction = TravelDirection.CLOCKWISE,
             )
 
         assertEquals(
@@ -296,11 +295,11 @@ class WaveformTrackPropertyTest {
     @Test
     fun `bounds smaller than the outward margin produce an empty track`() {
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 20, 20),
+            Rectangle(0, 0, 20, 20).toWaveformTrack(
                 margin = 12f,
                 arcRadius = 8f,
                 config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
             )
 
         assertTrue(track.samples.isEmpty())
@@ -311,11 +310,11 @@ class WaveformTrackPropertyTest {
     @Test
     fun `zero radius track keeps one strictly increasing representation of each corner`() {
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 240, 160),
+            Rectangle(0, 0, 240, 160).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 0f,
                 config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
             )
 
         assertTrue(track.samples.zipWithNext().all { (left, right) -> left.distance < right.distance })
@@ -325,11 +324,11 @@ class WaveformTrackPropertyTest {
     @Test
     fun `interpolated samples remain distinct and continuous across the track seam`() {
         val track =
-            WaveformTrack.create(
-                overlayBounds = Rectangle(0, 0, 240, 160),
+            Rectangle(0, 0, 240, 160).toWaveformTrack(
                 margin = 16f,
                 arcRadius = 12f,
                 config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
             )
         val distances = listOf(track.length - 0.75f, track.length - 0.25f, 0.25f, 0.75f)
         val samples = distances.map(track::sampleAt)
@@ -370,16 +369,14 @@ class WaveformTrackPropertyTest {
     private fun WaveformTrack.sampleNearest(distance: Float): WaveformSample =
         samples.minBy { sample -> kotlin.math.abs(sample.distance - distance) }
 
-    private fun WaveformTrack.visibleTraceEndpoints(
-        direction: WaveformDirection,
-    ): Pair<WaveformSample, WaveformSample> =
+    private fun WaveformTrack.visibleTraceEndpoints(direction: TravelDirection): Pair<WaveformSample, WaveformSample> =
         sampleAt(signalAnchorDistance - TRACE_ANCHOR_PHASE * signalSpan / direction.travelSign) to
             sampleAt(
                 signalAnchorDistance +
                     (TRACE_PHASE_SPAN - TRACE_ANCHOR_PHASE) * signalSpan / direction.travelSign,
             )
 
-    private fun WaveformTrack.visibleTraceMidpoint(direction: WaveformDirection): WaveformSample =
+    private fun WaveformTrack.visibleTraceMidpoint(direction: TravelDirection): WaveformSample =
         sampleAt(
             signalAnchorDistance +
                 (TRACE_PHASE_SPAN / 2f - TRACE_ANCHOR_PHASE) * signalSpan / direction.travelSign,

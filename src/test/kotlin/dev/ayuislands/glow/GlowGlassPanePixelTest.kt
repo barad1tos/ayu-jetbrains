@@ -2,6 +2,7 @@ package dev.ayuislands.glow
 
 import dev.ayuislands.glow.waveform.BeatMorphology
 import dev.ayuislands.glow.waveform.FrameTrace
+import dev.ayuislands.glow.waveform.TravelDirection
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformFrame
@@ -139,6 +140,7 @@ class GlowGlassPanePixelTest {
         val trackLength = flatPane.waveformTrackLength
         flatPane.showWaveformFrame(
             WaveformFrame(
+                direction = TravelDirection.CLOCKWISE,
                 config = config,
                 trace =
                     FrameTrace(
@@ -303,6 +305,7 @@ class GlowGlassPanePixelTest {
 
         pane.showWaveformFrame(
             WaveformFrame(
+                direction = TravelDirection.CLOCKWISE,
                 config = config,
                 energy = 0f,
                 brightness = config.brightnessAt(0f),
@@ -316,7 +319,7 @@ class GlowGlassPanePixelTest {
     fun `reconfigure clears a frame rendered with old geometry`() {
         val oldConfig = WaveformConfig(amplitude = 6)
         val pane = waveformPane(oldConfig)
-        pane.showWaveformFrame(WaveformFrame(config = oldConfig))
+        pane.showWaveformFrame(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = oldConfig))
 
         pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig(amplitude = 16))
 
@@ -386,7 +389,9 @@ class GlowGlassPanePixelTest {
         paint(pane)
         assertEquals(1, prepareCount, "an unchanged Swing repaint must reuse the prepared paths")
 
-        pane.showWaveformFrame(WaveformFrame(config = WaveformConfig(), energy = 1f))
+        pane.showWaveformFrame(
+            WaveformFrame(direction = TravelDirection.CLOCKWISE, config = WaveformConfig(), energy = 1f),
+        )
         assertEquals(2, prepareCount, "a new frame must prepare its paths before scheduling the dirty region")
         paint(pane)
         assertEquals(2, prepareCount, "painting the scheduled frame must reuse the prepared paths")

@@ -23,8 +23,8 @@ import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
-import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformEdge
+import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -761,7 +761,7 @@ private fun resolveGlowPlacement(
 
 private fun resolveWaveformConfig(state: AyuIslandsState): WaveformConfig =
     WaveformConfig(
-        direction = WaveformDirection.fromName(state.waveformDirection),
+        movement = WaveformMovement.fromName(state.waveformDirection),
         baseline = WaveformBaseline.fromName(state.waveformBaseline),
         traceDensity = state.effectiveTraceDensity(),
         traceLength = state.effectiveTraceLength(),

@@ -92,7 +92,7 @@ class AyuIslandsSettings : SimplePersistentStateComponent<AyuIslandsState>(fresh
 private fun freshSettingsState(): AyuIslandsState {
     val waveform = WaveformConfig()
     return AyuIslandsState().apply {
-        waveformDirection = waveform.direction.name
+        waveformDirection = waveform.movement.name
         waveformBaseline = waveform.baseline.name
         waveformTraceDensity = waveform.traceDensity
         waveformTraceLength = waveform.traceLength

@@ -50,6 +50,7 @@ internal data class FrameTrace(
 
 internal data class WaveformFrame(
     val config: WaveformConfig,
+    val direction: TravelDirection,
     val trace: FrameTrace? = null,
     val brightness: Float = 1f,
     val energy: Float = 0f,
@@ -111,6 +112,7 @@ internal sealed interface WaveformState {
 
     data class Looping(
         override val config: WaveformConfig,
+        val direction: TravelDirection,
         val travelPhase: Float = 0f,
         val tracePhase: Float = INITIAL_TRACE_PHASE,
         val lastTickMs: Long? = null,
@@ -262,9 +264,22 @@ internal class WaveformEngine(
         if (config == current.config) {
             ignore(current)
         } else {
+            val currentFixedDirection = current.config.movement.fixedDirection
+            val configuredFixedDirection = config.movement.fixedDirection
+            val direction =
+                if (
+                    currentFixedDirection != null &&
+                    configuredFixedDirection != null &&
+                    currentFixedDirection != configuredFixedDirection
+                ) {
+                    configuredFixedDirection
+                } else {
+                    current.direction
+                }
             Transition(
                 current.copy(
                     config = config,
+                    direction = direction,
                     history = fitHistory(current.history, config.traceComplexCount),
                 ),
                 WaveformUpdate(needsRepaint = true),
@@ -281,8 +296,8 @@ internal class WaveformEngine(
         val trace = advanceTrace(current, elapsedMs, traceRate)
         val energy = current.energyEnvelope?.levelAt(event.nowMs) ?: 0f
         val envelope = current.energyEnvelope?.takeIf { event.nowMs < it.endMs }
-        val frameTrace = movingTrace(event.trackLength, current.config.direction, travelPhase, trace)
-        val frame = activeFrame(current.config, energy, trace.history.first(), frameTrace)
+        val frameTrace = movingTrace(event.trackLength, current.direction, travelPhase, trace)
+        val frame = activeFrame(current.config, current.direction, energy, trace.history.first(), frameTrace)
         return Transition(
             current.copy(
                 travelPhase = travelPhase,
@@ -335,7 +350,11 @@ internal class WaveformEngine(
         val state = loopingState(config, morphology)
         return Transition(
             state,
-            WaveformUpdate(TimerDirective.START, needsRepaint = true, frame = restingFrame(config, morphology)),
+            WaveformUpdate(
+                TimerDirective.START,
+                needsRepaint = true,
+                frame = restingFrame(config, state.direction, morphology),
+            ),
         )
     }
 
@@ -346,9 +365,18 @@ internal class WaveformEngine(
     ): WaveformState.Looping =
         WaveformState.Looping(
             config = config,
+            direction = directionFor(config),
             history = initialHistory(config, morphology),
             energyEnvelope = energyEnvelope,
         )
+
+    private fun directionFor(config: WaveformConfig): TravelDirection =
+        config.movement.fixedDirection
+            ?: if (random.nextBoolean()) {
+                TravelDirection.CLOCKWISE
+            } else {
+                TravelDirection.COUNTER_CLOCKWISE
+            }
 
     private fun initialHistory(
         config: WaveformConfig,
@@ -421,7 +449,7 @@ internal class WaveformEngine(
 
         fun movingTrace(
             trackLength: Float,
-            direction: WaveformDirection,
+            direction: TravelDirection,
             travelPhase: Float,
             trace: TraceAdvance,
         ): FrameTrace? {
@@ -435,12 +463,14 @@ internal class WaveformEngine(
 
         fun activeFrame(
             config: WaveformConfig,
+            direction: TravelDirection,
             energy: Float,
             morphology: BeatMorphology,
             trace: FrameTrace? = null,
         ): WaveformFrame =
             WaveformFrame(
                 config = config,
+                direction = direction,
                 trace = trace,
                 brightness = config.brightnessAt(energy),
                 energy = energy,
@@ -449,10 +479,12 @@ internal class WaveformEngine(
 
         fun restingFrame(
             config: WaveformConfig,
+            direction: TravelDirection = config.movement.fixedDirection ?: TravelDirection.CLOCKWISE,
             morphology: BeatMorphology = BeatMorphology.standard(),
         ): WaveformFrame =
             WaveformFrame(
                 config = config,
+                direction = direction,
                 brightness = config.brightnessAt(0f),
                 morphology = morphology,
             )

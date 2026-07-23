@@ -18,8 +18,8 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
-import dev.ayuislands.glow.waveform.WaveformDirection
 import dev.ayuislands.glow.waveform.WaveformEdge
+import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -276,7 +276,7 @@ class GlowOverlayManagerLifecycleTest {
         every { AyuVariant.isAyuActive() } returns true
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         state.glowShape = GlowShape.WAVEFORM.name
-        state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+        state.waveformDirection = WaveformMovement.COUNTER_CLOCKWISE.name
         state.waveformBaseline = WaveformBaseline.CENTERED.name
         state.waveformTraceDensity = 99
         state.waveformTraceLength = Int.MAX_VALUE
@@ -295,7 +295,7 @@ class GlowOverlayManagerLifecycleTest {
             glassPane.configureWaveform(
                 GlowShape.WAVEFORM,
                 WaveformConfig(
-                    direction = WaveformDirection.COUNTER_CLOCKWISE,
+                    movement = WaveformMovement.COUNTER_CLOCKWISE,
                     baseline = WaveformBaseline.CENTERED,
                     traceDensity = 4,
                     traceLength = MAX_TRACE_LENGTH,

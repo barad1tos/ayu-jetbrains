@@ -100,10 +100,9 @@ internal open class WaveformPainter(
         val solidWidth = snapshot.solidFrame.width.coerceAtLeast(1)
         val strokes = strokeWidths(solidWidth)
         val track =
-            createTrack(
-                snapshot.bounds,
+            snapshot.bounds.createTrack(
                 snapshot.arcWidth,
-                frame.config,
+                frame,
                 solidWidth,
                 snapshot.occupiedTopSpans,
             )
@@ -225,10 +224,10 @@ internal open class WaveformPainter(
     fun trackLength(
         bounds: Rectangle,
         arcWidth: Int,
-        config: WaveformConfig,
+        frame: WaveformFrame,
         solidWidth: Int,
         occupiedTopSpans: List<IntRange> = emptyList(),
-    ): Float = createTrack(bounds, arcWidth, config, solidWidth, occupiedTopSpans).length
+    ): Float = bounds.createTrack(arcWidth, frame, solidWidth, occupiedTopSpans).length
 
     private fun signalBounds(
         layers: SignalLayers,
@@ -273,21 +272,21 @@ internal open class WaveformPainter(
         }
     }
 
-    private fun createTrack(
-        bounds: Rectangle,
+    private fun Rectangle.createTrack(
         arcWidth: Int,
-        config: WaveformConfig,
+        frame: WaveformFrame,
         solidWidth: Int,
         occupiedTopSpans: List<IntRange>,
     ): WaveformTrack {
+        val config = frame.config
         val amplitude = config.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
         val key =
             TrackKey(
-                Rectangle(bounds),
+                Rectangle(this),
                 arcWidth,
                 amplitude,
                 solidWidth,
-                config.direction,
+                frame.direction,
                 config.baseline,
                 config.effectiveTraceLength,
                 occupiedTopSpans,
@@ -296,22 +295,21 @@ internal open class WaveformPainter(
 
         val outerMargin = marginFor(amplitude, solidWidth)
         val baselineInset = baselineInsetFor(config.baseline, solidWidth)
-        return WaveformTrack
-            .create(
-                overlayBounds = bounds,
-                margin = outerMargin + baselineInset,
-                arcRadius =
-                    (arcWidth.coerceAtLeast(0) / ARC_DIAMETER_DIVISOR - baselineInset)
-                        .coerceAtLeast(0f),
-                config = config,
-                occupiedTopSpans =
-                    occupiedTopSpans.map { span ->
-                        (span.first + outerMargin.toInt())..(span.last + outerMargin.toInt())
-                    },
-            ).also { track ->
-                trackKey = key
-                cachedTrack = track
-            }
+        return toWaveformTrack(
+            margin = outerMargin + baselineInset,
+            arcRadius =
+                (arcWidth.coerceAtLeast(0) / ARC_DIAMETER_DIVISOR - baselineInset)
+                    .coerceAtLeast(0f),
+            config = config,
+            direction = frame.direction,
+            occupiedTopSpans =
+                occupiedTopSpans.map { span ->
+                    (span.first + outerMargin.toInt())..(span.last + outerMargin.toInt())
+                },
+        ).also { track ->
+            trackKey = key
+            cachedTrack = track
+        }
     }
 
     private fun signalPaths(
@@ -516,7 +514,7 @@ internal open class WaveformPainter(
             center = wrap(track.signalAnchorDistance + trace.anchorOffset, track.length),
             history = trace.history,
             tracePhase = trace.phase,
-            travelSign = frame.config.direction.travelSign,
+            travelSign = frame.direction.travelSign,
             moving = true,
             complexCount = frame.config.traceComplexCount,
             baseline = frame.config.baseline,
@@ -593,7 +591,7 @@ internal open class WaveformPainter(
         val arcWidth: Int,
         val amplitude: Int,
         val solidWidth: Int,
-        val direction: WaveformDirection,
+        val direction: TravelDirection,
         val baseline: WaveformBaseline,
         val traceLength: Int,
         val occupiedTopSpans: List<IntRange>,
@@ -692,7 +690,9 @@ internal open class WaveformPainter(
                     displacement.coerceIn(0f, 1f)
                 }
 
-                WaveformBaseline.CENTERED -> morphology.coerceIn(-1f, 1f)
+                WaveformBaseline.CENTERED -> {
+                    morphology.coerceIn(-1f, 1f)
+                }
             }
 
         /**
