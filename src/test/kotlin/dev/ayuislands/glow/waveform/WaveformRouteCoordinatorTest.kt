@@ -289,6 +289,38 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
+    fun `bridge failure removes window target immediately`() {
+        val coordinator = testCoordinator(seededRandom(73))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 400f, "Commit" to 400f),
+                edges =
+                    listOf(
+                        TestEdge(
+                            sourceId = "Editor",
+                            targetId = "Commit",
+                            connectorLength = 200f,
+                            requiresWindowBridge = true,
+                        ),
+                    ),
+            )
+        val connectorId = graph.connectorsFrom("Editor").single().id
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val bridgeFrame = requireNotNull(coordinator.handle(RouteEvent.Tick(20_100L)).frame)
+        assertTrue(bridgeFrame.slices.any { slice -> slice.target == RoutePaintTarget.WindowBridge(connectorId) })
+
+        val failed = requireNotNull(coordinator.handle(RouteEvent.BridgeFailed(connectorId)).frame)
+        repeat(500) { index ->
+            coordinator.handle(RouteEvent.Tick(20_200L + index * 100L))
+            assertNotEquals("Commit", coordinator.snapshot.currentSurfaceId)
+        }
+
+        assertTrue(failed.slices.none { slice -> slice.target == RoutePaintTarget.WindowBridge(connectorId) })
+        assertNull(coordinator.snapshot.plannedTargetId)
+    }
+
+    @TestCase
     fun `activation focus changes never redirect an active route`() {
         val coordinator = testCoordinator(seededRandom(37))
         val graph =
@@ -345,6 +377,63 @@ class WaveformRouteCoordinatorTest {
 
         coordinator.handle(RouteEvent.Tick(901_000L))
         assertTrue(coordinator.snapshot.distanceOnLeg > before)
+    }
+
+    @TestCase
+    fun `empty activation stays power-save suspended`() {
+        val coordinator = testCoordinator(seededRandom(79))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+
+        val activated =
+            coordinator.handle(
+                RouteEvent.Activate(
+                    graph = RouteGraph(emptyMap(), emptyMap()),
+                    focusedSurfaceId = null,
+                    powerSaveEnabled = true,
+                ),
+            )
+        val discovered = coordinator.handle(RouteEvent.GraphChanged(graph))
+        coordinator.handle(RouteEvent.Keystroke(500L))
+        val resumed = coordinator.handle(RouteEvent.PowerSaveChanged(false))
+        val firstTick = requireNotNull(coordinator.handle(RouteEvent.Tick(1_000L)).frame)
+        val distance = coordinator.snapshot.distanceOnLeg
+        coordinator.handle(RouteEvent.Tick(1_800L))
+
+        assertEquals(TimerDirective.STOP, activated.timerDirective)
+        assertEquals(TimerDirective.STOP, discovered.timerDirective)
+        assertEquals(TimerDirective.START, resumed.timerDirective)
+        assertEquals(0f, firstTick.signal.energy, 0.001f)
+        assertEquals(0f, distance, 0.001f)
+        assertTrue(coordinator.snapshot.distanceOnLeg > distance)
+    }
+
+    @TestCase
+    fun `delayed tick honors key time without route drift`() {
+        val coordinator = testCoordinator(seededRandom(83))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        coordinator.handle(RouteEvent.Keystroke(500L))
+        val frame = requireNotNull(coordinator.handle(RouteEvent.Tick(800L)).frame)
+
+        assertEquals(16f, coordinator.snapshot.distanceOnLeg, 0.001f)
+        assertEquals(0.633f, frame.signal.energy, 0.001f)
+    }
+
+    @TestCase
+    fun `delayed tick preserves repeated-key cadence`() {
+        val coordinator = testCoordinator(seededRandom(89))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        coordinator.handle(RouteEvent.Keystroke(500L))
+        coordinator.handle(RouteEvent.Keystroke(600L))
+        val frame = requireNotNull(coordinator.handle(RouteEvent.Tick(800L)).frame)
+
+        assertEquals(0.8f, frame.signal.energy, 0.001f)
+        assertTrue(requireNotNull(frame.signal.trace).phase < 0.3f)
     }
 
     @TestCase
@@ -405,6 +494,45 @@ class WaveformRouteCoordinatorTest {
 
         assertEquals(setOf("Editor", "Commit"), connectorStart.visibleSurfaceIds)
         assertTrue(connectorMiddle.signalSpan in 185f..215f, "span was ${connectorMiddle.signalSpan}")
+    }
+
+    @TestCase
+    fun `zero gap crosses unequal perimeters with finite data`() {
+        val coordinator = testCoordinator(seededRandom(97))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+            )
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val exactExit = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
+        val nextTick = requireNotNull(coordinator.handle(RouteEvent.Tick(20_001L)).frame)
+
+        assertEquals("Commit", exactExit.currentSurfaceId)
+        assertEquals("Commit", nextTick.currentSurfaceId)
+        listOf(exactExit, nextTick).forEach { frame ->
+            assertTrue(frame.centerDistance.isFinite())
+            assertTrue(frame.signalSpan.isFinite())
+            assertTrue(
+                frame.signal.trace
+                    ?.anchorOffset
+                    ?.isFinite() != false,
+            )
+            assertTrue(
+                frame.slices
+                    .flatMap(RouteSlice::samples)
+                    .all { sample ->
+                        sample.x.isFinite() &&
+                            sample.y.isFinite() &&
+                            sample.normalX.isFinite() &&
+                            sample.normalY.isFinite() &&
+                            sample.distance.isFinite()
+                    },
+            )
+        }
     }
 
     @TestCase
@@ -523,6 +651,7 @@ private data class TestEdge(
     val sourceDistance: Float = 0f,
     val targetDistance: Float = 0f,
     val connectorLength: Float = 8f,
+    val requiresWindowBridge: Boolean = false,
 )
 
 private fun seededRandom(seed: Int): kotlin.random.Random = kotlin.random.Random(seed)
@@ -574,7 +703,7 @@ private fun testGraph(
                     sourcePoint = RoutePoint(0f, yOffset),
                     targetPoint = RoutePoint(edge.connectorLength, yOffset),
                     length = edge.connectorLength,
-                    requiresWindowBridge = false,
+                    requiresWindowBridge = edge.requiresWindowBridge,
                 )
             listOf(
                 forward,

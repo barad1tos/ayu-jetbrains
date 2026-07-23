@@ -307,7 +307,7 @@ internal class WaveformRouteCoordinator(
     ): Transition =
         when (event) {
             is RouteEvent.Tick -> tick(current, event.nowMs)
-            is RouteEvent.Keystroke -> keystroke(current)
+            is RouteEvent.Keystroke -> keystroke(current, event.nowMs)
             is RouteEvent.Configure -> configure(current, event.config)
             is RouteEvent.GraphChanged -> changeRoutingGraph(current, event.graph)
             is RouteEvent.ApplicationActiveChanged ->
@@ -327,7 +327,7 @@ internal class WaveformRouteCoordinator(
     ): Transition =
         when (event) {
             is RouteEvent.Tick -> tick(current, event.nowMs)
-            is RouteEvent.Keystroke -> keystroke(current)
+            is RouteEvent.Keystroke -> keystroke(current, event.nowMs)
             is RouteEvent.Configure -> configure(current, event.config)
             is RouteEvent.GraphChanged -> {
                 if (event.graph.surfaces.isEmpty()) {
@@ -386,7 +386,14 @@ internal class WaveformRouteCoordinator(
         val selectedId = planner.selectInitialSurface(event.graph, event.focusedSurfaceId)
         if (selectedId == null) {
             engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
-            return Transition(LifecycleState.Empty(null), RouteUpdate(TimerDirective.STOP))
+            val empty = LifecycleState.Empty(null)
+            val nextState =
+                if (event.powerSaveEnabled) {
+                    LifecycleState.Suspended(setOf(SuspensionReason.POWER_SAVE), empty, null)
+                } else {
+                    empty
+                }
+            return Transition(nextState, RouteUpdate(TimerDirective.STOP))
         }
 
         val routing =
@@ -412,14 +419,17 @@ internal class WaveformRouteCoordinator(
     ): Transition {
         val elapsedMs = clock.elapsed(nowMs)
         val advanced = advance(current, elapsedMs.toFloat())
-        val signal = engine.signalFrame(clock.logicalTimeMs)
+        val signal = engine.signalFrame(clock.engineTimeMs)
         val frame = trail.render(advanced, signal)
         val directive = if (advanced is LifecycleState.Empty) TimerDirective.STOP else TimerDirective.KEEP
         return Transition(advanced, RouteUpdate(directive, frame))
     }
 
-    private fun keystroke(current: LiveState): Transition {
-        engine.handle(WaveformEvent.Keystroke(clock.logicalTimeMs))
+    private fun keystroke(
+        current: LiveState,
+        nowMs: Long,
+    ): Transition {
+        engine.handle(WaveformEvent.Keystroke(clock.eventTime(nowMs)))
         return ignore(current, lastFrame)
     }
 
@@ -450,7 +460,7 @@ internal class WaveformRouteCoordinator(
                 0f,
             )
         clock.resetWallTick()
-        val signal = engine.signalFrame(clock.logicalTimeMs)
+        val signal = engine.signalFrame(clock.engineTimeMs)
         return Transition(routing, RouteUpdate(TimerDirective.START, trail.routeFrame(routing, signal)))
     }
 
@@ -468,7 +478,7 @@ internal class WaveformRouteCoordinator(
         graph = replacement
         pendingGraph = null
         trail.clearSegments()
-        val frame = trail.routeFrame(rebound, lastFrame?.signal ?: engine.signalFrame(clock.logicalTimeMs))
+        val frame = trail.routeFrame(rebound, lastFrame?.signal ?: engine.signalFrame(clock.engineTimeMs))
         return Transition(rebound, RouteUpdate(frame = frame))
     }
 
@@ -478,9 +488,12 @@ internal class WaveformRouteCoordinator(
     ): Transition {
         graph = graph.without(connectorId)
         pendingGraph = pendingGraph?.without(connectorId)
+        trail.discardTarget(RoutePaintTarget.WindowBridge(connectorId))
         val leg = current.leg
         if (leg is RouteLeg.Connector && leg.connector.id == connectorId) {
-            trail.recordPrefix(leg, current.distanceOnLeg)
+            if (leg.target !is RoutePaintTarget.WindowBridge) {
+                trail.recordPrefix(leg, current.distanceOnLeg)
+            }
             trail.advance(current.distanceOnLeg)
             val perimeter =
                 planner.createPerimeter(
@@ -494,7 +507,7 @@ internal class WaveformRouteCoordinator(
                         ),
                 )
             val routing = LifecycleState.Routing(perimeter, 0f)
-            val signal = lastFrame?.signal ?: engine.signalFrame(clock.logicalTimeMs)
+            val signal = lastFrame?.signal ?: engine.signalFrame(clock.engineTimeMs)
             return Transition(routing, RouteUpdate(frame = trail.routeFrame(routing, signal)))
         }
         if (leg is RouteLeg.Perimeter && leg.connector?.id == connectorId) {
@@ -510,7 +523,7 @@ internal class WaveformRouteCoordinator(
             trail.keepCenter(center, 0f)
             trail.clearSegments()
             val routing = LifecycleState.Routing(perimeter, 0f)
-            val signal = lastFrame?.signal ?: engine.signalFrame(clock.logicalTimeMs)
+            val signal = lastFrame?.signal ?: engine.signalFrame(clock.engineTimeMs)
             return Transition(routing, RouteUpdate(frame = trail.routeFrame(routing, signal)))
         }
         return ignore(current, lastFrame)
@@ -591,7 +604,11 @@ internal class WaveformRouteCoordinator(
         var current = initial
         var remainingMs = elapsedMs
         repeat(MAX_TICK_TRANSITIONS) {
-            if (remainingMs <= ROUTE_EPSILON || current is LifecycleState.Empty) return current
+            if (current is LifecycleState.Empty) return current
+            val isInstantBoundary =
+                current is LifecycleState.Routing &&
+                    current.leg.length - current.distanceOnLeg <= ROUTE_EPSILON
+            if (remainingMs <= ROUTE_EPSILON && !isInstantBoundary) return current
             when (current) {
                 is LifecycleState.Routing -> {
                     val result = advanceRouting(current, remainingMs)
@@ -828,14 +845,16 @@ private object RouteMotion {
         targetDistance: Float,
         graph: RouteGraph,
         config: WaveformConfig,
-    ): Float =
-        when (leg) {
+    ): Float {
+        if (targetDistance - startDistance <= ROUTE_EPSILON) return 0f
+        return when (leg) {
             is RouteLeg.Perimeter ->
                 (targetDistance - startDistance) /
                     perimeterSpeed(graph.surfaces.getValue(leg.surfaceId), config)
 
             is RouteLeg.Connector -> connectorTime(leg, startDistance, targetDistance)
         }
+    }
 
     fun distanceAfter(
         leg: RouteLeg,
@@ -843,14 +862,16 @@ private object RouteMotion {
         elapsedMs: Float,
         graph: RouteGraph,
         config: WaveformConfig,
-    ): Float =
-        when (leg) {
+    ): Float {
+        if (leg.length <= ROUTE_EPSILON) return leg.length
+        return when (leg) {
             is RouteLeg.Perimeter ->
                 startDistance +
                     perimeterSpeed(graph.surfaces.getValue(leg.surfaceId), config) * elapsedMs
 
             is RouteLeg.Connector -> connectorDistance(leg, startDistance, elapsedMs)
         }.coerceAtMost(leg.length)
+    }
 
     fun perimeterSpeed(
         surface: RouteSurface,
@@ -873,7 +894,12 @@ private object RouteMotion {
         when (val leg = current.leg) {
             is RouteLeg.Perimeter -> leg.signalSpan
             is RouteLeg.Connector -> {
-                val progress = (current.distanceOnLeg / leg.length).coerceIn(0f, 1f)
+                val progress =
+                    if (leg.length <= ROUTE_EPSILON) {
+                        1f
+                    } else {
+                        (current.distanceOnLeg / leg.length).coerceIn(0f, 1f)
+                    }
                 leg.sourceSpan + (leg.targetSpan - leg.sourceSpan) * progress
             }
         }
@@ -883,6 +909,7 @@ private object RouteMotion {
         startDistance: Float,
         targetDistance: Float,
     ): Float {
+        if (leg.length <= ROUTE_EPSILON) return 0f
         val speedDelta = leg.targetSpeed - leg.sourceSpeed
         if (abs(speedDelta) <= ROUTE_EPSILON) return (targetDistance - startDistance) / leg.sourceSpeed
         val rate = speedDelta / leg.length
@@ -894,6 +921,7 @@ private object RouteMotion {
         startDistance: Float,
         elapsedMs: Float,
     ): Float {
+        if (leg.length <= ROUTE_EPSILON) return leg.length
         val speedDelta = leg.targetSpeed - leg.sourceSpeed
         if (abs(speedDelta) <= ROUTE_EPSILON) return startDistance + leg.sourceSpeed * elapsedMs
         val rate = speedDelta / leg.length
@@ -1062,6 +1090,10 @@ private class RouteTrail {
         completedSegments.clear()
     }
 
+    fun discardTarget(target: RoutePaintTarget) {
+        completedSegments.removeAll { segment -> segment.target == target }
+    }
+
     fun advance(distance: Float) {
         distanceOffset += distance
     }
@@ -1181,10 +1213,14 @@ private class RouteClock {
     var logicalTimeMs: Long = 0L
         private set
 
+    var engineTimeMs: Long = 0L
+        private set
+
     private var lastWallTickMs: Long? = null
 
     fun reset() {
         logicalTimeMs = 0L
+        engineTimeMs = 0L
         lastWallTickMs = null
     }
 
@@ -1198,7 +1234,17 @@ private class RouteClock {
         if (previous == null) return 0L
         val elapsed = (nowMs - previous).coerceAtLeast(0L)
         logicalTimeMs += elapsed
+        engineTimeMs = maxOf(engineTimeMs, logicalTimeMs)
         return elapsed
+    }
+
+    fun eventTime(nowMs: Long): Long {
+        val projected =
+            lastWallTickMs?.let { lastTick ->
+                logicalTimeMs + (nowMs - lastTick).coerceAtLeast(0L)
+            } ?: logicalTimeMs
+        engineTimeMs = maxOf(engineTimeMs, projected)
+        return engineTimeMs
     }
 }
 
