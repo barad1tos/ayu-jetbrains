@@ -117,16 +117,26 @@ private sealed interface LifecycleState {
 
     data class Suspended(
         val reasons: Set<SuspensionReason>,
-        val resumeState: LiveState,
-        val stableFrame: RouteFrame?,
-    ) : LifecycleState {
+        override val resumeState: LiveState,
+        override val stableFrame: RouteFrame?,
+    ) : SavedState {
         init {
             require(reasons.isNotEmpty()) { "Suspended route requires at least one reason" }
         }
     }
+
+    data class Resuming(
+        override val resumeState: LiveState,
+        override val stableFrame: RouteFrame,
+    ) : SavedState
 }
 
 private sealed interface LiveState : LifecycleState
+
+private sealed interface SavedState : LifecycleState {
+    val resumeState: LiveState
+    val stableFrame: RouteFrame?
+}
 
 private sealed interface RouteLeg {
     val direction: TravelDirection
@@ -256,6 +266,7 @@ internal class WaveformRouteCoordinator(
                 is LifecycleState.Routing -> handleRouting(current, event)
                 is LifecycleState.Recovering -> handleRecovery(current, event)
                 is LifecycleState.Suspended -> handleSuspended(current, event)
+                is LifecycleState.Resuming -> handleResuming(current, event)
             }
         state = transition.state
         transition.update.frame?.let { frame -> lastFrame = frame }
@@ -307,7 +318,11 @@ internal class WaveformRouteCoordinator(
     ): Transition =
         when (event) {
             is RouteEvent.Tick -> tick(current, event.nowMs)
-            is RouteEvent.Keystroke -> keystroke(current, event.nowMs)
+            is RouteEvent.Keystroke -> {
+                engine.handle(WaveformEvent.Keystroke(clock.eventTime(event.nowMs)))
+                ignore(current, lastFrame)
+            }
+
             is RouteEvent.Configure -> configure(current, event.config)
             is RouteEvent.GraphChanged -> changeRoutingGraph(current, event.graph)
             is RouteEvent.ApplicationActiveChanged ->
@@ -327,7 +342,11 @@ internal class WaveformRouteCoordinator(
     ): Transition =
         when (event) {
             is RouteEvent.Tick -> tick(current, event.nowMs)
-            is RouteEvent.Keystroke -> keystroke(current, event.nowMs)
+            is RouteEvent.Keystroke -> {
+                engine.handle(WaveformEvent.Keystroke(clock.eventTime(event.nowMs)))
+                ignore(current, lastFrame)
+            }
+
             is RouteEvent.Configure -> configure(current, event.config)
             is RouteEvent.GraphChanged -> {
                 if (event.graph.surfaces.isEmpty()) {
@@ -368,13 +387,51 @@ internal class WaveformRouteCoordinator(
                 changeSuspension(current, SuspensionReason.POWER_SAVE, isEnabled = event.enabled)
 
             is RouteEvent.Configure -> configure(current, event.config, current.stableFrame)
-            is RouteEvent.GraphChanged -> updateSuspended(current, RouteEvent.GraphChanged(event.graph))
-            is RouteEvent.BridgeFailed -> updateSuspended(current, RouteEvent.BridgeFailed(event.connectorId))
+            is RouteEvent.GraphChanged -> updateSavedState(current, RouteEvent.GraphChanged(event.graph))
+            is RouteEvent.BridgeFailed -> updateSavedState(current, RouteEvent.BridgeFailed(event.connectorId))
             RouteEvent.Deactivate -> deactivate()
             is RouteEvent.Tick -> ignore(current, current.stableFrame)
             is RouteEvent.Activate,
             is RouteEvent.Keystroke,
             -> ignore(current, current.stableFrame)
+        }
+
+    private fun handleResuming(
+        current: LifecycleState.Resuming,
+        event: RouteEvent,
+    ): Transition =
+        when (event) {
+            is RouteEvent.Tick -> {
+                clock.elapsed(event.nowMs)
+                Transition(current.resumeState, RouteUpdate(frame = current.stableFrame))
+            }
+
+            is RouteEvent.Keystroke -> {
+                engine.handle(WaveformEvent.Keystroke(clock.eventTime(event.nowMs)))
+                ignore(current, current.stableFrame)
+            }
+
+            is RouteEvent.Configure -> configure(current, event.config, current.stableFrame)
+            is RouteEvent.GraphChanged -> updateSavedState(current, RouteEvent.GraphChanged(event.graph))
+            is RouteEvent.BridgeFailed -> updateSavedState(current, RouteEvent.BridgeFailed(event.connectorId))
+            is RouteEvent.ApplicationActiveChanged -> {
+                if (event.active) {
+                    ignore(current, current.stableFrame)
+                } else {
+                    suspend(current.resumeState, SuspensionReason.APPLICATION_INACTIVE)
+                }
+            }
+
+            is RouteEvent.PowerSaveChanged -> {
+                if (event.enabled) {
+                    suspend(current.resumeState, SuspensionReason.POWER_SAVE)
+                } else {
+                    ignore(current, current.stableFrame)
+                }
+            }
+
+            RouteEvent.Deactivate -> deactivate()
+            is RouteEvent.Activate -> ignore(current, current.stableFrame)
         }
 
     private fun activate(event: RouteEvent.Activate): Transition {
@@ -425,14 +482,6 @@ internal class WaveformRouteCoordinator(
         return Transition(advanced, RouteUpdate(directive, frame))
     }
 
-    private fun keystroke(
-        current: LiveState,
-        nowMs: Long,
-    ): Transition {
-        engine.handle(WaveformEvent.Keystroke(clock.eventTime(nowMs)))
-        return ignore(current, lastFrame)
-    }
-
     private fun configure(
         current: LifecycleState,
         updatedConfig: WaveformConfig,
@@ -441,7 +490,21 @@ internal class WaveformRouteCoordinator(
         requireChaotic(updatedConfig)
         config = updatedConfig
         engine.handle(WaveformEvent.Configure(updatedConfig))
-        return ignore(current, frame)
+        val configured =
+            when (current) {
+                LifecycleState.Dormant,
+                is LifecycleState.Empty,
+                is LifecycleState.Recovering,
+                -> current
+
+                is LifecycleState.Routing -> RouteMotion.rebaseConnector(current, graph, updatedConfig)
+                is LifecycleState.Suspended ->
+                    current.copy(resumeState = RouteMotion.rebaseConnector(current.resumeState, graph, updatedConfig))
+
+                is LifecycleState.Resuming ->
+                    current.copy(resumeState = RouteMotion.rebaseConnector(current.resumeState, graph, updatedConfig))
+            }
+        return ignore(configured, frame)
     }
 
     private fun changeEmptyGraph(
@@ -533,7 +596,7 @@ internal class WaveformRouteCoordinator(
         current: LiveState,
         reason: SuspensionReason,
     ): Transition {
-        clock.pause()
+        clock.resetWallTick()
         val stableFrame = lastFrame
         return Transition(
             LifecycleState.Suspended(setOf(reason), current, stableFrame),
@@ -554,12 +617,18 @@ internal class WaveformRouteCoordinator(
         }
 
         clock.resetWallTick()
-        val directive = if (current.resumeState is LifecycleState.Empty) TimerDirective.STOP else TimerDirective.START
-        return Transition(current.resumeState, RouteUpdate(directive, current.stableFrame))
+        if (current.resumeState is LifecycleState.Empty) {
+            return Transition(current.resumeState, RouteUpdate(TimerDirective.STOP, current.stableFrame))
+        }
+        val stableFrame = checkNotNull(current.stableFrame) { "Resuming route requires a stable frame" }
+        return Transition(
+            LifecycleState.Resuming(current.resumeState, stableFrame),
+            RouteUpdate(TimerDirective.START, stableFrame),
+        )
     }
 
-    private fun updateSuspended(
-        current: LifecycleState.Suspended,
+    private fun updateSavedState(
+        current: SavedState,
         event: RouteEvent,
     ): Transition {
         state = current.resumeState
@@ -569,11 +638,22 @@ internal class WaveformRouteCoordinator(
                 is LifecycleState.Routing -> handleRouting(resume, event)
                 is LifecycleState.Recovering -> handleRecovery(resume, event)
             }
+        if (current is LifecycleState.Resuming && nested.state is LifecycleState.Empty) return nested
         val resumeState = nested.state as? LiveState ?: error("Suspended update cannot leave the live lifecycle")
         val stableFrame = nested.update.frame ?: current.stableFrame
+        val updated =
+            when (current) {
+                is LifecycleState.Suspended -> current.copy(resumeState = resumeState, stableFrame = stableFrame)
+                is LifecycleState.Resuming ->
+                    current.copy(
+                        resumeState = resumeState,
+                        stableFrame = checkNotNull(stableFrame) { "Resuming route requires a stable frame" },
+                    )
+            }
+        val directive = if (current is LifecycleState.Suspended) TimerDirective.STOP else TimerDirective.KEEP
         return Transition(
-            current.copy(resumeState = resumeState, stableFrame = stableFrame),
-            RouteUpdate(TimerDirective.STOP, stableFrame),
+            updated,
+            RouteUpdate(directive, stableFrame),
         )
     }
 
@@ -822,6 +902,7 @@ private fun snapshotOf(current: LifecycleState): RouteSnapshot =
             )
 
         is LifecycleState.Suspended -> snapshotOf(current.resumeState)
+        is LifecycleState.Resuming -> snapshotOf(current.resumeState)
     }
 
 private fun LifecycleState.Routing.snapshot(): RouteSnapshot =
@@ -833,6 +914,24 @@ private fun LifecycleState.Routing.snapshot(): RouteSnapshot =
     )
 
 private object RouteMotion {
+    fun rebaseConnector(
+        current: LiveState,
+        graph: RouteGraph,
+        config: WaveformConfig,
+    ): LiveState {
+        val routing = current as? LifecycleState.Routing ?: return current
+        val leg = routing.leg as? RouteLeg.Connector ?: return current
+        val source = graph.surfaces.getValue(leg.connector.sourceId)
+        val target = graph.surfaces.getValue(leg.connector.targetId)
+        return routing.copy(
+            leg =
+                leg.copy(
+                    sourceSpeed = perimeterSpeed(source, config),
+                    targetSpeed = perimeterSpeed(target, config),
+                ),
+        )
+    }
+
     fun nextBoundary(
         leg: RouteLeg,
         distance: Float,
@@ -1241,11 +1340,6 @@ private class RouteClock {
     }
 
     fun resetWallTick() {
-        lastWallTickMs = null
-    }
-
-    fun pause() {
-        engineTimeMs = logicalTimeMs
         lastWallTickMs = null
     }
 

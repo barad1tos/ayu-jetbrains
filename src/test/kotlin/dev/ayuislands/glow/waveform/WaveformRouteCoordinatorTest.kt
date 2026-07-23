@@ -417,16 +417,33 @@ class WaveformRouteCoordinatorTest {
         val coordinator = testCoordinator(seededRandom(97))
         val graph = testGraph(mapOf("Editor" to 400f), emptyList())
         coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
-        coordinator.handle(RouteEvent.Tick(0L))
+        val stable = requireNotNull(coordinator.handle(RouteEvent.Tick(0L)).frame)
         coordinator.handle(RouteEvent.Keystroke(500L))
-        val suspended = requireNotNull(coordinator.handle(RouteEvent.ApplicationActiveChanged(false)).frame)
+        coordinator.handle(RouteEvent.Keystroke(600L))
+        val appStopped = coordinator.handle(RouteEvent.ApplicationActiveChanged(false))
+        val powerStopped = coordinator.handle(RouteEvent.PowerSaveChanged(true))
+        val ignoredKey = coordinator.handle(RouteEvent.Keystroke(9_000L))
+        val appCleared = coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+        val resumed = coordinator.handle(RouteEvent.PowerSaveChanged(false))
+        val firstTick = requireNotNull(coordinator.handle(RouteEvent.Tick(10_000L)).frame)
 
-        coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
-        val resumed = requireNotNull(coordinator.handle(RouteEvent.Tick(10_000L)).frame)
-
+        assertEquals(TimerDirective.STOP, appStopped.timerDirective)
+        assertEquals(TimerDirective.STOP, powerStopped.timerDirective)
+        assertEquals(TimerDirective.KEEP, ignoredKey.timerDirective)
+        assertEquals(TimerDirective.KEEP, appCleared.timerDirective)
+        assertEquals(TimerDirective.START, resumed.timerDirective)
+        assertEquals(stable, appStopped.frame)
+        assertEquals(stable, powerStopped.frame)
+        assertEquals(stable, ignoredKey.frame)
+        assertEquals(stable, resumed.frame)
+        assertEquals(stable, firstTick)
         assertEquals(0f, coordinator.snapshot.distanceOnLeg, 0.001f)
-        assertEquals(suspended.centerDistance, resumed.centerDistance, 0.001f)
-        assertEquals(suspended.signal, resumed.signal)
+
+        val nextTick = requireNotNull(coordinator.handle(RouteEvent.Tick(11_000L)).frame)
+
+        assertEquals(20f, coordinator.snapshot.distanceOnLeg, 0.001f)
+        assertTrue(nextTick.signal.energy > firstTick.signal.energy)
+        assertNotEquals(firstTick.signal, nextTick.signal)
     }
 
     @TestCase
@@ -513,6 +530,59 @@ class WaveformRouteCoordinatorTest {
         val distance = coordinator.snapshot.distanceOnLeg
         coordinator.handle(RouteEvent.Tick(1_180L))
         assertEquals(distance + 40f, coordinator.snapshot.distanceOnLeg, 0.01f)
+    }
+
+    @TestCase
+    fun `configure rebases active connector speed`() {
+        val coordinator = testCoordinator(seededRandom(101))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 400f, "Commit" to 400f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 200f)),
+            )
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val connectorStart = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
+        val before = coordinator.snapshot
+        val updatedConfig = connectorStart.signal.config.copy(loopSeconds = 10f)
+
+        val configured = coordinator.handle(RouteEvent.Configure(updatedConfig))
+        val afterConfigure = coordinator.snapshot
+        val advanced = requireNotNull(coordinator.handle(RouteEvent.Tick(21_000L)).frame)
+
+        assertEquals(before, afterConfigure)
+        assertEquals(connectorStart, configured.frame)
+        assertEquals("Commit", coordinator.snapshot.plannedTargetId)
+        assertEquals(40f, coordinator.snapshot.distanceOnLeg, 0.001f)
+        assertEquals(updatedConfig, advanced.signal.config)
+    }
+
+    @TestCase
+    fun `suspended configure rebases connector after stable resume`() {
+        val coordinator = testCoordinator(seededRandom(103))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 400f, "Commit" to 400f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 200f)),
+            )
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val stable = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(false))
+        val updatedConfig = stable.signal.config.copy(loopSeconds = 10f)
+
+        val configured = coordinator.handle(RouteEvent.Configure(updatedConfig))
+        val resumed = coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+        val firstTick = requireNotNull(coordinator.handle(RouteEvent.Tick(30_000L)).frame)
+        val nextTick = requireNotNull(coordinator.handle(RouteEvent.Tick(31_000L)).frame)
+
+        assertEquals(stable, configured.frame)
+        assertEquals(TimerDirective.START, resumed.timerDirective)
+        assertEquals(stable, resumed.frame)
+        assertEquals(stable, firstTick)
+        assertEquals("Commit", coordinator.snapshot.plannedTargetId)
+        assertEquals(40f, coordinator.snapshot.distanceOnLeg, 0.001f)
+        assertEquals(updatedConfig, nextTick.signal.config)
     }
 
     @TestCase
