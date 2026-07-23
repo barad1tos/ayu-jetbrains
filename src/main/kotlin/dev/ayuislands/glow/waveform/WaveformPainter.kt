@@ -1,6 +1,7 @@
 package dev.ayuislands.glow.waveform
 
 import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
 import dev.ayuislands.glow.GlowRenderer
 import dev.ayuislands.glow.GlowStyle
 import java.awt.BasicStroke
@@ -550,7 +551,7 @@ internal open class WaveformPainter(
         val trace = frame.trace
         val center =
             routedTrack?.let { routed -> routed.centerDistance - routed.distanceOffset }
-                ?: track.signalAnchorDistance + (trace?.anchorOffset ?: 0f)
+                ?: (track.signalAnchorDistance + (trace?.anchorOffset ?: 0f))
         val signalSpan = routedTrack?.signalSpan ?: track.signalSpan
         if (trace == null) {
             return SignalSpec(
@@ -730,6 +731,8 @@ internal open class WaveformPainter(
         private const val HEAD_CORE_HEAT = 0.8f
         private const val HEAD_INNER_HEAT = 0.45f
         private const val WHITE_CHANNEL = 255
+        private const val RED_SHIFT = 16
+        private const val GREEN_SHIFT = 8
 
         fun signalOffset(
             morphology: Float,
@@ -758,7 +761,7 @@ internal open class WaveformPainter(
          * comet tail.
          */
         fun cometAlpha(phase: Float): Float {
-            if (phase < 0f || phase > TRACE_PHASE_SPAN) return 0f
+            if (phase !in 0f..TRACE_PHASE_SPAN) return 0f
             if (phase > HEAD_PHASE) return smoothStep((TRACE_PHASE_SPAN - phase) / HEAD_LEAD)
             val behind = HEAD_PHASE - phase
             val decay =
@@ -776,11 +779,11 @@ internal open class WaveformPainter(
             heat: Float,
         ): Color {
             val amount = heat.coerceIn(0f, 1f)
-            return Color(
-                color.red + ((WHITE_CHANNEL - color.red) * amount).roundToInt(),
-                color.green + ((WHITE_CHANNEL - color.green) * amount).roundToInt(),
-                color.blue + ((WHITE_CHANNEL - color.blue) * amount).roundToInt(),
-            )
+            val red = color.red + ((WHITE_CHANNEL - color.red) * amount).roundToInt()
+            val green = color.green + ((WHITE_CHANNEL - color.green) * amount).roundToInt()
+            val blue = color.blue + ((WHITE_CHANNEL - color.blue) * amount).roundToInt()
+            val packedColor = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+            return JBColor(packedColor, packedColor)
         }
 
         fun strokeWidths(solidWidth: Int): SignalStrokes {
