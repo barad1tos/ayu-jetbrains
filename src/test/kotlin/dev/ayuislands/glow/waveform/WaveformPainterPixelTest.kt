@@ -11,6 +11,7 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -122,6 +123,84 @@ class WaveformPainterPixelTest {
         val expected = renderSolidBase()
 
         assertEquals(0, pixelDifference(expected, waveform.image))
+    }
+
+    @Test
+    fun `routed request paints an open signal without the solid base`() {
+        val config =
+            WaveformConfig(
+                movement = WaveformMovement.CHAOTIC,
+                amplitude = 8,
+                intensity = 100,
+                traceLength = 360,
+            )
+        val frame =
+            movingFrame(
+                config = config,
+                history = List(config.traceComplexCount) { BeatMorphology.standard() },
+                phase = 0.4f,
+            )
+        val track =
+            openWaveformTrack(
+                listOf(
+                    WaveformSample(40f, 80f, 0f, -1f, 0f, 1f),
+                    WaveformSample(200f, 80f, 0f, -1f, 160f, 1f),
+                ),
+            )
+        val image = BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        val request =
+            WaveformPaintRequest(
+                bounds = bounds,
+                arcWidth = ARC_WIDTH,
+                accent = accent,
+                frame = frame,
+                solidFrame = solidFrame(),
+                routedTrack =
+                    RoutedTrack(
+                        track = track,
+                        distanceOffset = 280f,
+                        centerDistance = 270f,
+                        signalSpan = 360f,
+                    ),
+                paintsBase = false,
+            )
+        val plan = painter.prepare(request)
+        try {
+            painter.paint(graphics, plan)
+        } finally {
+            graphics.dispose()
+        }
+
+        assertFalse(plan.track.isClosed)
+        assertNotNull(plan.signalBounds)
+        assertEquals(0, alphaAt(image, 20, 20))
+        assertTrue(hasVisiblePixel(image, 110, 80, 40))
+    }
+
+    @Test
+    fun `signal painting can be disabled without changing the shared base`() {
+        val config = WaveformConfig(amplitude = 16, intensity = 100)
+        val image = BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        val request =
+            WaveformPaintRequest(
+                bounds = bounds,
+                arcWidth = ARC_WIDTH,
+                accent = accent,
+                frame = frame(config, center = 0f),
+                solidFrame = solidFrame(),
+                paintsSignal = false,
+            )
+        val plan = painter.prepare(request)
+        try {
+            painter.paint(graphics, plan)
+        } finally {
+            graphics.dispose()
+        }
+
+        assertEquals(null, plan.signalBounds)
+        assertEquals(0, pixelDifference(renderSolidBase(), image))
     }
 
     @Test

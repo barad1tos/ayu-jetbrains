@@ -9,7 +9,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-/** One arc-length sample on the closed island perimeter. */
+/** One arc-length sample on an ordered waveform track. */
 data class WaveformSample(
     val x: Float,
     val y: Float,
@@ -19,28 +19,33 @@ data class WaveformSample(
     val amplitudeMask: Float,
 )
 
-/** Clockwise samples of one closed rounded island perimeter. */
+/** Ordered samples of a closed perimeter or an open routed path. */
 class WaveformTrack internal constructor(
     val samples: List<WaveformSample>,
     val length: Float,
     val signalAnchorDistance: Float,
     val signalSpan: Float,
+    val isClosed: Boolean = true,
 ) {
-    val isClosed: Boolean = samples.isNotEmpty()
-
     internal fun sampleAt(distance: Float): WaveformSample {
-        require(isClosed) { "Cannot sample an empty waveform track" }
-        val wrappedDistance = ((distance % length) + length) % length
-        val foundIndex = samples.binarySearch { sample -> sample.distance.compareTo(wrappedDistance) }
+        require(samples.isNotEmpty()) { "Cannot sample an empty waveform track" }
+        val sampledDistance =
+            if (isClosed) {
+                ((distance % length) + length) % length
+            } else {
+                distance.coerceIn(0f, length)
+            }
+        val foundIndex = samples.binarySearch { sample -> sample.distance.compareTo(sampledDistance) }
         if (foundIndex >= 0) return samples[foundIndex]
 
         val nextIndex = -foundIndex - 1
         check(nextIndex > 0) { "Waveform track samples must start at distance zero" }
         val previous = samples[nextIndex - 1]
+        if (!isClosed && nextIndex == samples.size) return samples.last()
         val next = if (nextIndex == samples.size) samples.first() else samples[nextIndex]
         val previousDistance = previous.distance
         val nextDistance = if (nextIndex == samples.size) next.distance + length else next.distance
-        val progress = (wrappedDistance - previousDistance) / (nextDistance - previousDistance)
+        val progress = (sampledDistance - previousDistance) / (nextDistance - previousDistance)
         val normalX = previous.normalX + (next.normalX - previous.normalX) * progress
         val normalY = previous.normalY + (next.normalY - previous.normalY) * progress
         val normalLength = hypot(normalX.toDouble(), normalY.toDouble()).toFloat().coerceAtLeast(MIN_NORMAL_LENGTH)
@@ -49,7 +54,7 @@ class WaveformTrack internal constructor(
             y = previous.y + (next.y - previous.y) * progress,
             normalX = normalX / normalLength,
             normalY = normalY / normalLength,
-            distance = wrappedDistance,
+            distance = sampledDistance,
             amplitudeMask =
                 previous.amplitudeMask +
                     (next.amplitudeMask - previous.amplitudeMask) * progress,
@@ -71,6 +76,7 @@ class WaveformTrack internal constructor(
             length = length,
             signalAnchorDistance = signalAnchorDistance,
             signalSpan = signalSpan,
+            isClosed = isClosed,
         )
 
     internal fun traversal(
@@ -94,6 +100,24 @@ private const val HALF_PI = PI / 2
 private const val THREE_HALVES_PI = PI * 1.5
 private const val MIN_NORMAL_LENGTH = 0.0001f
 
+internal fun openWaveformTrack(samples: List<WaveformSample>): WaveformTrack {
+    if (samples.isEmpty()) return WaveformTrack(emptyList(), 0f, 0f, 0f, isClosed = false)
+    var distance = 0f
+    val measured =
+        samples.mapIndexed { index, sample ->
+            if (index > 0) {
+                val previous = samples[index - 1]
+                distance +=
+                    hypot(
+                        (sample.x - previous.x).toDouble(),
+                        (sample.y - previous.y).toDouble(),
+                    ).toFloat()
+            }
+            sample.copy(distance = distance)
+        }
+    return WaveformTrack(measured, distance, 0f, 0f, isClosed = false)
+}
+
 internal fun Rectangle.toWaveformTrack(
     margin: Float,
     arcRadius: Float,
@@ -106,7 +130,7 @@ internal fun Rectangle.toWaveformTrack(
     val top = overlayBounds.y + margin
     val right = overlayBounds.x + overlayBounds.width - margin
     val bottom = overlayBounds.y + overlayBounds.height - margin
-    if (right <= left || bottom <= top) return WaveformTrack(emptyList(), 0f, 0f, 0f)
+    if (right <= left || bottom <= top) return WaveformTrack(emptyList(), 0f, 0f, 0f, isClosed = false)
 
     val radius =
         min(
@@ -230,7 +254,8 @@ private fun adjustedAnchorDistance(
         direction.travelSign *
             (TRACE_PHASE_SPAN / HALF_DIVISOR - TRACE_ANCHOR_PHASE) *
             signalSpan
-    return wrapDistance(centeredDistance - centerOffset, trackLength)
+    val distance = centeredDistance - centerOffset
+    return ((distance % trackLength) + trackLength) % trackLength
 }
 
 private fun largestFreeSpan(
@@ -286,11 +311,6 @@ private fun WaveformTrack.rightEdgeCenter(
         requestedDistance
     }
 }
-
-private fun wrapDistance(
-    distance: Float,
-    length: Float,
-): Float = ((distance % length) + length) % length
 
 private data class FreeSpan(
     val start: Float,
@@ -382,7 +402,7 @@ private class TrackBuilder(
     }
 
     fun build(): WaveformTrack {
-        if (samples.isEmpty()) return WaveformTrack(emptyList(), 0f, 0f, 0f)
+        if (samples.isEmpty()) return WaveformTrack(emptyList(), 0f, 0f, 0f, isClosed = false)
 
         var distance = 0f
         val measured =

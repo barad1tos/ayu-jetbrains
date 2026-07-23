@@ -39,6 +39,22 @@ internal enum class WaveformEdge {
     LEFT,
 }
 
+internal data class RoutedTrack(
+    val track: WaveformTrack,
+    val distanceOffset: Float,
+    val centerDistance: Float,
+    val signalSpan: Float,
+)
+
+internal data class WaveformTrackSpec(
+    val bounds: Rectangle,
+    val arcWidth: Int,
+    val config: WaveformConfig,
+    val solidWidth: Int,
+    val occupiedTopSpans: List<IntRange>,
+    val direction: TravelDirection,
+)
+
 private fun WaveformSample.horizontalOffset(
     outwardOffset: Float,
     inwardOffset: Float,
@@ -76,6 +92,9 @@ internal data class WaveformPaintRequest(
     val displacementScale: Float = 1f,
     val occupiedTopSpans: List<IntRange> = emptyList(),
     val inwardEdges: Set<WaveformEdge> = emptySet(),
+    val routedTrack: RoutedTrack? = null,
+    val paintsBase: Boolean = true,
+    val paintsSignal: Boolean = true,
 )
 
 private fun WaveformPaintRequest.snapshot(): WaveformPaintRequest =
@@ -85,6 +104,7 @@ private fun WaveformPaintRequest.snapshot(): WaveformPaintRequest =
         solidFrame = solidFrame.copy(bounds = Rectangle(solidFrame.bounds)),
         occupiedTopSpans = occupiedTopSpans.map { it.first..it.last },
         inwardEdges = inwardEdges.toSet(),
+        routedTrack = routedTrack?.let { routed -> routed.copy(track = routed.track.translated(0f, 0f)) },
     )
 
 internal open class WaveformPainter(
@@ -100,13 +120,18 @@ internal open class WaveformPainter(
         val solidWidth = snapshot.solidFrame.width.coerceAtLeast(1)
         val strokes = strokeWidths(solidWidth)
         val track =
-            snapshot.bounds.createTrack(
-                snapshot.arcWidth,
-                frame,
-                solidWidth,
-                snapshot.occupiedTopSpans,
-            )
-        if (!track.isClosed) {
+            snapshot.routedTrack?.track
+                ?: track(
+                    WaveformTrackSpec(
+                        bounds = snapshot.bounds,
+                        arcWidth = snapshot.arcWidth,
+                        config = frame.config,
+                        solidWidth = solidWidth,
+                        occupiedTopSpans = snapshot.occupiedTopSpans,
+                        direction = frame.direction,
+                    ),
+                )
+        if (track.samples.isEmpty() || !snapshot.paintsSignal) {
             return WaveformRenderPlan(snapshot, track, strokes, layers = null, strength = 0f, signalBounds = null)
         }
 
@@ -117,7 +142,7 @@ internal open class WaveformPainter(
         }
 
         val displacementAmplitude = amplitude * snapshot.displacementScale.coerceIn(0f, 1f)
-        val spec = signalSpec(track, frame)
+        val spec = signalSpec(track, frame, snapshot.routedTrack)
         val signal = SampledSignal(track, buildSignalSamples(track, spec), spec)
         val layers =
             SignalLayers(
@@ -150,7 +175,7 @@ internal open class WaveformPainter(
         graphics: Graphics2D,
         plan: WaveformRenderPlan,
     ) {
-        paintBase(graphics, plan.request)
+        if (plan.request.paintsBase) paintBase(graphics, plan.request)
         val layers = plan.layers ?: return
         graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         paintSignal(graphics, plan.request.accent, plan.strokes, layers, plan.strength)
@@ -227,7 +252,58 @@ internal open class WaveformPainter(
         frame: WaveformFrame,
         solidWidth: Int,
         occupiedTopSpans: List<IntRange> = emptyList(),
-    ): Float = bounds.createTrack(arcWidth, frame, solidWidth, occupiedTopSpans).length
+    ): Float =
+        track(
+            WaveformTrackSpec(
+                bounds = bounds,
+                arcWidth = arcWidth,
+                config = frame.config,
+                solidWidth = solidWidth,
+                occupiedTopSpans = occupiedTopSpans,
+                direction = frame.direction,
+            ),
+        ).length
+
+    internal fun track(spec: WaveformTrackSpec): WaveformTrack {
+        val bounds = spec.bounds
+        val arcWidth = spec.arcWidth
+        val config = spec.config
+        val solidWidth = spec.solidWidth
+        val occupiedTopSpans = spec.occupiedTopSpans
+        val direction = spec.direction
+        val amplitude = config.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
+        val key =
+            TrackKey(
+                Rectangle(bounds),
+                arcWidth,
+                amplitude,
+                solidWidth,
+                direction,
+                config.baseline,
+                config.effectiveTraceLength,
+                occupiedTopSpans,
+            )
+        if (key == trackKey) return requireNotNull(cachedTrack)
+
+        val outerMargin = marginFor(amplitude, solidWidth)
+        val baselineInset = baselineInsetFor(config.baseline, solidWidth)
+        return bounds
+            .toWaveformTrack(
+                margin = outerMargin + baselineInset,
+                arcRadius =
+                    (arcWidth.coerceAtLeast(0) / ARC_DIAMETER_DIVISOR - baselineInset)
+                        .coerceAtLeast(0f),
+                config = config,
+                direction = direction,
+                occupiedTopSpans =
+                    occupiedTopSpans.map { span ->
+                        (span.first + outerMargin.toInt())..(span.last + outerMargin.toInt())
+                    },
+            ).also { created ->
+                trackKey = key
+                cachedTrack = created
+            }
+    }
 
     private fun signalBounds(
         layers: SignalLayers,
@@ -272,46 +348,6 @@ internal open class WaveformPainter(
         }
     }
 
-    private fun Rectangle.createTrack(
-        arcWidth: Int,
-        frame: WaveformFrame,
-        solidWidth: Int,
-        occupiedTopSpans: List<IntRange>,
-    ): WaveformTrack {
-        val config = frame.config
-        val amplitude = config.amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
-        val key =
-            TrackKey(
-                Rectangle(this),
-                arcWidth,
-                amplitude,
-                solidWidth,
-                frame.direction,
-                config.baseline,
-                config.effectiveTraceLength,
-                occupiedTopSpans,
-            )
-        if (key == trackKey) return requireNotNull(cachedTrack)
-
-        val outerMargin = marginFor(amplitude, solidWidth)
-        val baselineInset = baselineInsetFor(config.baseline, solidWidth)
-        return toWaveformTrack(
-            margin = outerMargin + baselineInset,
-            arcRadius =
-                (arcWidth.coerceAtLeast(0) / ARC_DIAMETER_DIVISOR - baselineInset)
-                    .coerceAtLeast(0f),
-            config = config,
-            direction = frame.direction,
-            occupiedTopSpans =
-                occupiedTopSpans.map { span ->
-                    (span.first + outerMargin.toInt())..(span.last + outerMargin.toInt())
-                },
-        ).also { track ->
-            trackKey = key
-            cachedTrack = track
-        }
-    }
-
     private fun signalPaths(
         signal: SampledSignal,
         amplitude: Float,
@@ -339,8 +375,7 @@ internal open class WaveformPainter(
         val spec = signal.spec
 
         signal.samples.forEachIndexed { index, sample ->
-            val delta = circularDelta(sample.distance, spec.center, track.length)
-            val phase = R_PEAK_PHASE + delta * spec.travelSign / track.signalSpan
+            val phase = samplePhase(track, spec, sample)
             val alpha = signalAlpha(spec, phase) * sample.amplitudeMask
             if (alpha <= 0f) {
                 previousPoint = null
@@ -387,7 +422,7 @@ internal open class WaveformPainter(
         track: WaveformTrack,
         frame: WaveformFrame,
     ): List<WaveformSample> {
-        val spec = signalSpec(track, frame)
+        val spec = signalSpec(track, frame, routedTrack = null)
         return buildSignalSamples(track, spec)
     }
 
@@ -401,9 +436,12 @@ internal open class WaveformPainter(
             } else {
                 emptyList()
             }
-        if (vertices.isEmpty()) return rotateAtSeam(track, spec, track.samples)
+        if (vertices.isEmpty()) {
+            return if (track.isClosed) rotateAtSeam(track, spec, track.samples) else track.samples
+        }
 
         val samples = mergeSamples(track.samples, vertices)
+        if (!track.isClosed) return samples
         seamStart(track, spec, samples)?.let { startIndex ->
             Collections.rotate(samples, -startIndex)
         }
@@ -464,8 +502,13 @@ internal open class WaveformPainter(
         spec: SignalSpec,
         sample: WaveformSample,
     ): Float {
-        val delta = circularDelta(sample.distance, spec.center, track.length)
-        return R_PEAK_PHASE + delta * spec.travelSign / track.signalSpan
+        val delta =
+            if (track.isClosed) {
+                circularDelta(sample.distance, spec.center, track.length)
+            } else {
+                sample.distance - spec.center
+            }
+        return R_PEAK_PHASE + delta * spec.travelSign / spec.signalSpan
     }
 
     private fun traceVertexDistances(
@@ -486,9 +529,14 @@ internal open class WaveformPainter(
                             spec.complexCount
                     if (signalAlpha(spec, windowPhase) <= 0f) return@mapNotNull null
                     val delta =
-                        (windowPhase - R_PEAK_PHASE) * track.signalSpan /
+                        (windowPhase - R_PEAK_PHASE) * spec.signalSpan /
                             spec.travelSign
-                    wrap(spec.center + delta, track.length)
+                    val distance = spec.center + delta
+                    if (track.isClosed) {
+                        wrap(distance, track.length)
+                    } else {
+                        distance.takeIf { it in 0f..track.length }
+                    }
                 }
             }.distinct()
             .sorted()
@@ -497,11 +545,17 @@ internal open class WaveformPainter(
     private fun signalSpec(
         track: WaveformTrack,
         frame: WaveformFrame,
+        routedTrack: RoutedTrack?,
     ): SignalSpec {
         val trace = frame.trace
+        val center =
+            routedTrack?.let { routed -> routed.centerDistance - routed.distanceOffset }
+                ?: track.signalAnchorDistance + (trace?.anchorOffset ?: 0f)
+        val signalSpan = routedTrack?.signalSpan ?: track.signalSpan
         if (trace == null) {
             return SignalSpec(
-                center = track.signalAnchorDistance,
+                center = center,
+                signalSpan = signalSpan,
                 history = listOf(frame.morphology),
                 tracePhase = 0f,
                 travelSign = 1f,
@@ -511,10 +565,11 @@ internal open class WaveformPainter(
             )
         }
         return SignalSpec(
-            center = wrap(track.signalAnchorDistance + trace.anchorOffset, track.length),
+            center = if (track.isClosed) wrap(center, track.length) else center,
+            signalSpan = signalSpan,
             history = trace.history,
             tracePhase = trace.phase,
-            travelSign = frame.direction.travelSign,
+            travelSign = if (track.isClosed) frame.direction.travelSign else 1f,
             moving = true,
             complexCount = frame.config.traceComplexCount,
             baseline = frame.config.baseline,
@@ -599,6 +654,7 @@ internal open class WaveformPainter(
 
     private data class SignalSpec(
         val center: Float,
+        val signalSpan: Float,
         val history: List<BeatMorphology>,
         val tracePhase: Float,
         val travelSign: Float,
