@@ -817,50 +817,43 @@ internal class WaveformRouteCoordinator(
         val leg = current.leg
         trail.recordSegment(leg)
         trail.advance(leg.length)
-        return when (leg) {
-            is RouteLeg.Perimeter -> {
-                val handoff = leg.handoff
-                val isConnectorAvailable =
-                    handoff != null &&
-                        graph.connectorsFrom(leg.surfaceId).any { candidate -> candidate == handoff.connector }
-                if (!isConnectorAvailable) {
-                    val entry = RouteMotion.perimeterPosition(leg, leg.length, graph)
-                    LifecycleState.Routing(
-                        planner.createPerimeter(
-                            graph,
-                            previousSurfaceId,
-                            leg.surfaceId,
-                            PerimeterEntry(entry, leg.direction),
-                        ),
-                        0f,
-                    )
-                } else {
-                    LifecycleState.Routing(planner.createConnector(graph, config, handoff, leg.direction), 0f)
-                }
-            }
+        val targetHandoff =
+            when (leg) {
+                is RouteLeg.Perimeter -> {
+                    val handoff = leg.handoff
+                    val connector = handoff?.connector
+                    val availableConnector =
+                        connector?.takeIf { planned ->
+                            graph.connectorsFrom(leg.surfaceId).any { candidate -> candidate == planned }
+                        }
+                    when {
+                        availableConnector == null -> {
+                            val entry = RouteMotion.perimeterPosition(leg, leg.length, graph)
+                            return LifecycleState.Routing(
+                                planner.createPerimeter(
+                                    graph,
+                                    previousSurfaceId,
+                                    leg.surfaceId,
+                                    PerimeterEntry(entry, leg.direction),
+                                ),
+                                0f,
+                            )
+                        }
 
-            is RouteLeg.Connector -> {
-                previousSurfaceId = leg.connector.sourceId
-                if (graph.surfaces.containsKey(leg.connector.targetId)) {
-                    LifecycleState.Routing(
-                        planner.createPerimeter(
-                            graph,
-                            previousSurfaceId,
-                            leg.connector.targetId,
-                            PerimeterEntry(leg.connector.targetDistance, leg.targetDirection),
-                        ),
-                        0f,
-                    )
-                } else {
-                    val stable = checkNotNull(lastFrame) { "Recovery requires a stable route frame" }
-                    LifecycleState.Recovering(
-                        0f,
-                        graph,
-                        stable.copy(centerDistance = trail.distanceOffset, alpha = 1f),
-                    )
+                        availableConnector.length <= ROUTE_EPSILON -> handoff
+
+                        else ->
+                            return LifecycleState.Routing(
+                                planner.createConnector(graph, config, handoff, leg.direction),
+                                0f,
+                            )
+                    }
                 }
+
+                is RouteLeg.Connector -> PlannedHandoff(leg.connector, leg.targetDirection)
             }
-        }
+        previousSurfaceId = targetHandoff.connector.sourceId
+        return enterTarget(targetHandoff, graph, planner, lastFrame, trail.distanceOffset)
     }
 
     private fun rebindGeometry(
@@ -908,11 +901,46 @@ internal class WaveformRouteCoordinator(
     }
 }
 
+private fun enterTarget(
+    handoff: PlannedHandoff,
+    graph: RouteGraph,
+    planner: RoutePlanner,
+    lastFrame: RouteFrame?,
+    distanceOffset: Float,
+): LiveState {
+    val connector = handoff.connector
+    if (graph.surfaces.containsKey(connector.targetId)) {
+        return LifecycleState.Routing(
+            planner.createPerimeter(
+                graph,
+                connector.sourceId,
+                connector.targetId,
+                PerimeterEntry(connector.targetDistance, handoff.targetDirection),
+            ),
+            0f,
+        )
+    }
+
+    val stable = checkNotNull(lastFrame) { "Recovery requires a stable route frame" }
+    return LifecycleState.Recovering(
+        0f,
+        graph,
+        stable.copy(centerDistance = distanceOffset, alpha = 1f),
+    )
+}
+
 private fun snapshotOf(current: LifecycleState): RouteSnapshot =
     when (current) {
         LifecycleState.Dormant -> EMPTY_ROUTE_SNAPSHOT
         is LifecycleState.Empty -> EMPTY_ROUTE_SNAPSHOT
-        is LifecycleState.Routing -> current.snapshot()
+        is LifecycleState.Routing ->
+            RouteSnapshot(
+                currentSurfaceId = current.leg.currentSurfaceId,
+                distanceOnLeg = current.distanceOnLeg,
+                direction = current.leg.direction,
+                plannedTargetId = current.leg.plannedTargetId,
+            )
+
         is LifecycleState.Recovering ->
             RouteSnapshot(
                 currentSurfaceId = current.frame.currentSurfaceId,
@@ -924,14 +952,6 @@ private fun snapshotOf(current: LifecycleState): RouteSnapshot =
         is LifecycleState.Suspended -> snapshotOf(current.resumeState)
         is LifecycleState.Resuming -> snapshotOf(current.resumeState)
     }
-
-private fun LifecycleState.Routing.snapshot(): RouteSnapshot =
-    RouteSnapshot(
-        currentSurfaceId = leg.currentSurfaceId,
-        distanceOnLeg = distanceOnLeg,
-        direction = leg.direction,
-        plannedTargetId = leg.plannedTargetId,
-    )
 
 private object RouteMotion {
     fun rebaseConnector(

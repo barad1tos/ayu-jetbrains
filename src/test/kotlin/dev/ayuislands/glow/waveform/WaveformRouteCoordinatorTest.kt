@@ -1,5 +1,6 @@
 package dev.ayuislands.glow.waveform
 
+import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
@@ -723,11 +724,48 @@ class WaveformRouteCoordinatorTest {
         val connectorMiddle = requireNotNull(coordinator.handle(RouteEvent.Tick(21_932L)).frame)
 
         assertTrue(connectorMiddle.signalSpan in 185f..215f, "span was ${connectorMiddle.signalSpan}")
+        assertTrue(connectorMiddle.slices.any { slice -> slice.surfaceId == null })
+        assertEquals(1f, connectorMiddle.alpha)
     }
 
     @TestCase
-    fun `zero gap crosses unequal perimeters with finite data`() {
-        val coordinator = testCoordinator(seededRandom(97))
+    fun `sub epsilon connector enters target without a connector leg`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0.0005f)),
+            )
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val exactExit = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
+
+        assertEquals("Commit", exactExit.currentSurfaceId)
+        assertEquals(100f, exactExit.centerDistance, 0.001f)
+        assertTrue(exactExit.slices.none { slice -> slice.surfaceId == null })
+    }
+
+    @TestCase
+    fun `non finite connector is not treated as touching`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = Float.NaN)),
+            )
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val exactExit = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
+
+        assertEquals("Editor", exactExit.currentSurfaceId)
+        assertTrue(exactExit.slices.any { slice -> slice.surfaceId == null })
+    }
+
+    @TestCase
+    fun `zero gap preserves one visible signal without a connector leg`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
         val graph =
             testGraph(
                 lengths = mapOf("Editor" to 100f, "Commit" to 200f),
@@ -737,19 +775,30 @@ class WaveformRouteCoordinatorTest {
         coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
         coordinator.handle(RouteEvent.Tick(0L))
 
+        val before = requireNotNull(coordinator.handle(RouteEvent.Tick(19_999L)).frame)
         val exactExit = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
         val nextTick = requireNotNull(coordinator.handle(RouteEvent.Tick(20_001L)).frame)
 
         assertEquals("Commit", exactExit.currentSurfaceId)
         assertEquals("Commit", nextTick.currentSurfaceId)
+        assertEquals(TravelDirection.COUNTER_CLOCKWISE, before.signal.direction)
+        assertEquals(100f, exactExit.centerDistance, 0.001f)
+        assertEquals(0.005f, exactExit.centerDistance - before.centerDistance, 0.001f)
+        assertEquals(0.01f, nextTick.centerDistance - exactExit.centerDistance, 0.001f)
+        assertEquals(before.signal.morphology, exactExit.signal.morphology)
+        assertEquals(before.signal.trace?.history, exactExit.signal.trace?.history)
+        val phaseBefore = requireNotNull(before.signal.trace).phase
+        val phaseAfter = requireNotNull(exactExit.signal.trace).phase
+        val directPhaseDelta = abs(phaseAfter - phaseBefore)
+        val phaseDelta = minOf(directPhaseDelta, 1f - directPhaseDelta)
+        assertTrue(phaseDelta < 0.05f, "phase changed from $phaseBefore to $phaseAfter")
         listOf(exactExit, nextTick).forEach { frame ->
+            assertEquals(TravelDirection.CLOCKWISE, frame.signal.direction)
+            assertEquals(1f, frame.alpha)
+            assertTrue(frame.slices.none { slice -> slice.surfaceId == null })
+            assertEquals(1, frame.slices.count { slice -> slice.surfaceId == "Editor" })
             assertTrue(frame.centerDistance.isFinite())
             assertTrue(frame.signalSpan.isFinite())
-            assertTrue(
-                frame.signal.trace
-                    ?.anchorOffset
-                    ?.isFinite() != false,
-            )
             assertTrue(
                 frame.slices
                     .flatMap(RouteSlice::samples)
