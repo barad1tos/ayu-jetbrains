@@ -9,6 +9,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
@@ -546,9 +547,12 @@ class GlowOverlayManager(
         val state = AyuIslandsSettings.getInstance().state
         if (!state.isIslandEnabled(EDITOR_ID)) return
 
-        val editorComponent = FileEditorManager.getInstance(project).selectedEditor?.component ?: return
-        if (!editorComponent.isDisplayable) return
-        val host = ComponentHierarchyUtils.findEditorHost(editorComponent) ?: return
+        val editorRoot =
+            FileEditorManager.getInstance(project).selectedEditor?.component
+                ?: FileEditorManagerEx.getInstanceEx(project).component
+                ?: return
+        val host = ComponentHierarchyUtils.findEditorHost(editorRoot) ?: return
+        if (!host.isDisplayable) return
         attachOverlay(EDITOR_ID, host, isEditorOverlay = true)
     }
 

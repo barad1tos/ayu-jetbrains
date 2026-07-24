@@ -4,6 +4,9 @@ import com.intellij.ide.PowerSaveMode
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.fileEditor.FileEditor
+import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFrame
@@ -987,6 +990,81 @@ class GlowOverlayManagerLifecycleTest {
         invokeAttachEditorOverlayIfNeeded(manager)
 
         assertEquals(listOf(0..72), pane.waveformTopSpans)
+    }
+
+    @Test
+    fun `empty editor attaches`() {
+        state.glowEditor = true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+
+        val project = stubProject("empty-editor-project")
+        val manager = GlowOverlayManager(project)
+        val extendedManager = mockk<FileEditorManagerEx>()
+        val editorRoot = mockk<javax.swing.JComponent>()
+        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val rootPane = mockk<javax.swing.JRootPane>()
+        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+
+        mockkStatic(FileEditorManager::class)
+        mockkStatic(FileEditorManagerEx::class)
+        mockkObject(ComponentHierarchyUtils)
+        every { FileEditorManager.getInstance(project) } returns extendedManager
+        every { extendedManager.selectedEditor } returns null
+        every { FileEditorManagerEx.getInstanceEx(project) } returns extendedManager
+        every { extendedManager.component } returns editorRoot
+        every { ComponentHierarchyUtils.findEditorHost(editorRoot) } returns host
+        every { host.width } returns 320
+        every { host.height } returns 240
+        every { host.isShowing } returns true
+        every { host.isDisplayable } returns true
+        every { rootPane.layeredPane } returns layeredPane
+        every { SwingUtilities.getRootPane(host) } returns rootPane
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
+
+        invokeAttachEditorOverlayIfNeeded(manager)
+
+        assertTrue(readOverlaysMap(manager).containsKey("Editor"))
+    }
+
+    @Test
+    fun `selected editor wins`() {
+        state.glowEditor = true
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+
+        val project = stubProject("selected-editor-project")
+        val manager = GlowOverlayManager(project)
+        val extendedManager = mockk<FileEditorManagerEx>()
+        val selectedEditor = mockk<FileEditor>()
+        val selectedRoot = mockk<javax.swing.JComponent>()
+        val mainRoot = mockk<javax.swing.JComponent>()
+        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val rootPane = mockk<javax.swing.JRootPane>()
+        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+
+        mockkStatic(FileEditorManager::class)
+        mockkStatic(FileEditorManagerEx::class)
+        mockkObject(ComponentHierarchyUtils)
+        every { FileEditorManager.getInstance(project) } returns extendedManager
+        every { extendedManager.selectedEditor } returns selectedEditor
+        every { selectedEditor.component } returns selectedRoot
+        every { FileEditorManagerEx.getInstanceEx(project) } returns extendedManager
+        every { extendedManager.component } returns mainRoot
+        every { ComponentHierarchyUtils.findEditorHost(selectedRoot) } returns host
+        every { ComponentHierarchyUtils.findEditorHost(mainRoot) } returns host
+        every { host.width } returns 320
+        every { host.height } returns 240
+        every { host.isShowing } returns true
+        every { host.isDisplayable } returns true
+        every { rootPane.layeredPane } returns layeredPane
+        every { SwingUtilities.getRootPane(host) } returns rootPane
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
+
+        invokeAttachEditorOverlayIfNeeded(manager)
+
+        verify(exactly = 1) { ComponentHierarchyUtils.findEditorHost(selectedRoot) }
+        verify(exactly = 0) { ComponentHierarchyUtils.findEditorHost(mainRoot) }
     }
 
     @Test
