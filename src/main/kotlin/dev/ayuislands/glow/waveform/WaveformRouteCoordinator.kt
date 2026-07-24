@@ -876,6 +876,7 @@ internal class WaveformRouteCoordinator(
                             .connectorsFrom(leg.connector.sourceId)
                             .first { connector ->
                                 connector.id == leg.connector.id &&
+                                    connector.endpoint == leg.connector.endpoint &&
                                     connector.targetId == leg.connector.targetId
                             }
                     planner.createConnector(replacement, config, reboundConnector, leg.direction)
@@ -1061,9 +1062,12 @@ private class RoutePlanner(
         val localDirection = entry.direction ?: randomDirection()
         val connector =
             when (val targetPolicy = entry.targetPolicy) {
-                TargetPolicy.Select -> chooseConnector(graph, previousSurfaceId, surfaceId)
+                TargetPolicy.Select ->
+                    chooseConnector(graph, previousSurfaceId, surface, startDistance, localDirection)
+
                 is TargetPolicy.Preserve ->
-                    preserveConnector(graph, previousSurfaceId, surfaceId, targetPolicy.connector)
+                    preserveConnector(graph, surface.id, targetPolicy.connector)
+                        ?: chooseConnector(graph, previousSurfaceId, surface, startDistance, localDirection)
             }
         val exitDistance =
             connector?.let { planned ->
@@ -1090,17 +1094,16 @@ private class RoutePlanner(
 
     private fun preserveConnector(
         graph: RouteGraph,
-        previousSurfaceId: String?,
         surfaceId: String,
         planned: RouteConnector?,
     ): RouteConnector? =
-        planned
-            ?.let { connector ->
-                graph.connectorsFrom(surfaceId).firstOrNull { candidate ->
-                    candidate.id == connector.id &&
-                        candidate.targetId == connector.targetId
-                }
-            } ?: chooseConnector(graph, previousSurfaceId, surfaceId)
+        planned?.let { connector ->
+            graph.connectorsFrom(surfaceId).firstOrNull { candidate ->
+                candidate.id == connector.id &&
+                    candidate.endpoint == connector.endpoint &&
+                    candidate.targetId == connector.targetId
+            }
+        }
 
     fun createConnector(
         graph: RouteGraph,
@@ -1153,28 +1156,36 @@ private class RoutePlanner(
     private fun chooseConnector(
         graph: RouteGraph,
         previousSurfaceId: String?,
-        surfaceId: String,
+        surface: RouteSurface,
+        startDistance: Float,
+        direction: TravelDirection,
     ): RouteConnector? {
         val neighborIds =
             graph
-                .connectorsFrom(surfaceId)
+                .connectorsFrom(surface.id)
                 .map(RouteConnector::targetId)
                 .distinct()
                 .sorted()
         val eligibleIds = neighborIds.filterNot { targetId -> targetId == previousSurfaceId }.ifEmpty { neighborIds }
         val targetId = eligibleIds.randomOrNull(random) ?: return null
-        return shortestConnector(graph, surfaceId, targetId)
+        return selectConnector(graph, surface, targetId, startDistance, direction)
     }
 
-    private fun shortestConnector(
+    private fun selectConnector(
         graph: RouteGraph,
-        surfaceId: String,
+        surface: RouteSurface,
         targetId: String,
-    ): RouteConnector? =
-        graph
-            .connectorsFrom(surfaceId)
-            .filter { connector -> connector.targetId == targetId }
-            .minWithOrNull(CONNECTOR_ROUTE_ORDER)
+        startDistance: Float,
+        direction: TravelDirection,
+    ): RouteConnector? {
+        val candidates = graph.connectorsFrom(surface.id).filter { connector -> connector.targetId == targetId }
+        val connectorId = candidates.minWithOrNull(CONNECTOR_ROUTE_ORDER)?.id ?: return null
+        return candidates
+            .filter { connector -> connector.id == connectorId }
+            .minByOrNull { connector ->
+                forwardDistance(startDistance, connector.sourceDistance, surface.track.length, direction)
+            }
+    }
 
     private fun editorSurfaceId(graph: RouteGraph): String? =
         graph.surfaces.values
@@ -1416,9 +1427,9 @@ private fun hasIdenticalTopology(
     first.surfaces.keys == second.surfaces.keys &&
         first.connectors.values
             .flatten()
-            .map(RouteConnector::id)
+            .map { connector -> connector.id to connector.endpoint }
             .toSet() ==
         second.connectors.values
             .flatten()
-            .map(RouteConnector::id)
+            .map { connector -> connector.id to connector.endpoint }
             .toSet()

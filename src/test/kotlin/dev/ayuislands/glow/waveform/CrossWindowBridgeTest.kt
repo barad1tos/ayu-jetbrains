@@ -435,6 +435,7 @@ class CrossWindowBridgeTest {
     private fun connector(): RouteConnector =
         RouteConnector(
             id = RouteConnectorId("Editor", "Git", RouteSide.RIGHT),
+            endpoint = RouteEndpoint.START,
             sourceId = "Editor",
             targetId = "Git",
             sourceSide = RouteSide.RIGHT,

@@ -50,6 +50,11 @@ internal data class RouteConnectorId(
     val firstSide: RouteSide,
 )
 
+internal enum class RouteEndpoint {
+    START,
+    END,
+}
+
 internal data class RouteSurface(
     val id: String,
     val rootId: RouteRootId,
@@ -61,6 +66,7 @@ internal data class RouteSurface(
 
 internal data class RouteConnector(
     val id: RouteConnectorId,
+    val endpoint: RouteEndpoint,
     val sourceId: String,
     val targetId: String,
     val sourceSide: RouteSide,
@@ -124,18 +130,16 @@ internal class RouteGraphBuilder(
         if (requiresWindowBridge && !canConnectRoots(first, second)) return
 
         for ((sourceSide, targetSide) in FACING_SIDES) {
-            val connector =
-                createConnector(
+            val pair =
+                createConnectors(
                     source = first,
                     target = second,
                     sourceSide = sourceSide,
                     targetSide = targetSide,
                     requiresWindowBridge = requiresWindowBridge,
                 )
-            if (connector != null) {
-                connectors[first.id] = connectors.getValue(first.id) + connector
-                connectors[second.id] = connectors.getValue(second.id) + connector.reversed()
-            }
+            connectors[first.id] = connectors.getValue(first.id) + pair
+            connectors[second.id] = connectors.getValue(second.id) + pair.map(RouteConnector::reversed)
         }
     }
 
@@ -149,19 +153,19 @@ internal class RouteGraphBuilder(
         return bridgeableWindow && canBridge(first.rootId, second.rootId)
     }
 
-    private fun createConnector(
+    private fun createConnectors(
         source: RouteSurface,
         target: RouteSurface,
         sourceSide: RouteSide,
         targetSide: RouteSide,
         requiresWindowBridge: Boolean,
-    ): RouteConnector? {
+    ): List<RouteConnector> {
         val sourceSamples = source.track.straightSamples(sourceSide)
         val targetSamples = target.track.straightSamples(targetSide)
-        if (sourceSamples.isEmpty() || targetSamples.isEmpty()) return null
+        if (sourceSamples.isEmpty() || targetSamples.isEmpty()) return emptyList()
 
         val separation = sideSeparation(sourceSamples.first(), targetSamples.first(), sourceSide)
-        if (separation !in 0f..maximumGap) return null
+        if (separation !in 0f..maximumGap) return emptyList()
 
         val overlapStart =
             max(
@@ -173,30 +177,36 @@ internal class RouteGraphBuilder(
                 sourceSamples.maxOf { sample -> sample.projection(sourceSide) },
                 targetSamples.maxOf { sample -> sample.projection(targetSide) },
             )
-        if (overlapStart >= overlapEnd) return null
+        if (overlapStart >= overlapEnd) return emptyList()
 
-        val midpoint = (overlapStart + overlapEnd) / 2f
-        val sourceSample = sourceSamples.nearestTo(midpoint, sourceSide)
-        val targetSample = targetSamples.nearestTo(midpoint, targetSide)
-        val sourcePoint = sourceSample.toRoutePoint()
-        val targetPoint = targetSample.toRoutePoint()
-        return RouteConnector(
-            id = connectorId(source, target, sourceSide, targetSide),
-            sourceId = source.id,
-            targetId = target.id,
-            sourceSide = sourceSide,
-            targetSide = targetSide,
-            sourceDistance = sourceSample.distance,
-            targetDistance = targetSample.distance,
-            sourcePoint = sourcePoint,
-            targetPoint = targetPoint,
-            length =
-                hypot(
-                    (targetPoint.x - sourcePoint.x).toDouble(),
-                    (targetPoint.y - sourcePoint.y).toDouble(),
-                ).toFloat(),
-            requiresWindowBridge = requiresWindowBridge,
-        )
+        val id = connectorId(source, target, sourceSide, targetSide)
+        return listOf(
+            RouteEndpoint.START to overlapStart,
+            RouteEndpoint.END to overlapEnd,
+        ).map { (endpoint, projection) ->
+            val sourceSample = sourceSamples.nearestTo(projection, sourceSide)
+            val targetSample = targetSamples.nearestTo(projection, targetSide)
+            val sourcePoint = sourceSample.toRoutePoint()
+            val targetPoint = targetSample.toRoutePoint()
+            RouteConnector(
+                id = id,
+                endpoint = endpoint,
+                sourceId = source.id,
+                targetId = target.id,
+                sourceSide = sourceSide,
+                targetSide = targetSide,
+                sourceDistance = sourceSample.distance,
+                targetDistance = targetSample.distance,
+                sourcePoint = sourcePoint,
+                targetPoint = targetPoint,
+                length =
+                    hypot(
+                        (targetPoint.x - sourcePoint.x).toDouble(),
+                        (targetPoint.y - sourcePoint.y).toDouble(),
+                    ).toFloat(),
+                requiresWindowBridge = requiresWindowBridge,
+            )
+        }.distinctBy { connector -> connector.sourceDistance to connector.targetDistance }
     }
 }
 
@@ -219,6 +229,7 @@ private val CONNECTOR_ORDER =
         RouteConnector::length,
         { connector -> connector.sourceSide.ordinal },
         { connector -> connector.targetSide.ordinal },
+        { connector -> connector.endpoint.ordinal },
     )
 
 private fun WaveformTrack.straightSamples(side: RouteSide): List<WaveformSample> =

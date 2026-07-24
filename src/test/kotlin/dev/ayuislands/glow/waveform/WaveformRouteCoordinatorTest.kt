@@ -36,6 +36,89 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
+    fun `counter clockwise route uses the next shared edge endpoint`() {
+        val random =
+            object : kotlin.random.Random() {
+                override fun nextBits(bitCount: Int): Int = 0
+            }
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 1_000f, "Commit" to 600f),
+                edges =
+                    listOf(
+                        TestEdge(
+                            sourceId = "Editor",
+                            targetId = "Commit",
+                            endpoint = RouteEndpoint.START,
+                            sourceDistance = 200f,
+                            targetDistance = 120f,
+                            connectorLength = 8f,
+                        ),
+                        TestEdge(
+                            sourceId = "Editor",
+                            targetId = "Commit",
+                            endpoint = RouteEndpoint.END,
+                            sourceDistance = 800f,
+                            targetDistance = 480f,
+                            connectorLength = 12f,
+                        ),
+                    ),
+            )
+        val coordinator = testCoordinator(random)
+        coordinator.handle(RouteEvent.Activate(graph, focusedSurfaceId = "Editor", powerSaveEnabled = false))
+        assertEquals(TravelDirection.COUNTER_CLOCKWISE, coordinator.snapshot.direction)
+
+        coordinator.handle(RouteEvent.Tick(0L))
+        val afterNearestExit = coordinator.handle(RouteEvent.Tick(25_000L))
+
+        assertEquals("Commit", requireNotNull(afterNearestExit.frame).currentSurfaceId)
+    }
+
+    @TestCase
+    fun `clockwise route uses the next shared edge endpoint`() {
+        val random =
+            object : kotlin.random.Random() {
+                override fun nextBits(bitCount: Int): Int =
+                    when (bitCount) {
+                        0 -> 0
+                        Int.SIZE_BITS -> -1
+                        else -> (1 shl bitCount) - 1
+                    }
+            }
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 1_000f, "Commit" to 600f),
+                edges =
+                    listOf(
+                        TestEdge(
+                            sourceId = "Editor",
+                            targetId = "Commit",
+                            endpoint = RouteEndpoint.START,
+                            sourceDistance = 200f,
+                            targetDistance = 120f,
+                            connectorLength = 12f,
+                        ),
+                        TestEdge(
+                            sourceId = "Editor",
+                            targetId = "Commit",
+                            endpoint = RouteEndpoint.END,
+                            sourceDistance = 800f,
+                            targetDistance = 480f,
+                            connectorLength = 8f,
+                        ),
+                    ),
+            )
+        val coordinator = testCoordinator(random)
+        coordinator.handle(RouteEvent.Activate(graph, focusedSurfaceId = "Editor", powerSaveEnabled = false))
+        assertEquals(TravelDirection.CLOCKWISE, coordinator.snapshot.direction)
+
+        coordinator.handle(RouteEvent.Tick(0L))
+        val afterNearestExit = coordinator.handle(RouteEvent.Tick(25_000L))
+
+        assertEquals("Commit", requireNotNull(afterNearestExit.frame).currentSurfaceId)
+    }
+
+    @TestCase
     fun `previous island is excluded while another neighbor exists`() {
         val coordinator = testCoordinator(random = seededRandom(11))
         val graph =
@@ -325,6 +408,37 @@ class WaveformRouteCoordinatorTest {
 
         assertEquals(200f, coordinator.snapshot.distanceOnLeg, 0.01f)
         assertTrue(frame.slices.flatMap(RouteSlice::samples).all { sample -> sample.y >= 60f })
+    }
+
+    @TestCase
+    fun `endpoint loss stages graph refresh`() {
+        val random =
+            object : kotlin.random.Random() {
+                override fun nextBits(bitCount: Int): Int = 0
+            }
+        val initial =
+            testGraph(
+                lengths = mapOf("Editor" to 1_000f, "Commit" to 600f),
+                edges =
+                    listOf(
+                        TestEdge("Editor", "Commit", RouteEndpoint.START, sourceDistance = 200f),
+                        TestEdge("Editor", "Commit", RouteEndpoint.END, sourceDistance = 800f),
+                    ),
+            )
+        val collapsed =
+            testGraph(
+                lengths = mapOf("Editor" to 1_000f, "Commit" to 600f),
+                edges = listOf(TestEdge("Editor", "Commit", RouteEndpoint.START, sourceDistance = 200f)),
+            )
+        val coordinator = testCoordinator(random)
+        coordinator.handle(RouteEvent.Activate(initial, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val activeConnector = requireNotNull(coordinator.handle(RouteEvent.Tick(24_100L)).frame)
+
+        val refreshed = coordinator.handle(RouteEvent.GraphChanged(collapsed))
+
+        assertEquals(activeConnector, refreshed.frame)
+        assertEquals("Commit", coordinator.snapshot.plannedTargetId)
     }
 
     @TestCase
@@ -795,6 +909,7 @@ class WaveformRouteCoordinatorTest {
 private data class TestEdge(
     val sourceId: String,
     val targetId: String,
+    val endpoint: RouteEndpoint = RouteEndpoint.START,
     val sourceDistance: Float = 0f,
     val targetDistance: Float = 0f,
     val connectorLength: Float = 8f,
@@ -841,6 +956,7 @@ private fun testGraph(
             val forward =
                 RouteConnector(
                     id = connectorId,
+                    endpoint = edge.endpoint,
                     sourceId = edge.sourceId,
                     targetId = edge.targetId,
                     sourceSide = RouteSide.RIGHT,
