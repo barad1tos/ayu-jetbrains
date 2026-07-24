@@ -478,7 +478,6 @@ class CrossWindowBridgeTest {
             centerDistance = 320f,
             signalSpan = 360f,
             currentSurfaceId = "Git",
-            visibleSurfaceIds = setOf("Editor", "Git"),
             slices = listOf(slice),
         )
     }

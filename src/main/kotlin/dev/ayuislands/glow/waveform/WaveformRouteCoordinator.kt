@@ -77,7 +77,6 @@ internal data class RouteFrame(
     val centerDistance: Float,
     val signalSpan: Float,
     val currentSurfaceId: String,
-    val visibleSurfaceIds: Set<String>,
     val slices: List<RouteSlice>,
     val alpha: Float = 1f,
 )
@@ -145,7 +144,6 @@ private sealed interface RouteLeg {
     val target: RoutePaintTarget
     val inwardEdges: Set<WaveformEdge>
     val currentSurfaceId: String
-    val visibleSurfaceIds: Set<String>
     val sliceSurfaceId: String?
     val plannedTargetId: String?
 
@@ -162,7 +160,6 @@ private sealed interface RouteLeg {
         val signalSpan: Float,
     ) : RouteLeg {
         override val currentSurfaceId: String = surfaceId
-        override val visibleSurfaceIds: Set<String> = setOf(surfaceId)
         override val sliceSurfaceId: String = surfaceId
         override val plannedTargetId: String? = connector?.targetId
     }
@@ -180,7 +177,6 @@ private sealed interface RouteLeg {
         override val length: Float = connector.length
         override val inwardEdges: Set<WaveformEdge> = emptySet()
         override val currentSurfaceId: String = connector.sourceId
-        override val visibleSurfaceIds: Set<String> = setOf(connector.sourceId, connector.targetId)
         override val sliceSurfaceId: String? = null
         override val plannedTargetId: String = connector.targetId
     }
@@ -1242,9 +1238,6 @@ private class RouteTrail {
         pruneSegments(centerDistance, signalSpan)
         val slices = completedSegments.map(RouteSegment::toSlice).toMutableList()
         slices += currentSlice(current, signalSpan)
-        val visibleSurfaceIds =
-            current.leg.visibleSurfaceIds +
-                slices.mapNotNull(RouteSlice::surfaceId)
         val signal =
             engineFrame.copy(
                 direction = current.leg.direction,
@@ -1255,7 +1248,6 @@ private class RouteTrail {
             centerDistance = centerDistance,
             signalSpan = signalSpan,
             currentSurfaceId = current.leg.currentSurfaceId,
-            visibleSurfaceIds = visibleSurfaceIds,
             slices = slices,
         )
     }

@@ -52,7 +52,6 @@ class GlowGlassPane(
     private var waveformFrame: WaveformFrame? = null
     private var waveformPlan: WaveformRenderPlan? = null
     private var isRouteMode = false
-    private var isRoutePresent = false
     internal var waveformTopSpans: List<IntRange> = emptyList()
         set(value) {
             val snapshot = value.map { it.first..it.last }
@@ -253,13 +252,11 @@ class GlowGlassPane(
     internal fun configureRouteMode(enabled: Boolean) {
         if (isRouteMode == enabled) return
         isRouteMode = enabled
-        isRoutePresent = false
         if (enabled) {
             waveformEngine?.handle(WaveformEvent.Deactivate)?.let(::applyWaveformUpdate)
             applyTimerDirective(TimerDirective.STOP)
             waveformFrame = null
             waveformPlan = null
-            startFadeOut()
         }
         repaint()
     }
@@ -275,12 +272,6 @@ class GlowGlassPane(
                 direction = TravelDirection.CLOCKWISE,
             ),
         )
-
-    internal fun setRoutePresence(present: Boolean) {
-        if (isRoutePresent == present) return
-        isRoutePresent = present
-        if (present) startFadeIn() else startFadeOut()
-    }
 
     internal fun failRouteWaveform(exception: RuntimeException) {
         reportWaveformFailure(exception)

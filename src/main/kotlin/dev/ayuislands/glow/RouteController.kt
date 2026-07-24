@@ -166,6 +166,13 @@ internal class RouteController(
                 RouteEvent.GraphChanged(newGraph)
             }
         graph = newGraph
+        routeOverlays.forEach { overlay ->
+            if (overlay.id in newGraph.surfaces) {
+                overlay.pane.startFadeIn()
+            } else {
+                overlay.pane.startFadeOut()
+            }
+        }
         dispatch(event)
     }
 
@@ -266,19 +273,18 @@ internal class RouteController(
             lastFrame = frame
             val style = currentStyle(currentOverlays)
             if (style == null) {
-                clearRendering(currentOverlays)
+                clearRendering()
             } else {
-                renderFrame(frame, style, currentOverlays)
+                renderFrame(frame, style)
             }
         } else if (update.timerDirective == TimerDirective.STOP) {
-            clearRendering(currentOverlays)
+            clearRendering()
         }
     }
 
     private fun renderFrame(
         frame: RouteFrame,
         style: RouteLayerStyle,
-        currentOverlays: List<RouteOverlay>,
     ) {
         val rootSlices = mutableMapOf<RouteRootId, MutableList<RouteSlice>>()
         frame.slices.forEach { slice ->
@@ -303,9 +309,6 @@ internal class RouteController(
             .filterKeys { rootId -> rootId !in rootSlices }
             .values
             .forEach(WaveformRouteLayer::clearFrame)
-        currentOverlays.forEach { overlay ->
-            overlay.pane.setRoutePresence(overlay.id in frame.visibleSurfaceIds)
-        }
         renderBridge(frame, style)
         if (!isActive) return
         pruneRendering(frame)
@@ -443,7 +446,7 @@ internal class RouteController(
         handle(RouteEvent.BridgeFailed(connectorId))
     }
 
-    private fun clearRendering(currentOverlays: List<RouteOverlay>) {
+    private fun clearRendering() {
         lastFrame = null
         layers.values.forEach { layer ->
             layer.clearFrame()
@@ -451,7 +454,6 @@ internal class RouteController(
         }
         layers.clear()
         bridge?.hide()
-        currentOverlays.forEach { overlay -> overlay.pane.setRoutePresence(present = false) }
         pruneRendering(frame = null)
     }
 

@@ -244,7 +244,6 @@ private fun transitionFrame(): RouteFrame {
         centerDistance = 320f,
         signalSpan = 360f,
         currentSurfaceId = "Commit",
-        visibleSurfaceIds = setOf("Editor", "Commit"),
         slices = listOf(source, connector, destination),
     )
 }

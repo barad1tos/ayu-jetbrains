@@ -248,7 +248,6 @@ class GlowGlassPanePixelTest {
         assertNotNull(readWaveformTimer(pane))
 
         pane.configureRouteMode(enabled = true)
-        pane.setRoutePresence(present = true)
         pane.activateWaveform(powerSaveEnabled = false)
         pane.onWaveformKeystroke(nowMs = 10L)
         pane.changeWaveformPowerSave(enabled = true)

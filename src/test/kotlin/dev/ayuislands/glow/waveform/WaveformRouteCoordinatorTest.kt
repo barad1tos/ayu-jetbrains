@@ -750,10 +750,9 @@ class WaveformRouteCoordinatorTest {
             )
         coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
         coordinator.handle(RouteEvent.Tick(0L))
-        val connectorStart = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
+        coordinator.handle(RouteEvent.Tick(20_000L))
         val connectorMiddle = requireNotNull(coordinator.handle(RouteEvent.Tick(21_932L)).frame)
 
-        assertEquals(setOf("Editor", "Commit"), connectorStart.visibleSurfaceIds)
         assertTrue(connectorMiddle.signalSpan in 185f..215f, "span was ${connectorMiddle.signalSpan}")
     }
 
@@ -860,7 +859,6 @@ class WaveformRouteCoordinatorTest {
         val frame = requireNotNull(coordinator.handle(RouteEvent.Tick(23_000L)).frame)
 
         assertEquals("Commit", frame.currentSurfaceId)
-        assertEquals(setOf("Editor", "Commit"), frame.visibleSurfaceIds)
     }
 
     @TestCase
