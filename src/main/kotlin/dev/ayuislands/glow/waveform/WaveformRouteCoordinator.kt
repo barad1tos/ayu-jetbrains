@@ -829,7 +829,7 @@ internal class WaveformRouteCoordinator(
                             graph,
                             previousSurfaceId,
                             leg.connector.targetId,
-                            PerimeterEntry(distance = leg.connector.targetDistance),
+                            PerimeterEntry(leg.connector.targetDistance, leg.direction.opposite),
                         ),
                         0f,
                     )

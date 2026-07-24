@@ -154,6 +154,33 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
+    fun `connector preserves motion`() {
+        val random =
+            object : kotlin.random.Random() {
+                override fun nextBits(bitCount: Int): Int = 0
+            }
+        val coordinator = testCoordinator(random)
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 400f, "Commit" to 400f),
+                edges = listOf(TestEdge("Editor", "Commit")),
+            )
+        val driver = RouteDriver(coordinator)
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        val sourceDirection = requireNotNull(coordinator.snapshot.direction)
+
+        driver.advanceUntilSurface("Commit")
+
+        val targetDirection = requireNotNull(coordinator.snapshot.direction)
+        val continuedDirection =
+            when (sourceDirection) {
+                TravelDirection.CLOCKWISE -> TravelDirection.COUNTER_CLOCKWISE
+                TravelDirection.COUNTER_CLOCKWISE -> TravelDirection.CLOCKWISE
+            }
+        assertEquals(continuedDirection, targetDirection)
+    }
+
+    @TestCase
     fun `planned exit is reached after at least one lap and before two`() {
         val coordinator = testCoordinator(seededRandom(7))
         val graph =

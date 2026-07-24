@@ -88,6 +88,13 @@ enum class TravelDirection(
     COUNTER_CLOCKWISE(-1f),
 }
 
+internal val TravelDirection.opposite: TravelDirection
+    get() =
+        when (this) {
+            TravelDirection.CLOCKWISE -> TravelDirection.COUNTER_CLOCKWISE
+            TravelDirection.COUNTER_CLOCKWISE -> TravelDirection.CLOCKWISE
+        }
+
 internal val WaveformMovement.fixedDirection: TravelDirection?
     get() =
         when (this) {
