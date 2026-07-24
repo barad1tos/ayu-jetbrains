@@ -36,86 +36,55 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
-    fun `counter clockwise route uses the next shared edge endpoint`() {
-        val random =
-            object : kotlin.random.Random() {
-                override fun nextBits(bitCount: Int): Int = 0
-            }
-        val graph =
-            testGraph(
-                lengths = mapOf("Editor" to 1_000f, "Commit" to 600f),
-                edges =
-                    listOf(
-                        TestEdge(
-                            sourceId = "Editor",
-                            targetId = "Commit",
-                            endpoint = RouteEndpoint.START,
-                            sourceDistance = 200f,
-                            targetDistance = 120f,
-                            connectorLength = 8f,
-                        ),
-                        TestEdge(
-                            sourceId = "Editor",
-                            targetId = "Commit",
-                            endpoint = RouteEndpoint.END,
-                            sourceDistance = 800f,
-                            targetDistance = 480f,
-                            connectorLength = 12f,
-                        ),
-                    ),
-            )
-        val coordinator = testCoordinator(random)
-        coordinator.handle(RouteEvent.Activate(graph, focusedSurfaceId = "Editor", powerSaveEnabled = false))
-        assertEquals(TravelDirection.COUNTER_CLOCKWISE, coordinator.snapshot.direction)
-
+    fun `clockwise handoff prefers straight top endpoint over earlier bottom endpoint`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.CLOCKWISE))
+        val driver = RouteDriver(coordinator)
+        coordinator.handle(RouteEvent.Activate(cornerGraph(sourceAnchor = 110f), "Editor", false))
         coordinator.handle(RouteEvent.Tick(0L))
-        val afterNearestExit = coordinator.handle(RouteEvent.Tick(25_000L))
 
-        assertEquals("Commit", requireNotNull(afterNearestExit.frame).currentSurfaceId)
+        val arrival = driver.advanceTimed("Commit")
+
+        assertTrue(arrival.nowMs in 39_000L..40_000L, "arrival was ${arrival.nowMs} ms")
+        assertEquals(TravelDirection.CLOCKWISE, coordinator.snapshot.direction)
     }
 
     @TestCase
-    fun `clockwise route uses the next shared edge endpoint`() {
-        val random =
-            object : kotlin.random.Random() {
-                override fun nextBits(bitCount: Int): Int =
-                    when (bitCount) {
-                        0 -> 0
-                        Int.SIZE_BITS -> -1
-                        else -> (1 shl bitCount) - 1
-                    }
-            }
-        val graph =
-            testGraph(
-                lengths = mapOf("Editor" to 1_000f, "Commit" to 600f),
-                edges =
-                    listOf(
-                        TestEdge(
-                            sourceId = "Editor",
-                            targetId = "Commit",
-                            endpoint = RouteEndpoint.START,
-                            sourceDistance = 200f,
-                            targetDistance = 120f,
-                            connectorLength = 12f,
-                        ),
-                        TestEdge(
-                            sourceId = "Editor",
-                            targetId = "Commit",
-                            endpoint = RouteEndpoint.END,
-                            sourceDistance = 800f,
-                            targetDistance = 480f,
-                            connectorLength = 8f,
-                        ),
-                    ),
-            )
-        val coordinator = testCoordinator(random)
-        coordinator.handle(RouteEvent.Activate(graph, focusedSurfaceId = "Editor", powerSaveEnabled = false))
-        assertEquals(TravelDirection.CLOCKWISE, coordinator.snapshot.direction)
-
+    fun `counter clockwise handoff prefers straight bottom endpoint over earlier top endpoint`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val driver = RouteDriver(coordinator)
+        coordinator.handle(RouteEvent.Activate(cornerGraph(sourceAnchor = 190f), "Editor", false))
         coordinator.handle(RouteEvent.Tick(0L))
-        val afterNearestExit = coordinator.handle(RouteEvent.Tick(25_000L))
 
-        assertEquals("Commit", requireNotNull(afterNearestExit.frame).currentSurfaceId)
+        val arrival = driver.advanceTimed("Commit")
+
+        assertTrue(arrival.nowMs in 39_000L..40_000L, "arrival was ${arrival.nowMs} ms")
+        assertEquals(TravelDirection.COUNTER_CLOCKWISE, coordinator.snapshot.direction)
+    }
+
+    @TestCase
+    fun `shorter bridge outranks smoother earlier exit`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.CLOCKWISE))
+        val driver = RouteDriver(coordinator)
+        coordinator.handle(RouteEvent.Activate(lengthPriorityGraph(), "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val arrival = driver.advanceTimed("Commit")
+
+        assertTrue(arrival.nowMs in 41_500L..42_500L, "arrival was ${arrival.nowMs} ms")
+        assertEquals(TravelDirection.CLOCKWISE, coordinator.snapshot.direction)
+    }
+
+    @TestCase
+    fun `bridge alignment outranks earlier exit for equal lengths`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.CLOCKWISE))
+        val driver = RouteDriver(coordinator)
+        coordinator.handle(RouteEvent.Activate(turnPriorityGraph(), "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val arrival = driver.advanceTimed("Commit")
+
+        assertTrue(arrival.nowMs in 44_000L..45_000L, "arrival was ${arrival.nowMs} ms")
+        assertEquals(TravelDirection.CLOCKWISE, coordinator.snapshot.direction)
     }
 
     @TestCase
@@ -1000,6 +969,236 @@ private fun testTrack(
         length = length,
         signalAnchorDistance = 0f,
         signalSpan = signalSpan,
+    )
+
+private class DirectionRandom(
+    private val direction: TravelDirection,
+) : kotlin.random.Random() {
+    override fun nextBits(bitCount: Int): Int =
+        when {
+            bitCount == 0 -> 0
+            direction == TravelDirection.COUNTER_CLOCKWISE -> 0
+            bitCount == Int.SIZE_BITS -> -1
+            else -> (1 shl bitCount) - 1
+        }
+}
+
+private fun cornerGraph(sourceAnchor: Float): RouteGraph {
+    val editor =
+        RouteSurface(
+            id = "Editor",
+            rootId = RouteRootId(1),
+            track = squareTrack(originX = 0f, signalAnchorDistance = sourceAnchor),
+            isEditor = true,
+            windowKind = RouteWindowKind.MAIN,
+            inwardEdges = emptySet(),
+        )
+    val commit =
+        RouteSurface(
+            id = "Commit",
+            rootId = RouteRootId(1),
+            track = squareTrack(originX = 100f, signalAnchorDistance = 0f),
+            isEditor = false,
+            windowKind = RouteWindowKind.MAIN,
+            inwardEdges = emptySet(),
+        )
+    val connectorId = RouteConnectorId("Commit", "Editor", RouteSide.LEFT)
+    val top =
+        RouteConnector(
+            id = connectorId,
+            endpoint = RouteEndpoint.START,
+            sourceId = editor.id,
+            targetId = commit.id,
+            sourceSide = RouteSide.RIGHT,
+            targetSide = RouteSide.LEFT,
+            sourceDistance = 100f,
+            targetDistance = 0f,
+            sourcePoint = RoutePoint(100f, 0f),
+            targetPoint = RoutePoint(100f, 0f),
+            length = 0f,
+            requiresWindowBridge = false,
+        )
+    val bottom =
+        top.copy(
+            endpoint = RouteEndpoint.END,
+            sourceDistance = 200f,
+            targetDistance = 300f,
+            sourcePoint = RoutePoint(100f, 100f),
+            targetPoint = RoutePoint(100f, 100f),
+        )
+    return RouteGraph(
+        surfaces = mapOf(editor.id to editor, commit.id to commit),
+        connectors =
+            mapOf(
+                editor.id to listOf(top, bottom),
+                commit.id to listOf(top.testReversed(), bottom.testReversed()),
+            ),
+    )
+}
+
+private fun RouteConnector.testReversed(): RouteConnector =
+    copy(
+        sourceId = targetId,
+        targetId = sourceId,
+        sourceSide = targetSide,
+        targetSide = sourceSide,
+        sourceDistance = targetDistance,
+        targetDistance = sourceDistance,
+        sourcePoint = targetPoint,
+        targetPoint = sourcePoint,
+    )
+
+private fun squareTrack(
+    originX: Float,
+    signalAnchorDistance: Float,
+): WaveformTrack =
+    WaveformTrack(
+        samples =
+            listOf(
+                WaveformSample(originX, 0f, 0f, -1f, 0f, 1f),
+                WaveformSample(originX + 100f, 0f, 1f, 0f, 100f, 1f),
+                WaveformSample(originX + 100f, 100f, 0f, 1f, 200f, 1f),
+                WaveformSample(originX, 100f, -1f, 0f, 300f, 1f),
+            ),
+        length = 400f,
+        signalAnchorDistance = signalAnchorDistance,
+        signalSpan = 240f,
+    )
+
+private fun lengthPriorityGraph(): RouteGraph {
+    val connectorId = RouteConnectorId("Commit", "Editor", RouteSide.LEFT)
+    val shorter =
+        RouteConnector(
+            id = connectorId,
+            endpoint = RouteEndpoint.START,
+            sourceId = "Editor",
+            targetId = "Commit",
+            sourceSide = RouteSide.RIGHT,
+            targetSide = RouteSide.LEFT,
+            sourceDistance = 100f,
+            targetDistance = 0f,
+            sourcePoint = RoutePoint(100f, 0f),
+            targetPoint = RoutePoint(100f, 50f),
+            length = 50f,
+            requiresWindowBridge = false,
+        )
+    val longer =
+        shorter.copy(
+            endpoint = RouteEndpoint.END,
+            sourceDistance = 120f,
+            targetDistance = 70f,
+            sourcePoint = RoutePoint(100f, 20f),
+            targetPoint = RoutePoint(100f, 120f),
+            length = 100f,
+        )
+    return priorityGraph(lengthPriorityTrack(), listOf(shorter, longer))
+}
+
+private fun turnPriorityGraph(): RouteGraph {
+    val connectorId = RouteConnectorId("Commit", "Editor", RouteSide.LEFT)
+    val aligned =
+        RouteConnector(
+            id = connectorId,
+            endpoint = RouteEndpoint.START,
+            sourceId = "Editor",
+            targetId = "Commit",
+            sourceSide = RouteSide.RIGHT,
+            targetSide = RouteSide.LEFT,
+            sourceDistance = 100f,
+            targetDistance = 0f,
+            sourcePoint = RoutePoint(100f, 0f),
+            targetPoint = RoutePoint(200f, 0f),
+            length = 100f,
+            requiresWindowBridge = false,
+        )
+    val misaligned =
+        aligned.copy(
+            endpoint = RouteEndpoint.END,
+            sourceDistance = 120f,
+            targetDistance = 120f,
+            sourcePoint = RoutePoint(100f, 20f),
+            targetPoint = RoutePoint(200f, 20f),
+        )
+    return priorityGraph(turnPriorityTrack(), listOf(aligned, misaligned))
+}
+
+private fun priorityGraph(
+    targetTrack: WaveformTrack,
+    connectors: List<RouteConnector>,
+): RouteGraph {
+    val editor =
+        RouteSurface(
+            id = "Editor",
+            rootId = RouteRootId(1),
+            track = prioritySourceTrack(),
+            isEditor = true,
+            windowKind = RouteWindowKind.MAIN,
+            inwardEdges = emptySet(),
+        )
+    val commit =
+        RouteSurface(
+            id = "Commit",
+            rootId = RouteRootId(1),
+            track = targetTrack,
+            isEditor = false,
+            windowKind = RouteWindowKind.MAIN,
+            inwardEdges = emptySet(),
+        )
+    return RouteGraph(
+        surfaces = mapOf(editor.id to editor, commit.id to commit),
+        connectors =
+            mapOf(
+                editor.id to connectors,
+                commit.id to connectors.map(RouteConnector::testReversed),
+            ),
+    )
+}
+
+private fun prioritySourceTrack(): WaveformTrack =
+    WaveformTrack(
+        samples =
+            listOf(
+                WaveformSample(0f, 0f, 0f, -1f, 0f, 1f),
+                WaveformSample(100f, 0f, 1f, 0f, 100f, 1f),
+                WaveformSample(100f, 20f, 1f, 0f, 120f, 1f),
+                WaveformSample(100f, 100f, 0f, 1f, 200f, 1f),
+                WaveformSample(0f, 100f, -1f, 0f, 300f, 1f),
+            ),
+        length = 400f,
+        signalAnchorDistance = 110f,
+        signalSpan = 240f,
+    )
+
+private fun lengthPriorityTrack(): WaveformTrack =
+    WaveformTrack(
+        samples =
+            listOf(
+                WaveformSample(100f, 50f, -1f, 0f, 0f, 1f),
+                WaveformSample(100f, 120f, -1f, 0f, 70f, 1f),
+                WaveformSample(100f, 150f, -1f, 0f, 100f, 1f),
+                WaveformSample(0f, 150f, 0f, 1f, 200f, 1f),
+                WaveformSample(0f, 50f, 1f, 0f, 300f, 1f),
+            ),
+        length = 400f,
+        signalAnchorDistance = 0f,
+        signalSpan = 240f,
+    )
+
+private fun turnPriorityTrack(): WaveformTrack =
+    WaveformTrack(
+        samples =
+            listOf(
+                WaveformSample(200f, 0f, 0f, -1f, 0f, 1f),
+                WaveformSample(250f, 0f, 1f, 0f, 50f, 1f),
+                WaveformSample(250f, 20f, 1f, 0f, 70f, 1f),
+                WaveformSample(200f, 20f, 0f, 1f, 120f, 1f),
+                WaveformSample(200f, 50f, -1f, 0f, 150f, 1f),
+                WaveformSample(100f, 50f, 0f, 1f, 250f, 1f),
+                WaveformSample(100f, 0f, 1f, 0f, 300f, 1f),
+            ),
+        length = 400f,
+        signalAnchorDistance = 0f,
+        signalSpan = 240f,
     )
 
 private class RouteDriver(

@@ -137,6 +137,24 @@ private sealed interface SavedState : LifecycleState {
     val stableFrame: RouteFrame?
 }
 
+private data class PlannedHandoff(
+    val connector: RouteConnector,
+    val targetDirection: TravelDirection,
+)
+
+private data class HandoffCandidate(
+    val handoff: PlannedHandoff,
+    val turnPenalty: Float,
+    val exitDistance: Float,
+)
+
+private data class RouteVector(
+    val x: Float,
+    val y: Float,
+) {
+    fun turnPenalty(next: RouteVector): Float = 1f - (x * next.x + y * next.y).coerceIn(-1f, 1f)
+}
+
 private sealed interface RouteLeg {
     val direction: TravelDirection
     val length: Float
@@ -151,7 +169,7 @@ private sealed interface RouteLeg {
         val surfaceId: String,
         val entryDistance: Float,
         override val direction: TravelDirection,
-        val connector: RouteConnector?,
+        val handoff: PlannedHandoff?,
         val lapDistance: Float,
         override val length: Float,
         override val samples: List<WaveformSample>,
@@ -161,12 +179,13 @@ private sealed interface RouteLeg {
     ) : RouteLeg {
         override val currentSurfaceId: String = surfaceId
         override val sliceSurfaceId: String = surfaceId
-        override val plannedTargetId: String? = connector?.targetId
+        override val plannedTargetId: String? = handoff?.connector?.targetId
     }
 
     data class Connector(
         val connector: RouteConnector,
         override val direction: TravelDirection,
+        val targetDirection: TravelDirection,
         override val samples: List<WaveformSample>,
         override val target: RoutePaintTarget,
         val sourceSpeed: Float,
@@ -191,7 +210,7 @@ private sealed interface TargetPolicy {
     data object Select : TargetPolicy
 
     data class Preserve(
-        val connector: RouteConnector?,
+        val handoff: PlannedHandoff?,
     ) : TargetPolicy
 }
 
@@ -224,11 +243,15 @@ private data class RouteSegment(
 
 private val EMPTY_ROUTE_SNAPSHOT = RouteSnapshot(null, 0f, null, null)
 
-private val CONNECTOR_ROUTE_ORDER =
-    compareBy(
-        RouteConnector::length,
-        { connector -> connector.sourceSide.ordinal },
-        { connector -> connector.targetSide.ordinal },
+private val HANDOFF_ORDER =
+    compareBy<HandoffCandidate>(
+        { candidate -> candidate.handoff.connector.length },
+        HandoffCandidate::turnPenalty,
+        HandoffCandidate::exitDistance,
+        { candidate -> candidate.handoff.connector.sourceSide.ordinal },
+        { candidate -> candidate.handoff.connector.targetSide.ordinal },
+        { candidate -> candidate.handoff.connector.endpoint.ordinal },
+        { candidate -> candidate.handoff.targetDirection.ordinal },
     )
 
 internal class WaveformRouteCoordinator(
@@ -569,7 +592,7 @@ internal class WaveformRouteCoordinator(
             val signal = lastFrame?.signal ?: engine.signalFrame(clock.engineTimeMs)
             return Transition(routing, RouteUpdate(frame = trail.routeFrame(routing, signal)))
         }
-        if (leg is RouteLeg.Perimeter && leg.connector?.id == connectorId) {
+        if (leg is RouteLeg.Perimeter && leg.handoff?.connector?.id == connectorId) {
             val center = trail.centerDistance(current)
             val entry = RouteMotion.perimeterPosition(leg, current.distanceOnLeg, graph)
             val perimeter =
@@ -774,8 +797,7 @@ internal class WaveformRouteCoordinator(
             )
         }
 
-        val entryRatio = leg.entryDistance / oldSurface.track.length
-        val entryDistance = entryRatio * newSurface.track.length
+        val entryDistance = leg.entryDistance / oldSurface.track.length * newSurface.track.length
         return LifecycleState.Routing(
             planner.createPerimeter(
                 graph,
@@ -784,7 +806,7 @@ internal class WaveformRouteCoordinator(
                 PerimeterEntry(
                     distance = entryDistance,
                     direction = leg.direction,
-                    targetPolicy = TargetPolicy.Preserve(leg.connector),
+                    targetPolicy = TargetPolicy.Preserve(leg.handoff),
                 ),
             ),
             0f,
@@ -797,10 +819,10 @@ internal class WaveformRouteCoordinator(
         trail.advance(leg.length)
         return when (leg) {
             is RouteLeg.Perimeter -> {
-                val connector = leg.connector
+                val handoff = leg.handoff
                 val isConnectorAvailable =
-                    connector != null &&
-                        graph.connectorsFrom(leg.surfaceId).any { candidate -> candidate == connector }
+                    handoff != null &&
+                        graph.connectorsFrom(leg.surfaceId).any { candidate -> candidate == handoff.connector }
                 if (!isConnectorAvailable) {
                     val entry = RouteMotion.perimeterPosition(leg, leg.length, graph)
                     LifecycleState.Routing(
@@ -813,7 +835,7 @@ internal class WaveformRouteCoordinator(
                         0f,
                     )
                 } else {
-                    LifecycleState.Routing(planner.createConnector(graph, config, connector, leg.direction), 0f)
+                    LifecycleState.Routing(planner.createConnector(graph, config, handoff, leg.direction), 0f)
                 }
             }
 
@@ -825,7 +847,7 @@ internal class WaveformRouteCoordinator(
                             graph,
                             previousSurfaceId,
                             leg.connector.targetId,
-                            PerimeterEntry(leg.connector.targetDistance, leg.direction.opposite),
+                            PerimeterEntry(leg.connector.targetDistance, leg.targetDirection),
                         ),
                         0f,
                     )
@@ -861,7 +883,7 @@ internal class WaveformRouteCoordinator(
                             PerimeterEntry(
                                 distance = leg.entryDistance / oldTrack.length * newTrack.length,
                                 direction = leg.direction,
-                                targetPolicy = TargetPolicy.Preserve(leg.connector),
+                                targetPolicy = TargetPolicy.Preserve(leg.handoff),
                             ),
                     )
                 }
@@ -875,7 +897,8 @@ internal class WaveformRouteCoordinator(
                                     connector.endpoint == leg.connector.endpoint &&
                                     connector.targetId == leg.connector.targetId
                             }
-                    planner.createConnector(replacement, config, reboundConnector, leg.direction)
+                    val reboundHandoff = PlannedHandoff(reboundConnector, leg.targetDirection)
+                    planner.createConnector(replacement, config, reboundHandoff, leg.direction)
                 }
             }
         val progress = current.distanceOnLeg / current.leg.length
@@ -1056,25 +1079,25 @@ private class RoutePlanner(
         require(surface.track.isClosed) { "Route surface '$surfaceId' must have a closed waveform track" }
         val startDistance = entry.distance ?: surface.track.signalAnchorDistance
         val localDirection = entry.direction ?: randomDirection()
-        val connector =
+        val handoff =
             when (val targetPolicy = entry.targetPolicy) {
                 TargetPolicy.Select ->
-                    chooseConnector(graph, previousSurfaceId, surface, startDistance, localDirection)
+                    chooseHandoff(graph, previousSurfaceId, surface, startDistance, localDirection)
 
                 is TargetPolicy.Preserve ->
-                    preserveConnector(graph, surface.id, targetPolicy.connector)
-                        ?: chooseConnector(graph, previousSurfaceId, surface, startDistance, localDirection)
+                    preserveHandoff(graph, surface.id, targetPolicy.handoff)
+                        ?: chooseHandoff(graph, previousSurfaceId, surface, startDistance, localDirection)
             }
         val exitDistance =
-            connector?.let { planned ->
-                forwardDistance(startDistance, planned.sourceDistance, surface.track.length, localDirection)
+            handoff?.connector?.let { connector ->
+                forwardDistance(startDistance, connector.sourceDistance, surface.track.length, localDirection)
             } ?: 0f
         val travelDistance = surface.track.length + exitDistance
         return RouteLeg.Perimeter(
             surfaceId = surfaceId,
             entryDistance = wrap(startDistance, surface.track.length),
             direction = localDirection,
-            connector = connector,
+            handoff = handoff,
             lapDistance = surface.track.length,
             length = travelDistance,
             samples =
@@ -1088,25 +1111,28 @@ private class RoutePlanner(
         )
     }
 
-    private fun preserveConnector(
+    private fun preserveHandoff(
         graph: RouteGraph,
         surfaceId: String,
-        planned: RouteConnector?,
-    ): RouteConnector? =
-        planned?.let { connector ->
-            graph.connectorsFrom(surfaceId).firstOrNull { candidate ->
-                candidate.id == connector.id &&
-                    candidate.endpoint == connector.endpoint &&
-                    candidate.targetId == connector.targetId
-            }
+        planned: PlannedHandoff?,
+    ): PlannedHandoff? =
+        planned?.let { handoff ->
+            graph
+                .connectorsFrom(surfaceId)
+                .firstOrNull { candidate ->
+                    candidate.id == handoff.connector.id &&
+                        candidate.endpoint == handoff.connector.endpoint &&
+                        candidate.targetId == handoff.connector.targetId
+                }?.let { connector -> handoff.copy(connector = connector) }
         }
 
     fun createConnector(
         graph: RouteGraph,
         config: WaveformConfig,
-        connector: RouteConnector,
+        handoff: PlannedHandoff,
         direction: TravelDirection,
     ): RouteLeg.Connector {
+        val connector = handoff.connector
         val source = graph.surfaces.getValue(connector.sourceId)
         val target = graph.surfaces.getValue(connector.targetId)
         val paintTarget =
@@ -1118,6 +1144,7 @@ private class RoutePlanner(
         return RouteLeg.Connector(
             connector = connector,
             direction = direction,
+            targetDirection = handoff.targetDirection,
             samples = connectorSamples(connector),
             target = paintTarget,
             sourceSpeed = RouteMotion.perimeterSpeed(source, config),
@@ -1149,13 +1176,13 @@ private class RoutePlanner(
                 .sorted()
                 .randomOrNull(random)
 
-    private fun chooseConnector(
+    private fun chooseHandoff(
         graph: RouteGraph,
         previousSurfaceId: String?,
         surface: RouteSurface,
         startDistance: Float,
         direction: TravelDirection,
-    ): RouteConnector? {
+    ): PlannedHandoff? {
         val neighborIds =
             graph
                 .connectorsFrom(surface.id)
@@ -1164,23 +1191,92 @@ private class RoutePlanner(
                 .sorted()
         val eligibleIds = neighborIds.filterNot { targetId -> targetId == previousSurfaceId }.ifEmpty { neighborIds }
         val targetId = eligibleIds.randomOrNull(random) ?: return null
-        return selectConnector(graph, surface, targetId, startDistance, direction)
+        return selectHandoff(graph, surface, targetId, startDistance, direction)
     }
 
-    private fun selectConnector(
+    private fun selectHandoff(
         graph: RouteGraph,
         surface: RouteSurface,
         targetId: String,
         startDistance: Float,
         direction: TravelDirection,
-    ): RouteConnector? {
-        val candidates = graph.connectorsFrom(surface.id).filter { connector -> connector.targetId == targetId }
-        val connectorId = candidates.minWithOrNull(CONNECTOR_ROUTE_ORDER)?.id ?: return null
-        return candidates
-            .filter { connector -> connector.id == connectorId }
-            .minByOrNull { connector ->
-                forwardDistance(startDistance, connector.sourceDistance, surface.track.length, direction)
-            }
+    ): PlannedHandoff? {
+        val target = graph.surfaces.getValue(targetId)
+        return graph
+            .connectorsFrom(surface.id)
+            .asSequence()
+            .filter { connector -> connector.targetId == targetId }
+            .flatMap { connector ->
+                TravelDirection.entries.asSequence().map { targetDirection ->
+                    val handoff = PlannedHandoff(connector, targetDirection)
+                    HandoffCandidate(
+                        handoff = handoff,
+                        turnPenalty =
+                            handoffTurnPenalty(
+                                source = surface.track,
+                                target = target.track,
+                                connector = connector,
+                                sourceDirection = direction,
+                                targetDirection = targetDirection,
+                            ),
+                        exitDistance =
+                            forwardDistance(
+                                startDistance,
+                                connector.sourceDistance,
+                                surface.track.length,
+                                direction,
+                            ),
+                    )
+                }
+            }.minWithOrNull(HANDOFF_ORDER)
+            ?.handoff
+    }
+
+    private fun handoffTurnPenalty(
+        source: WaveformTrack,
+        target: WaveformTrack,
+        connector: RouteConnector,
+        sourceDirection: TravelDirection,
+        targetDirection: TravelDirection,
+    ): Float {
+        val incoming = routeTangent(source, connector.sourceDistance, sourceDirection, isIncoming = true)
+        val outgoing = routeTangent(target, connector.targetDistance, targetDirection, isIncoming = false)
+        if (connector.length <= ROUTE_EPSILON) return incoming.turnPenalty(outgoing)
+
+        val bridge =
+            routeVector(
+                connector.sourcePoint.x,
+                connector.sourcePoint.y,
+                connector.targetPoint.x,
+                connector.targetPoint.y,
+            )
+        return incoming.turnPenalty(bridge) + bridge.turnPenalty(outgoing)
+    }
+
+    private fun routeTangent(
+        track: WaveformTrack,
+        distance: Float,
+        direction: TravelDirection,
+        isIncoming: Boolean,
+    ): RouteVector {
+        val signedStep = ROUTE_SAMPLE_STEP * direction.travelSign
+        val startDistance = if (isIncoming) distance - signedStep else distance
+        val endDistance = if (isIncoming) distance else distance + signedStep
+        val start = track.sampleAt(startDistance)
+        val end = track.sampleAt(endDistance)
+        return routeVector(start.x, start.y, end.x, end.y)
+    }
+
+    private fun routeVector(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+    ): RouteVector {
+        val deltaX = endX - startX
+        val deltaY = endY - startY
+        val length = hypot(deltaX.toDouble(), deltaY.toDouble()).toFloat().coerceAtLeast(ROUTE_EPSILON)
+        return RouteVector(deltaX / length, deltaY / length)
     }
 
     private fun editorSurfaceId(graph: RouteGraph): String? =
