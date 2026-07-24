@@ -21,6 +21,21 @@ class WaveformEngineTest {
     }
 
     @Test
+    fun `provided morphology source controls the active trace`() {
+        val morphology = BeatMorphology.standard()
+        val engine =
+            WaveformEngine(
+                WaveformConfig(traceDensity = MAX_TRACE_DENSITY),
+                morphologyFactory = { morphology },
+            )
+
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        val frame = requireNotNull(engine.handle(WaveformEvent.Tick(0L, 1_000f)).frame)
+
+        assertTrue(trace(frame).history.all { it === morphology })
+    }
+
+    @Test
     fun `perimeter loop period is independent of track length`() {
         val shortTrack = WaveformEngine(WaveformConfig(loopSeconds = 2.8f), Random(5))
         val longTrack = WaveformEngine(WaveformConfig(loopSeconds = 2.8f), Random(5))

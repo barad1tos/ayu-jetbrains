@@ -8,6 +8,7 @@ import com.intellij.util.ui.JBUI
 import dev.ayuislands.glow.waveform.CrossWindowBridge
 import dev.ayuislands.glow.waveform.RouteConnector
 import dev.ayuislands.glow.waveform.RouteConnectorId
+import dev.ayuislands.glow.waveform.RouteCoordinator
 import dev.ayuislands.glow.waveform.RouteEvent
 import dev.ayuislands.glow.waveform.RouteFrame
 import dev.ayuislands.glow.waveform.RouteGraph
@@ -23,7 +24,6 @@ import dev.ayuislands.glow.waveform.TimerDirective
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformMovement
-import dev.ayuislands.glow.waveform.WaveformRouteCoordinator
 import dev.ayuislands.glow.waveform.WaveformRouteLayer
 import dev.ayuislands.glow.waveform.WindowBridgeCapability
 import dev.ayuislands.settings.AyuIslandsState
@@ -64,7 +64,7 @@ internal class RouteController(
     private val state: () -> AyuIslandsState,
     private val onFailure: (RuntimeException) -> Unit,
 ) {
-    private var coordinator: WaveformRouteCoordinator? = null
+    private var coordinator: RouteCoordinator? = null
     private var timer: Timer? = null
     private var layoutTimer: Timer? = null
     private var bridge: CrossWindowBridge? = null
@@ -85,7 +85,7 @@ internal class RouteController(
 
     fun configure(config: WaveformConfig) {
         if (coordinator == null) {
-            coordinator = WaveformRouteCoordinator(config)
+            coordinator = RouteCoordinator(config)
             isFailureLogged = false
         } else {
             dispatch(RouteEvent.Configure(config))

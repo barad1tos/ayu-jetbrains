@@ -8,7 +8,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test as TestCase
 
-class WaveformRouteCoordinatorTest {
+class RouteCoordinatorTest {
     @TestCase
     fun `route completes a full perimeter before using the planned exit`() {
         val graph =
@@ -89,6 +89,54 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
+    fun `earlier exit outranks stable endpoint order when geometry ties`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.CLOCKWISE))
+        val driver = RouteDriver(coordinator)
+        coordinator.handle(RouteEvent.Activate(exitPriorityGraph(), "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val arrival = driver.advanceTimed("Commit")
+
+        assertTrue(arrival.nowMs in 27_500L..27_600L, "arrival was ${arrival.nowMs} ms")
+        assertEquals(TravelDirection.CLOCKWISE, coordinator.snapshot.direction)
+    }
+
+    @TestCase
+    fun `every adjacent side preserves geometric direction in both source directions`() {
+        TravelDirection.entries.forEach { sourceDirection ->
+            val sourceAnchor =
+                when (sourceDirection) {
+                    TravelDirection.CLOCKWISE -> 110f
+                    TravelDirection.COUNTER_CLOCKWISE -> 190f
+                }
+            repeat(4) { quarterTurns ->
+                val coordinator = testCoordinator(DirectionRandom(sourceDirection))
+                val driver = RouteDriver(coordinator)
+                coordinator.handle(
+                    RouteEvent.Activate(
+                        cornerGraph(sourceAnchor).rotated(quarterTurns),
+                        "Editor",
+                        false,
+                    ),
+                )
+                coordinator.handle(RouteEvent.Tick(0L))
+
+                val arrival = driver.advanceTimed("Commit")
+
+                assertTrue(
+                    arrival.nowMs in 39_000L..40_000L,
+                    "$sourceDirection rotation $quarterTurns arrived at ${arrival.nowMs} ms",
+                )
+                assertEquals(
+                    sourceDirection,
+                    coordinator.snapshot.direction,
+                    "$sourceDirection rotation $quarterTurns changed direction",
+                )
+            }
+        }
+    }
+
+    @TestCase
     fun `previous island is excluded while another neighbor exists`() {
         val coordinator = testCoordinator(random = seededRandom(11))
         val graph =
@@ -124,6 +172,28 @@ class WaveformRouteCoordinatorTest {
         driver.advanceUntilSurface("Editor")
 
         assertEquals("Editor", coordinator.snapshot.currentSurfaceId)
+    }
+
+    @TestCase
+    fun `invalid alternative still permits return to finite previous island`() {
+        val coordinator = testCoordinator(random = seededRandom(14))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 400f, "Commit" to 400f, "Problems" to 400f),
+                edges =
+                    listOf(
+                        TestEdge("Editor", "Commit", connectorLength = 0f),
+                        TestEdge("Commit", "Problems", connectorLength = Float.NaN),
+                    ),
+            )
+        val driver = RouteDriver(coordinator)
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+
+        driver.advanceUntilSurface("Commit")
+        val returned = driver.advanceUntilSurface("Editor")
+
+        assertEquals("Editor", returned.currentSurfaceId)
+        assertFiniteFrame(returned)
     }
 
     @TestCase
@@ -267,7 +337,7 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
-    fun `missing target replans only at a completed lap boundary`() {
+    fun `missing target replans immediately at the same route center`() {
         val coordinator = testCoordinator(seededRandom(17))
         val initial =
             testGraph(
@@ -280,14 +350,13 @@ class WaveformRouteCoordinatorTest {
                 edges = listOf(TestEdge("Editor", "Problems")),
             )
         coordinator.handle(RouteEvent.Activate(initial, "Editor", false))
-        coordinator.handle(RouteEvent.Tick(0L))
-        coordinator.handle(RouteEvent.GraphChanged(replacement))
+        val before = requireNotNull(coordinator.handle(RouteEvent.Tick(0L)).frame)
 
-        coordinator.handle(RouteEvent.Tick(19_000L))
-        assertEquals("Commit", coordinator.snapshot.plannedTargetId)
+        val rebound = requireNotNull(coordinator.handle(RouteEvent.GraphChanged(replacement)).frame)
 
-        coordinator.handle(RouteEvent.Tick(20_000L))
         assertEquals("Problems", coordinator.snapshot.plannedTargetId)
+        assertEquals(before.centerDistance, rebound.centerDistance, 0.001f)
+        assertEquals(1f, rebound.alpha)
     }
 
     @TestCase
@@ -297,11 +366,10 @@ class WaveformRouteCoordinatorTest {
         val replacement = testGraph(mapOf("Editor" to 400f, "Problems" to 400f), emptyList())
         coordinator.handle(RouteEvent.Activate(initial, "Commit", false))
         coordinator.handle(RouteEvent.Tick(0L))
-        coordinator.handle(RouteEvent.GraphChanged(replacement))
+        val fadeStart = requireNotNull(coordinator.handle(RouteEvent.GraphChanged(replacement)).frame)
 
-        val fadeStart = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
-        val fadeMiddle = requireNotNull(coordinator.handle(RouteEvent.Tick(20_080L)).frame)
-        val recovered = requireNotNull(coordinator.handle(RouteEvent.Tick(20_160L)).frame)
+        val fadeMiddle = requireNotNull(coordinator.handle(RouteEvent.Tick(80L)).frame)
+        val recovered = requireNotNull(coordinator.handle(RouteEvent.Tick(160L)).frame)
 
         assertEquals("Commit", fadeStart.currentSurfaceId)
         assertEquals(1f, fadeStart.alpha, 0.001f)
@@ -311,7 +379,7 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
-    fun `changed topology is staged until the full lap boundary`() {
+    fun `changed topology replans immediately at the same route center`() {
         val coordinator = testCoordinator(seededRandom(23))
         val isolated = testGraph(mapOf("Editor" to 400f), emptyList())
         val connected =
@@ -320,14 +388,13 @@ class WaveformRouteCoordinatorTest {
                 edges = listOf(TestEdge("Editor", "Commit")),
             )
         coordinator.handle(RouteEvent.Activate(isolated, "Editor", false))
-        coordinator.handle(RouteEvent.Tick(0L))
-        coordinator.handle(RouteEvent.GraphChanged(connected))
+        val before = requireNotNull(coordinator.handle(RouteEvent.Tick(0L)).frame)
 
-        coordinator.handle(RouteEvent.Tick(19_000L))
-        assertNull(coordinator.snapshot.plannedTargetId)
+        val rebound = requireNotNull(coordinator.handle(RouteEvent.GraphChanged(connected)).frame)
 
-        coordinator.handle(RouteEvent.Tick(20_000L))
         assertEquals("Commit", coordinator.snapshot.plannedTargetId)
+        assertEquals(before.centerDistance, rebound.centerDistance, 0.001f)
+        assertEquals(1f, rebound.alpha)
     }
 
     @TestCase
@@ -381,7 +448,108 @@ class WaveformRouteCoordinatorTest {
     }
 
     @TestCase
-    fun `endpoint loss stages graph refresh`() {
+    fun `active gap rebind to touching enters target in the returned frame`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val initial =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 100f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 100f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 80f),
+            )
+        val touching =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 100f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 80f),
+            )
+        coordinator.handle(RouteEvent.Activate(initial, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        coordinator.handle(RouteEvent.Keystroke(20_500L))
+        val gapFrame = requireNotNull(coordinator.handle(RouteEvent.Tick(21_000L)).frame)
+
+        val rebound = requireNotNull(coordinator.handle(RouteEvent.GraphChanged(touching)).frame)
+        val next = requireNotNull(coordinator.handle(RouteEvent.Tick(21_001L)).frame)
+
+        assertEquals("Commit", rebound.currentSurfaceId)
+        assertEquals("Commit", next.currentSurfaceId)
+        assertEquals(TravelDirection.CLOCKWISE, rebound.signal.direction)
+        assertEquals(TravelDirection.CLOCKWISE, next.signal.direction)
+        assertEquals(gapFrame.centerDistance, rebound.centerDistance, 0.001f)
+        assertTrue(next.centerDistance >= rebound.centerDistance)
+        assertEquals(1f, rebound.alpha)
+        assertEquals(1f, next.alpha)
+        assertEquals(1, rebound.slices.count { slice -> slice.surfaceId == "Editor" })
+        assertTrue(rebound.slices.none { slice -> slice.surfaceId == null })
+        assertEquals(gapFrame.signal.morphology, rebound.signal.morphology)
+        assertEquals(gapFrame.signal.trace?.history, rebound.signal.trace?.history)
+        assertEquals(gapFrame.signal.energy, rebound.signal.energy, 0.001f)
+        listOf(rebound, next).forEach(::assertFiniteFrame)
+    }
+
+    @TestCase
+    fun `geometry rebind retains source tail on moved coordinates`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val initial =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+            )
+        val moved =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+                yOffset = 30f,
+            )
+        coordinator.handle(RouteEvent.Activate(initial, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val before = requireNotNull(coordinator.handle(RouteEvent.Tick(21_000L)).frame)
+        val sourceOffset = before.slices.single { slice -> slice.surfaceId == "Editor" }.distanceOffset
+
+        val rebound = requireNotNull(coordinator.handle(RouteEvent.GraphChanged(moved)).frame)
+        val next = requireNotNull(coordinator.handle(RouteEvent.Tick(21_001L)).frame)
+
+        listOf(rebound, next).forEach { frame ->
+            val source = frame.slices.single { slice -> slice.surfaceId == "Editor" }
+            assertEquals(sourceOffset, source.distanceOffset, 0.001f)
+            assertTrue(source.samples.isNotEmpty())
+            assertTrue(frame.slices.flatMap(RouteSlice::samples).all { sample -> sample.y == 30f })
+            assertFiniteFrame(frame)
+        }
+    }
+
+    @TestCase
+    fun `removed connector drops the disconnected source tail`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val connected =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+            )
+        val disconnected =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = emptyList(),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+            )
+        coordinator.handle(RouteEvent.Activate(connected, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val before = requireNotNull(coordinator.handle(RouteEvent.Tick(21_000L)).frame)
+        assertTrue(before.slices.any { slice -> slice.surfaceId == "Editor" })
+
+        val rebound = requireNotNull(coordinator.handle(RouteEvent.GraphChanged(disconnected)).frame)
+
+        assertEquals("Commit", rebound.currentSurfaceId)
+        assertTrue(rebound.slices.none { slice -> slice.surfaceId == "Editor" })
+        assertTrue(rebound.slices.any { slice -> slice.surfaceId == "Commit" })
+        assertEquals(1f, rebound.alpha)
+        assertFiniteFrame(rebound)
+    }
+
+    @TestCase
+    fun `endpoint loss replans the current route immediately`() {
         val random =
             object : kotlin.random.Random() {
                 override fun nextBits(bitCount: Int): Int = 0
@@ -406,8 +574,12 @@ class WaveformRouteCoordinatorTest {
         val activeConnector = requireNotNull(coordinator.handle(RouteEvent.Tick(24_100L)).frame)
 
         val refreshed = coordinator.handle(RouteEvent.GraphChanged(collapsed))
+        val frame = requireNotNull(refreshed.frame)
 
-        assertEquals(activeConnector, refreshed.frame)
+        assertEquals(activeConnector.centerDistance, frame.centerDistance, 0.001f)
+        assertEquals("Editor", frame.currentSurfaceId)
+        assertEquals(1f, frame.alpha)
+        assertTrue(frame.slices.none { slice -> slice.surfaceId == null })
         assertEquals("Commit", coordinator.snapshot.plannedTargetId)
     }
 
@@ -720,9 +892,12 @@ class WaveformRouteCoordinatorTest {
             )
         coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
         coordinator.handle(RouteEvent.Tick(0L))
-        coordinator.handle(RouteEvent.Tick(20_000L))
+        val beforeConnector = requireNotNull(coordinator.handle(RouteEvent.Tick(19_999L)).frame)
+        val connectorStart = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
         val connectorMiddle = requireNotNull(coordinator.handle(RouteEvent.Tick(21_932L)).frame)
 
+        assertTrue(beforeConnector.slices.any { slice -> slice.surfaceId == null })
+        assertTrue(connectorStart.slices.any { slice -> slice.surfaceId == "Commit" })
         assertTrue(connectorMiddle.signalSpan in 185f..215f, "span was ${connectorMiddle.signalSpan}")
         assertTrue(connectorMiddle.slices.any { slice -> slice.surfaceId == null })
         assertEquals(1f, connectorMiddle.alpha)
@@ -758,9 +933,15 @@ class WaveformRouteCoordinatorTest {
         coordinator.handle(RouteEvent.Tick(0L))
 
         val exactExit = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
+        val nextTick = requireNotNull(coordinator.handle(RouteEvent.Tick(20_001L)).frame)
 
         assertEquals("Editor", exactExit.currentSurfaceId)
-        assertTrue(exactExit.slices.any { slice -> slice.surfaceId == null })
+        assertEquals("Editor", nextTick.currentSurfaceId)
+        assertTrue(exactExit.slices.any { slice -> slice.surfaceId == "Editor" })
+        assertTrue(nextTick.slices.any { slice -> slice.surfaceId == "Editor" })
+        assertTrue(exactExit.slices.none { slice -> slice.surfaceId == null })
+        assertTrue(nextTick.slices.none { slice -> slice.surfaceId == null })
+        listOf(exactExit, nextTick).forEach(::assertFiniteFrame)
     }
 
     @TestCase
@@ -774,6 +955,7 @@ class WaveformRouteCoordinatorTest {
             )
         coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
         coordinator.handle(RouteEvent.Tick(0L))
+        coordinator.handle(RouteEvent.Keystroke(19_900L))
 
         val before = requireNotNull(coordinator.handle(RouteEvent.Tick(19_999L)).frame)
         val exactExit = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
@@ -787,6 +969,13 @@ class WaveformRouteCoordinatorTest {
         assertEquals(0.01f, nextTick.centerDistance - exactExit.centerDistance, 0.001f)
         assertEquals(before.signal.morphology, exactExit.signal.morphology)
         assertEquals(before.signal.trace?.history, exactExit.signal.trace?.history)
+        assertTrue(before.slices.any { slice -> slice.surfaceId == "Commit" })
+        assertTrue(before.signal.energy > 0.9f)
+        assertTrue(exactExit.signal.energy > 0.9f)
+        assertTrue(nextTick.signal.energy > 0.9f)
+        assertTrue(before.signal.brightness > 0.99f)
+        assertTrue(exactExit.signal.brightness > 0.99f)
+        assertTrue(nextTick.signal.brightness > 0.99f)
         val phaseBefore = requireNotNull(before.signal.trace).phase
         val phaseAfter = requireNotNull(exactExit.signal.trace).phase
         val directPhaseDelta = abs(phaseAfter - phaseBefore)
@@ -811,6 +1000,162 @@ class WaveformRouteCoordinatorTest {
                     },
             )
         }
+    }
+
+    @TestCase
+    fun `touching unequal spans blend smoothly across target geometry and rebind`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+            )
+        val reboundGraph =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+                yOffset = 12f,
+            )
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val exact = requireNotNull(coordinator.handle(RouteEvent.Tick(20_000L)).frame)
+        val positiveTick = requireNotNull(coordinator.handle(RouteEvent.Tick(21_000L)).frame)
+        val rebound =
+            requireNotNull(
+                coordinator
+                    .handle(RouteEvent.GraphChanged(reboundGraph))
+                    .frame,
+            )
+        val frames =
+            buildList {
+                add(exact)
+                add(positiveTick)
+                add(rebound)
+                (22_000L..28_000L step 1_000L).forEach { nowMs ->
+                    add(requireNotNull(coordinator.handle(RouteEvent.Tick(nowMs)).frame))
+                }
+            }
+        val spans = frames.map(RouteFrame::signalSpan)
+
+        assertEquals("Commit", exact.currentSurfaceId)
+        assertEquals(80f, exact.signalSpan, 0.001f)
+        assertTrue(positiveTick.signalSpan.isFinite())
+        assertTrue(positiveTick.signalSpan in 80f..160f && positiveTick.signalSpan != 80f)
+        assertEquals(positiveTick.signalSpan, rebound.signalSpan, 0.001f)
+        assertEquals(160f, spans.last(), 0.001f)
+        spans.zipWithNext().forEach { (before, after) ->
+            assertTrue(after + 0.001f >= before, "span regressed from $before to $after")
+            assertTrue(after - before <= 10.001f, "span jumped from $before to $after")
+        }
+        frames.forEach(::assertFiniteFrame)
+    }
+
+    @TestCase
+    fun `target exit rebind preserves span progress`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val initial =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+            )
+        val movedExit =
+            testGraph(
+                lengths = mapOf("Editor" to 100f, "Commit" to 200f),
+                edges =
+                    listOf(
+                        TestEdge(
+                            sourceId = "Editor",
+                            targetId = "Commit",
+                            targetDistance = 80f,
+                            connectorLength = 0f,
+                        ),
+                    ),
+                signalSpans = mapOf("Editor" to 80f, "Commit" to 160f),
+            )
+        coordinator.handle(RouteEvent.Activate(initial, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val before = requireNotNull(coordinator.handle(RouteEvent.Tick(25_000L)).frame)
+
+        val rebound = requireNotNull(coordinator.handle(RouteEvent.GraphChanged(movedExit)).frame)
+        val next = requireNotNull(coordinator.handle(RouteEvent.Tick(25_001L)).frame)
+
+        assertEquals(before.signalSpan, rebound.signalSpan, 0.001f)
+        assertTrue(next.signalSpan >= rebound.signalSpan)
+        assertTrue(next.signalSpan - rebound.signalSpan <= 0.01f)
+        listOf(rebound, next).forEach(::assertFiniteFrame)
+    }
+
+    @TestCase
+    fun `reverse spans contract smoothly on target`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 200f, "Commit" to 100f),
+                edges = listOf(TestEdge("Editor", "Commit", connectorLength = 0f)),
+                signalSpans = mapOf("Editor" to 160f, "Commit" to 80f),
+            )
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val frames =
+            (20_000L..40_000L step 1_000L).map { nowMs ->
+                requireNotNull(coordinator.handle(RouteEvent.Tick(nowMs)).frame)
+            }
+        val spans = frames.map(RouteFrame::signalSpan)
+
+        assertEquals(160f, spans.first(), 0.001f)
+        assertEquals(80f, spans.last(), 0.001f)
+        spans.zipWithNext().forEach { (before, after) ->
+            assertTrue(after <= before + 0.001f, "span expanded from $before to $after")
+            assertTrue(before - after <= 4.001f, "span contracted abruptly from $before to $after")
+        }
+        assertTrue(frames.first().slices.any { slice -> slice.surfaceId == "Editor" })
+        assertTrue(frames.first().slices.any { slice -> slice.surfaceId == "Commit" })
+        frames.forEach(::assertFiniteFrame)
+    }
+
+    @TestCase
+    fun `lookahead persists successor after one target lap`() {
+        val coordinator = testCoordinator(DirectionRandom(TravelDirection.COUNTER_CLOCKWISE))
+        val graph =
+            testGraph(
+                lengths = mapOf("Editor" to 400f, "Commit" to 40f, "Problems" to 400f),
+                edges =
+                    listOf(
+                        TestEdge("Editor", "Commit", connectorLength = 0f),
+                        TestEdge("Commit", "Problems", connectorLength = 0f),
+                    ),
+                signalSpans = mapOf("Editor" to 360f, "Commit" to 40f, "Problems" to 360f),
+            )
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val frames =
+            listOf(19_999L, 20_000L, 20_001L).map { nowMs ->
+                requireNotNull(coordinator.handle(RouteEvent.Tick(nowMs)).frame)
+            }
+
+        frames.forEach { frame ->
+            val target = frame.slices.single { slice -> slice.surfaceId == "Commit" }
+            val coordinateCounts = target.samples.groupingBy { sample -> sample.x to sample.y }.eachCount()
+            val sampleDistances = target.samples.map(WaveformSample::distance)
+            val successor = frame.slices.single { slice -> slice.surfaceId == "Problems" }
+
+            assertEquals(40f, target.samples.maxOf(WaveformSample::distance), 0.001f)
+            assertTrue(
+                coordinateCounts.values.all { count -> count <= 2 },
+                "target lookahead wrapped over coordinates: $coordinateCounts",
+            )
+            assertEquals(target.samples.size, sampleDistances.distinct().size)
+            assertTrue(successor.samples.maxOf(WaveformSample::distance) > 100f)
+            assertEquals(1f, frame.alpha)
+            assertEquals(frame.signal.config.brightnessAt(frame.signal.energy), frame.signal.brightness, 0.001f)
+            assertFiniteFrame(frame)
+        }
+        assertEquals("Problems", coordinator.snapshot.plannedTargetId)
     }
 
     @TestCase
@@ -877,6 +1222,7 @@ class WaveformRouteCoordinatorTest {
         val frame = requireNotNull(coordinator.handle(RouteEvent.Tick(23_000L)).frame)
 
         assertEquals("Commit", frame.currentSurfaceId)
+        assertTrue(frame.slices.any { slice -> slice.surfaceId == "Editor" })
     }
 
     @TestCase
@@ -913,12 +1259,52 @@ class WaveformRouteCoordinatorTest {
         assertEquals(active.signal.energy, resumed.signal.energy, 0.001f)
     }
 
-    private fun assertCounterClockwiseOrder(coordinator: WaveformRouteCoordinator) {
+    private fun assertCounterClockwiseOrder(coordinator: RouteCoordinator) {
         assertEquals(TravelDirection.COUNTER_CLOCKWISE, coordinator.snapshot.direction)
         coordinator.handle(RouteEvent.Tick(0L))
         val frame = requireNotNull(coordinator.handle(RouteEvent.Tick(2_000L)).frame)
         val samples = frame.slices.single().samples
         assertTrue(samples.zipWithNext().all { (first, second) -> second.distance >= first.distance })
+    }
+
+    private fun assertFiniteFrame(frame: RouteFrame) {
+        val frameValues =
+            listOf(
+                frame.centerDistance,
+                frame.signalSpan,
+                frame.alpha,
+                frame.signal.brightness,
+                frame.signal.energy,
+                frame.signal.trace?.anchorOffset ?: 0f,
+                frame.signal.trace?.phase ?: 0f,
+            )
+        assertTrue(frameValues.all(Float::isFinite), "frame contained non-finite values: $frameValues")
+        assertTrue(
+            frame.signal.morphology
+                .vertexPhases()
+                .all(Float::isFinite),
+        )
+        assertTrue(
+            frame.signal.trace
+                ?.history
+                .orEmpty()
+                .flatMap(BeatMorphology::vertexPhases)
+                .all(Float::isFinite),
+        )
+        assertTrue(
+            frame.slices
+                .flatMap(RouteSlice::samples)
+                .flatMap { sample ->
+                    listOf(
+                        sample.x,
+                        sample.y,
+                        sample.normalX,
+                        sample.normalY,
+                        sample.distance,
+                        sample.amplitudeMask,
+                    )
+                }.all(Float::isFinite),
+        )
     }
 }
 
@@ -934,8 +1320,8 @@ private data class TestEdge(
 
 private fun seededRandom(seed: Int): kotlin.random.Random = kotlin.random.Random(seed)
 
-private fun testCoordinator(random: kotlin.random.Random): WaveformRouteCoordinator =
-    WaveformRouteCoordinator(
+private fun testCoordinator(random: kotlin.random.Random): RouteCoordinator =
+    RouteCoordinator(
         initialConfig =
             WaveformConfig(
                 movement = WaveformMovement.CHAOTIC,
@@ -1097,6 +1483,59 @@ private fun RouteConnector.testReversed(): RouteConnector =
         targetPoint = sourcePoint,
     )
 
+private fun RouteGraph.rotated(quarterTurns: Int): RouteGraph {
+    val turns = quarterTurns.mod(RouteSide.entries.size)
+    if (turns == 0) return this
+    return RouteGraph(
+        surfaces =
+            surfaces.mapValues { (_, surface) ->
+                surface.copy(track = surface.track.rotated(turns))
+            },
+        connectors =
+            connectors.mapValues { (_, values) ->
+                values.map { connector ->
+                    connector.copy(
+                        id =
+                            connector.id.copy(
+                                firstSide = connector.id.firstSide.rotated(turns),
+                            ),
+                        sourceSide = connector.sourceSide.rotated(turns),
+                        targetSide = connector.targetSide.rotated(turns),
+                        sourcePoint = connector.sourcePoint.rotated(turns),
+                        targetPoint = connector.targetPoint.rotated(turns),
+                    )
+                }
+            },
+    )
+}
+
+private fun WaveformTrack.rotated(quarterTurns: Int): WaveformTrack =
+    WaveformTrack(
+        samples =
+            samples.map { sample ->
+                val point = RoutePoint(sample.x, sample.y).rotated(quarterTurns)
+                val normal = RoutePoint(sample.normalX, sample.normalY).rotated(quarterTurns)
+                sample.copy(
+                    x = point.x,
+                    y = point.y,
+                    normalX = normal.x,
+                    normalY = normal.y,
+                )
+            },
+        length = length,
+        signalAnchorDistance = signalAnchorDistance,
+        signalSpan = signalSpan,
+        isClosed = isClosed,
+    )
+
+private fun RoutePoint.rotated(quarterTurns: Int): RoutePoint =
+    (0 until quarterTurns).fold(this) { point, _ ->
+        RoutePoint(-point.y, point.x)
+    }
+
+private fun RouteSide.rotated(quarterTurns: Int): RouteSide =
+    RouteSide.entries[(ordinal + quarterTurns).mod(RouteSide.entries.size)]
+
 private fun squareTrack(
     originX: Float,
     signalAnchorDistance: Float,
@@ -1169,6 +1608,60 @@ private fun turnPriorityGraph(): RouteGraph {
             targetPoint = RoutePoint(200f, 20f),
         )
     return priorityGraph(turnPriorityTrack(), listOf(aligned, misaligned))
+}
+
+private fun exitPriorityGraph(): RouteGraph {
+    val editor =
+        RouteSurface(
+            id = "Editor",
+            rootId = RouteRootId(1),
+            track = squareTrack(originX = 0f, signalAnchorDistance = 130f),
+            isEditor = true,
+            windowKind = RouteWindowKind.MAIN,
+            inwardEdges = emptySet(),
+        )
+    val commit =
+        RouteSurface(
+            id = "Commit",
+            rootId = RouteRootId(1),
+            track = squareTrack(originX = 200f, signalAnchorDistance = 0f),
+            isEditor = false,
+            windowKind = RouteWindowKind.MAIN,
+            inwardEdges = emptySet(),
+        )
+    val connectorId = RouteConnectorId("Commit", "Editor", RouteSide.LEFT)
+    val stableFirst =
+        RouteConnector(
+            id = connectorId,
+            endpoint = RouteEndpoint.START,
+            sourceId = editor.id,
+            targetId = commit.id,
+            sourceSide = RouteSide.RIGHT,
+            targetSide = RouteSide.LEFT,
+            sourceDistance = 120f,
+            targetDistance = 380f,
+            sourcePoint = RoutePoint(100f, 20f),
+            targetPoint = RoutePoint(200f, 20f),
+            length = 100f,
+            requiresWindowBridge = false,
+        )
+    val earlierExit =
+        stableFirst.copy(
+            endpoint = RouteEndpoint.END,
+            sourceDistance = 180f,
+            targetDistance = 320f,
+            sourcePoint = RoutePoint(100f, 80f),
+            targetPoint = RoutePoint(200f, 80f),
+        )
+    val connectors = listOf(stableFirst, earlierExit)
+    return RouteGraph(
+        surfaces = mapOf(editor.id to editor, commit.id to commit),
+        connectors =
+            mapOf(
+                editor.id to connectors,
+                commit.id to connectors.map(RouteConnector::testReversed),
+            ),
+    )
 }
 
 private fun priorityGraph(
@@ -1251,7 +1744,7 @@ private fun turnPriorityTrack(): WaveformTrack =
     )
 
 private class RouteDriver(
-    private val coordinator: WaveformRouteCoordinator,
+    private val coordinator: RouteCoordinator,
 ) {
     private var nowMs = 0L
 

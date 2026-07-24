@@ -149,6 +149,7 @@ internal class WaveformEngine(
     initialConfig: WaveformConfig,
     private val random: Random = Random.Default,
     private val chaoticDirection: TravelDirection? = null,
+    private val morphologyFactory: () -> BeatMorphology = { BeatMorphology.random(random) },
 ) {
     internal var state: WaveformState = WaveformState.Inactive(initialConfig)
         private set
@@ -332,7 +333,7 @@ internal class WaveformEngine(
         if (completedCycles == 0) return TraceAdvance(unwrappedPhase, current.history)
 
         val complexCount = current.config.traceComplexCount
-        val generated = List(min(completedCycles, complexCount)) { BeatMorphology.random(random) }
+        val generated = List(min(completedCycles, complexCount)) { morphologyFactory() }
         val history = (generated.asReversed() + current.history).take(complexCount)
         return TraceAdvance(wrap(unwrappedPhase, 1f), history)
     }
@@ -342,7 +343,7 @@ internal class WaveformEngine(
         val history: List<BeatMorphology>,
     )
 
-    private fun active(config: WaveformConfig): Transition = looping(config, BeatMorphology.random(random))
+    private fun active(config: WaveformConfig): Transition = looping(config, morphologyFactory())
 
     private fun looping(
         config: WaveformConfig,
@@ -383,7 +384,7 @@ internal class WaveformEngine(
     private fun initialHistory(
         config: WaveformConfig,
         morphology: BeatMorphology,
-    ): List<BeatMorphology> = listOf(morphology) + List(config.traceComplexCount - 1) { BeatMorphology.random(random) }
+    ): List<BeatMorphology> = listOf(morphology) + List(config.traceComplexCount - 1) { morphologyFactory() }
 
     private fun fitHistory(
         history: List<BeatMorphology>,
@@ -392,7 +393,7 @@ internal class WaveformEngine(
         if (history.size >= complexCount) {
             history.take(complexCount)
         } else {
-            history + List(complexCount - history.size) { BeatMorphology.random(random) }
+            history + List(complexCount - history.size) { morphologyFactory() }
         }
 
     private fun suspended(config: WaveformConfig): Transition =

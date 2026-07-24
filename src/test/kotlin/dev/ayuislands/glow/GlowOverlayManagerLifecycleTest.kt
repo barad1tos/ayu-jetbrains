@@ -22,6 +22,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.waveform.CrossWindowBridge
 import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.RouteConnectorId
+import dev.ayuislands.glow.waveform.RouteCoordinator
 import dev.ayuislands.glow.waveform.RouteEvent
 import dev.ayuislands.glow.waveform.RouteGraph
 import dev.ayuislands.glow.waveform.RouteRootId
@@ -31,7 +32,6 @@ import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.WaveformPainter
-import dev.ayuislands.glow.waveform.WaveformRouteCoordinator
 import dev.ayuislands.glow.waveform.WaveformRouteLayer
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -1745,11 +1745,11 @@ class GlowOverlayManagerLifecycleTest {
         method.invoke(manager, from, to)
     }
 
-    private fun readRouteCoordinator(manager: GlowOverlayManager): WaveformRouteCoordinator? {
+    private fun readRouteCoordinator(manager: GlowOverlayManager): RouteCoordinator? {
         val controller = readRouteController(manager)
         val field = controller.javaClass.getDeclaredField("coordinator")
         field.isAccessible = true
-        return field.get(controller) as WaveformRouteCoordinator?
+        return field.get(controller) as RouteCoordinator?
     }
 
     private fun readRouteState(manager: GlowOverlayManager): RouteSnapshot =

@@ -38,7 +38,6 @@ import javax.swing.SwingUtilities
 import javax.swing.Timer
 import kotlin.math.ceil
 import kotlin.math.roundToInt
-import kotlin.random.Random
 
 internal data class GlowPreview(
     val shape: GlowShape,
@@ -78,8 +77,8 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
     private val previewEngine =
         WaveformEngine(
             waveformConfig,
-            Random(PREVIEW_RANDOM_SEED),
             chaoticDirection = previewDirection,
+            morphologyFactory = { previewMorphology },
         )
     private var waveformFrame = restingPreviewFrame(waveformConfig)
     private var powerSaveConnection: MessageBusConnection? = null
