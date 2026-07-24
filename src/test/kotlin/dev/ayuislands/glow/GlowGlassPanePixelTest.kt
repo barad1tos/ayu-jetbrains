@@ -232,6 +232,35 @@ class GlowGlassPanePixelTest {
     }
 
     @Test
+    fun `active route mode disables the pane timer and paints only the base`() {
+        val pane = waveformPane(WaveformConfig())
+        var captured: WaveformPaintRequest? = null
+        installWaveformPainter(
+            pane,
+            object : WaveformPainter() {
+                override fun prepare(request: WaveformPaintRequest): WaveformRenderPlan {
+                    captured = request
+                    return super.prepare(request)
+                }
+            },
+        )
+        pane.activateWaveform(powerSaveEnabled = false)
+        assertNotNull(readWaveformTimer(pane))
+
+        pane.configureRouteMode(enabled = true)
+        pane.setRoutePresence(present = true)
+        pane.activateWaveform(powerSaveEnabled = false)
+        pane.onWaveformKeystroke(nowMs = 10L)
+        pane.changeWaveformPowerSave(enabled = true)
+        val image = paint(pane)
+
+        assertNull(readWaveformTimer(pane))
+        assertFalse(requireNotNull(captured).paintsSignal)
+        assertTrue(alphaSum(image) > 0L, "active route mode must retain the low-strength waveform base")
+        pane.stopAnimation()
+    }
+
+    @Test
     fun `hidden waveform timer advances without preparing render plans`() {
         SwingUtilities.invokeAndWait {
             val pane = waveformPane(WaveformConfig(loopSeconds = 1.6f))
