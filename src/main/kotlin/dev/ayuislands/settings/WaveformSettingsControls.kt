@@ -195,7 +195,14 @@ internal class WaveformSettingsControls(
             combo.addActionListener(
                 guardedAction {
                     val selected = combo.selectedItem as? String ?: return@guardedAction
-                    update(value.copy(shape = GlowShape.entries.first { it.displayName == selected }))
+                    val shape = GlowShape.entries.first { it.displayName == selected }
+                    update(value.copy(shape = shape))
+                    if (shape == GlowShape.WAVEFORM) {
+                        SettingsBadges.acknowledgeAnchor(
+                            AyuIslandsSettings.getInstance().state,
+                            ROUTING_BADGE_ID,
+                        )
+                    }
                 },
             )
             shapeCombo = combo
@@ -221,7 +228,8 @@ internal class WaveformSettingsControls(
                 )
                 movementCombo = combo
                 cell(combo).widthGroup(WAVEFORM_COMBO_GROUP)
-            }.visibleIf(visibility.waveform)
+                newFeatureBadge(ROUTING_BADGE_ID) { visibility.waveform.get() || !gate.isUnlocked }
+            }.visibleIfUnlockedOrPreview(visibility.waveform, gate)
     }
 
     private fun buildBaselineRow(group: Panel) {
@@ -376,7 +384,7 @@ internal class WaveformSettingsControls(
     }
 
     private fun enumCombo(items: List<String>): ComboBox<String> =
-        ComboBox(DefaultComboBoxModel(items.toTypedArray())).also { it.isEnabled = gate.isUnlocked }
+        ComboBox(DefaultComboBoxModel(items.toTypedArray())).applyPremiumLock(gate)
 
     private fun guardedAction(action: () -> Unit): ActionListener =
         ActionListener {
@@ -401,6 +409,7 @@ internal class WaveformSettingsControls(
     )
 
     private companion object {
+        const val ROUTING_BADGE_ID = "glow-chaotic-routing"
         const val LOOP_MAJOR_SECONDS = 10f
         const val LOOP_TICK_SECONDS = 2f
         const val TENTHS_PER_SECOND = 10f

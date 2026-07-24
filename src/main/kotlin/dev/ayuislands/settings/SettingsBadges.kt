@@ -95,6 +95,11 @@ internal object SettingsBadges {
                 tabTitle = "Glow",
             ),
             SettingsBadgeAnchor(
+                id = "glow-chaotic-routing",
+                title = "Chaotic waveform routing",
+                tabTitle = "Glow",
+            ),
+            SettingsBadgeAnchor(
                 id = "glow-placement",
                 title = "Glow placement",
                 tabTitle = "Glow",
@@ -113,6 +118,7 @@ internal object SettingsBadges {
     // clear tab dots and group dots live. Rebuilding Settings overwrites both;
     // stale entries from a closed dialog are harmless no-ops.
     private val groupExpanded = mutableMapOf<String, () -> Boolean>()
+    private val anchorVisible = mutableMapOf<String, () -> Boolean>()
     internal var onBadgesChanged: (() -> Unit)? = null
 
     fun pendingAnchors(state: AyuIslandsState): List<SettingsBadgeAnchor> {
@@ -159,11 +165,20 @@ internal object SettingsBadges {
         groupExpanded[anchorId] = isExpanded
     }
 
+    /** Direct anchors report whether their row is currently visible. */
+    fun registerAnchorVisible(
+        anchorId: String,
+        isVisible: () -> Boolean,
+    ) {
+        anchorVisible[anchorId] = isVisible
+    }
+
     // No registered supplier means the group never got built on this dialog
     // (stub tab, hidden section) — the spoiler cannot gate the anchor, so a
     // tab visit retires it; otherwise the badge would be unreachable there.
     private fun isVisibleOnTabVisit(anchor: SettingsBadgeAnchor): Boolean =
-        anchor.collapsibleGroupTitle == null || groupExpanded[anchor.id]?.invoke() != false
+        anchorVisible[anchor.id]?.invoke() != false &&
+            (anchor.collapsibleGroupTitle == null || groupExpanded[anchor.id]?.invoke() != false)
 
     /**
      * Drops the session wiring. Called from the Settings dialog's dispose so
@@ -172,12 +187,13 @@ internal object SettingsBadges {
      */
     fun clearSessionWiring() {
         groupExpanded.clear()
+        anchorVisible.clear()
         onBadgesChanged = null
     }
 
     /** Fresh install: everything is new to this user, so nothing is badged. */
     fun seedAllAcknowledged(state: AyuIslandsState) {
-        for (anchor in registry) applyEvent(state, anchor.id, BadgeEvent.ACKNOWLEDGE)
+        for ((anchorId) in registry) applyEvent(state, anchorId, BadgeEvent.ACKNOWLEDGE)
     }
 
     /** The registry bounds the persisted set — drop ids of removed entries. */
@@ -193,7 +209,7 @@ internal object SettingsBadges {
         nowMs: Long,
     ) {
         migrateLegacyExpiry(state)
-        for (anchor in registry) applyEvent(state, anchor.id, BadgeEvent.ARM, nowMs)
+        for ((anchorId) in registry) applyEvent(state, anchorId, BadgeEvent.ARM, nowMs)
     }
 
     /** Called on startup: each pending anchor retires at its own cap. */
@@ -202,16 +218,16 @@ internal object SettingsBadges {
         nowMs: Long,
     ) {
         migrateLegacyExpiry(state)
-        for (anchor in registry) applyEvent(state, anchor.id, BadgeEvent.EXPIRE, nowMs)
+        for ((anchorId) in registry) applyEvent(state, anchorId, BadgeEvent.EXPIRE, nowMs)
     }
 
     private fun migrateLegacyExpiry(state: AyuIslandsState) {
         val legacyDeadlineMs = state.settingsBadgesExpireAtMs
         if (legacyDeadlineMs == 0L) return
 
-        for (anchor in registry) {
-            if (readLifecycle(state, anchor.id) == BadgeLifecycle.Unarmed) {
-                state.settingsBadgeDeadlines[anchor.id] = legacyDeadlineMs.toString()
+        for ((anchorId) in registry) {
+            if (readLifecycle(state, anchorId) == BadgeLifecycle.Unarmed) {
+                state.settingsBadgeDeadlines[anchorId] = legacyDeadlineMs.toString()
             }
         }
         state.settingsBadgesExpireAtMs = 0L
@@ -351,16 +367,16 @@ internal fun installSettingsBadges(
  * live expanded state for tab-visit acknowledgement and retires the anchor
  * the moment the user expands the spoiler.
  *
- * [visibleToUser] covers groups behind visibility gates (preset-only
+ * [isVisible] covers groups behind visibility gates (preset-only
  * sections): while the group itself is hidden the spoiler cannot gate the
  * anchor, so a tab visit retires it — otherwise the badge would be
  * unreachable until the user flips an unrelated setting.
  */
 internal fun CollapsibleRow.bindNewSettingBadge(
     anchorId: String,
-    visibleToUser: () -> Boolean = { true },
+    isVisible: () -> Boolean = { true },
 ) {
-    SettingsBadges.registerGroupExpanded(anchorId) { !visibleToUser() || expanded }
+    SettingsBadges.registerGroupExpanded(anchorId) { !isVisible() || expanded }
     addExpandedListener { nowExpanded ->
         if (nowExpanded) {
             SettingsBadges.acknowledgeAnchor(AyuIslandsSettings.getInstance().state, anchorId)
@@ -368,8 +384,15 @@ internal fun CollapsibleRow.bindNewSettingBadge(
     }
 }
 
-/** Adds a small "New" pill after the row content while [anchorId] is pending. */
-internal fun Row.newFeatureBadge(anchorId: String) {
+/**
+ * Adds a small "New" pill after the row content while [anchorId] is pending.
+ * [isVisible] keeps tab visits from acknowledging dynamically hidden rows.
+ */
+internal fun Row.newFeatureBadge(
+    anchorId: String,
+    isVisible: () -> Boolean = { true },
+) {
+    SettingsBadges.registerAnchorVisible(anchorId, isVisible)
     val state = AyuIslandsSettings.getInstance().state
     if (!SettingsBadges.isPending(state, anchorId)) return
     label("New").applyToComponent {

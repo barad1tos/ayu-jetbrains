@@ -324,7 +324,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "781d4ad"
+          last_verified_sha: "15e7474"
           last_verified_date: "2026-07-24"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
 
@@ -340,6 +340,16 @@ categories:
           direction, loop duration, trace length, spike density from 1x to 4x,
           trace position outside or centered on the border, amplitude, and
           signal intensity without changing saved solid-glow preferences.
+
+      - id: glow-chaotic-routing
+        title: "Chaotic waveform routing"
+        keyword: "Glow"
+        introduced: "2.8.1"
+        tier: paid
+        description: >
+          Let the ECG waveform leave one island after a full loop and continue
+          across adjacent editor, tool-window, and neighboring IDE-window
+          perimeters through their closest shared transition points.
 
       - id: glow-external-themes
         title: "Glow on external themes"

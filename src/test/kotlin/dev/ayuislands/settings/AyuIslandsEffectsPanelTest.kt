@@ -52,6 +52,7 @@ class AyuIslandsEffectsPanelTest {
 
     @BeforeTest
     fun setUp() {
+        SettingsBadges.clearSessionWiring()
         state =
             AyuIslandsSettings().state.apply {
                 glowEnabled = true
@@ -88,6 +89,7 @@ class AyuIslandsEffectsPanelTest {
 
     @AfterTest
     fun tearDown() {
+        SettingsBadges.clearSessionWiring()
         unmockkAll()
     }
 
@@ -744,6 +746,55 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
+    fun `chaotic movement shows its own new setting marker`() {
+        val anchorId = "glow-chaotic-routing"
+        state.lastSeenVersion = "2.8.0"
+        state.glowShape = GlowShape.SOLID.name
+        state.acknowledgedSettingsBadges.addAll(
+            SettingsBadges.registry.map { it.id }.filterNot { it == anchorId },
+        )
+        val effectsPanel = AyuIslandsEffectsPanel()
+
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val newMarkers = descendants(dialogPanel, JLabel::class.java).filter { it.text == "New" }
+
+        assertEquals(1, newMarkers.size)
+        assertFalse(newMarkers.single().isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(SettingsBadges.isPending(state, anchorId))
+
+        waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
+
+        assertTrue(newMarkers.single().isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(SettingsBadges.isPending(state, anchorId))
+    }
+
+    @Test
+    fun `unlicensed solid glow exposes and acknowledges chaotic routing preview`() {
+        val anchorId = "glow-chaotic-routing"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.lastSeenVersion = "2.8.0"
+        state.glowShape = GlowShape.SOLID.name
+        state.acknowledgedSettingsBadges.addAll(
+            SettingsBadges.registry.map { it.id }.filterNot { it == anchorId },
+        )
+        val effectsPanel = AyuIslandsEffectsPanel()
+
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val movement = waveformField<JComboBox<*>>(effectsPanel, "movementCombo")
+        val newMarker = descendants(dialogPanel, JLabel::class.java).single { it.text == "New" }
+
+        assertTrue(movement.isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(movement.isEnabled)
+        assertEquals("Glow requires Ayu Islands Pro", movement.toolTipText)
+        assertTrue(newMarker.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(SettingsBadges.isPending(state, anchorId))
+
+        SettingsBadges.acknowledgeTab(state, "Glow")
+
+        assertFalse(SettingsBadges.isPending(state, anchorId))
+    }
+
+    @Test
     fun `locked waveform layout stays visible disabled and clean`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         state.glowEnabled = false
@@ -766,6 +817,7 @@ class AyuIslandsEffectsPanelTest {
         assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
         assertFalse(shape.isEnabled)
         assertFalse(movement.isEnabled)
+        assertEquals("Glow requires Ayu Islands Pro", movement.toolTipText)
         assertFalse(baseline.isEnabled)
         assertFalse(densityControl.isEnabled)
         assertFalse(traceLength.isEnabled)
@@ -774,6 +826,7 @@ class AyuIslandsEffectsPanelTest {
         assertTrue(targetCheckboxes.all { !it.isEnabled })
 
         shape.selectedItem = GlowShape.SOLID.displayName
+        movement.selectedItem = WaveformMovement.CHAOTIC.displayName
         baseline.selectedItem = WaveformBaseline.CENTERED.displayName
         density.value = 4
         traceLength.value = 640
