@@ -730,6 +730,103 @@ class RouteCoordinatorTest {
     }
 
     @TestCase
+    fun `focus bounce before the first resumed frame keeps the route frozen`() {
+        val coordinator = testCoordinator(seededRandom(101))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val stable = requireNotNull(coordinator.handle(RouteEvent.Tick(5_000L)).frame)
+        val distanceBefore = coordinator.snapshot.distanceOnLeg
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(false))
+        val resumed = coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+
+        val stoppedAgain = coordinator.handle(RouteEvent.ApplicationActiveChanged(false))
+        val ignoredTick = coordinator.handle(RouteEvent.Tick(500_000L))
+
+        assertEquals(TimerDirective.START, resumed.timerDirective)
+        assertEquals(TimerDirective.STOP, stoppedAgain.timerDirective)
+        assertEquals(stable, stoppedAgain.frame)
+        assertEquals(stable, ignoredTick.frame)
+        assertEquals(distanceBefore, coordinator.snapshot.distanceOnLeg, 0.001f)
+    }
+
+    @TestCase
+    fun `power save before the first resumed frame keeps the route frozen`() {
+        val coordinator = testCoordinator(seededRandom(103))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        val stable = requireNotNull(coordinator.handle(RouteEvent.Tick(5_000L)).frame)
+        val distanceBefore = coordinator.snapshot.distanceOnLeg
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(false))
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+
+        val powerStopped = coordinator.handle(RouteEvent.PowerSaveChanged(true))
+        val ignoredTick = coordinator.handle(RouteEvent.Tick(500_000L))
+
+        assertEquals(TimerDirective.STOP, powerStopped.timerDirective)
+        assertEquals(stable, powerStopped.frame)
+        assertEquals(stable, ignoredTick.frame)
+        assertEquals(distanceBefore, coordinator.snapshot.distanceOnLeg, 0.001f)
+    }
+
+    @TestCase
+    fun `keystroke before the first resumed frame energizes the next moving frame`() {
+        val coordinator = testCoordinator(seededRandom(107))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        val stable = requireNotNull(coordinator.handle(RouteEvent.Tick(0L)).frame)
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(false))
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+
+        val keyed = coordinator.handle(RouteEvent.Keystroke(9_000L))
+        val firstTick = requireNotNull(coordinator.handle(RouteEvent.Tick(10_000L)).frame)
+        val moving = requireNotNull(coordinator.handle(RouteEvent.Tick(10_100L)).frame)
+
+        assertEquals(TimerDirective.KEEP, keyed.timerDirective)
+        assertEquals(stable, keyed.frame)
+        assertEquals(stable, firstTick)
+        assertTrue(moving.signal.energy > firstTick.signal.energy)
+    }
+
+    @TestCase
+    fun `duplicate resume notifications keep the stable frame`() {
+        val coordinator = testCoordinator(seededRandom(109))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        val stable = requireNotNull(coordinator.handle(RouteEvent.Tick(0L)).frame)
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(false))
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+
+        val activeAgain = coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+        val powerSaveStillClear = coordinator.handle(RouteEvent.PowerSaveChanged(false))
+
+        assertEquals(TimerDirective.KEEP, activeAgain.timerDirective)
+        assertEquals(stable, activeAgain.frame)
+        assertEquals(TimerDirective.KEEP, powerSaveStillClear.timerDirective)
+        assertEquals(stable, powerSaveStillClear.frame)
+    }
+
+    @TestCase
+    fun `deactivating before the first resumed frame keeps glow stopped`() {
+        val coordinator = testCoordinator(seededRandom(113))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(false))
+        coordinator.handle(RouteEvent.ApplicationActiveChanged(true))
+
+        val deactivated = coordinator.handle(RouteEvent.Deactivate)
+        val ignoredTick = coordinator.handle(RouteEvent.Tick(500_000L))
+
+        assertEquals(TimerDirective.STOP, deactivated.timerDirective)
+        assertNull(deactivated.frame)
+        assertEquals(TimerDirective.KEEP, ignoredTick.timerDirective)
+        assertNull(ignoredTick.frame)
+        assertNull(coordinator.snapshot.currentSurfaceId)
+    }
+
+    @TestCase
     fun `empty activation stays power-save suspended`() {
         val coordinator = testCoordinator(seededRandom(79))
         val graph = testGraph(mapOf("Editor" to 400f), emptyList())
