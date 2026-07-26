@@ -87,13 +87,21 @@ internal class CrossWindowBridge(
         frame: RouteFrame,
         slice: RouteSlice,
         style: RouteLayerStyle,
+    ) = show(owner, connector, frame, listOf(slice), style)
+
+    @RequiresEdt
+    fun show(
+        owner: Window,
+        connector: RouteConnector,
+        frame: RouteFrame,
+        slices: List<RouteSlice>,
+        style: RouteLayerStyle,
     ) {
         if (disposed) return
         if (connector.id in failedConnectors) {
             hide()
             return
         }
-        val target = slice.target as? RoutePaintTarget.WindowBridge
         if (!owner.isDisplayable) {
             hide()
             return
@@ -102,11 +110,12 @@ internal class CrossWindowBridge(
             hide()
             return
         }
-        if (target?.connectorId != connector.id) {
+        if (slices.any { slice -> (slice.target as? RoutePaintTarget.WindowBridge)?.connectorId != connector.id }) {
             hide()
             return
         }
-        if (slice.samples.isEmpty()) {
+        val visibleSlices = slices.filter { slice -> slice.samples.isNotEmpty() }
+        if (visibleSlices.isEmpty()) {
             hide()
             return
         }
@@ -119,7 +128,7 @@ internal class CrossWindowBridge(
             window.bounds = bounds
             layer.setBounds(0, 0, bounds.width, bounds.height)
             layer.updateStyle(style)
-            layer.showFrame(frame, listOf(localSlice(slice, bounds)))
+            layer.showFrame(frame, visibleSlices.map { slice -> localSlice(slice, bounds) })
             if (disposed) return
             if (!visible) {
                 window.isVisible = true

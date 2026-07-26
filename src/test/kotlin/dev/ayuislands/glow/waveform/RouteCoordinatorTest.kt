@@ -4,6 +4,7 @@ import kotlin.math.abs
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test as TestCase
@@ -676,6 +677,24 @@ class RouteCoordinatorTest {
     }
 
     @TestCase
+    fun `empty graph clears a frame while routing is suspended`() {
+        val coordinator = testCoordinator(seededRandom(42))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        assertNotNull(coordinator.handle(RouteEvent.Tick(1_000L)).frame)
+        coordinator.handle(RouteEvent.PowerSaveChanged(true))
+
+        val emptied = coordinator.handle(RouteEvent.GraphChanged(testGraph(emptyMap(), emptyList())))
+        val resumed = coordinator.handle(RouteEvent.PowerSaveChanged(false))
+
+        assertEquals(TimerDirective.STOP, emptied.timerDirective)
+        assertNull(emptied.frame)
+        assertEquals(TimerDirective.STOP, resumed.timerDirective)
+        assertNull(resumed.frame)
+    }
+
+    @TestCase
     fun `first tick after suspension has no wall time jump`() {
         val coordinator = testCoordinator(seededRandom(43))
         val graph = testGraph(mapOf("Editor" to 400f), emptyList())
@@ -1274,6 +1293,34 @@ class RouteCoordinatorTest {
 
         assertEquals("Problems", frame.currentSurfaceId)
         assertTrue(frame.centerDistance > 200f, "center distance was ${frame.centerDistance}")
+    }
+
+    @TestCase
+    fun `long wall clock gap keeps an isolated route active`() {
+        val coordinator =
+            RouteCoordinator(
+                initialConfig =
+                    WaveformConfig(
+                        movement = WaveformMovement.CHAOTIC,
+                        loopSeconds = 1.5f,
+                    ),
+                random = seededRandom(60),
+            )
+        val graph = testGraph(lengths = mapOf("Editor" to 100f), edges = emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+
+        val update =
+            try {
+                coordinator.handle(RouteEvent.Tick(20_000_000L))
+            } catch (_: IllegalStateException) {
+                null
+            }
+
+        assertNotNull(update, "A delayed UI tick must not terminate chaotic routing")
+        val frame = assertNotNull(update.frame)
+        assertTrue(frame.centerDistance < 20_000f, "Delayed tick performed unbounded catch-up: ${frame.centerDistance}")
+        assertEquals(TimerDirective.KEEP, update.timerDirective)
     }
 
     @TestCase

@@ -266,18 +266,8 @@ internal class WaveformEngine(
         if (config == current.config) {
             ignore(current)
         } else {
-            val currentFixedDirection = current.config.movement.fixedDirection
             val configuredFixedDirection = config.movement.fixedDirection
-            val direction =
-                if (
-                    currentFixedDirection != null &&
-                    configuredFixedDirection != null &&
-                    currentFixedDirection != configuredFixedDirection
-                ) {
-                    configuredFixedDirection
-                } else {
-                    current.direction
-                }
+            val direction = configuredFixedDirection ?: current.direction
             Transition(
                 current.copy(
                     config = config,

@@ -47,6 +47,7 @@ import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
+import java.awt.KeyboardFocusManager
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Window
@@ -210,6 +211,43 @@ class GlowOverlayManagerLifecycleTest {
         verify(exactly = 1) { messageBus.connect(manager) }
         verify(atLeast = 1) { SwingUtilities.invokeLater(any()) }
         verify(exactly = 1) { hub.initialize() }
+    }
+
+    @Test
+    fun `cold chaotic update starts central routing`() {
+        state.glowEnabled = true
+        state.glowEditor = true
+        state.glowGit = true
+        state.glowShape = GlowShape.WAVEFORM.name
+        state.waveformDirection = WaveformMovement.CHAOTIC.name
+        val project = stubProject("cold-chaotic-project")
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        val hub = mockk<KeystrokeHub>(relaxed = true)
+        every { project.messageBus } returns messageBus
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every { mockApplication.getService(KeystrokeHub::class.java) } returns hub
+        every { SwingUtilities.invokeLater(any()) } just Runs
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val focusManager = mockk<KeyboardFocusManager>(relaxed = true)
+        mockkStatic(KeyboardFocusManager::class)
+        every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns focusManager
+        val manager = GlowOverlayManager(project)
+        val commitHost = seedRouteOverlays(manager, project)
+        every { focusManager.permanentFocusOwner } returns commitHost
+
+        try {
+            manager.updateGlow()
+
+            assertNotNull(readRouteCoordinator(manager))
+            assertEquals("Commit", readRouteState(manager).currentSurfaceId)
+            assertEquals(1, routeTimerCount(manager))
+            assertTrue(readGlassPane(manager, "Editor").hasRouteMode())
+            assertTrue(readGlassPane(manager, "Commit").hasRouteMode())
+        } finally {
+            manager.dispose()
+            stopOverlayAnimations(manager)
+        }
     }
 
     @Test
@@ -437,6 +475,34 @@ class GlowOverlayManagerLifecycleTest {
             assertEquals(1, routeTimerCount(manager))
             assertFalse(readGlassPane(manager, "Editor").hasWaveformTimer())
             assertFalse(readGlassPane(manager, "Commit").hasWaveformTimer())
+        } finally {
+            manager.dispose()
+            stopOverlayAnimations(manager)
+        }
+    }
+
+    @Test
+    fun `entering chaotic routing restores full animation alpha`() {
+        state.glowEnabled = true
+        state.glowEditor = true
+        state.glowGit = true
+        state.glowShape = GlowShape.WAVEFORM.name
+        state.waveformDirection = WaveformMovement.CHAOTIC.name
+        val project = stubProject("chaotic-animation-alpha-project")
+        val manager = GlowOverlayManager(project)
+        seedRouteOverlays(manager, project)
+        markManagerWarm(manager)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val editor = readGlassPane(manager, "Editor")
+        val commit = readGlassPane(manager, "Commit")
+        editor.animationAlpha = 0.25f
+        commit.animationAlpha = 0.5f
+
+        try {
+            manager.updateGlow()
+
+            assertEquals(1f, editor.animationAlpha)
+            assertEquals(1f, commit.animationAlpha)
         } finally {
             manager.dispose()
             stopOverlayAnimations(manager)
@@ -861,7 +927,7 @@ class GlowOverlayManagerLifecycleTest {
         assertEquals(0, routeTimerCount(manager))
         assertNull(readLayoutTimer(manager))
         assertTrue(readRouteLayers(manager).isEmpty())
-        assertNull(readRouteBridge(manager))
+        assertTrue(readRouteBridges(manager).isEmpty())
         stopOverlayAnimations(manager)
     }
 
@@ -1779,11 +1845,11 @@ class GlowOverlayManagerLifecycleTest {
         }
     }
 
-    private fun readRouteBridge(manager: GlowOverlayManager): CrossWindowBridge? {
+    private fun readRouteBridges(manager: GlowOverlayManager): Collection<CrossWindowBridge> {
         val controller = readRouteController(manager)
-        val field = controller.javaClass.getDeclaredField("bridge")
+        val field = controller.javaClass.getDeclaredField("bridges")
         field.isAccessible = true
-        return field.get(controller) as CrossWindowBridge?
+        return (field.get(controller) as Map<*, *>).values.filterIsInstance<CrossWindowBridge>()
     }
 
     private fun readActivationListener(manager: GlowOverlayManager): ApplicationActivationListener {
@@ -1912,7 +1978,7 @@ class GlowOverlayManagerLifecycleTest {
     private fun seedRouteOverlays(
         manager: GlowOverlayManager,
         project: Project,
-    ) {
+    ): javax.swing.JComponent {
         val layeredPane = mockk<JLayeredPane>(relaxed = true)
         val window = mockk<Window>(relaxed = true)
         val editorHost = mockk<javax.swing.JComponent>(relaxed = true)
@@ -1945,6 +2011,7 @@ class GlowOverlayManagerLifecycleTest {
         }
         seedOverlaysMapWithMocks(manager, editor, editorHost, layeredPane, "Editor")
         seedOverlaysMapWithMocks(manager, commit, commitHost, layeredPane, "Commit")
+        return commitHost
     }
 
     private fun invokeAttachOverlay(

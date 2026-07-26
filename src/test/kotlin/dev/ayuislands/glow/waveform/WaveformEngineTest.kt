@@ -299,6 +299,27 @@ class WaveformEngineTest {
     }
 
     @Test
+    fun `fixed movement replaces the active chaotic direction`() {
+        val engine =
+            WaveformEngine(
+                WaveformConfig(movement = WaveformMovement.CHAOTIC),
+                object : Random() {
+                    override fun nextBits(bitCount: Int): Int = 0
+                },
+            )
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        assertEquals(TravelDirection.COUNTER_CLOCKWISE, assertIs<WaveformState.Looping>(engine.state).direction)
+
+        engine.handle(
+            WaveformEvent.Configure(
+                WaveformConfig(movement = WaveformMovement.CLOCKWISE),
+            ),
+        )
+
+        assertEquals(TravelDirection.CLOCKWISE, assertIs<WaveformState.Looping>(engine.state).direction)
+    }
+
+    @Test
     fun `refresh activation preserves the configured moving trace`() {
         val engine = WaveformEngine(WaveformConfig(), Random(84))
         engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))

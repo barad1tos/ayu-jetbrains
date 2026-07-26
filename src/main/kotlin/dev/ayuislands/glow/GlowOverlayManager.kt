@@ -626,7 +626,6 @@ class GlowOverlayManager(
         }
         if (!messageBusConnected) {
             initialize()
-            return
         }
         if (overlays.isEmpty()) {
             SwingUtilities.invokeLater {
@@ -663,7 +662,13 @@ class GlowOverlayManager(
         ) {
             attachVisibleToolWindowOverlays()
             attachEditorOverlayIfNeeded()
-            overlays.values.forEach { entry -> entry.glassPane.configureRouteMode(enabled = true) }
+            if (!routeController.isActive && activeGlowId == null) {
+                refreshActiveGlow()
+            }
+            overlays.values.forEach { entry ->
+                entry.glassPane.animationAlpha = 1.0f
+                entry.glassPane.configureRouteMode(enabled = true)
+            }
             animator?.let { Disposer.dispose(it) }
             animator = null
             routeController.configure(config)

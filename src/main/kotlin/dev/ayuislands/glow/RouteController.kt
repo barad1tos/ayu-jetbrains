@@ -67,7 +67,7 @@ internal class RouteController(
     private var coordinator: RouteCoordinator? = null
     private var timer: Timer? = null
     private var layoutTimer: Timer? = null
-    private var bridge: CrossWindowBridge? = null
+    private val bridges = mutableMapOf<RouteConnector, CrossWindowBridge>()
     private val layers = mutableMapOf<RouteRootId, WaveformRouteLayer>()
     private val rootIds = IdentityHashMap<JLayeredPane, RouteRootId>()
     private val roots = mutableMapOf<RouteRootId, RouteRoot>()
@@ -79,6 +79,7 @@ internal class RouteController(
     private var graph: RouteGraph? = null
     private var lastFrame: RouteFrame? = null
     private var isFailureLogged = false
+    private var bridgeRenderVersion = 0L
 
     val isActive: Boolean
         get() = coordinator != null
@@ -121,24 +122,12 @@ internal class RouteController(
     fun dispose() {
         layoutTimer?.stop()
         timer?.stop()
-        layers.values.forEach { layer ->
-            layer.clearFrame()
-            (layer.parent as? JLayeredPane)?.remove(layer)
-        }
-        layers.clear()
-        bridge?.dispose()
-        roots.clear()
-        rootIds.clear()
-        bridgeTargets.clear()
-        currentBridgeTargets = emptyMap()
-        failedConnectorIds.clear()
+        resetRouteResources()
         overlays().forEach { overlay -> overlay.pane.configureRouteMode(enabled = false) }
         routeOverlays = emptyList()
         layoutTimer = null
         timer = null
         coordinator = null
-        bridge = null
-        nextRootId = 1
         graph = null
         lastFrame = null
         isFailureLogged = false
@@ -318,32 +307,55 @@ internal class RouteController(
         frame: RouteFrame,
         style: RouteLayerStyle,
     ) {
-        val slice =
-            frame.slices.singleOrNull { routeSlice ->
-                routeSlice.target is RoutePaintTarget.WindowBridge
+        val renderVersion = ++bridgeRenderVersion
+        val bridgeSlices =
+            frame.slices.mapNotNull { slice ->
+                val target = slice.target as? RoutePaintTarget.WindowBridge ?: return@mapNotNull null
+                target.connectorId to slice
             }
-        if (slice == null) {
-            bridge?.hide()
-            return
+        val batches = linkedMapOf<BridgeTarget, MutableList<RouteSlice>>()
+        bridgeSlices.forEach { (connectorId, slice) ->
+            val target =
+                bridgeTargets[connectorId]
+                    ?.minByOrNull { candidate -> candidate.distanceTo(slice) }
+                    ?: return@forEach
+            batches.getOrPut(target) { mutableListOf() } += slice
         }
-        val connectorId = (slice.target as RoutePaintTarget.WindowBridge).connectorId
-        val target =
-            bridgeTargets[connectorId]
-                ?.minByOrNull { candidate -> candidate.distanceTo(slice) }
-        if (target == null) {
-            bridge?.hide()
-            return
+        batches.keys
+            .groupBy { target -> target.connector.id }
+            .forEach { (connectorId, selectedTargets) ->
+                bridgeTargets[connectorId] =
+                    (currentBridgeTargets[connectorId].orEmpty() + selectedTargets)
+                        .distinct()
+                        .toMutableList()
+            }
+        val visibleConnectors = batches.keys.map { target -> target.connector }.toSet()
+        batches.forEach { (target, slices) ->
+            val currentBridge =
+                bridges.getOrPut(target.connector) {
+                    CrossWindowBridge(onFailure = { failedConnectorId ->
+                        recordBridgeFailure(failedConnectorId)
+                    })
+                }
+            currentBridge.show(target.owner, target.connector, frame, slices, style)
+            if (renderVersion != bridgeRenderVersion) return
         }
-        if (target in currentBridgeTargets[connectorId].orEmpty()) {
-            bridgeTargets[connectorId] =
-                currentBridgeTargets.getValue(connectorId).toMutableList()
-        }
-        val currentBridge =
-            bridge
-                ?: CrossWindowBridge(onFailure = { failedConnectorId ->
-                    recordBridgeFailure(failedConnectorId)
-                }).also { bridge = it }
-        currentBridge.show(target.owner, target.connector, frame, slice, style)
+        val cachedConnectors =
+            bridgeTargets.values
+                .flatten()
+                .map { target -> target.connector }
+                .toSet()
+        bridges
+            .keys
+            .filter { connector -> connector !in visibleConnectors }
+            .forEach { connector ->
+                if (connector in cachedConnectors) {
+                    bridges[connector]?.hide()
+                } else {
+                    bridges.remove(connector)?.dispose()
+                }
+                if (renderVersion != bridgeRenderVersion) return
+            }
     }
 
     private fun currentStyle(currentOverlays: List<RouteOverlay>): RouteLayerStyle? {
@@ -369,19 +381,7 @@ internal class RouteController(
         timer = null
         graph = null
         lastFrame = null
-        layers.values.forEach { layer ->
-            layer.clearFrame()
-            (layer.parent as? JLayeredPane)?.remove(layer)
-        }
-        layers.clear()
-        bridge?.dispose()
-        bridge = null
-        roots.clear()
-        rootIds.clear()
-        bridgeTargets.clear()
-        currentBridgeTargets = emptyMap()
-        failedConnectorIds.clear()
-        nextRootId = 1
+        resetRouteResources()
         val focusedId = focusedSurfaceId()
         overlays().forEach { overlay ->
             overlay.pane.failRouteWaveform(exception)
@@ -400,19 +400,18 @@ internal class RouteController(
     }
 
     private fun cacheBridgeTargets(routeGraph: RouteGraph) {
-        val activeSlice =
-            lastFrame?.slices?.singleOrNull { slice ->
-                slice.target is RoutePaintTarget.WindowBridge
-            }
-        val activeConnectorId =
-            (activeSlice?.target as? RoutePaintTarget.WindowBridge)?.connectorId
-        val preservedTarget =
-            if (activeSlice != null && activeConnectorId != null) {
-                bridgeTargets[activeConnectorId]
-                    ?.minByOrNull { candidate -> candidate.distanceTo(activeSlice) }
-            } else {
-                null
-            }
+        val preservedTargets =
+            lastFrame
+                ?.slices
+                .orEmpty()
+                .mapNotNull { slice ->
+                    val connectorId =
+                        (slice.target as? RoutePaintTarget.WindowBridge)?.connectorId
+                            ?: return@mapNotNull null
+                    bridgeTargets[connectorId]
+                        ?.minByOrNull { candidate -> candidate.distanceTo(slice) }
+                        ?.let { target -> connectorId to target }
+                }.distinct()
         val targets =
             routeGraph.connectors.values
                 .asSequence()
@@ -431,9 +430,9 @@ internal class RouteController(
         targets.forEach { (connectorId, currentTargets) ->
             bridgeTargets[connectorId] = currentTargets.toMutableList()
         }
-        if (activeConnectorId != null && preservedTarget != null) {
-            val retainedTargets = bridgeTargets.getOrPut(activeConnectorId) { mutableListOf() }
-            if (preservedTarget !in retainedTargets) retainedTargets += preservedTarget
+        preservedTargets.forEach { (connectorId, target) ->
+            val retainedTargets = bridgeTargets.getOrPut(connectorId) { mutableListOf() }
+            if (target !in retainedTargets) retainedTargets += target
         }
     }
 
@@ -442,8 +441,27 @@ internal class RouteController(
         graph = graph?.without(connectorId)
         bridgeTargets.remove(connectorId)
         currentBridgeTargets = currentBridgeTargets - connectorId
-        bridge?.hide()
+        bridges.keys
+            .filter { connector -> connector.id == connectorId }
+            .forEach { connector -> bridges.remove(connector)?.dispose() }
         handle(RouteEvent.BridgeFailed(connectorId))
+    }
+
+    private fun resetRouteResources() {
+        bridgeRenderVersion++
+        layers.values.forEach { layer ->
+            layer.clearFrame()
+            (layer.parent as? JLayeredPane)?.remove(layer)
+        }
+        layers.clear()
+        bridges.values.forEach(CrossWindowBridge::dispose)
+        bridges.clear()
+        roots.clear()
+        rootIds.clear()
+        bridgeTargets.clear()
+        currentBridgeTargets = emptyMap()
+        failedConnectorIds.clear()
+        nextRootId = 1
     }
 
     private fun clearRendering() {
@@ -453,7 +471,7 @@ internal class RouteController(
             (layer.parent as? JLayeredPane)?.remove(layer)
         }
         layers.clear()
-        bridge?.hide()
+        bridges.values.toList().forEach(CrossWindowBridge::hide)
         pruneRendering(frame = null)
     }
 
@@ -495,6 +513,9 @@ internal class RouteController(
             }
         bridgeTargets.keys.retainAll(retainedConnectors)
         currentBridgeTargets = currentBridgeTargets.filterKeys(retainedConnectors::contains)
+        bridges.keys
+            .filter { connector -> connector.id !in retainedConnectors }
+            .forEach { connector -> bridges.remove(connector)?.dispose() }
     }
 
     private companion object {

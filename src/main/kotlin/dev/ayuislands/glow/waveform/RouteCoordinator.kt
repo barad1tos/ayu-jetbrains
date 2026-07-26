@@ -5,6 +5,7 @@ import kotlin.random.Random
 
 private const val RECOVERY_DURATION_MS = 160f
 private const val MAX_TICK_TRANSITIONS = 10_000
+private const val MAX_TICK_ADVANCES = 128
 
 private data class Transition(
     val state: LifecycleState,
@@ -470,7 +471,12 @@ internal class RouteCoordinator(
             }
         if (current is LifecycleState.Resuming && nested.state is LifecycleState.Empty) return nested
         val resumeState = nested.state as? LiveState ?: error("Suspended update cannot leave the live lifecycle")
-        val stableFrame = nested.update.frame ?: current.stableFrame
+        val stableFrame =
+            if (resumeState is LifecycleState.Empty) {
+                null
+            } else {
+                nested.update.frame ?: current.stableFrame
+            }
         val updated =
             when (current) {
                 is LifecycleState.Suspended -> current.copy(resumeState = resumeState, stableFrame = stableFrame)
@@ -509,7 +515,7 @@ internal class RouteCoordinator(
     ): LiveState {
         var current = initial
         var remainingMs = elapsedMs
-        repeat(MAX_TICK_TRANSITIONS) {
+        repeat(MAX_TICK_ADVANCES) {
             if (current is LifecycleState.Empty) return current
             val isInstantBoundary =
                 current is LifecycleState.Routing &&
@@ -531,7 +537,7 @@ internal class RouteCoordinator(
                 is LifecycleState.Empty -> return current
             }
         }
-        error("Route tick exceeded $MAX_TICK_TRANSITIONS state transitions")
+        return current
     }
 
     private fun advanceRouting(
