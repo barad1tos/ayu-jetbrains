@@ -9,6 +9,7 @@ import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.clearAllMocks
@@ -41,6 +42,8 @@ class IndentRainbowSyncTest {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
         // getAccentForVariant stub used to be required because IR read the global accent
         // itself. After the resolver refactor the caller passes the resolved hex in; the
         // mock becomes dead code. Removed to keep setUp honest.
@@ -354,6 +357,32 @@ class IndentRainbowSyncTest {
 
         // Should revert, not apply custom
         verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
+    }
+
+    @Test
+    fun `apply without a license reverts a persisted enabled integration`() {
+        state.irIntegrationEnabled = true
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val mockConfig = Any()
+        val mockPaletteTypeField = mockField()
+        val mockUpdateMethod = mockMethod()
+        val mockRefreshMethod = mockMethod()
+        val mockCompanion = Any()
+        val mockColorsInstance = Any()
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", mockConfig)
+        setPrivateField("paletteTypeField", mockPaletteTypeField)
+        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
+        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
+        setPrivateField("cachedDataCompanion", mockCompanion)
+        setPrivateField("refreshMethod", mockRefreshMethod)
+        setPrivateField("irColorsInstance", mockColorsInstance)
+
+        callApply()
+
+        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
+        assertTrue(state.irIntegrationEnabled)
     }
 
     @Test

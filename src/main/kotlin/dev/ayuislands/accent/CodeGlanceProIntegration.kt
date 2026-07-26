@@ -4,7 +4,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.AyuPlugin
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
 import java.lang.reflect.Method
 
@@ -141,9 +143,7 @@ internal object CodeGlanceProIntegration {
         context: AccentContext?,
     ) {
         val state = AyuIslandsSettings.getInstance().state
-        if (!state.cgpIntegrationEnabled ||
-            (context == AccentContext.External && !state.isExternalCodeGlanceProAllowed())
-        ) {
+        if (!isSyncAllowed(state, context)) {
             // Pattern G + J — toggle-off symmetry. Mirror of
             // [IndentRainbowSync.apply], which reverts when its integration is
             // disabled. Without this, flipping the CGP toggle off after an
@@ -195,6 +195,14 @@ internal object CodeGlanceProIntegration {
             )
         }
     }
+
+    private fun isSyncAllowed(
+        state: AyuIslandsState,
+        context: AccentContext?,
+    ): Boolean =
+        state.cgpIntegrationEnabled &&
+            (context != AccentContext.External || state.isExternalCodeGlanceProAllowed()) &&
+            LicenseChecker.isLicensedOrGrace()
 
     /**
      * Reset CodeGlance Pro viewport to its documented stock defaults

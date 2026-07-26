@@ -9,6 +9,7 @@ import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontStatus
 import dev.ayuislands.font.FontUninstaller
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.onboarding.PremiumOnboardingPanel
 import io.mockk.every
 import io.mockk.mockk
@@ -257,6 +258,31 @@ class FontPresetPanelCustomRegressionTest {
             )
         }
         verify(exactly = 0) { FontUninstaller.uninstall(any(), any(), any()) }
+    }
+
+    @Test
+    fun `triggerLifecycleAction unlicensed requests unlock before install consent`() {
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        every { LicenseChecker.requestLicense(any()) } returns Unit
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
+        mockkObject(FontInstallConsent)
+        every { FontInstallConsent.confirmInstall(any(), any(), any()) } returns null
+
+        val panel = FontPresetPanel()
+        setPrivateField(panel, "pendingPreset", FontPreset.AMBIENT.name)
+        val method =
+            FontPresetPanel::class.java.getDeclaredMethod(
+                "triggerLifecycleAction",
+                Boolean::class.javaPrimitiveType,
+            )
+        method.isAccessible = true
+
+        method.invoke(panel, false)
+
+        verify(exactly = 1) { LicenseChecker.requestLicense("Unlock font installation") }
+        verify(exactly = 0) { FontInstallConsent.confirmInstall(any(), any(), any()) }
     }
 
     private fun getBooleanProperty(

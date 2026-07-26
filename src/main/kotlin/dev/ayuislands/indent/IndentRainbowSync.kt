@@ -8,6 +8,7 @@ import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.lang.reflect.Field
 import java.lang.reflect.InvocationTargetException
@@ -93,6 +94,10 @@ object IndentRainbowSync {
     ) {
         val state = AyuIslandsSettings.getInstance().state
         if (!state.irIntegrationEnabled) {
+            revert()
+            return
+        }
+        if (!LicenseChecker.isLicensedOrGrace()) {
             revert()
             return
         }

@@ -9,6 +9,7 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.util.SystemInfo
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
@@ -27,7 +28,9 @@ import java.util.zip.ZipOutputStream
 import javax.net.ssl.SSLException
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -40,6 +43,12 @@ import kotlin.test.assertTrue
  */
 class FontInstallerTest {
     private val tmpRoot: File = createTempDirectory("ayu-font-installer-test").toFile()
+
+    @BeforeTest
+    fun setUp() {
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+    }
 
     @AfterTest
     fun cleanup() {
@@ -311,6 +320,33 @@ class FontInstallerTest {
     }
 
     @Test
+    fun `install without a license reports premium required without queuing work`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(Notifications.Bus::class)
+        val progressManager = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
+        val application = mockk<Application>(relaxed = true)
+        every {
+            com.intellij.openapi.progress.ProgressManager
+                .getInstance()
+        } returns progressManager
+        every { ApplicationManager.getApplication() } returns application
+        every { application.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
+        val consent = acceptedInstallConsent(entry)
+        var result: FontInstaller.InstallResult? = null
+
+        FontInstaller.install(entry, consent, project = null) { result = it }
+
+        val failure = assertNotNull(result) as FontInstaller.InstallResult.Failure
+        assertEquals(FontInstaller.FailureKind.PREMIUM_REQUIRED, failure.kind)
+        assertTrue(failure.message.contains("license", ignoreCase = true))
+        verify(exactly = 0) { progressManager.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
+    }
+
+    @Test
     fun `install queued task reports asset missing when cached archive lacks font file`() {
         mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
         mockkStatic(PathManager::class)
@@ -346,8 +382,7 @@ class FontInstallerTest {
             completedResult is FontInstaller.InstallResult.Failure,
             "Expected install failure, got: $completedResult",
         )
-        val failure = completedResult
-        assertEquals(FontInstaller.FailureKind.ASSET_NOT_FOUND, failure.kind)
+        assertEquals(FontInstaller.FailureKind.ASSET_NOT_FOUND, completedResult.kind)
         verify(exactly = 1) {
             Notifications.Bus.notify(
                 match<Notification> {
@@ -375,7 +410,7 @@ class FontInstallerTest {
                 FontInstaller.install(entry, consent, project = null) { }
             }
 
-        assertTrue(error.message?.contains("Install consent does not match") == true)
+        assertContains(error.message.orEmpty(), "Install consent does not match")
         verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
     }
 
@@ -396,7 +431,7 @@ class FontInstallerTest {
                 FontInstaller.install(copiedEntry, consent, project = null) { }
             }
 
-        assertTrue(error.message?.contains("canonical entry") == true)
+        assertContains(error.message.orEmpty(), "canonical entry")
         verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
     }
 

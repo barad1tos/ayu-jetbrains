@@ -1517,7 +1517,46 @@ class AccentApplicatorTest {
 
         verify(exactly = 1) { chromeElement.applyNeutral(AyuVariant.MIRAGE) }
         verify(exactly = 0) { chromeElement.apply(any()) }
-        kotlin.test.assertTrue(state.chromePanelBorder)
+        assertTrue(state.chromePanelBorder)
+    }
+
+    @Test
+    fun `applyElements unlicensed uses the default enabled state without erasing a visual preference`() {
+        val visualElement = mockk<AccentElement>(relaxed = true)
+        every { visualElement.id } returns AccentElementId.INLAY_HINTS
+        every { visualElement.displayName } returns "Inlay hints"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.setToggle(AccentElementId.INLAY_HINTS, false)
+        mockEpExtensionList(listOf(visualElement))
+
+        invokeApplyElements(state, Color.decode("#FFCC66"), AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        verify(exactly = 1) { visualElement.apply(any()) }
+        verify(exactly = 0) { visualElement.applyNeutral(any()) }
+        assertFalse(state.isToggleEnabled(AccentElementId.INLAY_HINTS))
+    }
+
+    @Test
+    fun `applyElements unlicensed ignores a persisted force override`() {
+        val visualElement = mockk<AccentElement>(relaxed = true)
+        every { visualElement.id } returns AccentElementId.INLAY_HINTS
+        every { visualElement.displayName } returns "Inlay hints"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        every { ConflictRegistry.getConflictFor(AccentElementId.INLAY_HINTS) } returns
+            ConflictEntry(
+                pluginDisplayName = "Conflicting plugin",
+                pluginId = "conflicting.plugin",
+                affectedElements = setOf(AccentElementId.INLAY_HINTS),
+                type = ConflictType.BLOCK,
+            )
+        state.forceOverrides.add(AccentElementId.INLAY_HINTS.name)
+        mockEpExtensionList(listOf(visualElement))
+
+        invokeApplyElements(state, Color.decode("#FFCC66"), AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        verify(exactly = 1) { visualElement.applyNeutral(AyuVariant.MIRAGE) }
+        verify(exactly = 0) { visualElement.apply(any()) }
+        assertTrue(AccentElementId.INLAY_HINTS.name in state.forceOverrides)
     }
 
     @Test
@@ -1849,6 +1888,37 @@ class AccentApplicatorTest {
         verify { mockSetColor.invoke(mockConfig, ACCENT_HEX_STRIPPED) }
         verify { mockSetBorderColor.invoke(mockConfig, ACCENT_HEX_STRIPPED) }
         verify { mockSetBorderThickness.invoke(mockConfig, 1) }
+    }
+
+    @Test
+    fun `syncCodeGlanceProViewport unlicensed reverts a persisted enabled integration`() {
+        state.cgpIntegrationEnabled = true
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val mockConfig = Any()
+        val mockService = Any()
+        val mockGetState = mockk<Method>(relaxed = true)
+        val mockSetColor = mockk<Method>(relaxed = true)
+        val mockSetBorderColor = mockk<Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+        every { mockGetState.invoke(any()) } returns mockConfig
+        every { mockSetColor.invoke(any(), any()) } returns null
+        every { mockSetBorderColor.invoke(any(), any()) } returns null
+        every { mockSetBorderThickness.invoke(any(), any()) } returns null
+
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
+        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
+
+        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+
+        verify { mockSetColor.invoke(mockConfig, "00FF00") }
+        verify { mockSetBorderColor.invoke(mockConfig, "A0A0A0") }
+        verify { mockSetBorderThickness.invoke(mockConfig, 0) }
+        assertTrue(state.cgpIntegrationEnabled)
     }
 
     @Test
