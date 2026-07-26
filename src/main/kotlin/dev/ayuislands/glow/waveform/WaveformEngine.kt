@@ -50,6 +50,7 @@ internal data class FrameTrace(
 
 internal data class WaveformFrame(
     val config: WaveformConfig,
+    val direction: TravelDirection,
     val trace: FrameTrace? = null,
     val brightness: Float = 1f,
     val energy: Float = 0f,
@@ -111,6 +112,7 @@ internal sealed interface WaveformState {
 
     data class Looping(
         override val config: WaveformConfig,
+        val direction: TravelDirection,
         val travelPhase: Float = 0f,
         val tracePhase: Float = INITIAL_TRACE_PHASE,
         val lastTickMs: Long? = null,
@@ -146,6 +148,8 @@ internal data class WaveformUpdate(
 internal class WaveformEngine(
     initialConfig: WaveformConfig,
     private val random: Random = Random.Default,
+    private val chaoticDirection: TravelDirection? = null,
+    private val morphologyFactory: () -> BeatMorphology = { BeatMorphology.random(random) },
 ) {
     internal var state: WaveformState = WaveformState.Inactive(initialConfig)
         private set
@@ -262,9 +266,12 @@ internal class WaveformEngine(
         if (config == current.config) {
             ignore(current)
         } else {
+            val configuredFixedDirection = config.movement.fixedDirection
+            val direction = configuredFixedDirection ?: current.direction
             Transition(
                 current.copy(
                     config = config,
+                    direction = direction,
                     history = fitHistory(current.history, config.traceComplexCount),
                 ),
                 WaveformUpdate(needsRepaint = true),
@@ -281,8 +288,8 @@ internal class WaveformEngine(
         val trace = advanceTrace(current, elapsedMs, traceRate)
         val energy = current.energyEnvelope?.levelAt(event.nowMs) ?: 0f
         val envelope = current.energyEnvelope?.takeIf { event.nowMs < it.endMs }
-        val frameTrace = movingTrace(event.trackLength, current.config.direction, travelPhase, trace)
-        val frame = activeFrame(current.config, energy, trace.history.first(), frameTrace)
+        val frameTrace = movingTrace(event.trackLength, current.direction, travelPhase, trace)
+        val frame = activeFrame(current.config, current.direction, energy, trace.history.first(), frameTrace)
         return Transition(
             current.copy(
                 travelPhase = travelPhase,
@@ -316,7 +323,7 @@ internal class WaveformEngine(
         if (completedCycles == 0) return TraceAdvance(unwrappedPhase, current.history)
 
         val complexCount = current.config.traceComplexCount
-        val generated = List(min(completedCycles, complexCount)) { BeatMorphology.random(random) }
+        val generated = List(min(completedCycles, complexCount)) { morphologyFactory() }
         val history = (generated.asReversed() + current.history).take(complexCount)
         return TraceAdvance(wrap(unwrappedPhase, 1f), history)
     }
@@ -326,7 +333,7 @@ internal class WaveformEngine(
         val history: List<BeatMorphology>,
     )
 
-    private fun active(config: WaveformConfig): Transition = looping(config, BeatMorphology.random(random))
+    private fun active(config: WaveformConfig): Transition = looping(config, morphologyFactory())
 
     private fun looping(
         config: WaveformConfig,
@@ -335,7 +342,11 @@ internal class WaveformEngine(
         val state = loopingState(config, morphology)
         return Transition(
             state,
-            WaveformUpdate(TimerDirective.START, needsRepaint = true, frame = restingFrame(config, morphology)),
+            WaveformUpdate(
+                TimerDirective.START,
+                needsRepaint = true,
+                frame = restingFrame(config, state.direction, morphology),
+            ),
         )
     }
 
@@ -346,14 +357,24 @@ internal class WaveformEngine(
     ): WaveformState.Looping =
         WaveformState.Looping(
             config = config,
+            direction = directionFor(config),
             history = initialHistory(config, morphology),
             energyEnvelope = energyEnvelope,
         )
 
+    private fun directionFor(config: WaveformConfig): TravelDirection =
+        config.movement.fixedDirection
+            ?: chaoticDirection
+            ?: if (random.nextBoolean()) {
+                TravelDirection.CLOCKWISE
+            } else {
+                TravelDirection.COUNTER_CLOCKWISE
+            }
+
     private fun initialHistory(
         config: WaveformConfig,
         morphology: BeatMorphology,
-    ): List<BeatMorphology> = listOf(morphology) + List(config.traceComplexCount - 1) { BeatMorphology.random(random) }
+    ): List<BeatMorphology> = listOf(morphology) + List(config.traceComplexCount - 1) { morphologyFactory() }
 
     private fun fitHistory(
         history: List<BeatMorphology>,
@@ -362,7 +383,7 @@ internal class WaveformEngine(
         if (history.size >= complexCount) {
             history.take(complexCount)
         } else {
-            history + List(complexCount - history.size) { BeatMorphology.random(random) }
+            history + List(complexCount - history.size) { morphologyFactory() }
         }
 
     private fun suspended(config: WaveformConfig): Transition =
@@ -421,7 +442,7 @@ internal class WaveformEngine(
 
         fun movingTrace(
             trackLength: Float,
-            direction: WaveformDirection,
+            direction: TravelDirection,
             travelPhase: Float,
             trace: TraceAdvance,
         ): FrameTrace? {
@@ -435,12 +456,14 @@ internal class WaveformEngine(
 
         fun activeFrame(
             config: WaveformConfig,
+            direction: TravelDirection,
             energy: Float,
             morphology: BeatMorphology,
             trace: FrameTrace? = null,
         ): WaveformFrame =
             WaveformFrame(
                 config = config,
+                direction = direction,
                 trace = trace,
                 brightness = config.brightnessAt(energy),
                 energy = energy,
@@ -449,10 +472,12 @@ internal class WaveformEngine(
 
         fun restingFrame(
             config: WaveformConfig,
+            direction: TravelDirection = config.movement.fixedDirection ?: TravelDirection.CLOCKWISE,
             morphology: BeatMorphology = BeatMorphology.standard(),
         ): WaveformFrame =
             WaveformFrame(
                 config = config,
+                direction = direction,
                 brightness = config.brightnessAt(0f),
                 morphology = morphology,
             )

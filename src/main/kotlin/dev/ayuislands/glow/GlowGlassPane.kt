@@ -3,6 +3,7 @@ package dev.ayuislands.glow
 import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.glow.waveform.SolidFrameSpec
 import dev.ayuislands.glow.waveform.TimerDirective
+import dev.ayuislands.glow.waveform.TravelDirection
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformEngine
@@ -11,8 +12,11 @@ import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.WaveformRenderPlan
+import dev.ayuislands.glow.waveform.WaveformTrack
+import dev.ayuislands.glow.waveform.WaveformTrackSpec
 import dev.ayuislands.glow.waveform.WaveformUpdate
 import dev.ayuislands.glow.waveform.brightnessAt
+import dev.ayuislands.glow.waveform.fixedDirection
 import java.awt.AlphaComposite
 import java.awt.Color
 import java.awt.Dimension
@@ -47,6 +51,7 @@ class GlowGlassPane(
     private var waveformEngine: WaveformEngine? = null
     private var waveformFrame: WaveformFrame? = null
     private var waveformPlan: WaveformRenderPlan? = null
+    private var isRouteMode = false
     internal var waveformTopSpans: List<IntRange> = emptyList()
         set(value) {
             val snapshot = value.map { it.first..it.last }
@@ -81,8 +86,43 @@ class GlowGlassPane(
     internal val waveformMargin: Int
         get() = WaveformPainter.marginFor(waveformConfig.amplitude, glowWidth).toInt()
 
+    private val solidPaintStyle: SolidPaintStyle
+        get() =
+            SolidPaintStyle(
+                accent = glowColor,
+                style = glowStyle,
+                intensity = glowIntensity,
+                width = glowWidth,
+                edgesOnly = glowPlacement == GlowPlacement.SIDE_EDGES,
+                fallbackInset = waveformMargin.takeIf { waveformFailed && glowShape == GlowShape.WAVEFORM },
+            )
+
+    private val waveformPaintState: WaveformPaintState
+        get() =
+            WaveformPaintState(
+                accent = glowColor,
+                frame =
+                    waveformFrame
+                        ?: waveformPlan?.request?.frame?.takeIf { it.config == waveformConfig }
+                        ?: WaveformFrame(
+                            config = waveformConfig,
+                            direction =
+                                waveformConfig.movement.fixedDirection
+                                    ?: TravelDirection.CLOCKWISE,
+                            brightness = waveformConfig.brightnessAt(0f),
+                        ),
+                style = glowStyle,
+                intensity = glowIntensity,
+                width = glowWidth,
+                margin = waveformMargin,
+                occupiedTopSpans = waveformTopSpans,
+                inwardEdges = waveformInwardEdges,
+                paintsSignal = !isRouteMode,
+            )
+
     companion object {
         private const val DEFAULT_ARC_FALLBACK = 8
+        private const val ISLAND_ARC_KEY = "Island.arc"
         private const val FADE_TIMER_INTERVAL_MS = 16
         private const val WAVEFORM_TIMER_INTERVAL_MS = 16
         private const val FADE_STEP = 0.08f
@@ -128,12 +168,12 @@ class GlowGlassPane(
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.composite = AlphaComposite.SrcOver.derive(effectiveAlpha)
 
-            val arcWidth = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_ARC_FALLBACK }
+            val arcWidth = UIManager.getInt(ISLAND_ARC_KEY).let { if (it > 0) it else DEFAULT_ARC_FALLBACK }
             val bounds = Rectangle(0, 0, width, height)
             if (glowShape == GlowShape.WAVEFORM && !waveformFailed) {
                 paintWaveform(g2, bounds, arcWidth)
             } else {
-                paintSolid(g2, bounds, arcWidth)
+                renderer.paintSolid(g2, bounds, arcWidth, solidPaintStyle)
             }
         } finally {
             g2.dispose()
@@ -186,7 +226,7 @@ class GlowGlassPane(
     }
 
     internal fun activateWaveform(powerSaveEnabled: Boolean) {
-        if (glowShape != GlowShape.WAVEFORM || waveformFailed) return
+        if (isRouteMode || glowShape != GlowShape.WAVEFORM || waveformFailed) return
         val engine = waveformEngine ?: WaveformEngine(waveformConfig).also { waveformEngine = it }
         applyWaveformUpdate(engine.handle(WaveformEvent.Activate(powerSaveEnabled)))
     }
@@ -200,50 +240,61 @@ class GlowGlassPane(
     }
 
     internal fun onWaveformKeystroke(nowMs: Long = System.currentTimeMillis()) {
-        if (glowShape != GlowShape.WAVEFORM || waveformFailed) return
+        if (isRouteMode || glowShape != GlowShape.WAVEFORM || waveformFailed) return
         waveformEngine?.handle(WaveformEvent.Keystroke(nowMs))?.let(::applyWaveformUpdate)
     }
 
     internal fun changeWaveformPowerSave(enabled: Boolean) {
+        if (isRouteMode) return
         waveformEngine?.handle(WaveformEvent.PowerSaveChanged(enabled))?.let(::applyWaveformUpdate)
     }
 
-    internal val waveformTrackLength: Float
-        get() =
-            waveformPainter.trackLength(
+    internal fun configureRouteMode(enabled: Boolean) {
+        if (isRouteMode == enabled) return
+        isRouteMode = enabled
+        if (enabled) {
+            waveformEngine?.handle(WaveformEvent.Deactivate)?.let(::applyWaveformUpdate)
+            applyTimerDirective(TimerDirective.STOP)
+            waveformFrame = null
+            waveformPlan = null
+        }
+        repaint()
+    }
+
+    internal fun routeTrackSnapshot(): WaveformTrack =
+        waveformPainter.track(
+            WaveformTrackSpec(
                 bounds = Rectangle(0, 0, width, height),
-                arcWidth = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_ARC_FALLBACK },
+                arcWidth = UIManager.getInt(ISLAND_ARC_KEY).let { if (it > 0) it else DEFAULT_ARC_FALLBACK },
                 config = waveformConfig,
                 solidWidth = glowWidth,
                 occupiedTopSpans = waveformTopSpans,
-            )
-
-    private fun paintSolid(
-        graphics: Graphics2D,
-        bounds: Rectangle,
-        arcWidth: Int,
-    ) {
-        val paintBounds =
-            if (waveformFailed && glowShape == GlowShape.WAVEFORM) {
-                val margin = waveformMargin
-                Rectangle(
-                    bounds.x + margin,
-                    bounds.y + margin,
-                    (bounds.width - margin * 2).coerceAtLeast(0),
-                    (bounds.height - margin * 2).coerceAtLeast(0),
-                )
-            } else {
-                bounds
-            }
-        renderer.ensureCache(glowColor, glowStyle, glowIntensity, glowWidth)
-        renderer.paintGlow(
-            graphics,
-            paintBounds,
-            glowWidth,
-            arcWidth,
-            edgesOnly = glowPlacement == GlowPlacement.SIDE_EDGES,
+                direction = TravelDirection.CLOCKWISE,
+            ),
         )
+
+    internal fun failRouteWaveform(exception: RuntimeException) {
+        reportWaveformFailure(exception)
     }
+
+    internal val waveformTrackLength: Float
+        get() {
+            val frame =
+                waveformFrame
+                    ?: WaveformFrame(
+                        config = waveformConfig,
+                        direction =
+                            waveformConfig.movement.fixedDirection
+                                ?: TravelDirection.CLOCKWISE,
+                    )
+            return waveformPainter.trackLength(
+                bounds = Rectangle(0, 0, width, height),
+                arcWidth = UIManager.getInt(ISLAND_ARC_KEY).let { if (it > 0) it else DEFAULT_ARC_FALLBACK },
+                frame = frame,
+                solidWidth = glowWidth,
+                occupiedTopSpans = waveformTopSpans,
+            )
+        }
 
     private fun paintWaveform(
         graphics: Graphics2D,
@@ -266,7 +317,7 @@ class GlowGlassPane(
             topSpansRefreshAtMs = nowMs + TOP_SPANS_REFRESH_MS
         }
         try {
-            val request = waveformPaintRequest(bounds, arcWidth)
+            val request = waveformPaintState.request(bounds, arcWidth)
             val plan =
                 waveformPlan
                     ?.takeIf { it.request == request }
@@ -274,7 +325,7 @@ class GlowGlassPane(
             waveformPainter.paint(graphics, plan)
         } catch (exception: RuntimeException) {
             reportWaveformFailure(exception)
-            paintSolid(graphics, bounds, arcWidth)
+            renderer.paintSolid(graphics, bounds, arcWidth, solidPaintStyle)
             return
         }
 
@@ -282,54 +333,6 @@ class GlowGlassPane(
         if (elapsedMs > FRAME_BUDGET_MS && !slowWaveformLogged) {
             slowWaveformLogged = true
             log.warn("Waveform glow frame work exceeded 16ms: %.2fms".format(elapsedMs))
-        }
-    }
-
-    private fun waveformPaintRequest(
-        bounds: Rectangle,
-        arcWidth: Int,
-    ): WaveformPaintRequest =
-        WaveformPaintRequest(
-            bounds = bounds,
-            arcWidth = arcWidth,
-            accent = glowColor,
-            frame =
-                waveformFrame
-                    ?: waveformPlan?.request?.frame?.takeIf { it.config == waveformConfig }
-                    ?: WaveformFrame(
-                        waveformConfig,
-                        brightness = waveformConfig.brightnessAt(0f),
-                    ),
-            solidFrame =
-                SolidFrameSpec(
-                    bounds =
-                        Rectangle(
-                            waveformMargin,
-                            waveformMargin,
-                            (bounds.width - waveformMargin * 2).coerceAtLeast(0),
-                            (bounds.height - waveformMargin * 2).coerceAtLeast(0),
-                        ),
-                    style = glowStyle,
-                    intensity = glowIntensity,
-                    width = glowWidth,
-                ),
-            occupiedTopSpans = waveformTopSpans,
-            inwardEdges = waveformInwardEdges,
-        )
-
-    private fun advanceWaveform(nowMs: Long) {
-        val engine = waveformEngine ?: return
-        try {
-            val update =
-                engine.handle(
-                    WaveformEvent.Tick(
-                        nowMs = nowMs,
-                        trackLength = waveformTrackLength,
-                    ),
-                )
-            applyWaveformUpdate(if (isShowing) update else update.copy(needsRepaint = false))
-        } catch (exception: RuntimeException) {
-            reportWaveformFailure(exception)
         }
     }
 
@@ -360,54 +363,44 @@ class GlowGlassPane(
         }
         try {
             val bounds = Rectangle(0, 0, width, height)
-            val arcWidth = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_ARC_FALLBACK }
+            val arcWidth = UIManager.getInt(ISLAND_ARC_KEY).let { if (it > 0) it else DEFAULT_ARC_FALLBACK }
             val startNanos = System.nanoTime()
-            val nextPlan = waveformPainter.prepare(waveformPaintRequest(bounds, arcWidth))
+            val nextPlan = waveformPainter.prepare(waveformPaintState.request(bounds, arcWidth))
             val elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MILLISECOND
             if (elapsedMs > FRAME_BUDGET_MS && !slowWaveformLogged) {
                 slowWaveformLogged = true
                 log.warn("Waveform glow frame work exceeded 16ms: %.2fms".format(elapsedMs))
             }
             waveformPlan = nextPlan
-            repaintPlanChange(previousPlan, nextPlan)
+            repaintPlanChange(this, previousPlan, nextPlan)
         } catch (exception: RuntimeException) {
             reportWaveformFailure(exception)
         }
     }
 
-    private fun repaintPlanChange(
-        previous: WaveformRenderPlan?,
-        next: WaveformRenderPlan,
-    ) {
-        if (previous == null) {
-            repaint()
-            return
-        }
-        val previousBounds = previous.signalBounds
-        val nextBounds = next.signalBounds
-        val dirtyBounds =
-            when {
-                previousBounds != null && nextBounds != null -> previousBounds.union(nextBounds)
-
-                previousBounds != null -> previousBounds
-                nextBounds != null -> nextBounds
-                else -> null
-            }
-        if (dirtyBounds == null) {
-            repaint()
-        } else {
-            repaint(dirtyBounds.x, dirtyBounds.y, dirtyBounds.width, dirtyBounds.height)
-        }
-    }
-
     private fun applyTimerDirective(directive: TimerDirective) {
         when (directive) {
-            TimerDirective.KEEP -> Unit
+            TimerDirective.KEEP -> {
+                // Keep the current timer state.
+            }
+
             TimerDirective.START -> {
                 if (waveformTimer != null || waveformFailed) return
                 waveformTimer =
                     Timer(WAVEFORM_TIMER_INTERVAL_MS) {
-                        advanceWaveform(timeSource())
+                        val engine = waveformEngine ?: return@Timer
+                        try {
+                            val update =
+                                engine.handle(
+                                    WaveformEvent.Tick(
+                                        nowMs = timeSource(),
+                                        trackLength = waveformTrackLength,
+                                    ),
+                                )
+                            applyWaveformUpdate(if (isShowing) update else update.copy(needsRepaint = false))
+                        } catch (exception: RuntimeException) {
+                            reportWaveformFailure(exception)
+                        }
                     }.also { timer ->
                         timer.isCoalesce = true
                         timer.start()
@@ -464,5 +457,106 @@ class GlowGlassPane(
 
     fun invalidateRendererCache() {
         renderer.invalidateCache()
+    }
+}
+
+private data class SolidPaintStyle(
+    val accent: Color,
+    val style: GlowStyle,
+    val intensity: Int,
+    val width: Int,
+    val edgesOnly: Boolean,
+    val fallbackInset: Int?,
+)
+
+private data class WaveformPaintState(
+    val accent: Color,
+    val frame: WaveformFrame,
+    val style: GlowStyle,
+    val intensity: Int,
+    val width: Int,
+    val margin: Int,
+    val occupiedTopSpans: List<IntRange>,
+    val inwardEdges: Set<WaveformEdge>,
+    val paintsSignal: Boolean,
+) {
+    fun request(
+        bounds: Rectangle,
+        arcWidth: Int,
+    ): WaveformPaintRequest =
+        WaveformPaintRequest(
+            bounds = bounds,
+            arcWidth = arcWidth,
+            accent = accent,
+            frame = frame,
+            solidFrame =
+                SolidFrameSpec(
+                    bounds =
+                        Rectangle(
+                            margin,
+                            margin,
+                            (bounds.width - margin * 2).coerceAtLeast(0),
+                            (bounds.height - margin * 2).coerceAtLeast(0),
+                        ),
+                    style = style,
+                    intensity = intensity,
+                    width = width,
+                ),
+            occupiedTopSpans = occupiedTopSpans,
+            inwardEdges = inwardEdges,
+            paintsSignal = paintsSignal,
+        )
+}
+
+private fun GlowRenderer.paintSolid(
+    graphics: Graphics2D,
+    bounds: Rectangle,
+    arcWidth: Int,
+    style: SolidPaintStyle,
+) {
+    val inset = style.fallbackInset
+    val paintBounds =
+        if (inset == null) {
+            bounds
+        } else {
+            Rectangle(
+                bounds.x + inset,
+                bounds.y + inset,
+                (bounds.width - inset * 2).coerceAtLeast(0),
+                (bounds.height - inset * 2).coerceAtLeast(0),
+            )
+        }
+    ensureCache(style.accent, style.style, style.intensity, style.width)
+    paintGlow(
+        graphics,
+        paintBounds,
+        style.width,
+        arcWidth,
+        edgesOnly = style.edgesOnly,
+    )
+}
+
+private fun repaintPlanChange(
+    pane: JPanel,
+    previous: WaveformRenderPlan?,
+    next: WaveformRenderPlan,
+) {
+    if (previous == null) {
+        pane.repaint()
+        return
+    }
+    val previousBounds = previous.signalBounds
+    val nextBounds = next.signalBounds
+    val dirtyBounds =
+        when {
+            previousBounds != null && nextBounds != null -> previousBounds.union(nextBounds)
+            previousBounds != null -> previousBounds
+            nextBounds != null -> nextBounds
+            else -> null
+        }
+    if (dirtyBounds == null) {
+        pane.repaint()
+    } else {
+        pane.repaint(dirtyBounds.x, dirtyBounds.y, dirtyBounds.width, dirtyBounds.height)
     }
 }

@@ -23,7 +23,7 @@ import kotlin.test.assertTrue
  * full panel build needs the IntelliJ Application service registry — too
  * much setup for what is essentially a 3-field state machine.
  */
-class AyuIslandsAppearancePanelSyncEditorSchemeTest {
+class EditorSchemeSyncTest {
     private val state = AyuIslandsState()
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private lateinit var panel: AyuIslandsAppearancePanel

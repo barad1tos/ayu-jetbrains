@@ -6,7 +6,7 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.WaveformBaseline
-import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMovement
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -92,7 +92,7 @@ class AyuIslandsStatePersistenceTest {
         val reloaded =
             roundTrip { state ->
                 state.glowShape = GlowShape.WAVEFORM.name
-                state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+                state.waveformDirection = WaveformMovement.COUNTER_CLOCKWISE.name
                 state.waveformBaseline = WaveformBaseline.CENTERED.name
                 state.waveformTraceDensity = 4
                 state.waveformTraceLength = 640
@@ -102,13 +102,23 @@ class AyuIslandsStatePersistenceTest {
             }
 
         assertEquals(GlowShape.WAVEFORM.name, reloaded.state.glowShape)
-        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, reloaded.state.waveformDirection)
+        assertEquals(WaveformMovement.COUNTER_CLOCKWISE.name, reloaded.state.waveformDirection)
         assertEquals(WaveformBaseline.CENTERED.name, reloaded.state.waveformBaseline)
         assertEquals(4, reloaded.state.waveformTraceDensity)
         assertEquals(640, reloaded.state.waveformTraceLength)
         assertEquals(36, reloaded.state.waveformAmplitude)
         assertEquals(150, reloaded.state.waveformIntensity)
         assertEquals(3.7f, reloaded.state.waveformLoopSeconds)
+    }
+
+    @Test
+    fun `chaotic movement round trips through legacy waveformDirection key`() {
+        val reloaded =
+            roundTrip { state ->
+                state.waveformDirection = WaveformMovement.CHAOTIC.name
+            }
+
+        assertEquals(WaveformMovement.CHAOTIC.name, reloaded.state.waveformDirection)
     }
 
     @Test

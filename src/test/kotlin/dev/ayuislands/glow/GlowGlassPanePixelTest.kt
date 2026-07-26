@@ -2,6 +2,7 @@ package dev.ayuislands.glow
 
 import dev.ayuislands.glow.waveform.BeatMorphology
 import dev.ayuislands.glow.waveform.FrameTrace
+import dev.ayuislands.glow.waveform.TravelDirection
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformFrame
@@ -139,6 +140,7 @@ class GlowGlassPanePixelTest {
         val trackLength = flatPane.waveformTrackLength
         flatPane.showWaveformFrame(
             WaveformFrame(
+                direction = TravelDirection.CLOCKWISE,
                 config = config,
                 trace =
                     FrameTrace(
@@ -213,7 +215,7 @@ class GlowGlassPanePixelTest {
     }
 
     @Test
-    fun `waveform timer follows engine start and stop directives`() {
+    fun `waveform timer follows engine start stop and resume directives`() {
         val pane = waveformPane(WaveformConfig())
         pane.activateWaveform(powerSaveEnabled = false)
 
@@ -223,6 +225,38 @@ class GlowGlassPanePixelTest {
         pane.deactivateWaveform()
         assertNull(readWaveformTimer(pane))
         assertNull(readWaveformFrame(pane))
+
+        pane.activateWaveform(powerSaveEnabled = false)
+        assertNotNull(readWaveformTimer(pane))
+        pane.deactivateWaveform()
+    }
+
+    @Test
+    fun `active route mode disables the pane timer and paints only the base`() {
+        val pane = waveformPane(WaveformConfig())
+        var captured: WaveformPaintRequest? = null
+        installWaveformPainter(
+            pane,
+            object : WaveformPainter() {
+                override fun prepare(request: WaveformPaintRequest): WaveformRenderPlan {
+                    captured = request
+                    return super.prepare(request)
+                }
+            },
+        )
+        pane.activateWaveform(powerSaveEnabled = false)
+        assertNotNull(readWaveformTimer(pane))
+
+        pane.configureRouteMode(enabled = true)
+        pane.activateWaveform(powerSaveEnabled = false)
+        pane.onWaveformKeystroke(nowMs = 10L)
+        pane.changeWaveformPowerSave(enabled = true)
+        val image = paint(pane)
+
+        assertNull(readWaveformTimer(pane))
+        assertFalse(requireNotNull(captured).paintsSignal)
+        assertTrue(alphaSum(image) > 0L, "active route mode must retain the low-strength waveform base")
+        pane.stopAnimation()
     }
 
     @Test
@@ -299,6 +333,7 @@ class GlowGlassPanePixelTest {
 
         pane.showWaveformFrame(
             WaveformFrame(
+                direction = TravelDirection.CLOCKWISE,
                 config = config,
                 energy = 0f,
                 brightness = config.brightnessAt(0f),
@@ -312,7 +347,7 @@ class GlowGlassPanePixelTest {
     fun `reconfigure clears a frame rendered with old geometry`() {
         val oldConfig = WaveformConfig(amplitude = 6)
         val pane = waveformPane(oldConfig)
-        pane.showWaveformFrame(WaveformFrame(config = oldConfig))
+        pane.showWaveformFrame(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = oldConfig))
 
         pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig(amplitude = 16))
 
@@ -382,7 +417,9 @@ class GlowGlassPanePixelTest {
         paint(pane)
         assertEquals(1, prepareCount, "an unchanged Swing repaint must reuse the prepared paths")
 
-        pane.showWaveformFrame(WaveformFrame(config = WaveformConfig(), energy = 1f))
+        pane.showWaveformFrame(
+            WaveformFrame(direction = TravelDirection.CLOCKWISE, config = WaveformConfig(), energy = 1f),
+        )
         assertEquals(2, prepareCount, "a new frame must prepare its paths before scheduling the dirty region")
         paint(pane)
         assertEquals(2, prepareCount, "painting the scheduled frame must reuse the prepared paths")

@@ -59,6 +59,38 @@ class SettingsBadgesTest {
     }
 
     @Test
+    fun `chaotic routing remains pending after the waveform badge was acknowledged`() {
+        val anchorId = "glow-chaotic-routing"
+        val state = updatedState()
+        state.acknowledgedSettingsBadges.addAll(
+            SettingsBadges.registry.map { it.id }.filterNot { it == anchorId },
+        )
+
+        assertTrue(SettingsBadges.isPending(state, anchorId))
+        assertEquals(
+            "Chaotic waveform routing",
+            SettingsBadges.registry.single { it.id == anchorId }.title,
+        )
+    }
+
+    @Test
+    fun `tab visit retires a direct anchor only after its row becomes visible`() {
+        val anchorId = "glow-chaotic-routing"
+        val state = updatedState()
+        var isRowVisible = false
+        SettingsBadges.registerAnchorVisible(anchorId) { isRowVisible }
+
+        SettingsBadges.acknowledgeTab(state, "Glow")
+
+        assertTrue(SettingsBadges.isPending(state, anchorId))
+
+        isRowVisible = true
+        SettingsBadges.acknowledgeTab(state, "Glow")
+
+        assertFalse(SettingsBadges.isPending(state, anchorId))
+    }
+
+    @Test
     fun `acknowledging a tab retires its directly visible anchors only`() {
         val state = updatedState()
 
@@ -108,6 +140,7 @@ class SettingsBadgesTest {
         val state = updatedState()
         var refreshed = false
         SettingsBadges.registerGroupExpanded("accent-from-project-icon") { false }
+        SettingsBadges.registerAnchorVisible("glow-chaotic-routing") { false }
         SettingsBadges.onBadgesChanged = { refreshed = true }
 
         SettingsBadges.clearSessionWiring()
@@ -118,6 +151,11 @@ class SettingsBadgesTest {
         assertFalse(
             SettingsBadges.isPending(state, "accent-from-project-icon"),
             "cleared supplier must fall back to visit-acknowledgement",
+        )
+        SettingsBadges.acknowledgeTab(state, "Glow")
+        assertFalse(
+            SettingsBadges.isPending(state, "glow-chaotic-routing"),
+            "cleared row visibility must fall back to visit-acknowledgement",
         )
     }
 
@@ -333,7 +371,7 @@ class SettingsBadgesTest {
             panel {
                 overrides =
                     collapsibleGroup("Overrides") {
-                        row { label("project icon accent toggle lives here") }
+                        row { label("Project icon accent toggle lives here") }
                     }
             }
         overrides.expanded = false
@@ -341,7 +379,7 @@ class SettingsBadgesTest {
         val tabs = JBTabbedPane()
         tabs.addTab("Accent", accentTab)
 
-        val originalBorder = findSeparator(accentTab, "Overrides")?.label?.border
+        val originalBorder = findOverridesSeparator(accentTab)?.label?.border
 
         installSettingsBadges(tabs, listOf("Accent"), Color.ORANGE)
 
@@ -349,7 +387,7 @@ class SettingsBadgesTest {
             SettingsBadges.isPending(state, "accent-from-project-icon"),
             "collapsed spoiler must keep its anchor pending through the initial tab visit",
         )
-        val separator = findSeparator(accentTab, "Overrides")
+        val separator = findOverridesSeparator(accentTab)
         assertNotNull(separator, "collapsible group title separator must be discoverable")
         assertEquals(
             true,
@@ -382,15 +420,12 @@ class SettingsBadgesTest {
         every { appMock.getService(experimentalUiClass) } returns experimentalUiMock
     }
 
-    private fun findSeparator(
-        root: Container,
-        title: String,
-    ): TitledSeparator? {
+    private fun findOverridesSeparator(root: Container): TitledSeparator? {
         val queue = ArrayDeque<Component>()
         queue.add(root)
         while (queue.isNotEmpty()) {
             val current = queue.removeFirst()
-            if (current is TitledSeparator && current.text == title) return current
+            if (current is TitledSeparator && current.text == "Overrides") return current
             if (current is Container) queue.addAll(current.components)
         }
         return null

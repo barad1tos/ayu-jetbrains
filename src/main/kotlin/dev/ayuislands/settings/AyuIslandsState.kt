@@ -22,7 +22,7 @@ import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.WaveformBaseline
-import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.normalizedLoopSeconds
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.rotation.AccentRotationMode
@@ -147,7 +147,7 @@ class AyuIslandsState : BaseState() {
     var glowAnimation by string(GlowAnimation.NONE.name)
 
     // Waveform-specific controls. Solid preferences remain stored independently.
-    var waveformDirection by string(WaveformDirection.CLOCKWISE.name)
+    var waveformDirection by string(WaveformMovement.CLOCKWISE.name)
 
     // Keep legacy delegate defaults as the deserialization fallback for existing
     // settings files that predate the calibrated ECG profile. Fresh installs are

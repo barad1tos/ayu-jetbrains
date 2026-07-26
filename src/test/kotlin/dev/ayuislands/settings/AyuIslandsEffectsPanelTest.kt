@@ -14,7 +14,7 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
-import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
@@ -52,6 +52,7 @@ class AyuIslandsEffectsPanelTest {
 
     @BeforeTest
     fun setUp() {
+        SettingsBadges.clearSessionWiring()
         state =
             AyuIslandsSettings().state.apply {
                 glowEnabled = true
@@ -88,6 +89,7 @@ class AyuIslandsEffectsPanelTest {
 
     @AfterTest
     fun tearDown() {
+        SettingsBadges.clearSessionWiring()
         unmockkAll()
     }
 
@@ -253,7 +255,7 @@ class AyuIslandsEffectsPanelTest {
         val shape = waveformField<JComboBox<*>>(effectsPanel, "shapeCombo")
         val style = field<JComboBox<*>>(effectsPanel, "styleCombo")
         val solidIntensity = field<JSlider>(effectsPanel, "intensitySlider")
-        val direction = waveformField<JComboBox<*>>(effectsPanel, "directionCombo")
+        val movement = waveformField<JComboBox<*>>(effectsPanel, "movementCombo")
         val baseline = waveformField<JComboBox<*>>(effectsPanel, "baselineCombo")
         val density = densityControl(dialogPanel)
         val traceLength = waveformField<JSlider>(effectsPanel, "traceLengthSlider")
@@ -265,7 +267,7 @@ class AyuIslandsEffectsPanelTest {
 
         shape.selectedItem = GlowShape.WAVEFORM.displayName
 
-        assertTrue(direction.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(movement.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(baseline.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(density.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(traceLength.isEffectivelyVisibleWithin(dialogPanel))
@@ -294,7 +296,7 @@ class AyuIslandsEffectsPanelTest {
         layoutRecursively(dialogPanel)
 
         val enumBounds =
-            listOf("shapeCombo", "directionCombo", "baselineCombo")
+            listOf("shapeCombo", "movementCombo", "baselineCombo")
                 .map { waveformField<JComboBox<*>>(effectsPanel, it).boundsIn(dialogPanel) }
         assertEquals(1, enumBounds.map(Rectangle::x).distinct().size)
         assertEquals(1, enumBounds.map(Rectangle::width).distinct().size)
@@ -511,13 +513,16 @@ class AyuIslandsEffectsPanelTest {
     @Test
     fun `first waveform selection uses the calibrated ECG profile`() {
         val effectsPanel = AyuIslandsEffectsPanel()
-        buildDialogPanel(effectsPanel)
+        val dialogPanel = buildDialogPanel(effectsPanel)
 
         waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
+        assertTrue(descendants(dialogPanel, JLabel::class.java).any { it.text == "Movement" })
+        val movementCombo = waveformField<JComboBox<*>>(effectsPanel, "movementCombo")
 
+        assertEquals(WaveformMovement.CLOCKWISE.displayName, movementCombo.selectedItem)
         assertEquals(
-            WaveformDirection.CLOCKWISE.displayName,
-            waveformField<JComboBox<*>>(effectsPanel, "directionCombo").selectedItem,
+            listOf("Clockwise", "Counter-clockwise", "Chaotic"),
+            (0 until movementCombo.itemCount).map(movementCombo::getItemAt),
         )
         assertEquals(
             WaveformBaseline.CENTERED.displayName,
@@ -537,8 +542,20 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
+    fun `waveform movement reload preserves dormant selection`() {
+        state.waveformDirection = WaveformMovement.COUNTER_CLOCKWISE.name
+        val effectsPanel = AyuIslandsEffectsPanel()
+        buildDialogPanel(effectsPanel)
+        val movementCombo = waveformField<JComboBox<*>>(effectsPanel, "movementCombo")
+
+        effectsPanel.reset()
+
+        assertEquals("Counter-clockwise", movementCombo.selectedItem)
+    }
+
+    @Test
     fun `waveform selection preserves dormant custom ECG choices`() {
-        state.waveformDirection = WaveformDirection.COUNTER_CLOCKWISE.name
+        state.waveformDirection = WaveformMovement.COUNTER_CLOCKWISE.name
         state.waveformBaseline = WaveformBaseline.OUTSIDE.name
         state.waveformLoopSeconds = 3.7f
         state.waveformTraceDensity = 4
@@ -551,7 +568,7 @@ class AyuIslandsEffectsPanelTest {
         waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
         effectsPanel.apply()
 
-        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
+        assertEquals(WaveformMovement.COUNTER_CLOCKWISE.name, state.waveformDirection)
         assertEquals(WaveformBaseline.OUTSIDE.name, state.waveformBaseline)
         assertEquals(3.7f, state.waveformLoopSeconds)
         assertEquals(4, state.waveformTraceDensity)
@@ -577,7 +594,7 @@ class AyuIslandsEffectsPanelTest {
             GlowSettings(
                 shape = GlowShape.WAVEFORM,
                 preset = GlowPreset.CUSTOM,
-                waveformDirection = WaveformDirection.COUNTER_CLOCKWISE,
+                waveformMovement = WaveformMovement.COUNTER_CLOCKWISE,
                 waveformBaseline = WaveformBaseline.CENTERED,
                 waveformTraceDensity = 4,
                 waveformTraceLength = 640,
@@ -588,7 +605,7 @@ class AyuIslandsEffectsPanelTest {
 
         assertEquals(GlowShape.SOLID, reset.shape)
         assertEquals(GlowPreset.WHISPER, reset.preset)
-        assertEquals(WaveformDirection.CLOCKWISE, reset.waveformDirection)
+        assertEquals(WaveformMovement.CLOCKWISE, reset.waveformMovement)
         assertEquals(WaveformBaseline.CENTERED, reset.waveformBaseline)
         assertEquals(1, reset.waveformTraceDensity)
         assertEquals(DEFAULT_TRACE_LENGTH, reset.waveformTraceLength)
@@ -606,15 +623,15 @@ class AyuIslandsEffectsPanelTest {
         buildDialogPanel(effectsPanel)
 
         waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
-        waveformField<JComboBox<*>>(effectsPanel, "directionCombo").selectedItem =
-            WaveformDirection.COUNTER_CLOCKWISE.displayName
+        waveformField<JComboBox<*>>(effectsPanel, "movementCombo").selectedItem =
+            WaveformMovement.COUNTER_CLOCKWISE.displayName
         waveformField<JSlider>(effectsPanel, "amplitudeSlider").value = 16
         waveformField<JSlider>(effectsPanel, "intensitySlider").value = 88
 
         effectsPanel.apply()
 
         assertEquals(GlowShape.WAVEFORM.name, state.glowShape)
-        assertEquals(WaveformDirection.COUNTER_CLOCKWISE.name, state.waveformDirection)
+        assertEquals(WaveformMovement.COUNTER_CLOCKWISE.name, state.waveformDirection)
         assertEquals(15, state.waveformAmplitude)
         assertEquals(88, state.waveformIntensity)
         assertEquals(GlowPreset.CUSTOM.name, state.glowPreset)
@@ -729,6 +746,55 @@ class AyuIslandsEffectsPanelTest {
     }
 
     @Test
+    fun `chaotic movement shows its own new setting marker`() {
+        val anchorId = "glow-chaotic-routing"
+        state.lastSeenVersion = "2.8.0"
+        state.glowShape = GlowShape.SOLID.name
+        state.acknowledgedSettingsBadges.addAll(
+            SettingsBadges.registry.map { it.id }.filterNot { it == anchorId },
+        )
+        val effectsPanel = AyuIslandsEffectsPanel()
+
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val newMarkers = descendants(dialogPanel, JLabel::class.java).filter { it.text == "New" }
+
+        assertEquals(1, newMarkers.size)
+        assertFalse(newMarkers.single().isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(SettingsBadges.isPending(state, anchorId))
+
+        waveformField<JComboBox<*>>(effectsPanel, "shapeCombo").selectedItem = GlowShape.WAVEFORM.displayName
+
+        assertTrue(newMarkers.single().isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(SettingsBadges.isPending(state, anchorId))
+    }
+
+    @Test
+    fun `unlicensed solid glow exposes and acknowledges chaotic routing preview`() {
+        val anchorId = "glow-chaotic-routing"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.lastSeenVersion = "2.8.0"
+        state.glowShape = GlowShape.SOLID.name
+        state.acknowledgedSettingsBadges.addAll(
+            SettingsBadges.registry.map { it.id }.filterNot { it == anchorId },
+        )
+        val effectsPanel = AyuIslandsEffectsPanel()
+
+        val dialogPanel = buildDialogPanel(effectsPanel)
+        val movement = waveformField<JComboBox<*>>(effectsPanel, "movementCombo")
+        val newMarker = descendants(dialogPanel, JLabel::class.java).single { it.text == "New" }
+
+        assertTrue(movement.isEffectivelyVisibleWithin(dialogPanel))
+        assertFalse(movement.isEnabled)
+        assertEquals("Glow requires Ayu Islands Pro", movement.toolTipText)
+        assertTrue(newMarker.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(SettingsBadges.isPending(state, anchorId))
+
+        SettingsBadges.acknowledgeTab(state, "Glow")
+
+        assertFalse(SettingsBadges.isPending(state, anchorId))
+    }
+
+    @Test
     fun `locked waveform layout stays visible disabled and clean`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         state.glowEnabled = false
@@ -736,7 +802,7 @@ class AyuIslandsEffectsPanelTest {
         val effectsPanel = AyuIslandsEffectsPanel()
         val dialogPanel = buildDialogPanel(effectsPanel)
         val shape = waveformField<JComboBox<*>>(effectsPanel, "shapeCombo")
-        val direction = waveformField<JComboBox<*>>(effectsPanel, "directionCombo")
+        val movement = waveformField<JComboBox<*>>(effectsPanel, "movementCombo")
         val baseline = waveformField<JComboBox<*>>(effectsPanel, "baselineCombo")
         val density = waveformField<JSlider>(effectsPanel, "densitySlider")
         val densityControl = densityControl(dialogPanel)
@@ -744,13 +810,14 @@ class AyuIslandsEffectsPanelTest {
         val amplitude = waveformField<JSlider>(effectsPanel, "amplitudeSlider")
         val targetCheckboxes = islandCheckboxes(effectsPanel).values.toList()
 
-        assertTrue(direction.isEffectivelyVisibleWithin(dialogPanel))
+        assertTrue(movement.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(baseline.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(densityControl.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(traceLength.isEffectivelyVisibleWithin(dialogPanel))
         assertTrue(amplitude.isEffectivelyVisibleWithin(dialogPanel))
         assertFalse(shape.isEnabled)
-        assertFalse(direction.isEnabled)
+        assertFalse(movement.isEnabled)
+        assertEquals("Glow requires Ayu Islands Pro", movement.toolTipText)
         assertFalse(baseline.isEnabled)
         assertFalse(densityControl.isEnabled)
         assertFalse(traceLength.isEnabled)
@@ -759,6 +826,7 @@ class AyuIslandsEffectsPanelTest {
         assertTrue(targetCheckboxes.all { !it.isEnabled })
 
         shape.selectedItem = GlowShape.SOLID.displayName
+        movement.selectedItem = WaveformMovement.CHAOTIC.displayName
         baseline.selectedItem = WaveformBaseline.CENTERED.displayName
         density.value = 4
         traceLength.value = 640

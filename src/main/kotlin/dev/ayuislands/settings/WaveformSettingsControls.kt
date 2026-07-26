@@ -20,7 +20,7 @@ import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_LOOP_SECONDS
 import dev.ayuislands.glow.waveform.WaveformBaseline
-import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.normalizedLoopSeconds
 import java.awt.BasicStroke
 import java.awt.BorderLayout
@@ -43,7 +43,7 @@ import kotlin.math.roundToInt
 
 internal data class WaveformSettingsValue(
     val shape: GlowShape,
-    val direction: WaveformDirection,
+    val movement: WaveformMovement,
     val baseline: WaveformBaseline,
     val traceDensity: Int,
     val traceLength: Int,
@@ -63,7 +63,7 @@ internal class WaveformSettingsControls(
     private val onChange: (WaveformSettingsValue) -> Unit,
 ) {
     internal var shapeCombo: ComboBox<String>? = null
-    internal var directionCombo: ComboBox<String>? = null
+    internal var movementCombo: ComboBox<String>? = null
     internal var baselineCombo: ComboBox<String>? = null
     internal var densitySlider: JSlider? = null
     internal var traceLengthSlider: JSlider? = null
@@ -81,7 +81,7 @@ internal class WaveformSettingsControls(
 
     fun build(group: Panel) {
         buildShapeRow(group)
-        buildDirectionRow(group)
+        buildMovementRow(group)
         buildBaselineRow(group)
         buildLoopRow(group)
         buildSlider(
@@ -157,7 +157,7 @@ internal class WaveformSettingsControls(
         refreshing = true
         value = newValue
         shapeCombo?.selectedItem = value.shape.displayName
-        directionCombo?.selectedItem = value.direction.displayName
+        movementCombo?.selectedItem = value.movement.displayName
         baselineCombo?.selectedItem = value.baseline.displayName
         val displayedDensity = value.traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
         densitySlider?.value = displayedDensity
@@ -179,7 +179,7 @@ internal class WaveformSettingsControls(
 
     fun setEnabled(enabled: Boolean) {
         shapeCombo?.isEnabled = enabled
-        directionCombo?.isEnabled = enabled
+        movementCombo?.isEnabled = enabled
         baselineCombo?.isEnabled = enabled
         densitySlider?.isEnabled = enabled
         traceLengthSlider?.isEnabled = enabled
@@ -195,7 +195,14 @@ internal class WaveformSettingsControls(
             combo.addActionListener(
                 guardedAction {
                     val selected = combo.selectedItem as? String ?: return@guardedAction
-                    update(value.copy(shape = GlowShape.entries.first { it.displayName == selected }))
+                    val shape = GlowShape.entries.first { it.displayName == selected }
+                    update(value.copy(shape = shape))
+                    if (shape == GlowShape.WAVEFORM) {
+                        SettingsBadges.acknowledgeAnchor(
+                            AyuIslandsSettings.getInstance().state,
+                            ROUTING_BADGE_ID,
+                        )
+                    }
                 },
             )
             shapeCombo = combo
@@ -204,20 +211,25 @@ internal class WaveformSettingsControls(
         }
     }
 
-    private fun buildDirectionRow(group: Panel) {
+    private fun buildMovementRow(group: Panel) {
         group
-            .row("Direction") {
-                val combo = enumCombo(WaveformDirection.entries.map { it.displayName })
-                combo.selectedItem = value.direction.displayName
+            .row("Movement") {
+                val combo = enumCombo(WaveformMovement.entries.map { it.displayName })
+                combo.selectedItem = value.movement.displayName
                 combo.addActionListener(
                     guardedAction {
                         val selected = combo.selectedItem as? String ?: return@guardedAction
-                        update(value.copy(direction = WaveformDirection.entries.first { it.displayName == selected }))
+                        update(
+                            value.copy(
+                                movement = WaveformMovement.entries.first { it.displayName == selected },
+                            ),
+                        )
                     },
                 )
-                directionCombo = combo
+                movementCombo = combo
                 cell(combo).widthGroup(WAVEFORM_COMBO_GROUP)
-            }.visibleIf(visibility.waveform)
+                newFeatureBadge(ROUTING_BADGE_ID) { visibility.waveform.get() || !gate.isUnlocked }
+            }.visibleIfUnlockedOrPreview(visibility.waveform, gate)
     }
 
     private fun buildBaselineRow(group: Panel) {
@@ -372,7 +384,7 @@ internal class WaveformSettingsControls(
     }
 
     private fun enumCombo(items: List<String>): ComboBox<String> =
-        ComboBox(DefaultComboBoxModel(items.toTypedArray())).also { it.isEnabled = gate.isUnlocked }
+        ComboBox(DefaultComboBoxModel(items.toTypedArray())).applyPremiumLock(gate)
 
     private fun guardedAction(action: () -> Unit): ActionListener =
         ActionListener {
@@ -397,6 +409,7 @@ internal class WaveformSettingsControls(
     )
 
     private companion object {
+        const val ROUTING_BADGE_ID = "glow-chaotic-routing"
         const val LOOP_MAJOR_SECONDS = 10f
         const val LOOP_TICK_SECONDS = 2f
         const val TENTHS_PER_SECOND = 10f

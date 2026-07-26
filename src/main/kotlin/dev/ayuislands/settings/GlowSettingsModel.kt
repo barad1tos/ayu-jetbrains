@@ -12,7 +12,7 @@ import dev.ayuislands.glow.waveform.DEFAULT_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.DEFAULT_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.WaveformBaseline
-import dev.ayuislands.glow.waveform.WaveformDirection
+import dev.ayuislands.glow.waveform.WaveformMovement
 
 internal data class GlowSettings(
     val enabled: Boolean = false,
@@ -25,7 +25,7 @@ internal data class GlowSettings(
     val islandToggles: Map<String, Boolean> = emptyMap(),
     val editorPlacement: GlowPlacement = GlowPlacement.ISLAND,
     val toolWindowPlacement: GlowPlacement = GlowPlacement.ISLAND,
-    val waveformDirection: WaveformDirection = WaveformDirection.CLOCKWISE,
+    val waveformMovement: WaveformMovement = WaveformMovement.CLOCKWISE,
     val waveformBaseline: WaveformBaseline = WaveformBaseline.CENTERED,
     val waveformTraceDensity: Int = DEFAULT_TRACE_DENSITY,
     val waveformTraceLength: Int = DEFAULT_TRACE_LENGTH,
@@ -49,7 +49,7 @@ internal data class GlowSettings(
     fun waveformValue(): WaveformSettingsValue =
         WaveformSettingsValue(
             shape = shape,
-            direction = waveformDirection,
+            movement = waveformMovement,
             baseline = waveformBaseline,
             traceDensity = waveformTraceDensity,
             traceLength = waveformTraceLength,
@@ -62,7 +62,7 @@ internal data class GlowSettings(
         withPresetValues(GlowPreset.WHISPER).copy(
             shape = GlowShape.SOLID,
             preset = GlowPreset.WHISPER,
-            waveformDirection = WaveformDirection.CLOCKWISE,
+            waveformMovement = WaveformMovement.CLOCKWISE,
             waveformBaseline = WaveformBaseline.CENTERED,
             waveformTraceDensity = DEFAULT_TRACE_DENSITY,
             waveformTraceLength = DEFAULT_TRACE_LENGTH,
@@ -88,7 +88,7 @@ internal fun loadGlowSettings(
         islandToggles = islandIds.associateWith { state.isIslandEnabled(it) },
         editorPlacement = GlowPlacement.fromName(state.glowEditorPlacement),
         toolWindowPlacement = GlowPlacement.fromName(state.glowToolWindowPlacement),
-        waveformDirection = WaveformDirection.fromName(state.waveformDirection),
+        waveformMovement = WaveformMovement.fromName(state.waveformDirection),
         waveformBaseline = WaveformBaseline.fromName(state.waveformBaseline),
         waveformTraceDensity = state.waveformTraceDensity,
         waveformTraceLength = state.waveformTraceLength,

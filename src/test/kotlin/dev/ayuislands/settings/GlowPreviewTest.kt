@@ -4,6 +4,8 @@ import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.glow.waveform.WaveformFrame
+import dev.ayuislands.glow.waveform.WaveformMovement
 import java.awt.Color
 import java.awt.Rectangle
 import java.awt.image.BufferedImage
@@ -167,6 +169,27 @@ class GlowPreviewTest {
     }
 
     @Test
+    fun `chaotic preview keeps its seeded direction when animation starts`() {
+        val panel = GlowGroupPanel()
+        panel.setSize(WIDTH, HEIGHT)
+        val chaotic =
+            preview(GlowShape.WAVEFORM).copy(
+                waveformConfig = WaveformConfig(movement = WaveformMovement.CHAOTIC),
+            )
+        panel.updatePreview(chaotic.copy(shape = GlowShape.SOLID))
+        val restingDirection = waveformFrame(panel).direction
+
+        panel.updatePreview(chaotic)
+        panel.advanceWaveformPreview(0L)
+        val activatedDirection = waveformFrame(panel).direction
+        panel.advanceWaveformPreview(500L)
+        val tickDirection = waveformFrame(panel).direction
+
+        assertEquals(restingDirection, activatedDirection)
+        assertEquals(restingDirection, tickDirection)
+    }
+
+    @Test
     fun `waveform preview timer stops while hidden or in power save mode`() {
         val panel = GlowGroupPanel()
         panel.updatePreview(preview(GlowShape.WAVEFORM))
@@ -205,6 +228,12 @@ class GlowPreviewTest {
             graphics.dispose()
         }
         return image
+    }
+
+    private fun waveformFrame(panel: GlowGroupPanel): WaveformFrame {
+        val field = GlowGroupPanel::class.java.getDeclaredField("waveformFrame")
+        field.isAccessible = true
+        return field.get(panel) as WaveformFrame
     }
 
     private fun pixelDifference(

@@ -11,6 +11,8 @@ import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -23,21 +25,45 @@ class WaveformPainterPixelTest {
     @Test
     fun `signal strokes derive from the solid width`() {
         assertEquals(
-            WaveformPainter.SignalStrokes(core = 2f, inner = 4f, bloom = 8f, outer = 14f),
-            WaveformPainter.strokeWidths(solidWidth = 4),
+            expected = WaveformPainter.SignalStrokes(core = 2f, inner = 4f, bloom = 8f, outer = 14f),
+            actual = WaveformPainter.strokeWidths(solidWidth = 4),
         )
     }
 
     @Test
     fun `track cache observes mutation of a reused bounds instance`() {
         val mutableBounds = Rectangle(0, 0, WIDTH, HEIGHT)
-        val config = WaveformConfig()
-        val initial = painter.trackLength(mutableBounds, ARC_WIDTH, config, SOLID_WIDTH)
+        val frame =
+            WaveformFrame(
+                config = WaveformConfig(),
+                direction = TravelDirection.CLOCKWISE,
+            )
+        val initial = painter.trackLength(mutableBounds, ARC_WIDTH, frame, SOLID_WIDTH)
 
         mutableBounds.width += 100
-        val resized = painter.trackLength(mutableBounds, ARC_WIDTH, config, SOLID_WIDTH)
+        val resized = painter.trackLength(mutableBounds, ARC_WIDTH, frame, SOLID_WIDTH)
 
         assertTrue(resized > initial)
+    }
+
+    @Test
+    fun `track cache snapshots occupied spans`() {
+        val occupiedTopSpans = mutableListOf(0..WIDTH)
+        val spec =
+            WaveformTrackSpec(
+                bounds = bounds,
+                arcWidth = ARC_WIDTH,
+                config = WaveformConfig(),
+                solidWidth = SOLID_WIDTH,
+                occupiedTopSpans = occupiedTopSpans,
+                direction = TravelDirection.CLOCKWISE,
+            )
+        val masked = painter.track(spec)
+
+        occupiedTopSpans.clear()
+        val exposed = painter.track(spec)
+
+        assertNotEquals(masked.signalAnchorDistance, exposed.signalAnchorDistance)
     }
 
     @Test
@@ -81,7 +107,7 @@ class WaveformPainterPixelTest {
     @Test
     fun `R peak changes production waveform pixels`() {
         val config = WaveformConfig(amplitude = 10, intensity = 80)
-        val flat = render(WaveformFrame(config = config))
+        val flat = render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config))
         val center = flat.plan.track.length * 0.25f
         val beat = render(frame(config, center))
 
@@ -92,7 +118,14 @@ class WaveformPainterPixelTest {
     @Test
     fun `resting waveform keeps a full sized visible ECG peak`() {
         val config = WaveformConfig(amplitude = 14, intensity = 100)
-        val idle = render(WaveformFrame(config = config, brightness = config.brightnessAt(0f)))
+        val idle =
+            render(
+                WaveformFrame(
+                    direction = TravelDirection.CLOCKWISE,
+                    config = config,
+                    brightness = config.brightnessAt(0f),
+                ),
+            )
         val peak =
             idle.plan.track.samples.minBy { sample ->
                 abs(sample.distance - idle.plan.track.signalAnchorDistance)
@@ -107,10 +140,88 @@ class WaveformPainterPixelTest {
     @Test
     fun `waveform intensity zero leaves the shared solid base unchanged`() {
         val config = WaveformConfig(amplitude = 16, intensity = 0)
-        val waveform = render(WaveformFrame(config = config))
+        val waveform = render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config))
         val expected = renderSolidBase()
 
         assertEquals(0, pixelDifference(expected, waveform.image))
+    }
+
+    @Test
+    fun `routed request paints an open signal without the solid base`() {
+        val config =
+            WaveformConfig(
+                movement = WaveformMovement.CHAOTIC,
+                amplitude = 8,
+                intensity = 100,
+                traceLength = 360,
+            )
+        val frame =
+            movingFrame(
+                config = config,
+                history = List(config.traceComplexCount) { BeatMorphology.standard() },
+                phase = 0.4f,
+            )
+        val track =
+            openWaveformTrack(
+                listOf(
+                    WaveformSample(40f, 80f, 0f, -1f, 0f, 1f),
+                    WaveformSample(200f, 80f, 0f, -1f, 160f, 1f),
+                ),
+            )
+        val image = BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        val request =
+            WaveformPaintRequest(
+                bounds = bounds,
+                arcWidth = ARC_WIDTH,
+                accent = accent,
+                frame = frame,
+                solidFrame = solidFrame(),
+                routedTrack =
+                    RoutedTrack(
+                        track = track,
+                        distanceOffset = 280f,
+                        centerDistance = 270f,
+                        signalSpan = 360f,
+                    ),
+                paintsBase = false,
+            )
+        val plan = painter.prepare(request)
+        try {
+            painter.paint(graphics, plan)
+        } finally {
+            graphics.dispose()
+        }
+
+        assertFalse(plan.track.isClosed)
+        assertNotNull(plan.signalBounds)
+        assertEquals(0, alphaAt(image, 20, 20))
+        assertTrue(hasVisiblePixel(image, 110, 80, 40))
+    }
+
+    @Test
+    fun `signal painting can be disabled without changing the shared base`() {
+        val config = WaveformConfig(amplitude = 16, intensity = 100)
+        val image = BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        val request =
+            WaveformPaintRequest(
+                bounds = bounds,
+                arcWidth = ARC_WIDTH,
+                accent = accent,
+                frame = frame(config, center = 0f),
+                solidFrame = solidFrame(),
+                paintsSignal = false,
+            )
+        val plan = painter.prepare(request)
+        try {
+            painter.paint(graphics, plan)
+        } finally {
+            graphics.dispose()
+        }
+
+        assertEquals(null, plan.signalBounds)
+        assertEquals(0, pixelDifference(renderSolidBase(), image))
     }
 
     @Test
@@ -119,7 +230,11 @@ class WaveformPainterPixelTest {
         val maximumConfig = currentConfig.copy(intensity = MAX_WAVEFORM_INTENSITY)
         val morphology = BeatMorphology.standard()
         val emptyBase = solidFrame().copy(intensity = 0)
-        val base = render(WaveformFrame(config = currentConfig.copy(intensity = 0)), solidFrame = emptyBase)
+        val base =
+            render(
+                WaveformFrame(direction = TravelDirection.CLOCKWISE, config = currentConfig.copy(intensity = 0)),
+                solidFrame = emptyBase,
+            )
         val current = render(frame(currentConfig, 0f, morphology), solidFrame = emptyBase)
         val maximum = render(frame(maximumConfig, 0f, morphology), solidFrame = emptyBase)
 
@@ -141,13 +256,23 @@ class WaveformPainterPixelTest {
         val emptyBase = solidFrame().copy(intensity = 0)
         val current =
             render(
-                WaveformFrame(config = currentConfig, energy = 1f, brightness = 1f),
+                WaveformFrame(
+                    direction = TravelDirection.CLOCKWISE,
+                    config = currentConfig,
+                    energy = 1f,
+                    brightness = 1f,
+                ),
                 solidFrame = emptyBase,
                 inwardEdges = setOf(WaveformEdge.TOP),
             )
         val maximum =
             render(
-                WaveformFrame(config = maximumConfig, energy = 1f, brightness = 1f),
+                WaveformFrame(
+                    direction = TravelDirection.CLOCKWISE,
+                    config = maximumConfig,
+                    energy = 1f,
+                    brightness = 1f,
+                ),
                 solidFrame = emptyBase,
                 inwardEdges = setOf(WaveformEdge.TOP),
             )
@@ -188,10 +313,10 @@ class WaveformPainterPixelTest {
 
     @Test
     fun `editor perimeter loop starts from the two thirds top anchor`() {
-        for (direction in WaveformDirection.entries) {
-            val config = WaveformConfig(direction = direction, amplitude = 14, intensity = 100)
-            val idle = render(WaveformFrame(config = config))
-            val started = render(frame(config, center = 0f))
+        for (direction in TravelDirection.entries) {
+            val config = WaveformConfig(amplitude = 14, intensity = 100)
+            val idle = render(WaveformFrame(direction = direction, config = config))
+            val started = render(frame(config, center = 0f, direction = direction))
             val anchor = started.plan.track.sampleNearest(started.plan.track.signalAnchorDistance)
             val topAnchorBand =
                 Rectangle(
@@ -219,9 +344,9 @@ class WaveformPainterPixelTest {
         val clockwise =
             render(
                 WaveformFrame(
+                    direction = TravelDirection.CLOCKWISE,
                     config =
                         WaveformConfig(
-                            direction = WaveformDirection.CLOCKWISE,
                             amplitude = 16,
                             intensity = 100,
                         ),
@@ -231,9 +356,9 @@ class WaveformPainterPixelTest {
         val counterClockwise =
             render(
                 WaveformFrame(
+                    direction = TravelDirection.COUNTER_CLOCKWISE,
                     config =
                         WaveformConfig(
-                            direction = WaveformDirection.COUNTER_CLOCKWISE,
                             amplitude = 16,
                             intensity = 100,
                         ),
@@ -247,8 +372,8 @@ class WaveformPainterPixelTest {
     @Test
     fun `R peaks extend outward on right bottom and left edges`() {
         val config = WaveformConfig(amplitude = 16, intensity = 100)
-        val flat = render(WaveformFrame(config = config))
-        val edgeSamples =
+        val flat = render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config))
+        val edgeProbes =
             listOf(
                 flat.plan.track.samples
                     .first { it.normalX > 0.999f && it.y > HEIGHT * 0.45f },
@@ -256,19 +381,23 @@ class WaveformPainterPixelTest {
                     .first { it.normalY > 0.999f && it.x < WIDTH * 0.55f },
                 flat.plan.track.samples
                     .first { it.normalX < -0.999f && it.y < HEIGHT * 0.55f },
-            )
+            ).map { sample ->
+                Triple(
+                    (sample.x + sample.normalX * OUTWARD_PROBE).roundToInt(),
+                    (sample.y + sample.normalY * OUTWARD_PROBE).roundToInt(),
+                    sample.distance,
+                )
+            }
 
-        for (sample in edgeSamples) {
+        for ((x, y, distance) in edgeProbes) {
             val beat =
                 render(
                     frame(
                         config,
-                        sample.distance - flat.plan.track.signalAnchorDistance,
+                        distance - flat.plan.track.signalAnchorDistance,
                         BeatMorphology.standard(),
                     ),
                 )
-            val x = (sample.x + sample.normalX * OUTWARD_PROBE).roundToInt()
-            val y = (sample.y + sample.normalY * OUTWARD_PROBE).roundToInt()
             assertTrue(alphaAt(beat.image, x, y) > alphaAt(flat.image, x, y), "R peak must paint outward at $x,$y")
         }
     }
@@ -281,7 +410,7 @@ class WaveformPainterPixelTest {
                 intensity = 100,
                 baseline = WaveformBaseline.OUTSIDE,
             )
-        val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
+        val flat = render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config.copy(intensity = 0)))
         val samples = flat.plan.track.samples
         val edgeSamples =
             listOf(
@@ -328,7 +457,13 @@ class WaveformPainterPixelTest {
             )
         val rendered =
             render(
-                frame = WaveformFrame(config = config, energy = 1f, brightness = 1f),
+                frame =
+                    WaveformFrame(
+                        direction = TravelDirection.CLOCKWISE,
+                        config = config,
+                        energy = 1f,
+                        brightness = 1f,
+                    ),
                 solidFrame = solidFrame().copy(intensity = 0),
                 inwardEdges = setOf(WaveformEdge.TOP),
             )
@@ -357,7 +492,7 @@ class WaveformPainterPixelTest {
                 intensity = 100,
                 baseline = WaveformBaseline.OUTSIDE,
             )
-        val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
+        val flat = render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config.copy(intensity = 0)))
         val rightSample =
             flat.plan.track.samples
                 .first { it.normalX > 0.999f }
@@ -393,7 +528,7 @@ class WaveformPainterPixelTest {
                 intensity = 100,
                 baseline = WaveformBaseline.OUTSIDE,
             )
-        val flat = render(WaveformFrame(config = config.copy(intensity = 0)))
+        val flat = render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config.copy(intensity = 0)))
         val corner =
             flat.plan.track.samples
                 .filter { it.normalX > 0f && it.normalY < 0f }
@@ -424,7 +559,8 @@ class WaveformPainterPixelTest {
                 amplitude = 24,
                 intensity = 100,
             )
-        val active = render(WaveformFrame(config = config, energy = 1f, brightness = 1f))
+        val active =
+            render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config, energy = 1f, brightness = 1f))
         val base = renderSolidBase()
         val anchor = active.plan.track.sampleNearest(active.plan.track.signalAnchorDistance)
         val region =
@@ -465,7 +601,13 @@ class WaveformPainterPixelTest {
         val renderBounds = Rectangle(0, 0, WIDTH + margin * 2, HEIGHT + margin * 2)
         val rendered =
             render(
-                frame = WaveformFrame(config = config, energy = 1f, brightness = 1f),
+                frame =
+                    WaveformFrame(
+                        direction = TravelDirection.CLOCKWISE,
+                        config = config,
+                        energy = 1f,
+                        brightness = 1f,
+                    ),
                 renderBounds = renderBounds,
                 solidFrame =
                     SolidFrameSpec(
@@ -610,13 +752,15 @@ class WaveformPainterPixelTest {
         val clockwise =
             renderEditorScale(
                 WaveformFrame(
-                    config = WaveformConfig(direction = WaveformDirection.CLOCKWISE, traceLength = 360),
+                    direction = TravelDirection.CLOCKWISE,
+                    config = WaveformConfig(traceLength = 360),
                 ),
             )
         val counterClockwise =
             renderEditorScale(
                 WaveformFrame(
-                    config = WaveformConfig(direction = WaveformDirection.COUNTER_CLOCKWISE, traceLength = 360),
+                    direction = TravelDirection.COUNTER_CLOCKWISE,
+                    config = WaveformConfig(traceLength = 360),
                 ),
             )
 
@@ -645,7 +789,7 @@ class WaveformPainterPixelTest {
     }
 
     @Test
-    fun `toward white lerps every channel to white`() {
+    fun `toward white blends channels`() {
         assertEquals(accent, WaveformPainter.towardWhite(accent, 0f))
         assertEquals(Color.WHITE, WaveformPainter.towardWhite(accent, 1f))
         val half = WaveformPainter.towardWhite(accent, 0.5f)
@@ -654,21 +798,27 @@ class WaveformPainterPixelTest {
 
     @Test
     fun `comet trail paints behind the head and cuts off ahead of it`() {
-        for (direction in WaveformDirection.entries) {
+        for (direction in TravelDirection.entries) {
             val config =
                 WaveformConfig(
-                    direction = direction,
                     baseline = WaveformBaseline.OUTSIDE,
                     amplitude = 14,
                     intensity = 100,
                     traceLength = 167,
                 )
             val base = renderSolidBase()
-            val flat = render(WaveformFrame(config = config))
+            val flat = render(WaveformFrame(direction = direction, config = config))
             val track = flat.plan.track
             val sign = direction.travelSign
             val beatSample = track.samples.first { it.normalY < -0.999f && abs(it.x - BEAT_X) < 2f }
-            val rendered = render(frame(config, beatSample.distance - track.signalAnchorDistance))
+            val rendered =
+                render(
+                    frame(
+                        config,
+                        beatSample.distance - track.signalAnchorDistance,
+                        direction = direction,
+                    ),
+                )
             val headX =
                 beatSample.x + sign * (WaveformPainter.HEAD_PHASE - WaveformPainter.R_PEAK_PHASE) * track.signalSpan
 
@@ -691,10 +841,17 @@ class WaveformPainterPixelTest {
     fun `white-hot head leads while the tail keeps the accent color`() {
         val config = WaveformConfig(amplitude = 14, intensity = 100)
         val base = renderSolidBase()
-        val flat = render(WaveformFrame(config = config))
+        val flat = render(WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config))
         val track = flat.plan.track
         val beatSample = track.samples.first { it.normalY < -0.999f && abs(it.x - BEAT_X) < 2f }
-        val rendered = render(frame(config, beatSample.distance - track.signalAnchorDistance))
+        val rendered =
+            render(
+                frame(
+                    config,
+                    beatSample.distance - track.signalAnchorDistance,
+                    direction = TravelDirection.CLOCKWISE,
+                ),
+            )
         val headX = beatSample.x + (WaveformPainter.HEAD_PHASE - WaveformPainter.R_PEAK_PHASE) * track.signalSpan
 
         val headColor =
@@ -722,6 +879,7 @@ class WaveformPainterPixelTest {
         val repeated =
             render(
                 WaveformFrame(
+                    direction = TravelDirection.CLOCKWISE,
                     config = config,
                     trace =
                         FrameTrace(
@@ -735,6 +893,7 @@ class WaveformPainterPixelTest {
         val varied =
             render(
                 WaveformFrame(
+                    direction = TravelDirection.CLOCKWISE,
                     config = config,
                     trace =
                         FrameTrace(
@@ -780,17 +939,16 @@ class WaveformPainterPixelTest {
 
     @Test
     fun `maximum density keeps every visible peak across phase wrap and both directions`() {
-        for (direction in WaveformDirection.entries) {
+        for (direction in TravelDirection.entries) {
             for (phase in DENSITY_TEST_PHASES) {
                 val config =
                     WaveformConfig(
-                        direction = direction,
                         amplitude = MAX_WAVEFORM_AMPLITUDE,
                         intensity = MAX_WAVEFORM_INTENSITY,
                         traceDensity = MAX_TRACE_DENSITY,
                     )
                 val standardHistory = List(config.traceComplexCount) { BeatMorphology.standard() }
-                val standardFrame = movingFrame(config, standardHistory, phase)
+                val standardFrame = movingFrame(config, standardHistory, phase, direction = direction)
                 val signalOnly = solidFrame().copy(intensity = 0, width = MIN_SIGNAL_WIDTH)
                 val standard = render(standardFrame, solidFrame = signalOnly)
                 val expectedPeaks = expectedRPeaks(standardFrame)
@@ -798,17 +956,18 @@ class WaveformPainterPixelTest {
                 assertEquals(
                     expectedPeaks,
                     visiblePeakRuns(standard, config.amplitude),
-                    "missing peak for direction=$direction phase=$phase",
+                    "missing peak for movement=$direction phase=$phase",
                 )
 
                 val variedHistory =
                     List(config.traceComplexCount) { index ->
                         BeatMorphology.random(Random(index + DENSITY_RANDOM_SEED))
                     }
-                val varied = render(movingFrame(config, variedHistory, phase), solidFrame = signalOnly)
+                val varied =
+                    render(movingFrame(config, variedHistory, phase, direction = direction), solidFrame = signalOnly)
                 assertTrue(
                     abs(visiblePeakRuns(varied, config.amplitude) - expectedPeaks) <= VARIED_PEAK_TOLERANCE,
-                    "randomized peaks became unstable for direction=$direction phase=$phase",
+                    "randomized peaks became unstable for movement=$direction phase=$phase",
                 )
             }
         }
@@ -816,10 +975,9 @@ class WaveformPainterPixelTest {
 
     @Test
     fun `centered maximum density orders a seam crossing QRS continuously in both directions`() {
-        for (direction in WaveformDirection.entries) {
+        for (direction in TravelDirection.entries) {
             val config =
                 WaveformConfig(
-                    direction = direction,
                     baseline = WaveformBaseline.CENTERED,
                     amplitude = MAX_WAVEFORM_AMPLITUDE,
                     intensity = MAX_WAVEFORM_INTENSITY,
@@ -827,7 +985,7 @@ class WaveformPainterPixelTest {
                 )
             val morphology = BeatMorphology.standard()
             val history = List(config.traceComplexCount) { morphology }
-            val provisional = render(movingFrame(config, history, SEAM_TRACE_PHASE))
+            val provisional = render(movingFrame(config, history, SEAM_TRACE_PHASE, direction = direction))
             val track = provisional.plan.track
             val frame =
                 movingFrame(
@@ -835,6 +993,7 @@ class WaveformPainterPixelTest {
                     history = history,
                     phase = SEAM_TRACE_PHASE,
                     anchorOffset = -track.signalAnchorDistance,
+                    direction = direction,
                 )
             val qWindowPhase =
                 WaveformPainter.HEAD_PHASE +
@@ -914,12 +1073,22 @@ class WaveformPainterPixelTest {
         val emptyBase = solidFrame().copy(intensity = 0)
         val outside =
             render(
-                WaveformFrame(outsideConfig, energy = 1f, brightness = 1f),
+                WaveformFrame(
+                    config = outsideConfig,
+                    direction = TravelDirection.CLOCKWISE,
+                    energy = 1f,
+                    brightness = 1f,
+                ),
                 solidFrame = emptyBase,
             )
         val centered =
             render(
-                WaveformFrame(centeredConfig, energy = 1f, brightness = 1f),
+                WaveformFrame(
+                    config = centeredConfig,
+                    direction = TravelDirection.CLOCKWISE,
+                    energy = 1f,
+                    brightness = 1f,
+                ),
                 solidFrame = emptyBase,
             )
         val outsideBaseline =
@@ -948,9 +1117,11 @@ class WaveformPainterPixelTest {
         config: WaveformConfig,
         center: Float,
         morphology: BeatMorphology = BeatMorphology.random(Random(42)),
+        direction: TravelDirection = TravelDirection.CLOCKWISE,
     ): WaveformFrame =
         WaveformFrame(
             config = config,
+            direction = direction,
             trace = FrameTrace(anchorOffset = center, history = listOf(morphology)),
             brightness = 1f,
             energy = 1f,
@@ -961,9 +1132,11 @@ class WaveformPainterPixelTest {
         history: List<BeatMorphology>,
         phase: Float = TEST_TRACE_PHASE,
         anchorOffset: Float = 0f,
+        direction: TravelDirection = TravelDirection.CLOCKWISE,
     ): WaveformFrame =
         WaveformFrame(
             config = config,
+            direction = direction,
             trace =
                 FrameTrace(
                     anchorOffset = anchorOffset,

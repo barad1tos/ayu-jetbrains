@@ -21,6 +21,21 @@ class WaveformEngineTest {
     }
 
     @Test
+    fun `provided morphology source controls the active trace`() {
+        val morphology = BeatMorphology.standard()
+        val engine =
+            WaveformEngine(
+                WaveformConfig(traceDensity = MAX_TRACE_DENSITY),
+                morphologyFactory = { morphology },
+            )
+
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        val frame = requireNotNull(engine.handle(WaveformEvent.Tick(0L, 1_000f)).frame)
+
+        assertTrue(trace(frame).history.all { it === morphology })
+    }
+
+    @Test
     fun `perimeter loop period is independent of track length`() {
         val shortTrack = WaveformEngine(WaveformConfig(loopSeconds = 2.8f), Random(5))
         val longTrack = WaveformEngine(WaveformConfig(loopSeconds = 2.8f), Random(5))
@@ -95,12 +110,12 @@ class WaveformEngineTest {
     fun `perimeter direction reverses continuous travel around the closed track`() {
         val clockwise =
             WaveformEngine(
-                WaveformConfig(direction = WaveformDirection.CLOCKWISE),
+                WaveformConfig(movement = WaveformMovement.CLOCKWISE),
                 Random(21),
             )
         val counterClockwise =
             WaveformEngine(
-                WaveformConfig(direction = WaveformDirection.COUNTER_CLOCKWISE),
+                WaveformConfig(movement = WaveformMovement.COUNTER_CLOCKWISE),
                 Random(21),
             )
         for (engine in listOf(clockwise, counterClockwise)) {
@@ -117,6 +132,34 @@ class WaveformEngineTest {
 
         assertEquals(35f, trace(clockwiseFrame).anchorOffset, 0.001f)
         assertEquals(965f, trace(counterFrame).anchorOffset, 0.001f)
+    }
+
+    @Test
+    fun `chaotic one-island fallback chooses one seeded direction for the whole loop`() {
+        val engine =
+            WaveformEngine(
+                WaveformConfig(movement = WaveformMovement.CHAOTIC),
+                Random(73),
+            )
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        engine.handle(WaveformEvent.Tick(nowMs = 0L, trackLength = 1_000f))
+
+        val first = requireNotNull(engine.handle(WaveformEvent.Tick(500L, 1_000f)).frame)
+        val second = requireNotNull(engine.handle(WaveformEvent.Tick(1_000L, 1_000f)).frame)
+        engine.handle(
+            WaveformEvent.Configure(
+                WaveformConfig(
+                    movement = WaveformMovement.CHAOTIC,
+                    amplitude = 24,
+                ),
+            ),
+        )
+        val configured = assertIs<WaveformState.Looping>(engine.state)
+
+        assertEquals(TravelDirection.CLOCKWISE, first.direction)
+        assertEquals(first.direction, second.direction)
+        assertEquals(first.direction, configured.direction)
+        assertTrue(trace(first).anchorOffset != trace(second).anchorOffset)
     }
 
     @Test
@@ -236,9 +279,10 @@ class WaveformEngineTest {
         engine.handle(WaveformEvent.Tick(700L, 1_000f))
         engine.handle(WaveformEvent.Keystroke(700L))
         engine.handle(WaveformEvent.Tick(740L, 1_000f))
+        assertEquals(TravelDirection.CLOCKWISE, assertIs<WaveformState.Looping>(engine.state).direction)
         val updatedConfig =
             WaveformConfig(
-                direction = WaveformDirection.COUNTER_CLOCKWISE,
+                movement = WaveformMovement.COUNTER_CLOCKWISE,
                 amplitude = 24,
                 loopSeconds = 6f,
             )
@@ -249,8 +293,30 @@ class WaveformEngineTest {
         assertEquals(0.037f, running.travelPhase, 0.001f)
         assertEquals(0.5f, requireNotNull(running.energyEnvelope).levelAt(740L), 0.001f)
         assertEquals(updatedConfig, running.config)
+        assertEquals(TravelDirection.COUNTER_CLOCKWISE, running.direction)
         assertEquals(TimerDirective.KEEP, update.timerDirective)
         assertTrue(update.needsRepaint)
+    }
+
+    @Test
+    fun `fixed movement replaces the active chaotic direction`() {
+        val engine =
+            WaveformEngine(
+                WaveformConfig(movement = WaveformMovement.CHAOTIC),
+                object : Random() {
+                    override fun nextBits(bitCount: Int): Int = 0
+                },
+            )
+        engine.handle(WaveformEvent.Activate(powerSaveEnabled = false))
+        assertEquals(TravelDirection.COUNTER_CLOCKWISE, assertIs<WaveformState.Looping>(engine.state).direction)
+
+        engine.handle(
+            WaveformEvent.Configure(
+                WaveformConfig(movement = WaveformMovement.CLOCKWISE),
+            ),
+        )
+
+        assertEquals(TravelDirection.CLOCKWISE, assertIs<WaveformState.Looping>(engine.state).direction)
     }
 
     @Test
