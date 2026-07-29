@@ -190,6 +190,7 @@ class AyuIslandsState : BaseState() {
 
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
+    var isCgpOwnershipMigrated by property(false)
     var cgpOwnership by string(IntegrationOwnership.UNOWNED.name)
     var cgpBaseColor by string(null)
     var cgpBaseBorder by string(null)
@@ -200,6 +201,7 @@ class AyuIslandsState : BaseState() {
 
     // Indent Rainbow integration (opt-in, default OFF)
     var irIntegrationEnabled by property(false)
+    var isIrOwnershipMigrated by property(false)
     var irOwnership by string(IntegrationOwnership.UNOWNED.name)
     var irBaseType by string(null)
     var irBasePalette by string(null)

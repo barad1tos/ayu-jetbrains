@@ -23,3 +23,7 @@ internal sealed interface IntegrationOutcome {
         val error: Throwable,
     ) : IntegrationOutcome
 }
+
+internal fun IntegrationOutcome.propagateFailure() {
+    if (this is IntegrationOutcome.Failed) throw error
+}

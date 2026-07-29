@@ -42,6 +42,7 @@ class IndentRainbowSyncTest {
         every { mockSettings.state } returns state
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
+        state.isIrOwnershipMigrated = true
         // getAccentForVariant stub used to be required because IR read the global accent
         // itself. After the resolver refactor the caller passes the resolved hex in; the
         // mock becomes dead code. Removed to keep setUp honest.
@@ -238,6 +239,56 @@ class IndentRainbowSyncTest {
         assertEquals("manual-palette", harness.palette)
         assertEquals(FakePaletteType.CUSTOM, harness.type)
         assertEquals(11, harness.colorCount)
+    }
+
+    @Test
+    fun `legacy Indent Rainbow state suspends instead of capturing an Ayu palette as baseline`() {
+        state.irIntegrationEnabled = true
+        state.isIrOwnershipMigrated = false
+        val harness = installIrHarness(FakePaletteType.CUSTOM, "ayu-palette", 11)
+
+        val outcome = callApply()
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.irOwnership)
+        assertTrue(state.isIrOwnershipMigrated)
+        assertEquals(FakePaletteType.CUSTOM, harness.type)
+        assertEquals("ayu-palette", harness.palette)
+        assertEquals(11, harness.colorCount)
+        assertEquals(null, state.irBaseType)
+    }
+
+    @Test
+    fun `failed Indent Rainbow restore rolls a partial write back to the applied palette`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        IndentRainbowSync.apply(AyuVariant.MIRAGE, TEST_ACCENT_HEX)
+        val applied =
+            IrPalette(
+                type = harness.type.name,
+                palette = harness.palette,
+                colorCount = harness.colorCount,
+            )
+        val updateMethod = getPrivateField<Method>("cachedDataUpdateMethod")
+        var shouldRejectNextUpdate = true
+        every { updateMethod.invoke(any(), any()) } answers {
+            if (shouldRejectNextUpdate) {
+                shouldRejectNextUpdate = false
+                throw java.lang.reflect.InvocationTargetException(
+                    IllegalStateException("cache update rejected after field writes"),
+                )
+            }
+            null
+        }
+
+        val outcome = IndentRainbowSync.restoreOwnedState()
+
+        assertTrue(outcome is IntegrationOutcome.Failed)
+        assertEquals(applied.type, harness.type.name)
+        assertEquals(applied.palette, harness.palette)
+        assertEquals(applied.colorCount, harness.colorCount)
+        assertEquals(IntegrationOwnership.OWNED.name, state.irOwnership)
+        assertEquals(FakePaletteType.RAINBOW.name, state.irBaseType)
     }
 
     @Test

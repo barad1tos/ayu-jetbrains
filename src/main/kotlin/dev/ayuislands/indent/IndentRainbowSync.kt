@@ -97,6 +97,12 @@ object IndentRainbowSync {
         logContext: String,
     ): IntegrationOutcome {
         val state = AyuIslandsSettings.getInstance().state
+        if (state.migrateIrOwnership()) {
+            log.warn(
+                "Indent Rainbow ownership snapshot is absent for an existing enabled integration; " +
+                    "preserving the current palette until the user explicitly re-enables sync",
+            )
+        }
         resolveApplyGate(state)?.let { return it }
 
         val resolved = resolveOrReturn() ?: return unresolvedOutcome(state, SYNC_FAILED)
@@ -217,7 +223,7 @@ object IndentRainbowSync {
                 suspendOwnership(state)
                 return IntegrationOutcome.Skipped
             }
-            resolved.writePalette(base, baseEnum)
+            writeRestoredPalette(resolved, current, base, baseEnum)?.let { return it }
             clearOwnership(state)
             log.info("Indent Rainbow palette restored to its pre-Ayu values")
             return IntegrationOutcome.Restored
@@ -233,7 +239,9 @@ object IndentRainbowSync {
     internal fun revert(): IntegrationOutcome = restoreOwnedState()
 
     internal fun prepareExplicitEnable() {
-        clearOwnership(AyuIslandsSettings.getInstance().state)
+        val state = AyuIslandsSettings.getInstance().state
+        state.isIrOwnershipMigrated = true
+        clearOwnership(state)
     }
 
     private fun resolveOrReturn(): ResolvedIrState? {
@@ -299,6 +307,27 @@ object IndentRainbowSync {
             originalError.addSuppressed(rollbackError)
         }
     }
+
+    private fun writeRestoredPalette(
+        resolved: ResolvedIrState,
+        current: CurrentIrPalette,
+        base: IrPalette,
+        baseEnum: Any,
+    ): IntegrationOutcome.Failed? =
+        try {
+            resolved.writePalette(base, baseEnum)
+            null
+        } catch (exception: InvocationTargetException) {
+            val error = exception.cause ?: exception
+            rollbackPalette(resolved, current, error)
+            failedOutcome(RESTORE_FAILED, error)
+        } catch (exception: ReflectiveOperationException) {
+            rollbackPalette(resolved, current, exception)
+            failedOutcome(RESTORE_FAILED, exception)
+        } catch (exception: RuntimeException) {
+            rollbackPalette(resolved, current, exception)
+            failedOutcome(RESTORE_FAILED, exception)
+        }
 
     private fun suspendOwnership(state: AyuIslandsState) {
         state.irOwnership = IntegrationOwnership.SUSPENDED.name
@@ -411,4 +440,16 @@ object IndentRainbowSync {
                 "${exception.javaClass.simpleName}: ${exception.message}",
         )
     }
+}
+
+private fun AyuIslandsState.migrateIrOwnership(): Boolean {
+    if (isIrOwnershipMigrated) return false
+    isIrOwnershipMigrated = true
+    if (!irIntegrationEnabled ||
+        IntegrationOwnership.fromName(irOwnership) != IntegrationOwnership.UNOWNED
+    ) {
+        return false
+    }
+    irOwnership = IntegrationOwnership.SUSPENDED.name
+    return true
 }

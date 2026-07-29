@@ -8,6 +8,8 @@ class CodeGlanceConfigService {
 
 @Suppress("unused") // Called reflectively by CodeGlanceProIntegration.
 class CodeGlanceConfig {
+    var shouldRejectNextBorder = false
+
     var viewportColor: String = ""
         private set
 
@@ -23,6 +25,10 @@ class CodeGlanceConfig {
 
     fun setViewportBorderColor(value: String) {
         viewportBorderColor = value
+        if (shouldRejectNextBorder) {
+            shouldRejectNextBorder = false
+            error("viewport border write rejected after mutation")
+        }
     }
 
     fun setViewportBorderThickness(value: Int) {

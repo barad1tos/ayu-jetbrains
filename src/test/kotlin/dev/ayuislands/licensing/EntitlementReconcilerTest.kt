@@ -47,6 +47,7 @@ class EntitlementReconcilerTest {
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
+        state.lastApplyOk = true
         val settings = mockk<AyuIslandsSettings>()
         every { settings.state } returns state
         mockkObject(AyuIslandsSettings.Companion)
@@ -188,6 +189,19 @@ class EntitlementReconcilerTest {
                 .single()
                 .error.message,
         )
+    }
+
+    @Test
+    fun `incomplete accent cascade is included in the structured reconciliation result`() {
+        every { AccentApplicator.applyForFocusedProject(context) } answers {
+            state.lastApplyOk = false
+            "#FFCC66"
+        }
+
+        val result = EntitlementReconciler.reconcile(LicenseEntitlement.UNLICENSED, listOf(project))
+
+        assertFalse(result.isSuccess)
+        assertEquals(listOf("re-apply accent"), result.failures.map { it.operation })
     }
 
     @Test

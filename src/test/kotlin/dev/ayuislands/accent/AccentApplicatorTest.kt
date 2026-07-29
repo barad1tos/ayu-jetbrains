@@ -87,6 +87,8 @@ class AccentApplicatorTest {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
+        state.isCgpOwnershipMigrated = true
+        state.isIrOwnershipMigrated = true
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
 

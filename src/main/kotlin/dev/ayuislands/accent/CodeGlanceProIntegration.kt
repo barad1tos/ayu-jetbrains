@@ -165,6 +165,12 @@ internal object CodeGlanceProIntegration {
         context: AccentContext?,
     ): IntegrationOutcome {
         val state = AyuIslandsSettings.getInstance().state
+        if (state.migrateCgpOwnership()) {
+            log.warn(
+                "CodeGlance Pro ownership snapshot is absent for an existing enabled integration; " +
+                    "preserving the current viewport until the user explicitly re-enables sync",
+            )
+        }
         resolveSyncGate(state, context)?.let { return it }
 
         resolveCgpMethods()
@@ -219,10 +225,10 @@ internal object CodeGlanceProIntegration {
             try {
                 access.writeViewport(target)
             } catch (exception: ReflectiveOperationException) {
-                rollbackViewport(access, current, exception)
+                access.rollbackViewport(current, exception)
                 return failedOutcome(CGP_SYNC_FAILED, exception)
             } catch (exception: RuntimeException) {
-                rollbackViewport(access, current, exception)
+                access.rollbackViewport(current, exception)
                 return failedOutcome(CGP_SYNC_FAILED, exception)
             }
 
@@ -278,30 +284,32 @@ internal object CodeGlanceProIntegration {
         }
         val access = resolvedAccess() ?: return IntegrationOutcome.Skipped
 
-        try {
+        return try {
             val current = access.readViewport()
             if (current != applied) {
                 suspendOwnership(state)
                 return IntegrationOutcome.Skipped
             }
-            access.writeViewport(base)
+            access.restoreViewport(current, base)?.let { return failedOutcome(CGP_RESTORE_FAILED, it) }
             clearOwnership(state)
             log.info("CodeGlance Pro viewport restored to its pre-Ayu values")
-            return IntegrationOutcome.Restored
+            IntegrationOutcome.Restored
         } catch (exception: InvocationTargetException) {
             val cause = exception.cause ?: exception
-            return failedOutcome(CGP_RESTORE_FAILED, cause)
+            failedOutcome(CGP_RESTORE_FAILED, cause)
         } catch (exception: ReflectiveOperationException) {
-            return failedOutcome(CGP_RESTORE_FAILED, exception)
+            failedOutcome(CGP_RESTORE_FAILED, exception)
         } catch (exception: RuntimeException) {
-            return failedOutcome(CGP_RESTORE_FAILED, exception)
+            failedOutcome(CGP_RESTORE_FAILED, exception)
         }
     }
 
     fun revertCodeGlanceProViewport(): IntegrationOutcome = restoreOwnedState()
 
     fun prepareExplicitEnable() {
-        clearOwnership(AyuIslandsSettings.getInstance().state)
+        val state = AyuIslandsSettings.getInstance().state
+        state.isCgpOwnershipMigrated = true
+        clearOwnership(state)
     }
 
     private fun resolvedAccess(): CgpAccess? {
@@ -317,20 +325,6 @@ internal object CodeGlanceProIntegration {
             setBorder = cgpSetBorder ?: return null,
             setThickness = cgpSetThickness ?: return null,
         )
-    }
-
-    private fun rollbackViewport(
-        access: CgpAccess,
-        current: CgpViewport,
-        originalError: Throwable,
-    ) {
-        try {
-            access.writeViewport(current)
-        } catch (rollbackError: ReflectiveOperationException) {
-            originalError.addSuppressed(rollbackError)
-        } catch (rollbackError: RuntimeException) {
-            originalError.addSuppressed(rollbackError)
-        }
     }
 
     private fun failedOutcome(
@@ -384,37 +378,6 @@ internal object CodeGlanceProIntegration {
             thickness = cgpAppliedThickness,
         )
 
-    private data class CgpViewport(
-        val color: String,
-        val border: String,
-        val thickness: Int,
-    )
-
-    private data class CgpAccess(
-        val config: Any,
-        val getColor: Method,
-        val getBorder: Method,
-        val getThickness: Method,
-        val setColor: Method,
-        val setBorder: Method,
-        val setThickness: Method,
-    ) {
-        fun readViewport(): CgpViewport =
-            CgpViewport(
-                color = getColor.invoke(config) as? String ?: error("viewportColor getter returned non-string"),
-                border = getBorder.invoke(config) as? String ?: error("viewportBorderColor getter returned non-string"),
-                thickness =
-                    (getThickness.invoke(config) as? Number)?.toInt()
-                        ?: error("viewportBorderThickness getter returned non-number"),
-            )
-
-        fun writeViewport(viewport: CgpViewport) {
-            setColor.invoke(config, viewport.color)
-            setBorder.invoke(config, viewport.border)
-            setThickness.invoke(config, viewport.thickness)
-        }
-    }
-
     private fun resolveApplicationService(serviceClass: Class<*>): Any? {
         // CGP's service class is resolved from CGP's plugin classloader, so DevKit
         // cannot prove registration at compile time. Reflecting the platform
@@ -449,5 +412,80 @@ internal object CodeGlanceProIntegration {
         cgpSetThickness = null
         cgpMethodsResolved = false
         cgpResolutionFailure = null
+    }
+}
+
+private fun AyuIslandsState.migrateCgpOwnership(): Boolean {
+    if (isCgpOwnershipMigrated) return false
+    isCgpOwnershipMigrated = true
+    if (!cgpIntegrationEnabled ||
+        IntegrationOwnership.fromName(cgpOwnership) != IntegrationOwnership.UNOWNED
+    ) {
+        return false
+    }
+    cgpOwnership = IntegrationOwnership.SUSPENDED.name
+    return true
+}
+
+private data class CgpViewport(
+    val color: String,
+    val border: String,
+    val thickness: Int,
+)
+
+private data class CgpAccess(
+    val config: Any,
+    val getColor: Method,
+    val getBorder: Method,
+    val getThickness: Method,
+    val setColor: Method,
+    val setBorder: Method,
+    val setThickness: Method,
+) {
+    fun readViewport(): CgpViewport =
+        CgpViewport(
+            color = getColor.invoke(config) as? String ?: error("viewportColor getter returned non-string"),
+            border = getBorder.invoke(config) as? String ?: error("viewportBorderColor getter returned non-string"),
+            thickness =
+                (getThickness.invoke(config) as? Number)?.toInt()
+                    ?: error("viewportBorderThickness getter returned non-number"),
+        )
+
+    fun writeViewport(viewport: CgpViewport) {
+        setColor.invoke(config, viewport.color)
+        setBorder.invoke(config, viewport.border)
+        setThickness.invoke(config, viewport.thickness)
+    }
+}
+
+private fun CgpAccess.restoreViewport(
+    current: CgpViewport,
+    base: CgpViewport,
+): Throwable? =
+    try {
+        writeViewport(base)
+        null
+    } catch (exception: InvocationTargetException) {
+        val error = exception.cause ?: exception
+        rollbackViewport(current, error)
+        error
+    } catch (exception: ReflectiveOperationException) {
+        rollbackViewport(current, exception)
+        exception
+    } catch (exception: RuntimeException) {
+        rollbackViewport(current, exception)
+        exception
+    }
+
+private fun CgpAccess.rollbackViewport(
+    current: CgpViewport,
+    originalError: Throwable,
+) {
+    try {
+        writeViewport(current)
+    } catch (rollbackError: ReflectiveOperationException) {
+        originalError.addSuppressed(rollbackError)
+    } catch (rollbackError: RuntimeException) {
+        originalError.addSuppressed(rollbackError)
     }
 }

@@ -21,6 +21,7 @@ import dev.ayuislands.accent.elements.AbstractChromeElement
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.propagateFailure
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -141,25 +142,32 @@ object AccentApplicator {
             ColorKey.find("TAB_UNDERLINE"),
         )
 
-    private data class AttrOverride(
+    private enum class AttributeTarget {
+        FOREGROUND,
+        EFFECT_COLOR,
+        ERROR_STRIPE,
+    }
+
+    private data class AttributeOverride(
         val key: String,
-        val foreground: Boolean = false,
-        val effectColor: Boolean = false,
-        val errorStripe: Boolean = false,
+        val targets: Set<AttributeTarget>,
     )
 
     // Always-on editor TextAttributesKey overrides
     private val ALWAYS_ON_EDITOR_ATTR_OVERRIDES =
         listOf(
-            AttrOverride("BOOKMARKS_ATTRIBUTES", errorStripe = true),
-            AttrOverride("DEBUGGER_INLINED_VALUES_MODIFIED", foreground = true),
-            AttrOverride("LIVE_TEMPLATE_ATTRIBUTES", effectColor = true),
-            AttrOverride("LOG_INFO_OUTPUT", foreground = true),
-            AttrOverride("RUNTIME_ERROR", effectColor = true),
-            AttrOverride("SMART_COMPLETION_STATISTICAL_MATCHED_ITEM", foreground = true),
-            AttrOverride("TEXT_STYLE_WARNING", effectColor = true),
-            AttrOverride("TODO_DEFAULT_ATTRIBUTES", foreground = true),
-            AttrOverride("WARNING_ATTRIBUTES", effectColor = true, errorStripe = true),
+            AttributeOverride("BOOKMARKS_ATTRIBUTES", setOf(AttributeTarget.ERROR_STRIPE)),
+            AttributeOverride("DEBUGGER_INLINED_VALUES_MODIFIED", setOf(AttributeTarget.FOREGROUND)),
+            AttributeOverride("LIVE_TEMPLATE_ATTRIBUTES", setOf(AttributeTarget.EFFECT_COLOR)),
+            AttributeOverride("LOG_INFO_OUTPUT", setOf(AttributeTarget.FOREGROUND)),
+            AttributeOverride("RUNTIME_ERROR", setOf(AttributeTarget.EFFECT_COLOR)),
+            AttributeOverride("SMART_COMPLETION_STATISTICAL_MATCHED_ITEM", setOf(AttributeTarget.FOREGROUND)),
+            AttributeOverride("TEXT_STYLE_WARNING", setOf(AttributeTarget.EFFECT_COLOR)),
+            AttributeOverride("TODO_DEFAULT_ATTRIBUTES", setOf(AttributeTarget.FOREGROUND)),
+            AttributeOverride(
+                "WARNING_ATTRIBUTES",
+                setOf(AttributeTarget.EFFECT_COLOR, AttributeTarget.ERROR_STRIPE),
+            ),
         )
 
     /**
@@ -237,13 +245,16 @@ object AccentApplicator {
                     )
                 }
                 put(AccentApplyStep.SyncIndentRainbow) {
-                    IndentRainbowSync.apply(
-                        checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
-                        trimmedHex,
-                    )
+                    IndentRainbowSync
+                        .apply(
+                            checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
+                            trimmedHex,
+                        ).propagateFailure()
                 }
                 put(AccentApplyStep.SyncCodeGlanceProViewport) {
-                    CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex, context)
+                    CodeGlanceProIntegration
+                        .syncCodeGlanceProViewport(trimmedHex, context)
+                        .propagateFailure()
                 }
                 put(AccentApplyStep.ApplyAlwaysOnEditorKeys) { applyAlwaysOnEditorKeys(accent) }
                 put(AccentApplyStep.NotifyComponentTrees) {
@@ -487,9 +498,13 @@ object AccentApplicator {
             buildMap {
                 put(AccentApplyStep.ClearUiAndExtensions) { clearReverseUiAndExtensions() }
                 put(AccentApplyStep.RevertAlwaysOnEditorKeys) { revertAlwaysOnEditorKeys() }
-                put(AccentApplyStep.RevertIndentRainbow) { IndentRainbowSync.revert() }
+                put(AccentApplyStep.RevertIndentRainbow) {
+                    IndentRainbowSync.revert().propagateFailure()
+                }
                 put(AccentApplyStep.RevertCodeGlanceProViewport) {
-                    CodeGlanceProIntegration.revertCodeGlanceProViewport()
+                    CodeGlanceProIntegration
+                        .revertCodeGlanceProViewport()
+                        .propagateFailure()
                 }
                 put(AccentApplyStep.NotifyComponentTrees) {
                     // Cached JBColor instances survive a bare UIManager.put(key, null)
@@ -697,13 +712,13 @@ object AccentApplicator {
         }
 
         // TextAttributesKey entries -- clone existing, override only accent properties
-        for (attributeOverride in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
-            val attrKey = TextAttributesKey.find(attributeOverride.key)
+        for ((key, targets) in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
+            val attrKey = TextAttributesKey.find(key)
             val existing = scheme.getAttributes(attrKey)
             val updated = existing?.clone() ?: TextAttributes()
-            if (attributeOverride.foreground) updated.foregroundColor = accent
-            if (attributeOverride.effectColor) updated.effectColor = accent
-            if (attributeOverride.errorStripe) updated.errorStripeColor = accent
+            if (AttributeTarget.FOREGROUND in targets) updated.foregroundColor = accent
+            if (AttributeTarget.EFFECT_COLOR in targets) updated.effectColor = accent
+            if (AttributeTarget.ERROR_STRIPE in targets) updated.errorStripeColor = accent
             scheme.setAttributes(attrKey, updated)
         }
 
