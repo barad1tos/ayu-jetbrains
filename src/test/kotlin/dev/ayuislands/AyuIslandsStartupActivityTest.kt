@@ -1,7 +1,11 @@
 package dev.ayuislands
 
+import com.intellij.openapi.project.Project
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.licensing.ReconciliationFailure
+import dev.ayuislands.licensing.ReconciliationResult
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsState
@@ -50,6 +54,83 @@ class AyuIslandsStartupActivityTest {
 
         assertEquals(1, captured.size)
         assertEquals("License startup step 'step-X' failed", captured.single().first)
+    }
+
+    @Test
+    fun `startup reconciliation failure schedules a short retry`() {
+        var attempts = 0
+        var retryDelayMs: Long? = null
+        var retryAction: (() -> Unit)? = null
+        val project = mockk<Project>(relaxed = true)
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { delayMs, action ->
+                    retryDelayMs = delayMs
+                    retryAction = action
+                },
+                recheckDelayProvider = { null },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
+
+        assertEquals(1, attempts)
+        assertTrue(checkNotNull(retryDelayMs) < 60_000L)
+        checkNotNull(retryAction).invoke()
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `successful startup retry restores the adaptive license check`() {
+        var attempts = 0
+        val scheduledDelays = mutableListOf<Long>()
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val project = mockk<Project>(relaxed = true)
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { delayMs, action ->
+                    scheduledDelays += delayMs
+                    scheduledActions += action
+                },
+                recheckDelayProvider = { 100_000L },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
+        scheduledActions.single().invoke()
+
+        assertEquals(2, attempts)
+        assertEquals(listOf(5_000L, 100_000L), scheduledDelays)
     }
 
     @Test

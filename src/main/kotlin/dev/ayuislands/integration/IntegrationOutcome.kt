@@ -3,11 +3,15 @@ package dev.ayuislands.integration
 internal enum class IntegrationOwnership {
     UNOWNED,
     OWNED,
+    RECOVERY_PENDING,
     SUSPENDED,
     ;
 
     companion object {
-        fun fromName(value: String?): IntegrationOwnership = entries.firstOrNull { it.name == value } ?: UNOWNED
+        fun fromName(value: String?): IntegrationOwnership {
+            if (value == null) return UNOWNED
+            return entries.firstOrNull { it.name == value } ?: SUSPENDED
+        }
     }
 }
 

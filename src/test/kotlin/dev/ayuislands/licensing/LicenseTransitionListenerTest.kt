@@ -211,6 +211,87 @@ class LicenseTransitionListenerTest {
     }
 
     @Test
+    fun `failed reconciliation schedules a short retry without another facade callback`() {
+        var attempts = 0
+        var retryDelayMs: Long? = null
+        var retryAction: (() -> Unit)? = null
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { LicenseEntitlement.UNLICENSED },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh Project view",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { delayMs, action ->
+                    retryDelayMs = delayMs
+                    retryAction = action
+                },
+            )
+
+        listener.licenseStateChanged(facade)
+
+        assertEquals(1, attempts)
+        assertTrue(checkNotNull(retryDelayMs) < 60_000L)
+        checkNotNull(retryAction).invoke()
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `project enumeration failure retries without committing the transition`() {
+        var enumerationAttempts = 0
+        var retryAction: (() -> Unit)? = null
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { LicenseEntitlement.UNLICENSED },
+                reconcile = { entitlement, projects ->
+                    recordReconciliation(entitlement, projects)
+                    ReconciliationResult.Success
+                },
+                projectsProvider = {
+                    enumerationAttempts += 1
+                    if (enumerationAttempts == 1) error("project enumeration failed")
+                    listOf(project)
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, action -> retryAction = action },
+            )
+
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processError(
+                    category: String,
+                    message: String,
+                    details: Array<out String>,
+                    throwable: Throwable?,
+                ): Set<Action> = EnumSet.noneOf(Action::class.java)
+            }
+        LoggedErrorProcessor.executeWith<IllegalStateException>(processor) {
+            listener.licenseStateChanged(facade)
+        }
+
+        assertTrue(reconciliations.isEmpty())
+        checkNotNull(retryAction).invoke()
+        assertEquals(
+            listOf(LicenseEntitlement.UNLICENSED to listOf(project)),
+            reconciliations,
+        )
+    }
+
+    @Test
     fun `grace recheck reconciles expiry without another facade callback`() {
         var entitlement = LicenseEntitlement.LICENSED
         var scheduled: (() -> Unit)? = null

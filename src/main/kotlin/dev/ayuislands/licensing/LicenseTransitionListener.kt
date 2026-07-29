@@ -28,6 +28,9 @@ internal class LicenseTransitionListener(
     private val entitlementProvider: () -> LicenseEntitlement = LicenseChecker::currentEntitlement,
     private val reconcile: (LicenseEntitlement, Iterable<Project>) -> ReconciliationResult =
         EntitlementReconciler::reconcile,
+    private val projectsProvider: () -> List<Project> = {
+        ProjectManager.getInstance().openProjects.toList()
+    },
     private val dispatch: (() -> Unit) -> Unit = { ApplicationManager.getApplication().invokeLater(it) },
     private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
     private val scheduleRecheck: (Long, () -> Unit) -> Unit = { delayMs, action ->
@@ -47,9 +50,9 @@ internal class LicenseTransitionListener(
 
             val previous = previousEntitlement
             if (requiresReconciliation(previous, entitlement)) {
-                val result = reconcile(entitlement, openProjects())
+                val result = reconcile(entitlement, projectsProvider())
                 if (!result.isSuccess) {
-                    scheduleNextCheck(entitlement)
+                    scheduleRetry()
                     return
                 }
                 rearmPremiumOnboarding(previous, entitlement)
@@ -58,7 +61,12 @@ internal class LicenseTransitionListener(
             scheduleNextCheck(entitlement)
         } catch (exception: RuntimeException) {
             LOG.error("Ayu license: failed to handle license state change", exception)
+            scheduleRetry()
         }
+    }
+
+    private fun scheduleRetry() {
+        scheduleRecheck(RECONCILIATION_RETRY_MS) { licenseStateChanged(null) }
     }
 
     private fun scheduleNextCheck(entitlement: LicenseEntitlement) {
@@ -83,15 +91,8 @@ internal class LicenseTransitionListener(
         entitlement: LicenseEntitlement,
     ): Boolean = previous?.let { it != entitlement } ?: (entitlement == LicenseEntitlement.UNLICENSED)
 
-    private fun openProjects(): List<Project> =
-        try {
-            ProjectManager.getInstance().openProjects.toList()
-        } catch (exception: RuntimeException) {
-            LOG.warn("Ayu license: failed to enumerate projects for reconciliation", exception)
-            emptyList()
-        }
-
     private companion object {
+        private const val RECONCILIATION_RETRY_MS = 5_000L
         private val LOG = logger<LicenseTransitionListener>()
     }
 }

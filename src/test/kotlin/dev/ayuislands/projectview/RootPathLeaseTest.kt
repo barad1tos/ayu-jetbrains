@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class RootPathLeaseTest {
     @Test
@@ -54,6 +55,35 @@ class RootPathLeaseTest {
 
         assertEquals(true, currentValue)
         verify(exactly = 0) { registryValue.resetToDefault() }
+    }
+
+    @Test
+    fun `failed last project restore retains ownership for retry`() {
+        var currentValue = true
+        var resetAttempts = 0
+        val registryValue =
+            registryValue(
+                read = { currentValue },
+                write = { currentValue = it },
+            )
+        every { registryValue.resetToDefault() } answers {
+            resetAttempts += 1
+            if (resetAttempts == 1) error("registry restore failed")
+            currentValue = true
+        }
+        val project = mockk<Project>()
+        val lease = RootPathLease()
+
+        lease.acquire(project, registryValue)
+        assertFailsWith<IllegalStateException> {
+            lease.release(project, registryValue)
+        }
+        assertEquals(false, currentValue)
+
+        lease.release(project, registryValue)
+
+        assertEquals(true, currentValue)
+        assertEquals(2, resetAttempts)
     }
 
     private fun registryValue(

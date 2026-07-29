@@ -5,11 +5,14 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.CodeGlanceProIntegration
 import dev.ayuislands.accent.toolbar.QuickSwitcherPopup
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.propagateFailure
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -32,6 +35,16 @@ internal data class ReconciliationResult(
     }
 }
 
+internal fun reconciliationError(failures: List<ReconciliationFailure>): IllegalStateException {
+    val error =
+        IllegalStateException(
+            "Ayu entitlement reconciliation incomplete: " +
+                failures.joinToString { it.operation },
+        )
+    failures.forEach { failure -> error.addSuppressed(failure.error) }
+    return error
+}
+
 /**
  * Reconciles runtime-only premium surfaces after a definitive entitlement result.
  *
@@ -47,6 +60,15 @@ internal object EntitlementReconciler {
         projects: Iterable<Project>,
     ): ReconciliationResult {
         if (entitlement == LicenseEntitlement.UNKNOWN) return ReconciliationResult.Success
+        return LicenseChecker.withConfirmedEntitlement(entitlement) {
+            reconcileConfirmed(entitlement, projects)
+        }
+    }
+
+    private fun reconcileConfirmed(
+        entitlement: LicenseEntitlement,
+        projects: Iterable<Project>,
+    ): ReconciliationResult {
         val failures = mutableListOf<ReconciliationFailure>()
 
         runSurface(failures, "close Quick Switcher popups") {
@@ -55,6 +77,12 @@ internal object EntitlementReconciler {
         if (entitlement == LicenseEntitlement.UNLICENSED) {
             runSurface(failures, "stop accent rotation") {
                 AccentRotationService.getInstance().stopRotation()
+            }
+            runSurface(failures, "restore CodeGlance Pro") {
+                CodeGlanceProIntegration.restoreOwnedState().propagateFailure()
+            }
+            runSurface(failures, "restore Indent Rainbow") {
+                IndentRainbowSync.restoreOwnedState().propagateFailure()
             }
         }
 
@@ -88,11 +116,8 @@ internal object EntitlementReconciler {
             runSurface(failures, "resume accent rotation", ::resumeRotation)
         }
         if (failures.isNotEmpty()) {
-            LOG.warn(
-                "Ayu entitlement reconciliation incomplete: " +
-                    failures.joinToString { it.operation },
-                failures.first().error,
-            )
+            val error = reconciliationError(failures)
+            LOG.warn(error.message.orEmpty(), error)
         }
         return ReconciliationResult(failures.toList())
     }

@@ -4,11 +4,14 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.CodeGlanceProIntegration
 import dev.ayuislands.accent.toolbar.QuickSwitcherPopup
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -70,6 +73,10 @@ class EntitlementReconcilerTest {
         every { AccentContext.detect() } returns context
         mockkObject(AccentApplicator)
         every { AccentApplicator.applyForFocusedProject(context) } returns "#FFCC66"
+        mockkObject(CodeGlanceProIntegration)
+        every { CodeGlanceProIntegration.restoreOwnedState() } returns IntegrationOutcome.Skipped
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.restoreOwnedState() } returns IntegrationOutcome.Skipped
         mockkObject(QuickSwitcherPopup)
         every { QuickSwitcherPopup.closeOpenPopups() } just Runs
         mockkObject(GlowOverlayManager.Companion)
@@ -136,6 +143,32 @@ class EntitlementReconcilerTest {
         verify(exactly = 1) { rotation.rotateNow() }
         verify(exactly = 0) { rotation.stopRotation() }
         verify(exactly = 1) { QuickSwitcherPopup.closeOpenPopups() }
+    }
+
+    @Test
+    fun `confirmed entitlement remains stable throughout reconciliation`() {
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensed() } returns false
+        val observed = mutableListOf<Boolean>()
+        every { projectView.apply() } answers {
+            observed += LicenseChecker.isLicensedOrGrace()
+        }
+
+        EntitlementReconciler.reconcile(LicenseEntitlement.LICENSED, listOf(project))
+
+        assertEquals(listOf(true), observed)
+        assertFalse(LicenseChecker.isLicensedOrGrace())
+    }
+
+    @Test
+    fun `license loss restores integrations without an accent context`() {
+        every { AccentContext.detect() } returns null
+
+        EntitlementReconciler.reconcile(LicenseEntitlement.UNLICENSED, emptyList())
+
+        verify(exactly = 1) { CodeGlanceProIntegration.restoreOwnedState() }
+        verify(exactly = 1) { IndentRainbowSync.restoreOwnedState() }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
     }
 
     @Test
@@ -210,6 +243,23 @@ class EntitlementReconcilerTest {
 
         assertTrue(result.isSuccess)
         assertTrue(result.failures.isEmpty())
+    }
+
+    @Test
+    fun `aggregate reconciliation error retains every failure chain`() {
+        val first = IllegalStateException("project view failed")
+        val second = IllegalArgumentException("syntax failed")
+        val error =
+            reconciliationError(
+                listOf(
+                    ReconciliationFailure("refresh Project view", first),
+                    ReconciliationFailure("refresh syntax", second),
+                ),
+            )
+
+        assertTrue(error.message.orEmpty().contains("refresh Project view"))
+        assertTrue(error.message.orEmpty().contains("refresh syntax"))
+        assertEquals(listOf(first, second), error.suppressed.toList())
     }
 
     private fun verifyWorkspaceApplied() {

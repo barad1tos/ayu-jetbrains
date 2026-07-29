@@ -22,6 +22,8 @@ import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.EntitlementReconciler
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.licensing.LicenseRecheckScheduler
+import dev.ayuislands.licensing.ReconciliationResult
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
@@ -36,7 +38,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.swing.SwingUtilities
 
-internal class AyuIslandsStartupActivity : ProjectActivity {
+internal class AyuIslandsStartupActivity(
+    private val entitlementProvider: () -> LicenseEntitlement = LicenseChecker::currentEntitlement,
+    private val reconcile: (LicenseEntitlement, Iterable<Project>) -> ReconciliationResult =
+        EntitlementReconciler::reconcile,
+    private val scheduleRecheck: (Long, () -> Unit) -> Unit = { delayMs, action ->
+        LicenseRecheckScheduler.getInstance().schedule(delayMs, action)
+    },
+    private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
+) : ProjectActivity {
     override suspend fun execute(project: Project) {
         val themeName = AyuVariant.currentThemeName()
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
@@ -370,7 +380,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         settings: AyuIslandsSettings,
         isReturningUser: Boolean,
     ) {
-        val entitlement = LicenseChecker.currentEntitlement()
+        val entitlement = entitlementProvider()
         LOG.info("Ayu Islands license check: ${entitlement.name.lowercase()}")
 
         val trialDays = LicenseChecker.getTrialDaysRemaining()
@@ -407,7 +417,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
             runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
             runStep("reconcile-entitlement") {
-                EntitlementReconciler.reconcile(entitlement, listOf(project))
+                reconcileAtStartup(entitlement, listOf(project))
             }
             runStep("handle-wizard-action") {
                 wizardAction?.let {
@@ -419,6 +429,46 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             }
         }
     }
+
+    private fun reconcileAtStartup(
+        entitlement: LicenseEntitlement,
+        projects: List<Project>,
+    ) {
+        if (entitlement == LicenseEntitlement.UNKNOWN) return
+        val result = reconcile(entitlement, projects)
+        if (!result.isSuccess) {
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS, projects)
+        }
+    }
+
+    private fun scheduleStartupCheck(
+        delayMs: Long,
+        projects: List<Project>,
+    ) {
+        scheduleRecheck(delayMs) {
+            runScheduledStartupCheck(projects)
+        }
+    }
+
+    private fun runScheduledStartupCheck(projects: List<Project>) {
+        val entitlement = entitlementProvider()
+        if (entitlement == LicenseEntitlement.UNKNOWN) {
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS, projects)
+            return
+        }
+        val result = reconcile(entitlement, projects)
+        when {
+            !result.isSuccess -> scheduleStartupCheck(RECONCILIATION_RETRY_MS, projects)
+            entitlement == LicenseEntitlement.LICENSED ->
+                recheckDelayProvider()?.let { scheduleStartupCheck(it, projects) }
+        }
+    }
+
+    @org.jetbrains.annotations.TestOnly
+    internal fun reconcileForTest(
+        entitlement: LicenseEntitlement,
+        projects: List<Project>,
+    ) = reconcileAtStartup(entitlement, projects)
 
     /**
      * Invokes [block] with fine-grained error handling so each startup step gets its own
@@ -479,6 +529,7 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         shouldWarmLanguageDetector(state)
 
     companion object {
+        private const val RECONCILIATION_RETRY_MS = 5_000L
         private val LOG = logger<AyuIslandsStartupActivity>()
     }
 }

@@ -257,10 +257,11 @@ class AyuIslandsStatePropertyTest {
     }
 
     @Test
-    fun `unknown serialized integration ownership normalizes to unowned`() {
+    fun `unknown serialized integration ownership suspends baseline capture`() {
         assertEquals(IntegrationOwnership.UNOWNED, IntegrationOwnership.fromName(null))
-        assertEquals(IntegrationOwnership.UNOWNED, IntegrationOwnership.fromName("future-value"))
+        assertEquals(IntegrationOwnership.SUSPENDED, IntegrationOwnership.fromName("future-value"))
         assertEquals(IntegrationOwnership.OWNED, IntegrationOwnership.fromName("OWNED"))
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING, IntegrationOwnership.fromName("RECOVERY_PENDING"))
         assertEquals(IntegrationOwnership.SUSPENDED, IntegrationOwnership.fromName("SUSPENDED"))
     }
 

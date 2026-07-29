@@ -97,6 +97,7 @@ object LicenseChecker {
     private val LOG = logger<LicenseChecker>()
     private const val NOTIFICATION_GROUP = "Ayu Islands"
     private val verifier = LicenseVerifier()
+    private val entitlementOverride = ThreadLocal<LicenseEntitlement?>()
 
     /**
      * Test seam for the wall-clock reads inside [currentEntitlement].
@@ -188,8 +189,9 @@ object LicenseChecker {
      * Treat an unknown Marketplace startup state as fail-open only until the first
      * confirmed entitlement. A transient outage cannot undo a confirmed loss.
      */
-    fun isLicensedOrGrace(): Boolean =
-        when (currentEntitlement()) {
+    fun isLicensedOrGrace(): Boolean {
+        entitlementOverride.get()?.let { return it == LicenseEntitlement.LICENSED }
+        return when (currentEntitlement()) {
             LicenseEntitlement.LICENSED -> true
             LicenseEntitlement.UNLICENSED -> false
             LicenseEntitlement.UNKNOWN ->
@@ -197,6 +199,27 @@ object LicenseChecker {
                     AyuIslandsSettings.getInstance().state.lastConfirmedEntitlement,
                 ) != LicenseEntitlement.UNLICENSED
         }
+    }
+
+    internal fun <T> withConfirmedEntitlement(
+        entitlement: LicenseEntitlement,
+        action: () -> T,
+    ): T {
+        require(entitlement != LicenseEntitlement.UNKNOWN) {
+            "Confirmed entitlement override cannot be UNKNOWN"
+        }
+        val previous = entitlementOverride.get()
+        entitlementOverride.set(entitlement)
+        return try {
+            action()
+        } finally {
+            if (previous == null) {
+                entitlementOverride.remove()
+            } else {
+                entitlementOverride.set(previous)
+            }
+        }
+    }
 
     internal fun nextRecheckDelayMs(): Long? {
         val state = AyuIslandsSettings.getInstance().state

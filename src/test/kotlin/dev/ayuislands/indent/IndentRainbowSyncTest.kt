@@ -292,6 +292,30 @@ class IndentRainbowSyncTest {
     }
 
     @Test
+    fun `failed first Indent Rainbow write recovers the original baseline before retry`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        harness.shouldFailNextCountAndRollbackPalette = true
+
+        val failed = IndentRainbowSync.apply(AyuVariant.MIRAGE, TEST_ACCENT_HEX)
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.irOwnership)
+        assertEquals(FakePaletteType.RAINBOW.name, state.irBaseType)
+        assertEquals("user-palette", state.irBasePalette)
+        assertEquals(4, state.irBaseColorCount)
+
+        assertEquals(
+            IntegrationOutcome.Applied,
+            IndentRainbowSync.apply(AyuVariant.MIRAGE, "#AABBCC"),
+        )
+        assertEquals(IntegrationOutcome.Restored, IndentRainbowSync.restoreOwnedState())
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
+    }
+
+    @Test
     fun `missing Indent Rainbow baseline never forces DEFAULT`() {
         val harness =
             installIrHarness(
@@ -891,10 +915,19 @@ class IndentRainbowSyncTest {
         every { customPalette.get(config) } answers { harness.palette }
         every { customPalette.set(config, any()) } answers {
             harness.palette = secondArg()
+            if (harness.shouldFailNextPalette) {
+                harness.shouldFailNextPalette = false
+                error("palette write rejected after mutation")
+            }
         }
         every { count.getInt(config) } answers { harness.colorCount }
         every { count.setInt(config, any()) } answers {
             harness.colorCount = secondArg()
+            if (harness.shouldFailNextCountAndRollbackPalette) {
+                harness.shouldFailNextCountAndRollbackPalette = false
+                harness.shouldFailNextPalette = true
+                error("color count write rejected after mutation")
+            }
         }
 
         setPrivateField("methodsResolved", true)
@@ -929,6 +962,8 @@ class IndentRainbowSyncTest {
         var type: FakePaletteType,
         var palette: String,
         var colorCount: Int,
+        var shouldFailNextCountAndRollbackPalette: Boolean = false,
+        var shouldFailNextPalette: Boolean = false,
     )
 
     private enum class FakePaletteType {

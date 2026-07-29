@@ -45,8 +45,10 @@ internal class RootPathLease {
         if (project !in current.projects) return
 
         detectManualDrift(current, registryValue)
-        current.projects -= project
-        if (current.projects.isNotEmpty()) return
+        if (current.projects.size > 1) {
+            current.projects -= project
+            return
+        }
 
         if (!current.isDrifted) {
             if (current.snapshot.wasChanged) {
@@ -55,6 +57,7 @@ internal class RootPathLease {
                 registryValue.resetToDefault()
             }
         }
+        current.projects -= project
         ownership = null
     }
 
