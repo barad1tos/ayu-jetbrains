@@ -13,6 +13,7 @@ import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.ui.ComponentTreeRefresher
@@ -76,7 +77,9 @@ class ProjectAccentSwapServicePublishTest {
         mockkObject(IndentRainbowSync)
         every { AccentApplicator.applyFromHexString(any()) } returns true
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
-        every { IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any()) } just Runs
+        every {
+            IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any())
+        } returns IntegrationOutcome.Skipped
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs
 

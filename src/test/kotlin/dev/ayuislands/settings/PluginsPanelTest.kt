@@ -9,9 +9,12 @@ import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.CodeGlanceProIntegration
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.indent.IndentPreset
+import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.AccentSwatchPickerRow
 import dev.ayuislands.syntax.SyntaxIntensityService
@@ -298,6 +301,70 @@ class PluginsPanelTest {
         assertFalse(state.externalThemeIndentRainbowEnabled)
         assertTrue(state.externalThemeChromeTintEnabled)
         assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `explicit integration opt-in clears suspended ownership`() {
+        state.cgpOwnership = IntegrationOwnership.SUSPENDED.name
+        state.irOwnership = IntegrationOwnership.SUSPENDED.name
+        every { ConflictRegistry.isCodeGlanceProDetected() } returns true
+        every { ConflictRegistry.isIndentRainbowDetected() } returns true
+        mockkObject(CodeGlanceProIntegration)
+        every { CodeGlanceProIntegration.prepareExplicitEnable() } answers { callOriginal() }
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.prepareExplicitEnable() } answers { callOriginal() }
+        mockkObject(AccentApplicator)
+        every {
+            AccentApplicator.applyForFocusedProject(any<AccentContext>())
+        } returns "#AABBCC"
+
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkboxes = descendants(dialogPanel, JCheckBox::class.java)
+        checkboxes.first { it.text == "CodeGlance Pro viewport" }.doClick()
+        checkboxes.first { it.text == "Indent Rainbow guides" }.doClick()
+
+        pluginsPanel.apply()
+
+        assertTrue(state.cgpIntegrationEnabled)
+        assertTrue(state.irIntegrationEnabled)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.irOwnership)
+        verify(exactly = 1) { CodeGlanceProIntegration.prepareExplicitEnable() }
+        verify(exactly = 1) { IndentRainbowSync.prepareExplicitEnable() }
+    }
+
+    @Test
+    fun `integration opt-out preserves suspension until a later explicit opt-in`() {
+        state.cgpIntegrationEnabled = true
+        state.irIntegrationEnabled = true
+        state.cgpOwnership = IntegrationOwnership.SUSPENDED.name
+        state.irOwnership = IntegrationOwnership.SUSPENDED.name
+        every { ConflictRegistry.isCodeGlanceProDetected() } returns true
+        every { ConflictRegistry.isIndentRainbowDetected() } returns true
+        mockkObject(CodeGlanceProIntegration)
+        every { CodeGlanceProIntegration.prepareExplicitEnable() } returns Unit
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.prepareExplicitEnable() } returns Unit
+        mockkObject(AccentApplicator)
+        every {
+            AccentApplicator.applyForFocusedProject(any<AccentContext>())
+        } returns "#AABBCC"
+
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkboxes = descendants(dialogPanel, JCheckBox::class.java)
+        checkboxes.first { it.text == "CodeGlance Pro viewport" }.doClick()
+        checkboxes.first { it.text == "Indent Rainbow guides" }.doClick()
+
+        pluginsPanel.apply()
+
+        assertFalse(state.cgpIntegrationEnabled)
+        assertFalse(state.irIntegrationEnabled)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.cgpOwnership)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.irOwnership)
+        verify(exactly = 0) { CodeGlanceProIntegration.prepareExplicitEnable() }
+        verify(exactly = 0) { IndentRainbowSync.prepareExplicitEnable() }
     }
 
     @Test

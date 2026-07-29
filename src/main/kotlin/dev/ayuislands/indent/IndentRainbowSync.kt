@@ -1,15 +1,16 @@
 package dev.ayuislands.indent
 
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.integration.IntegrationOutcome
+import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import java.lang.reflect.Field
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
@@ -19,6 +20,7 @@ object IndentRainbowSync {
     private const val IR_PLUGIN_ID = "indent-rainbow.indent-rainbow"
     private const val RESOLUTION_FAILED = "IR method resolution failed"
     private const val SYNC_FAILED = "IR sync failed"
+    private const val RESTORE_FAILED = "IR restore failed"
     private const val MAX_ALPHA_VALUE = 255
 
     // Cached reflection objects (resolved once per session)
@@ -34,6 +36,8 @@ object IndentRainbowSync {
 
     @Volatile private var defaultEnumValue: Any? = null
 
+    @Volatile private var paletteEnumValues: Map<String, Any>? = null
+
     @Volatile private var cachedDataUpdateMethod: Method? = null
 
     @Volatile private var cachedDataCompanion: Any? = null
@@ -43,6 +47,8 @@ object IndentRainbowSync {
     @Volatile private var irColorsInstance: Any? = null
 
     @Volatile private var methodsResolved = false
+
+    @Volatile private var resolutionFailure: Throwable? = null
 
     /**
      * Syncs Indent Rainbow's custom palette to [accentHex] for the given [variant].
@@ -60,20 +66,19 @@ object IndentRainbowSync {
      * the plugin just applied, not the global accent stored in settings (which
      * rotation mutates to a different value from what the focused project shows).
      */
-    fun apply(
+    internal fun apply(
         variant: AyuVariant,
         accentHex: String,
-    ) {
+    ): IntegrationOutcome =
         applyPalette(
             palette = IndentPalette.forAccent(accentHex, variant),
             logContext = "for ${variant.name}",
         )
-    }
 
-    fun apply(
+    internal fun apply(
         context: AccentContext,
         accentHex: String,
-    ) {
+    ): IntegrationOutcome =
         when (context) {
             is AccentContext.Ayu -> apply(context.ayuVariant, accentHex)
             AccentContext.External ->
@@ -83,101 +88,170 @@ object IndentRainbowSync {
                         logContext = "for external theme",
                     )
                 } else {
-                    revert()
+                    restoreOwnedState()
                 }
         }
-    }
 
     private fun applyPalette(
         palette: IndentPalette,
         logContext: String,
-    ) {
+    ): IntegrationOutcome {
         val state = AyuIslandsSettings.getInstance().state
+        resolveApplyGate(state)?.let { return it }
+
+        val resolved = resolveOrReturn()
+        if (resolved == null) {
+            return unresolvedOutcome(state, SYNC_FAILED)
+        }
+        val enumValue = customEnumValue
+        if (enumValue == null) {
+            return schemaFailure(state, SYNC_FAILED, "CUSTOM palette enum is unavailable")
+        }
+
+        val preset =
+            IndentPreset.fromName(
+                state.indentPresetName ?: IndentPreset.AMBIENT.name,
+            )
+        val rawAlpha = preset.alpha ?: state.indentCustomAlpha
+        val alpha = rawAlpha.coerceIn(1, MAX_ALPHA_VALUE)
+        val colorStrings =
+            palette.toColorStrings(
+                alpha,
+                highlightErrors = state.irErrorHighlightEnabled,
+            )
+        val target =
+            IrPalette(
+                type = enumName(enumValue),
+                palette = colorStrings.joinToString(", "),
+                colorCount = colorStrings.size,
+            )
+        return applyResolvedPalette(
+            state = state,
+            resolved = resolved,
+            enumValue = enumValue,
+            target = target,
+            logContext = logContext,
+        )
+    }
+
+    private fun resolveApplyGate(state: AyuIslandsState): IntegrationOutcome? {
         if (!state.irIntegrationEnabled) {
-            revert()
-            return
+            return restoreOwnedState()
         }
         if (!LicenseChecker.isLicensedOrGrace()) {
-            revert()
-            return
+            return restoreOwnedState()
         }
+        if (IntegrationOwnership.fromName(state.irOwnership) == IntegrationOwnership.SUSPENDED) {
+            return IntegrationOutcome.Skipped
+        }
+        return null
+    }
 
-        val resolved = resolveOrReturn() ?: return
-        val paletteField = customPaletteField ?: return
-        val numberField = customPaletteNumberColorsField ?: return
-        val enumValue = customEnumValue ?: return
-
+    private fun applyResolvedPalette(
+        state: AyuIslandsState,
+        resolved: ResolvedIrState,
+        enumValue: Any,
+        target: IrPalette,
+        logContext: String,
+    ): IntegrationOutcome {
         try {
-            val preset =
-                IndentPreset.fromName(
-                    state.indentPresetName ?: IndentPreset.AMBIENT.name,
-                )
-            val rawAlpha = preset.alpha ?: state.indentCustomAlpha
-            val alpha = rawAlpha.coerceIn(1, MAX_ALPHA_VALUE)
-            val colorStrings =
-                palette.toColorStrings(
-                    alpha,
-                    highlightErrors = state.irErrorHighlightEnabled,
-                )
-            val customPaletteValue = colorStrings.joinToString(", ")
+            val current = resolved.readPalette()
+            when (IntegrationOwnership.fromName(state.irOwnership)) {
+                IntegrationOwnership.UNOWNED -> Unit
+                IntegrationOwnership.OWNED -> {
+                    val applied = state.irAppliedPalette()
+                    if (applied == null || current.palette != applied) {
+                        suspendOwnership(state)
+                        return IntegrationOutcome.Skipped
+                    }
+                }
+                IntegrationOwnership.SUSPENDED -> return IntegrationOutcome.Skipped
+            }
 
-            resolved.paletteTypeField[resolved.config] = enumValue
-            paletteField[resolved.config] = customPaletteValue
-            numberField.setInt(resolved.config, colorStrings.size)
+            try {
+                resolved.writePalette(target, enumValue)
+            } catch (exception: ReflectiveOperationException) {
+                rollbackPalette(resolved, current, exception)
+                return failedOutcome(SYNC_FAILED, exception)
+            } catch (exception: RuntimeException) {
+                rollbackPalette(resolved, current, exception)
+                return failedOutcome(SYNC_FAILED, exception)
+            }
 
-            resolved.flushCache()
-
+            if (IntegrationOwnership.fromName(state.irOwnership) == IntegrationOwnership.UNOWNED) {
+                state.storeIrBase(current.palette)
+            }
+            state.storeIrApplied(target)
+            state.irOwnership = IntegrationOwnership.OWNED.name
             log.info("Indent Rainbow colors synced $logContext")
+            return IntegrationOutcome.Applied
         } catch (exception: InvocationTargetException) {
             val cause = exception.cause
-            logWarning(SYNC_FAILED, cause ?: exception)
-            notifyFailure()
+            return failedOutcome(SYNC_FAILED, cause ?: exception)
         } catch (exception: ReflectiveOperationException) {
-            logWarning(SYNC_FAILED, exception)
-            notifyFailure()
+            return failedOutcome(SYNC_FAILED, exception)
         } catch (exception: RuntimeException) {
-            logWarning(SYNC_FAILED, exception)
-            notifyFailure()
+            return failedOutcome(SYNC_FAILED, exception)
         }
     }
 
     /**
-     * Revert IR's `paletteType` to its DEFAULT enum value, flush IR's reflection
-     * cache. Idempotent. EDT-safe — `IrConfig` writes are unsynchronized but
-     * IR itself reads paletteType only from EDT during paint.
-     *
-     * Reachable from:
-     * - [apply] when `irIntegrationEnabled` becomes false (settings toggle)
-     * - [dev.ayuislands.accent.AccentApplicator.revertAll] on theme-switch /
-     *   license loss (cross-object caller)
-     *
-     * Does NOT clear `customPalette` — IR ignores it unless `paletteType == CUSTOM`.
-     * If the user manually flips `paletteType` back to CUSTOM while a non-Ayu
-     * theme is active, stale Ayu palette will render until the next [apply]
-     * overwrites it. Accepted degradation; regression-locked by
-     * `IndentRainbowSyncTest.revert does not clear customPalette`.
+     * Restores the exact pre-Ayu palette only while all current values still
+     * match Ayu's last successful write.
      */
-    fun revert() {
-        val resolved = resolveOrReturn() ?: return
-        val defaultEnum = defaultEnumValue ?: return
+    internal fun restoreOwnedState(): IntegrationOutcome {
+        val state = AyuIslandsSettings.getInstance().state
+        if (IntegrationOwnership.fromName(state.irOwnership) != IntegrationOwnership.OWNED) {
+            return IntegrationOutcome.Skipped
+        }
+        val base = state.irBasePalette()
+        val applied = state.irAppliedPalette()
+        if (base == null || applied == null) {
+            suspendOwnership(state)
+            return IntegrationOutcome.Skipped
+        }
+
+        val resolved = resolveOrReturn()
+        if (resolved == null) {
+            return unresolvedOutcome(state, RESTORE_FAILED)
+        }
+        val baseEnum =
+            paletteEnumValues?.get(base.type)
+                ?: return schemaFailure(state, RESTORE_FAILED, "palette enum ${base.type} is unavailable")
 
         try {
-            resolved.paletteTypeField[resolved.config] = defaultEnum
-            resolved.flushCache()
-
-            log.info("Indent Rainbow palette type reset to DEFAULT")
+            val current = resolved.readPalette()
+            if (current.palette != applied) {
+                suspendOwnership(state)
+                return IntegrationOutcome.Skipped
+            }
+            resolved.writePalette(base, baseEnum)
+            clearOwnership(state)
+            log.info("Indent Rainbow palette restored to its pre-Ayu values")
+            return IntegrationOutcome.Restored
+        } catch (exception: InvocationTargetException) {
+            return failedOutcome(RESTORE_FAILED, exception.cause ?: exception)
         } catch (exception: ReflectiveOperationException) {
-            logWarning("revert failed", exception)
+            return failedOutcome(RESTORE_FAILED, exception)
         } catch (exception: RuntimeException) {
-            logWarning("revert failed", exception)
+            return failedOutcome(RESTORE_FAILED, exception)
         }
+    }
+
+    internal fun revert(): IntegrationOutcome = restoreOwnedState()
+
+    internal fun prepareExplicitEnable() {
+        clearOwnership(AyuIslandsSettings.getInstance().state)
     }
 
     private fun resolveOrReturn(): ResolvedIrState? {
         resolveReflection()
+        defaultEnumValue ?: return null
         return ResolvedIrState(
             config = irConfig ?: return null,
             paletteTypeField = paletteTypeField ?: return null,
+            customPaletteField = customPaletteField ?: return null,
+            colorCountField = customPaletteNumberColorsField ?: return null,
             updateMethod = cachedDataUpdateMethod ?: return null,
             companion = cachedDataCompanion ?: return null,
             refreshMethod = refreshMethod ?: return null,
@@ -185,18 +259,67 @@ object IndentRainbowSync {
         )
     }
 
-    private data class ResolvedIrState(
-        val config: Any,
-        val paletteTypeField: Field,
-        val updateMethod: Method,
-        val companion: Any,
-        val refreshMethod: Method,
-        val colorsInstance: Any,
+    private fun unresolvedOutcome(
+        state: AyuIslandsState,
+        operation: String,
+    ): IntegrationOutcome {
+        val failure =
+            resolutionFailure
+                ?: if (irConfig != null) {
+                    IllegalStateException("Indent Rainbow reflection schema is incomplete")
+                } else {
+                    return IntegrationOutcome.Skipped
+                }
+        suspendOwnership(state)
+        return failedOutcome(operation, failure)
+    }
+
+    private fun schemaFailure(
+        state: AyuIslandsState,
+        operation: String,
+        message: String,
+    ): IntegrationOutcome.Failed {
+        suspendOwnership(state)
+        return failedOutcome(operation, IllegalStateException(message))
+    }
+
+    private fun failedOutcome(
+        operation: String,
+        error: Throwable,
+    ): IntegrationOutcome.Failed {
+        log.warn(
+            "Indent Rainbow $operation: ${error.javaClass.simpleName}: ${error.message}",
+            error,
+        )
+        return IntegrationOutcome.Failed(operation, error)
+    }
+
+    private fun rollbackPalette(
+        resolved: ResolvedIrState,
+        current: CurrentIrPalette,
+        originalError: Throwable,
     ) {
-        fun flushCache() {
-            updateMethod.invoke(companion, config)
-            refreshMethod.invoke(colorsInstance)
+        try {
+            resolved.writePalette(current.palette, current.typeValue)
+        } catch (rollbackError: ReflectiveOperationException) {
+            originalError.addSuppressed(rollbackError)
+        } catch (rollbackError: RuntimeException) {
+            originalError.addSuppressed(rollbackError)
         }
+    }
+
+    private fun suspendOwnership(state: AyuIslandsState) {
+        state.irOwnership = IntegrationOwnership.SUSPENDED.name
+    }
+
+    private fun clearOwnership(state: AyuIslandsState) {
+        state.irOwnership = IntegrationOwnership.UNOWNED.name
+        state.irBaseType = null
+        state.irBasePalette = null
+        state.irBaseColorCount = 0
+        state.irAppliedType = null
+        state.irAppliedPalette = null
+        state.irAppliedColorCount = 0
     }
 
     private fun resolveReflection() {
@@ -244,6 +367,7 @@ object IndentRainbowSync {
             val enumConstants = paletteTypeEnumClass.enumConstants
             customEnumValue = enumConstants.first { (it as Enum<*>).name == "CUSTOM" }
             defaultEnumValue = enumConstants.first { (it as Enum<*>).name == "DEFAULT" }
+            paletteEnumValues = enumConstants.associateBy { (it as Enum<*>).name }
 
             // Resolve IrCachedData.Companion.update(config) for cache refresh
             val cachedDataClass =
@@ -271,11 +395,11 @@ object IndentRainbowSync {
             irColorsInstance = instance
             refreshMethod = instance.javaClass.getMethod("refreshEditorIndentColors")
         } catch (exception: ReflectiveOperationException) {
+            resolutionFailure = exception
             logWarning(RESOLUTION_FAILED, exception)
-            notifyFailure()
         } catch (exception: RuntimeException) {
+            resolutionFailure = exception
             logWarning(RESOLUTION_FAILED, exception)
-            notifyFailure()
         }
     }
 
@@ -287,33 +411,6 @@ object IndentRainbowSync {
         val application = ApplicationManager.getApplication()
         val getService = application.javaClass.getMethod("getService", Class::class.java)
         return getService.invoke(application, serviceClass)
-    }
-
-    private fun notifyFailure() {
-        val state = AyuIslandsSettings.getInstance().state
-        val currentVersion =
-            AyuPlugin
-                .findLoadedPlugin(PluginId.getId(IR_PLUGIN_ID))
-                ?.version
-
-        if (state.irFailedVersion == currentVersion) return
-        state.irFailedVersion = currentVersion
-
-        try {
-            NotificationGroupManager
-                .getInstance()
-                .getNotificationGroup("Ayu Islands")
-                .createNotification(
-                    "Indent Rainbow integration failed",
-                    "Indent Rainbow may have updated its API. Colors will use IR defaults. " +
-                        "Please report at github.com/barad1tos/ayu-jetbrains/issues",
-                    NotificationType.WARNING,
-                ).notify(null)
-        } catch (exception: RuntimeException) {
-            log.warn(
-                "Failed to show IR failure notification: ${exception.message}",
-            )
-        }
     }
 
     private fun logWarning(

@@ -14,10 +14,12 @@ import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.CodeGlanceProIntegration
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.indent.IndentPreset
+import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.AccentSwatchPickerRow
 import dev.ayuislands.syntax.SyntaxIntensityService
@@ -458,7 +460,19 @@ class PluginsPanel : AyuIslandsSettingsPanel {
         val premiumChanged = hasPremiumChanges()
         val premiumApplied =
             if (premiumChanged && LicenseChecker.isLicensedOrGrace()) {
+                val hasCgpOptIn =
+                    !storedSettings.isCodeGlanceProEnabled &&
+                        pendingSettings.isCodeGlanceProEnabled
+                val hasIrOptIn =
+                    !storedSettings.isIndentRainbowEnabled &&
+                        pendingSettings.isIndentRainbowEnabled
                 pendingSettings.applyPremiumTo(state)
+                if (hasCgpOptIn) {
+                    CodeGlanceProIntegration.prepareExplicitEnable()
+                }
+                if (hasIrOptIn) {
+                    IndentRainbowSync.prepareExplicitEnable()
+                }
                 storedSettings =
                     storedSettings.copy(
                         isIndentRainbowEnabled = pendingSettings.isIndentRainbowEnabled,

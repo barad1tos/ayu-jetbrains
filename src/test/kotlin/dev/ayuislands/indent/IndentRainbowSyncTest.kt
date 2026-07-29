@@ -1,14 +1,12 @@
 package dev.ayuislands.indent
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
-import com.intellij.notification.Notification
-import com.intellij.notification.NotificationGroup
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.integration.IntegrationOutcome
+import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -61,13 +59,10 @@ class IndentRainbowSyncTest {
      * pulling the hex into one constant removes 20 hardcoded strings and keeps each
      * test readable as "call apply for variant X".
      */
-    private fun callApply(variant: AyuVariant = AyuVariant.MIRAGE) {
+    private fun callApply(variant: AyuVariant = AyuVariant.MIRAGE): IntegrationOutcome =
         IndentRainbowSync.apply(variant, TEST_ACCENT_HEX)
-    }
 
-    private fun callApplyExternal() {
-        IndentRainbowSync.apply(AccentContext.External, "#AABBCC")
-    }
+    private fun callApplyExternal(): IntegrationOutcome = IndentRainbowSync.apply(AccentContext.External, "#AABBCC")
 
     private companion object {
         /** Fixed accent used by every `callApply(...)` invocation in this suite. */
@@ -194,6 +189,80 @@ class IndentRainbowSyncTest {
     }
 
     @Test
+    fun `first Indent Rainbow sync captures exact state and restore reproduces it`() {
+        state.irIntegrationEnabled = true
+        val harness =
+            installIrHarness(
+                type = FakePaletteType.RAINBOW,
+                palette = "user-one, user-two",
+                colorCount = 2,
+            )
+
+        val applyOutcome = IndentRainbowSync.apply(AyuVariant.MIRAGE, TEST_ACCENT_HEX)
+
+        assertEquals(IntegrationOutcome.Applied, applyOutcome)
+        assertEquals(IntegrationOwnership.OWNED.name, state.irOwnership)
+        assertEquals(FakePaletteType.RAINBOW.name, state.irBaseType)
+        assertEquals("user-one, user-two", state.irBasePalette)
+        assertEquals(2, state.irBaseColorCount)
+        assertEquals(FakePaletteType.CUSTOM.name, state.irAppliedType)
+        assertEquals(11, state.irAppliedColorCount)
+
+        val restoreOutcome = IndentRainbowSync.restoreOwnedState()
+
+        assertEquals(IntegrationOutcome.Restored, restoreOutcome)
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-one, user-two", harness.palette)
+        assertEquals(2, harness.colorCount)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.irOwnership)
+        assertEquals(null, state.irBaseType)
+        assertEquals(null, state.irAppliedType)
+    }
+
+    @Test
+    fun `manual Indent Rainbow edit suspends ownership without another Ayu write`() {
+        state.irIntegrationEnabled = true
+        val harness =
+            installIrHarness(
+                type = FakePaletteType.DEFAULT,
+                palette = "user-palette",
+                colorCount = 1,
+            )
+        IndentRainbowSync.apply(AyuVariant.MIRAGE, TEST_ACCENT_HEX)
+        harness.palette = "manual-palette"
+
+        val outcome = IndentRainbowSync.apply(AyuVariant.MIRAGE, "#AABBCC")
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.irOwnership)
+        assertEquals("manual-palette", harness.palette)
+        assertEquals(FakePaletteType.CUSTOM, harness.type)
+        assertEquals(11, harness.colorCount)
+    }
+
+    @Test
+    fun `missing Indent Rainbow baseline never forces DEFAULT`() {
+        val harness =
+            installIrHarness(
+                type = FakePaletteType.CUSTOM,
+                palette = "ayu-palette",
+                colorCount = 11,
+            )
+        state.irOwnership = IntegrationOwnership.OWNED.name
+        state.irAppliedType = FakePaletteType.CUSTOM.name
+        state.irAppliedPalette = "ayu-palette"
+        state.irAppliedColorCount = 11
+
+        val outcome = IndentRainbowSync.restoreOwnedState()
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.irOwnership)
+        assertEquals(FakePaletteType.CUSTOM, harness.type)
+        assertEquals("ayu-palette", harness.palette)
+        assertEquals(11, harness.colorCount)
+    }
+
+    @Test
     fun `apply external context writes external palette to mock IR fields`() {
         state.irIntegrationEnabled = true
         state.externalThemeEnhancementsEnabled = true
@@ -238,150 +307,76 @@ class IndentRainbowSyncTest {
     }
 
     @Test
-    fun `apply external context reverts when external Indent Rainbow inheritance is disabled`() {
+    fun `apply external context restores owned state when inheritance is disabled`() {
         state.irIntegrationEnabled = true
         state.externalThemeEnhancementsEnabled = true
+        state.externalThemeIndentRainbowEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        assertEquals(IntegrationOutcome.Applied, callApplyExternal())
         state.externalThemeIndentRainbowEnabled = false
-        state.indentPresetName = "AMBIENT"
 
-        val mockConfig = Any()
-        val mockPaletteTypeField = mockField()
-        val mockCustomPaletteField = mockField()
-        val mockNumberColorsField = mockIntField()
-        val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
-        val mockCompanion = Any()
-        val mockColorsInstance = Any()
+        val outcome = callApplyExternal()
 
-        setPrivateField("methodsResolved", true)
-        setPrivateField("irConfig", mockConfig)
-        setPrivateField("paletteTypeField", mockPaletteTypeField)
-        setPrivateField("customPaletteField", mockCustomPaletteField)
-        setPrivateField("customPaletteNumberColorsField", mockNumberColorsField)
-        setPrivateField("customEnumValue", "CUSTOM_ENUM")
-        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
-        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
-        setPrivateField("cachedDataCompanion", mockCompanion)
-        setPrivateField("refreshMethod", mockRefreshMethod)
-        setPrivateField("irColorsInstance", mockColorsInstance)
-
-        callApplyExternal()
-
-        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
-        verify(exactly = 0) { mockCustomPaletteField[mockConfig] = any<String>() }
-        verify(exactly = 0) { mockNumberColorsField.setInt(mockConfig, any()) }
-        verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
-        verify { mockRefreshMethod.invoke(mockColorsInstance) }
+        assertEquals(IntegrationOutcome.Restored, outcome)
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
     }
 
     @Test
-    fun `revert writes DEFAULT enum to palette type field`() {
-        val mockConfig = Any()
-        val mockPaletteTypeField = mockField()
-        val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
-        val mockCompanion = Any()
-        val mockColorsInstance = Any()
+    fun `revert leaves unowned Indent Rainbow state unchanged`() {
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
 
-        setPrivateField("methodsResolved", true)
-        setPrivateField("irConfig", mockConfig)
-        setPrivateField("paletteTypeField", mockPaletteTypeField)
-        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
-        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
-        setPrivateField("cachedDataCompanion", mockCompanion)
-        setPrivateField("refreshMethod", mockRefreshMethod)
-        setPrivateField("irColorsInstance", mockColorsInstance)
+        val outcome = IndentRainbowSync.revert()
 
-        IndentRainbowSync.revert()
-
-        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
-        verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
-        verify { mockRefreshMethod.invoke(mockColorsInstance) }
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
     }
 
     @Test
-    fun `revert does not clear customPalette`() {
-        // `revert` resets `paletteType` to DEFAULT but MUST NOT touch
-        // `customPalette`. IR ignores `customPalette` unless
-        // `paletteType == CUSTOM`, so leaving the stale Ayu palette string
-        // in the field is the accepted-degradation path. A future agent who
-        // "helpfully" clears `customPalette` (thinking they're tidying up)
-        // breaks this contract.
-        val mockConfig = Any()
-        val mockPaletteTypeField = mockField()
-        val mockCustomPaletteField = mockField()
-        val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
-        val mockCompanion = Any()
-        val mockColorsInstance = Any()
+    fun `revert restores every captured Indent Rainbow field`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        assertEquals(IntegrationOutcome.Applied, callApply())
 
-        setPrivateField("methodsResolved", true)
-        setPrivateField("irConfig", mockConfig)
-        setPrivateField("paletteTypeField", mockPaletteTypeField)
-        setPrivateField("customPaletteField", mockCustomPaletteField)
-        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
-        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
-        setPrivateField("cachedDataCompanion", mockCompanion)
-        setPrivateField("refreshMethod", mockRefreshMethod)
-        setPrivateField("irColorsInstance", mockColorsInstance)
+        val outcome = IndentRainbowSync.revert()
 
-        IndentRainbowSync.revert()
-
-        // paletteType MUST be reset to DEFAULT (existing expectation reinforced).
-        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
-        // customPalette MUST be untouched.
-        verify(exactly = 0) { mockCustomPaletteField[any()] = any() }
+        assertEquals(IntegrationOutcome.Restored, outcome)
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
     }
 
     @Test
-    fun `apply with disabled integration reverts to DEFAULT`() {
+    fun `apply with disabled integration restores captured state`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        assertEquals(IntegrationOutcome.Applied, callApply())
         state.irIntegrationEnabled = false
 
-        val mockConfig = Any()
-        val mockPaletteTypeField = mockField()
-        val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
-        val mockCompanion = Any()
-        val mockColorsInstance = Any()
+        val outcome = callApply()
 
-        setPrivateField("methodsResolved", true)
-        setPrivateField("irConfig", mockConfig)
-        setPrivateField("paletteTypeField", mockPaletteTypeField)
-        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
-        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
-        setPrivateField("cachedDataCompanion", mockCompanion)
-        setPrivateField("refreshMethod", mockRefreshMethod)
-        setPrivateField("irColorsInstance", mockColorsInstance)
-
-        callApply()
-
-        // Should revert, not apply custom
-        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
+        assertEquals(IntegrationOutcome.Restored, outcome)
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
     }
 
     @Test
-    fun `apply without a license reverts a persisted enabled integration`() {
+    fun `apply without a license restores captured state without changing the setting`() {
         state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        assertEquals(IntegrationOutcome.Applied, callApply())
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
-        val mockConfig = Any()
-        val mockPaletteTypeField = mockField()
-        val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
-        val mockCompanion = Any()
-        val mockColorsInstance = Any()
-        setPrivateField("methodsResolved", true)
-        setPrivateField("irConfig", mockConfig)
-        setPrivateField("paletteTypeField", mockPaletteTypeField)
-        setPrivateField("defaultEnumValue", "DEFAULT_ENUM")
-        setPrivateField("cachedDataUpdateMethod", mockUpdateMethod)
-        setPrivateField("cachedDataCompanion", mockCompanion)
-        setPrivateField("refreshMethod", mockRefreshMethod)
-        setPrivateField("irColorsInstance", mockColorsInstance)
+        val outcome = callApply()
 
-        callApply()
-
-        verify { mockPaletteTypeField[mockConfig] = "DEFAULT_ENUM" }
+        assertEquals(IntegrationOutcome.Restored, outcome)
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
         assertTrue(state.irIntegrationEnabled)
     }
 
@@ -412,8 +407,6 @@ class IndentRainbowSyncTest {
         setPrivateField("cachedDataCompanion", mockCompanion)
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
-
-        mockNotificationGroup()
 
         callApply()
         // Should not throw — exception is caught and logged
@@ -446,8 +439,6 @@ class IndentRainbowSyncTest {
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
 
-        mockNotificationGroup()
-
         callApply()
     }
 
@@ -473,36 +464,6 @@ class IndentRainbowSyncTest {
 
         IndentRainbowSync.revert()
         // Should not throw
-    }
-
-    @Test
-    fun `notifyFailure suppresses duplicate for same version`() {
-        state.irFailedVersion = "old-version"
-
-        val group = mockNotificationGroup()
-
-        // First call — should notify
-        invokePrivate("notifyFailure")
-
-        // irFailedVersion is now set to null (plugin version)
-        // Second call — same version, should skip
-        invokePrivate("notifyFailure")
-
-        // createNotification should be called only once
-        verify(exactly = 1) {
-            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
-        }
-    }
-
-    @Test
-    fun `notifyFailure catches RuntimeException from notification system`() {
-        state.irFailedVersion = "different-version"
-
-        mockkStatic(NotificationGroupManager::class)
-        every { NotificationGroupManager.getInstance() } throws RuntimeException("no group")
-
-        invokePrivate("notifyFailure")
-        // Should not throw — caught internally
     }
 
     @Test
@@ -646,19 +607,16 @@ class IndentRainbowSyncTest {
     }
 
     @Test
-    fun `resolveReflection catches ClassNotFoundException when plugin found`() {
+    fun `apply suspends ownership when Indent Rainbow schema is unavailable`() {
+        state.irIntegrationEnabled = true
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
         every { mockPlugin.pluginClassLoader } returns this::class.java.classLoader
 
-        // Class.forName("indent.rainbow.settings.IrConfig") will throw
-        // ClassNotFoundException (a ReflectiveOperationException) since the
-        // class does not exist on the test classpath.
+        val outcome = callApply()
 
-        mockNotificationGroup()
-
-        invokePrivate("resolveReflection")
-
+        assertTrue(outcome is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.irOwnership)
         assertTrue(getPrivateField("methodsResolved"))
         assertNull(getPrivateField("irConfig"))
     }
@@ -746,8 +704,6 @@ class IndentRainbowSyncTest {
         setPrivateField("cachedDataCompanion", mockCompanion)
         setPrivateField("refreshMethod", mockRefreshMethod)
         setPrivateField("irColorsInstance", mockColorsInstance)
-
-        mockNotificationGroup()
 
         callApply()
         // Should not throw — caught by RuntimeException handler
@@ -853,10 +809,12 @@ class IndentRainbowSyncTest {
                 "customPaletteNumberColorsField",
                 "customEnumValue",
                 "defaultEnumValue",
+                "paletteEnumValues",
                 "cachedDataUpdateMethod",
                 "cachedDataCompanion",
                 "refreshMethod",
                 "irColorsInstance",
+                "resolutionFailure",
             )
         for (fieldName in fields) {
             setPrivateField(fieldName, null)
@@ -864,7 +822,49 @@ class IndentRainbowSyncTest {
         setPrivateField("methodsResolved", false)
     }
 
-    private fun mockField(): Field = mockk<Field>(relaxed = true)
+    private fun installIrHarness(
+        type: FakePaletteType,
+        palette: String,
+        colorCount: Int,
+    ): IrHarness {
+        val harness = IrHarness(type, palette, colorCount)
+        val config = Any()
+        val paletteType = mockField()
+        val customPalette = mockField()
+        val count = mockIntField()
+
+        every { paletteType.get(config) } answers { harness.type }
+        every { paletteType.set(config, any()) } answers {
+            harness.type = secondArg()
+        }
+        every { customPalette.get(config) } answers { harness.palette }
+        every { customPalette.set(config, any()) } answers {
+            harness.palette = secondArg()
+        }
+        every { count.getInt(config) } answers { harness.colorCount }
+        every { count.setInt(config, any()) } answers {
+            harness.colorCount = secondArg()
+        }
+
+        setPrivateField("methodsResolved", true)
+        setPrivateField("irConfig", config)
+        setPrivateField("paletteTypeField", paletteType)
+        setPrivateField("customPaletteField", customPalette)
+        setPrivateField("customPaletteNumberColorsField", count)
+        setPrivateField("customEnumValue", FakePaletteType.CUSTOM)
+        setPrivateField("defaultEnumValue", FakePaletteType.DEFAULT)
+        setPrivateField("paletteEnumValues", FakePaletteType.entries.associateBy { it.name })
+        setPrivateField("cachedDataUpdateMethod", mockMethod())
+        setPrivateField("cachedDataCompanion", Any())
+        setPrivateField("refreshMethod", mockMethod())
+        setPrivateField("irColorsInstance", Any())
+        return harness
+    }
+
+    private fun mockField(): Field =
+        mockk<Field>(relaxed = true).also { field ->
+            every { field.get(any()) } returns "DEFAULT_ENUM"
+        }
 
     private fun mockIntField(): Field {
         val field = mockk<Field>(relaxed = true)
@@ -874,16 +874,15 @@ class IndentRainbowSyncTest {
 
     private fun mockMethod(): Method = mockk<Method>(relaxed = true)
 
-    private fun mockNotificationGroup(): NotificationGroup {
-        mockkStatic(NotificationGroupManager::class)
-        val mockNotifManager = mockk<NotificationGroupManager>(relaxed = true)
-        val mockGroup = mockk<NotificationGroup>(relaxed = true)
-        val mockNotification = mockk<Notification>(relaxed = true)
-        every { NotificationGroupManager.getInstance() } returns mockNotifManager
-        every { mockNotifManager.getNotificationGroup(any()) } returns mockGroup
-        every {
-            mockGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
-        } returns mockNotification
-        return mockGroup
+    private data class IrHarness(
+        var type: FakePaletteType,
+        var palette: String,
+        var colorCount: Int,
+    )
+
+    private enum class FakePaletteType {
+        DEFAULT,
+        CUSTOM,
+        RAINBOW,
     }
 }
