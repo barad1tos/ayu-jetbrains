@@ -43,6 +43,7 @@ import javax.swing.JLabel
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -166,10 +167,7 @@ class QuickSwitcherPopupTest {
         assertFalse(unlicensedTexts.contains("Darker"))
         assertTrue(unlicensedTexts.contains("PREMIUM"))
         assertTrue(unlicensedTexts.contains("Learn about Premium"))
-        assertTrue(
-            unlicensedContent.captured.actionTypes() ==
-                listOf(CopyHexAction::class.java.simpleName),
-        )
+        assertEquals(listOf(CopyHexAction::class.java.simpleName), unlicensedContent.captured.actionTypes())
         assertTrue(
             unlicensedTexts.any {
                 it.contains("Chrome tinting") &&

@@ -99,14 +99,9 @@ object IndentRainbowSync {
         val state = AyuIslandsSettings.getInstance().state
         resolveApplyGate(state)?.let { return it }
 
-        val resolved = resolveOrReturn()
-        if (resolved == null) {
-            return unresolvedOutcome(state, SYNC_FAILED)
-        }
-        val enumValue = customEnumValue
-        if (enumValue == null) {
-            return schemaFailure(state, SYNC_FAILED, "CUSTOM palette enum is unavailable")
-        }
+        val resolved = resolveOrReturn() ?: return unresolvedOutcome(state, SYNC_FAILED)
+        val enumValue =
+            customEnumValue ?: return schemaFailure(state, SYNC_FAILED, "CUSTOM palette enum is unavailable")
 
         val preset =
             IndentPreset.fromName(
@@ -211,10 +206,7 @@ object IndentRainbowSync {
             return IntegrationOutcome.Skipped
         }
 
-        val resolved = resolveOrReturn()
-        if (resolved == null) {
-            return unresolvedOutcome(state, RESTORE_FAILED)
-        }
+        val resolved = resolveOrReturn() ?: return unresolvedOutcome(state, RESTORE_FAILED)
         val baseEnum =
             paletteEnumValues?.get(base.type)
                 ?: return schemaFailure(state, RESTORE_FAILED, "palette enum ${base.type} is unavailable")

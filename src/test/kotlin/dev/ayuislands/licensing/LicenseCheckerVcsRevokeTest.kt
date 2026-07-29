@@ -131,18 +131,17 @@ class LicenseCheckerVcsRevokeTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        val expected = seed
-        assertEquals(expected, state.vcsDiffIntensity, "vcsDiffIntensity")
-        assertEquals(expected, state.vcsProjectViewIntensity, "vcsProjectViewIntensity")
-        assertEquals(expected, state.vcsGutterIntensity, "vcsGutterIntensity")
-        assertEquals(expected, state.vcsConflictMarkerIntensity, "vcsConflictMarkerIntensity")
-        assertEquals(expected, state.vcsMerge3WayIntensity, "vcsMerge3WayIntensity")
-        assertEquals(expected, state.vcsInlineDiffIntensity, "vcsInlineDiffIntensity")
-        assertEquals(expected, state.vcsBlameIntensity, "vcsBlameIntensity")
-        assertEquals(expected, state.vcsLocalHistoryIntensity, "vcsLocalHistoryIntensity")
-        assertEquals(expected, state.vcsBranchIndicatorIntensity, "vcsBranchIndicatorIntensity")
-        assertEquals(expected, state.vcsBranchesPopupIntensity, "vcsBranchesPopupIntensity")
-        assertEquals(expected, state.vcsCommitHighlightIntensity, "vcsCommitHighlightIntensity")
+        assertEquals(seed, state.vcsDiffIntensity, "vcsDiffIntensity")
+        assertEquals(seed, state.vcsProjectViewIntensity, "vcsProjectViewIntensity")
+        assertEquals(seed, state.vcsGutterIntensity, "vcsGutterIntensity")
+        assertEquals(seed, state.vcsConflictMarkerIntensity, "vcsConflictMarkerIntensity")
+        assertEquals(seed, state.vcsMerge3WayIntensity, "vcsMerge3WayIntensity")
+        assertEquals(seed, state.vcsInlineDiffIntensity, "vcsInlineDiffIntensity")
+        assertEquals(seed, state.vcsBlameIntensity, "vcsBlameIntensity")
+        assertEquals(seed, state.vcsLocalHistoryIntensity, "vcsLocalHistoryIntensity")
+        assertEquals(seed, state.vcsBranchIndicatorIntensity, "vcsBranchIndicatorIntensity")
+        assertEquals(seed, state.vcsBranchesPopupIntensity, "vcsBranchesPopupIntensity")
+        assertEquals(seed, state.vcsCommitHighlightIntensity, "vcsCommitHighlightIntensity")
     }
 
     // ---------- 3 preset names ----------

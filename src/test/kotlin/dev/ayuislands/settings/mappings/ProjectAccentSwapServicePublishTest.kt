@@ -78,7 +78,7 @@ class ProjectAccentSwapServicePublishTest {
         every { AccentApplicator.applyFromHexString(any()) } returns true
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
         every {
-            IndentRainbowSync.apply(any<dev.ayuislands.accent.AyuVariant>(), any())
+            IndentRainbowSync.apply(any<AyuVariant>(), any())
         } returns IntegrationOutcome.Skipped
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs

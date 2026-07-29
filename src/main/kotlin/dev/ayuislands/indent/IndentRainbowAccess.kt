@@ -27,9 +27,8 @@ internal class ResolvedIrState(
 ) {
     fun readPalette(): CurrentIrPalette {
         val typeValue = paletteTypeField[config] ?: error("paletteType field returned null")
-        val paletteValue = customPaletteField[config]
         val palette =
-            when (paletteValue) {
+            when (val paletteValue = customPaletteField[config]) {
                 null -> null
                 is String -> paletteValue
                 else -> error("customPalette field returned non-string")
