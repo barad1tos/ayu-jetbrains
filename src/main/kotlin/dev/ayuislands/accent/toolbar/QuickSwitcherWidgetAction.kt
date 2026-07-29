@@ -12,8 +12,8 @@ import javax.swing.JComponent
 /**
  * Toolbar widget that consolidates Ayu variant + accent + related toggles +
  * quick actions behind one chip in `MainToolbarRight`. The chip itself is FREE;
- * premium gating happens inside the popup body via
- * `.visibleIf { LicenseChecker.isLicensedOrGrace() }`.
+ * the popup keeps free controls visible and replaces premium controls with one
+ * explanatory card when the current entitlement is not licensed.
  *
  * Visibility is gated by a two-conjunct predicate on every BGT [update] tick:
  *   1. Quick-switcher context must be active — [AccentContext.isQuickSwitcherActive].

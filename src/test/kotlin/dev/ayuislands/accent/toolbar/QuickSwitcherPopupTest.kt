@@ -16,6 +16,12 @@ import dev.ayuislands.accent.AccentResolutionStep
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.StepOutcome
+import dev.ayuislands.accent.toolbar.actions.CopyHexAction
+import dev.ayuislands.accent.toolbar.actions.DarkerAccentAction
+import dev.ayuislands.accent.toolbar.actions.LighterAccentAction
+import dev.ayuislands.accent.toolbar.actions.PinAccentAction
+import dev.ayuislands.accent.toolbar.actions.RandomAccentAction
+import dev.ayuislands.accent.toolbar.popup.IconPillButton
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -51,6 +57,7 @@ import kotlin.test.assertTrue
 class QuickSwitcherPopupTest {
     @AfterTest
     fun tearDown() {
+        SwingUtilities.invokeAndWait { QuickSwitcherPopup.closeOpenPopups() }
         unmockkAll()
     }
 
@@ -63,6 +70,8 @@ class QuickSwitcherPopupTest {
         mockkStatic(JBPopupFactory::class)
         val factory = mockk<JBPopupFactory>(relaxed = true)
         every { JBPopupFactory.getInstance() } returns factory
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns mockk(relaxed = true)
 
         QuickSwitcherPopup.show(JLabel())
 
@@ -118,6 +127,77 @@ class QuickSwitcherPopupTest {
     }
 
     @Test
+    fun `show preserves free controls and replaces premium controls with one locked block`() {
+        stubPopupBodyDependencies(licensed = true)
+        val licensedContent = slot<JComponent>()
+        stubPopupBuilder(licensedContent)
+
+        QuickSwitcherPopup.show(JLabel())
+
+        val licensedTexts = licensedContent.captured.visibleTexts()
+        assertTrue(licensedTexts.containsAll(listOf("TOGGLES", "ACTIONS", "Follow system accent")))
+        assertFalse(licensedTexts.contains("PREMIUM"))
+        assertTrue(
+            licensedContent.captured.actionTypes().containsAll(
+                listOf(
+                    PinAccentAction::class.java.simpleName,
+                    RandomAccentAction::class.java.simpleName,
+                    LighterAccentAction::class.java.simpleName,
+                    DarkerAccentAction::class.java.simpleName,
+                    CopyHexAction::class.java.simpleName,
+                ),
+            ),
+        )
+        SwingUtilities.invokeAndWait { QuickSwitcherPopup.closeOpenPopups() }
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val unlicensedContent = slot<JComponent>()
+        stubPopupBuilder(unlicensedContent)
+
+        QuickSwitcherPopup.show(JLabel())
+
+        val unlicensedTexts = unlicensedContent.captured.visibleTexts()
+        assertTrue(unlicensedTexts.containsAll(listOf("TOGGLES", "ACTIONS", "Follow system accent")))
+        assertFalse(unlicensedTexts.contains("Chrome tinting"))
+        assertFalse(unlicensedTexts.contains("Glow"))
+        assertFalse(unlicensedTexts.contains("Accent rotation"))
+        assertFalse(unlicensedTexts.contains("Pin Accent"))
+        assertFalse(unlicensedTexts.contains("Random Accent"))
+        assertFalse(unlicensedTexts.contains("Lighter"))
+        assertFalse(unlicensedTexts.contains("Darker"))
+        assertTrue(unlicensedTexts.contains("PREMIUM"))
+        assertTrue(unlicensedTexts.contains("Learn about Premium"))
+        assertTrue(
+            unlicensedContent.captured.actionTypes() ==
+                listOf(CopyHexAction::class.java.simpleName),
+        )
+        assertTrue(
+            unlicensedTexts.any {
+                it.contains("Chrome tinting") &&
+                    it.contains("Glow") &&
+                    it.contains("Accent rotation") &&
+                    it.contains("Pin")
+            },
+        )
+    }
+
+    @Test
+    fun `closeOpenPopups cancels tracked popups and closed popups are removed`() {
+        stubPopupBodyDependencies()
+        val (_, popup) = stubPopupBuilder()
+        val listenerSlot = slot<JBPopupListener>()
+        every { popup.addListener(capture(listenerSlot)) } just Runs
+        QuickSwitcherPopup.show(JLabel())
+
+        SwingUtilities.invokeAndWait { QuickSwitcherPopup.closeOpenPopups() }
+
+        verify(exactly = 1) { popup.cancel() }
+        QuickSwitcherPopup.show(JLabel())
+        listenerSlot.captured.onClosed(mockk(relaxed = true))
+        SwingUtilities.invokeAndWait { QuickSwitcherPopup.closeOpenPopups() }
+        verify(exactly = 1) { popup.cancel() }
+    }
+
+    @Test
     fun `show toggles chip popup-attached ring while popup is open`() {
         stubPopupBodyDependencies()
         val (_, popup) = stubPopupBuilder()
@@ -152,6 +232,7 @@ class QuickSwitcherPopupTest {
         context: AccentContext = AccentContext.Ayu(AyuVariant.MIRAGE),
         detectedVariant: AyuVariant? = AyuVariant.MIRAGE,
         chain: AccentResolutionChain = polyglotFallbackChain(),
+        licensed: Boolean = false,
     ) {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns detectedVariant
@@ -176,7 +257,7 @@ class QuickSwitcherPopupTest {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
         mockkObject(LicenseChecker)
-        every { LicenseChecker.isLicensedOrGrace() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns licensed
         // The quick-actions row instantiates actions that query ApplicationManager.
         mockkStatic(ApplicationManager::class)
         val mockApp = mockk<Application>(relaxed = true)
@@ -245,6 +326,12 @@ class QuickSwitcherPopupTest {
                     else -> null
                 }?.takeIf { it.isNotBlank() }
             }.toList()
+
+    private fun Component.actionTypes(): List<String> =
+        descendants()
+            .filterIsInstance<IconPillButton>()
+            .map { it.action::class.java.simpleName }
+            .toList()
 
     private fun Component.descendants(): Sequence<Component> =
         sequence {

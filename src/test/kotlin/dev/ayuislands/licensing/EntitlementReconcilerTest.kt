@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.toolbar.QuickSwitcherPopup
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
@@ -65,6 +66,8 @@ class EntitlementReconcilerTest {
         every { AccentContext.detect() } returns context
         mockkObject(AccentApplicator)
         every { AccentApplicator.applyForFocusedProject(context) } returns "#FFCC66"
+        mockkObject(QuickSwitcherPopup)
+        every { QuickSwitcherPopup.closeOpenPopups() } just Runs
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just Runs
         mockkObject(VcsColorApplier)
@@ -94,6 +97,7 @@ class EntitlementReconcilerTest {
         verify(exactly = 0) { VcsColorApplier.revertAll() }
         verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
         verify(exactly = 0) { AccentRotationService.getInstance() }
+        verify(exactly = 0) { QuickSwitcherPopup.closeOpenPopups() }
     }
 
     @Test
@@ -109,6 +113,7 @@ class EntitlementReconcilerTest {
         verify(exactly = 1) { syntax.reapplyForActiveLaf() }
         verify(exactly = 0) { rotation.rotateNow() }
         verify(exactly = 0) { rotation.startRotationWithDelay(any()) }
+        verify(exactly = 1) { QuickSwitcherPopup.closeOpenPopups() }
     }
 
     @Test
@@ -126,6 +131,7 @@ class EntitlementReconcilerTest {
         verify(exactly = 1) { syntax.reapplyForActiveLaf() }
         verify(exactly = 1) { rotation.rotateNow() }
         verify(exactly = 0) { rotation.stopRotation() }
+        verify(exactly = 1) { QuickSwitcherPopup.closeOpenPopups() }
     }
 
     @Test

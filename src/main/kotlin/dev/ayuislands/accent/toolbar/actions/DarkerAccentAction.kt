@@ -30,6 +30,7 @@ class DarkerAccentAction : DumbAwareAction("Darker", "Darken the current accent 
     }
 
     override fun actionPerformed(event: AnActionEvent) {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val context = AccentContext.detectQuickSwitcher() ?: return
         val project = AccentApplicator.resolveFocusedProject()
         val currentHex =

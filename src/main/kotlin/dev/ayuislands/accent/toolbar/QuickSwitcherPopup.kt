@@ -1,5 +1,6 @@
 package dev.ayuislands.accent.toolbar
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
@@ -10,7 +11,6 @@ import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.BottomGap
 import com.intellij.ui.dsl.builder.TopGap
 import com.intellij.ui.dsl.builder.panel
-import com.intellij.ui.layout.ComponentPredicate
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
@@ -31,17 +31,13 @@ import javax.swing.SwingUtilities
 
 /**
  * Builds the left-click popup for the Ayu Quick-Switcher chip. The container
- * is a vertical stack of custom [SectionCard] primitives — Variant + Accent in
- * the FREE block, Toggles + Quick Actions in the PREMIUM block — prefaced by a
- * 2-px [AccentStripe] on the top edge that paints the current resolved accent.
- * A [BlockSeparator] hairline sits between the FREE and PREMIUM blocks.
+ * is a vertical stack of custom [SectionCard] primitives — Variant, Accent,
+ * Toggles, and Quick Actions — prefaced by a 2-px [AccentStripe] on the top
+ * edge that paints the current resolved accent.
  *
- * Premium rows are wrapped in `visibleIf` gates driven by [LicenseChecker]
- * (Pattern J). Three gates share one live predicate so they cannot drift
- * across paint cycles (toggles SectionCard + actions SectionCard + the
- * separator above them). The locked-with-tooltip pattern is intentionally NOT
- * used — premium rows simply disappear when the license is invalid (locked by
- * `QuickSwitcherPremiumBlockGateTest`).
+ * Free mode keeps Follow System Accent and Copy Hex visible, and replaces the
+ * premium controls with one explanatory card. Open popups are closed when
+ * entitlement changes, so they rebuild from current state.
  *
  * Popup is built with the exact six-flag combination locked by
  * `QuickSwitcherPopupTest`. The opened popup notifies the chip via a per-popup
@@ -56,6 +52,14 @@ import javax.swing.SwingUtilities
  */
 internal object QuickSwitcherPopup {
     private val LOG = logger<QuickSwitcherPopup>()
+    private val openPopups = mutableSetOf<JBPopup>()
+
+    fun closeOpenPopups() {
+        ApplicationManager.getApplication().assertIsDispatchThread()
+        val popups = openPopups.toList()
+        openPopups.clear()
+        popups.forEach(JBPopup::cancel)
+    }
 
     @JvmOverloads
     fun show(
@@ -70,8 +74,7 @@ internal object QuickSwitcherPopup {
             QuickSwitcherAccentDiagnosticsPanel(
                 resolveCurrentAccentChain(focusedProject, context),
             )
-        val togglesSection = QuickSwitcherRelatedTogglesSection()
-        val actionsRow = QuickSwitcherQuickActionsRow(anchor, context)
+        val isLicensed = LicenseChecker.isLicensedOrGrace()
 
         val variantCard =
             when (context) {
@@ -87,16 +90,33 @@ internal object QuickSwitcherPopup {
             }
         val togglesCard =
             SectionCard("Toggles").apply {
-                setContent(togglesSection.component)
+                setContent(
+                    QuickSwitcherRelatedTogglesSection(
+                        showPremiumToggles = isLicensed,
+                    ).component,
+                )
             }
         val actionsCard =
             SectionCard("Actions").apply {
-                setContent(actionsRow.component)
+                setContent(
+                    QuickSwitcherQuickActionsRow(
+                        anchor = anchor,
+                        context = context,
+                        showPremiumActions = isLicensed,
+                    ).component,
+                )
+            }
+        val premiumCard =
+            if (isLicensed) {
+                null
+            } else {
+                SectionCard("Premium").apply {
+                    setContent(buildPremiumContent())
+                }
             }
 
         val stripe = AccentStripe { resolveCurrentAccentHex(context) }
 
-        val licenseGate = licenseGate()
         val content =
             panel {
                 row { cell(stripe).align(AlignX.FILL) }
@@ -113,15 +133,20 @@ internal object QuickSwitcherPopup {
                 row { cell(BlockSeparator()).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
-                    .visibleIf(licenseGate)
                 row { cell(togglesCard).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
-                    .visibleIf(licenseGate)
                 row { cell(actionsCard).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
-                    .visibleIf(licenseGate)
+                if (premiumCard != null) {
+                    row { cell(BlockSeparator()).align(AlignX.FILL) }
+                        .topGap(TopGap.NONE)
+                        .bottomGap(BottomGap.NONE)
+                    row { cell(premiumCard).align(AlignX.FILL) }
+                        .topGap(TopGap.NONE)
+                        .bottomGap(BottomGap.NONE)
+                }
             }.apply {
                 border = JBUI.Borders.empty(JBUI.scale(Density.POPUP_PAD))
             }
@@ -138,19 +163,23 @@ internal object QuickSwitcherPopup {
                 .setCancelKeyEnabled(true)
                 .createPopup()
 
-        if (chip != null) {
-            popup.addListener(
-                object : JBPopupListener {
-                    override fun beforeShown(event: LightweightWindowEvent) {
+        openPopups.add(popup)
+        popup.addListener(
+            object : JBPopupListener {
+                override fun beforeShown(event: LightweightWindowEvent) {
+                    if (chip != null) {
                         SwingUtilities.invokeLater { chip.setPopupAttached(true) }
                     }
+                }
 
-                    override fun onClosed(event: LightweightWindowEvent) {
+                override fun onClosed(event: LightweightWindowEvent) {
+                    openPopups.remove(popup)
+                    if (chip != null) {
                         SwingUtilities.invokeLater { chip.setPopupAttached(false) }
                     }
-                },
-            )
-        }
+                }
+            },
+        )
 
         popup.showUnderneathOf(anchor)
     }
@@ -199,28 +228,19 @@ internal object QuickSwitcherPopup {
             add(diagnosticsPanel, BorderLayout.CENTER)
         }
 
-    /**
-     * Live license predicate — re-evaluates [LicenseChecker.isLicensedOrGrace]
-     * per `invoke()`. Replaces the original `ComponentPredicate.fromValue(...)`
-     * snapshot, which captured the license state at panel-build time and went
-     * stale when the trial expired (or a license was activated) while the popup
-     * was open.
-     *
-     * All three premium gates (separator + toggles card + actions card) share
-     * one instance so they cannot drift; if one card hides on trial expiry,
-     * the other two AND the separator hide in the same paint pass.
-     *
-     * `addListener` is intentionally a no-op — the popup is short-lived (closes
-     * on outside click), there is no model whose change would fan out to the
-     * predicate's subscribers, and the predicate is re-asked by the DSL on each
-     * `update` tick anyway. Wiring a real listener here would risk a leaked
-     * subscription against [LicenseChecker]'s global state.
-     */
-    private fun licenseGate(): ComponentPredicate =
-        object : ComponentPredicate() {
-            override fun invoke(): Boolean = LicenseChecker.isLicensedOrGrace()
-
-            override fun addListener(listener: (Boolean) -> Unit) = Unit
+    private fun buildPremiumContent(): JComponent =
+        panel {
+            row {
+                label(
+                    "Chrome tinting, Glow, Accent rotation, Pin, Random, " +
+                        "Lighter, and Darker are available with Premium.",
+                )
+            }
+            row {
+                link("Learn about Premium") {
+                    LicenseChecker.requestLicense("Learn about Quick Switcher premium controls")
+                }
+            }
         }
 
     private const val DEFAULT_ACCENT_FALLBACK: String = AccentDefaults.MIRAGE_HEX

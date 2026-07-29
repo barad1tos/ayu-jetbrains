@@ -5,6 +5,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.toolbar.QuickSwitcherPopup
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
@@ -31,6 +32,9 @@ internal object EntitlementReconciler {
     ) {
         if (entitlement == LicenseEntitlement.UNKNOWN) return
 
+        runSurface("close Quick Switcher popups") {
+            QuickSwitcherPopup.closeOpenPopups()
+        }
         if (entitlement == LicenseEntitlement.UNLICENSED) {
             runSurface("stop accent rotation") {
                 AccentRotationService.getInstance().stopRotation()

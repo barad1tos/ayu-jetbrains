@@ -30,6 +30,7 @@ class LighterAccentAction : DumbAwareAction("Lighter", "Lighten the current acce
     }
 
     override fun actionPerformed(event: AnActionEvent) {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val context = AccentContext.detectQuickSwitcher() ?: return
         val project = AccentApplicator.resolveFocusedProject()
         val currentHex =

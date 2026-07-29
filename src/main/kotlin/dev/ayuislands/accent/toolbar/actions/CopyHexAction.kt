@@ -8,7 +8,6 @@ import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.licensing.LicenseChecker
 import java.awt.datatransfer.StringSelection
 
 /**
@@ -21,9 +20,7 @@ class CopyHexAction : DumbAwareAction("Copy Hex", "Copy the current accent hex t
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun update(event: AnActionEvent) {
-        event.presentation.isEnabledAndVisible =
-            AccentContext.isQuickSwitcherActive() &&
-            LicenseChecker.isLicensedOrGrace()
+        event.presentation.isEnabledAndVisible = AccentContext.isQuickSwitcherActive()
     }
 
     override fun actionPerformed(event: AnActionEvent) {
