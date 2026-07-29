@@ -457,7 +457,17 @@ internal class AyuIslandsStartupActivity(
             scheduleStartupCheck(RECONCILIATION_RETRY_MS)
             return
         }
-        val projects = projectsProvider().filterNot(Project::isDisposed)
+        val projects =
+            try {
+                projectsProvider().filterNot(Project::isDisposed)
+            } catch (exception: RuntimeException) {
+                LOG.warn(
+                    "Scheduled license reconciliation could not discover current projects; retrying",
+                    exception,
+                )
+                scheduleStartupCheck(RECONCILIATION_RETRY_MS)
+                return
+            }
         val result = reconcile(entitlement, projects)
         when {
             !result.isSuccess -> scheduleStartupCheck(RECONCILIATION_RETRY_MS)

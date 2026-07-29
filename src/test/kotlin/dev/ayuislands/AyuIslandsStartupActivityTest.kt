@@ -183,6 +183,54 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
+    fun `scheduled startup check retries when current project discovery fails`() {
+        val startupProject = mockk<Project>(relaxed = true)
+        val currentProject = mockk<Project>(relaxed = true)
+        every { currentProject.isDisposed } returns false
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val reconciledProjects = mutableListOf<List<Project>>()
+        var reconciliationAttempts = 0
+        var discoveryAttempts = 0
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, projects ->
+                    reconciliationAttempts += 1
+                    reconciledProjects += projects.toList()
+                    if (reconciliationAttempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { null },
+                projectsProvider = {
+                    discoveryAttempts += 1
+                    if (discoveryAttempts == 1) {
+                        error("project discovery failed")
+                    }
+                    listOf(currentProject)
+                },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(startupProject))
+        scheduledActions.removeFirst().invoke()
+        scheduledActions.removeFirst().invoke()
+
+        assertEquals(2, reconciliationAttempts)
+        assertEquals(2, discoveryAttempts)
+        assertEquals(listOf(listOf(startupProject), listOf(currentProject)), reconciledProjects)
+    }
+
+    @Test
     fun `runStep rethrows VirtualMachineError so the JVM crash reporter receives it`() {
         // Locks the rethrow: OOM, StackOverflowError, InternalError indicate unrecoverable
         // JVM state and continuing would risk cascading corruption. The test triggers an
