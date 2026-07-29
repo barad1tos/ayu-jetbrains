@@ -14,6 +14,7 @@ import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformMovement
+import dev.ayuislands.integration.IntegrationOwnership
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -232,6 +233,35 @@ class AyuIslandsStatePropertyTest {
         for ((name, value) in flags) {
             assertFalse(value, "Flag '$name' must default to false")
         }
+    }
+
+    @Test
+    fun `integration ownership defaults are unowned and empty`() {
+        val state = AyuIslandsState()
+
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
+        assertEquals(null, state.cgpBaseColor)
+        assertEquals(null, state.cgpBaseBorder)
+        assertEquals(0, state.cgpBaseThickness)
+        assertEquals(null, state.cgpAppliedColor)
+        assertEquals(null, state.cgpAppliedBorder)
+        assertEquals(0, state.cgpAppliedThickness)
+
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.irOwnership)
+        assertEquals(null, state.irBaseType)
+        assertEquals(null, state.irBasePalette)
+        assertEquals(0, state.irBaseColorCount)
+        assertEquals(null, state.irAppliedType)
+        assertEquals(null, state.irAppliedPalette)
+        assertEquals(0, state.irAppliedColorCount)
+    }
+
+    @Test
+    fun `unknown serialized integration ownership normalizes to unowned`() {
+        assertEquals(IntegrationOwnership.UNOWNED, IntegrationOwnership.fromName(null))
+        assertEquals(IntegrationOwnership.UNOWNED, IntegrationOwnership.fromName("future-value"))
+        assertEquals(IntegrationOwnership.OWNED, IntegrationOwnership.fromName("OWNED"))
+        assertEquals(IntegrationOwnership.SUSPENDED, IntegrationOwnership.fromName("SUSPENDED"))
     }
 
     private companion object {

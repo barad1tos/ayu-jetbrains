@@ -25,6 +25,7 @@ import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.normalizedLoopSeconds
 import dev.ayuislands.indent.IndentPreset
+import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.vcs.VcsColorCategory
 import dev.ayuislands.vcs.VcsColorPreset
@@ -188,9 +189,23 @@ class AyuIslandsState : BaseState() {
 
     // CodeGlancePro integration (opt-in, default OFF)
     var cgpIntegrationEnabled by property(false)
+    var cgpOwnership by string(IntegrationOwnership.UNOWNED.name)
+    var cgpBaseColor by string(null)
+    var cgpBaseBorder by string(null)
+    var cgpBaseThickness by property(0)
+    var cgpAppliedColor by string(null)
+    var cgpAppliedBorder by string(null)
+    var cgpAppliedThickness by property(0)
 
     // Indent Rainbow integration (opt-in, default OFF)
     var irIntegrationEnabled by property(false)
+    var irOwnership by string(IntegrationOwnership.UNOWNED.name)
+    var irBaseType by string(null)
+    var irBasePalette by string(null)
+    var irBaseColorCount by property(0)
+    var irAppliedType by string(null)
+    var irAppliedPalette by string(null)
+    var irAppliedColorCount by property(0)
 
     // Auto-apply matching `Ayu Islands {Variant}` editor color scheme on theme change.
     // Default true — fixes the JetBrains UI/Editor decoupling where switching theme
