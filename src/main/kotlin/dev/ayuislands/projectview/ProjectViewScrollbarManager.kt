@@ -32,13 +32,21 @@ import javax.swing.tree.TreeCellRenderer
 class ProjectViewScrollbarManager(
     private val project: Project,
 ) : Disposable {
+    internal constructor(
+        project: Project,
+        rootPathLease: RootPathLease,
+    ) : this(project) {
+        rootPathLeaseProvider = { rootPathLease }
+    }
+
     private var originalScrollbarPolicy: Int? = null
-    private var registryKeyModified = false
-    private var originalRegistryValue: Boolean? = null
-    private var registryWasChanged = false
+    private var hasRegistryLease = false
     private var trackedTree: JTree? = null
     private var lastAppliedHidePath: Boolean? = null
     private var rendererListener: PropertyChangeListener? = null
+    private var rootPathLeaseProvider: () -> RootPathLease = RootPathLease::getInstance
+    private val rootPathLease: RootPathLease
+        get() = rootPathLeaseProvider()
     private val autoFitter =
         ToolWindowAutoFitter(
             project = project,
@@ -152,14 +160,13 @@ class ProjectViewScrollbarManager(
                 return
             }
         if (hidePath) {
-            if (!registryKeyModified) {
-                originalRegistryValue = registryKey.asBoolean()
-                registryWasChanged = registryKey.isChangedFromDefault()
+            if (!hasRegistryLease) {
+                rootPathLease.acquire(project, registryKey)
+                hasRegistryLease = true
             }
-            registryKey.setValue(false)
-            registryKeyModified = true
-        } else if (registryKeyModified) {
-            restoreRegistryKey(registryKey)
+        } else if (hasRegistryLease) {
+            rootPathLease.release(project, registryKey)
+            hasRegistryLease = false
         }
 
         val tree = findProjectTree() ?: return
@@ -268,9 +275,10 @@ class ProjectViewScrollbarManager(
                 originalScrollbarPolicy!!
             originalScrollbarPolicy = null
         }
-        if (registryKeyModified) {
+        if (hasRegistryLease) {
             try {
-                restoreRegistryKey(Registry.get(SHOW_URL_KEY))
+                rootPathLease.release(project, Registry.get(SHOW_URL_KEY))
+                hasRegistryLease = false
             } catch (_: MissingResourceException) {
                 LOG.warn(
                     "Registry key '$SHOW_URL_KEY' not " +
@@ -283,24 +291,6 @@ class ProjectViewScrollbarManager(
             unwrapRenderer(tree)
         }
         lastAppliedHidePath = null
-    }
-
-    private fun restoreRegistryKey(registryKey: com.intellij.openapi.util.registry.RegistryValue) {
-        val savedValue = originalRegistryValue
-        if (savedValue == null) {
-            LOG.warn("Project view registry snapshot missing; preserving the current runtime value")
-            registryKeyModified = false
-            registryWasChanged = false
-            return
-        }
-        if (registryWasChanged) {
-            registryKey.setValue(savedValue)
-        } else {
-            registryKey.resetToDefault()
-        }
-        registryKeyModified = false
-        originalRegistryValue = null
-        registryWasChanged = false
     }
 
     companion object {

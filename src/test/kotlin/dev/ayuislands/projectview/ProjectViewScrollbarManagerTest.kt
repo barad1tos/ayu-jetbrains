@@ -47,6 +47,7 @@ class ProjectViewScrollbarManagerTest {
     private lateinit var realState: AyuIslandsState
     private lateinit var connection: MessageBusConnection
     private lateinit var registryValue: RegistryValue
+    private lateinit var rootPathLease: RootPathLease
 
     @BeforeTest
     fun setUp() {
@@ -66,6 +67,7 @@ class ProjectViewScrollbarManagerTest {
         } returns settingsMock
 
         registryValue = mockk(relaxed = true)
+        rootPathLease = RootPathLease()
         every {
             Registry.get(any<String>())
         } returns registryValue
@@ -126,7 +128,7 @@ class ProjectViewScrollbarManagerTest {
      */
     private fun createAndDrain(): ProjectViewScrollbarManager {
         val manager =
-            ProjectViewScrollbarManager(project)
+            ProjectViewScrollbarManager(project, rootPathLease)
         // Drain the invokeLater posted by init{}
         SwingUtilities.invokeAndWait {}
         return manager
@@ -339,7 +341,7 @@ class ProjectViewScrollbarManagerTest {
             )
         } returns Unit
 
-        val manager = ProjectViewScrollbarManager(project)
+        val manager = ProjectViewScrollbarManager(project, rootPathLease)
         try {
             SwingUtilities.invokeAndWait {}
             clearMocks(toolWindowManager, answers = false)
@@ -380,7 +382,7 @@ class ProjectViewScrollbarManagerTest {
             )
         } returns Unit
 
-        val manager = ProjectViewScrollbarManager(project)
+        val manager = ProjectViewScrollbarManager(project, rootPathLease)
         try {
             SwingUtilities.invokeAndWait {}
             scrollPane.horizontalScrollBarPolicy =
