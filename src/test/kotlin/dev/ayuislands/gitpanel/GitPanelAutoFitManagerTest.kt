@@ -33,6 +33,7 @@ import javax.swing.tree.TreePath
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class GitPanelAutoFitManagerTest {
@@ -501,10 +502,10 @@ class GitPanelAutoFitManagerTest {
             licensed = false
             fixture.manager.apply()
 
-            assertTrue(fixture.tree.treeExpansionListeners.size == initialListenerCount)
-            assertTrue(realState.gitPanelWidthMode == PanelWidthMode.AUTO_FIT.name)
-            assertTrue(realState.gitPanelAutoFitMaxWidth == savedMaxWidth)
-            assertTrue(realState.gitPanelAutoFitMinWidth == savedMinWidth)
+            assertEquals(initialListenerCount, fixture.tree.treeExpansionListeners.size)
+            assertEquals(PanelWidthMode.AUTO_FIT.name, realState.gitPanelWidthMode)
+            assertEquals(savedMaxWidth, realState.gitPanelAutoFitMaxWidth)
+            assertEquals(savedMinWidth, realState.gitPanelAutoFitMinWidth)
         }
     }
 
@@ -523,7 +524,7 @@ class GitPanelAutoFitManagerTest {
             licensed = false
             fixture.manager.flushDebounceForTesting()
 
-            assertTrue(fixture.splitter.proportion == 0.9f)
+            assertEquals(0.9f, fixture.splitter.proportion)
         }
     }
 
@@ -538,7 +539,7 @@ class GitPanelAutoFitManagerTest {
 
             fixture.manager.apply()
 
-            assertTrue(fixture.splitter.proportion == 0.4f)
+            assertEquals(0.4f, fixture.splitter.proportion)
         }
     }
 
@@ -556,8 +557,8 @@ class GitPanelAutoFitManagerTest {
             licensed = true
             fixture.manager.apply()
 
-            assertTrue(fixture.tree.treeExpansionListeners.size > initialListenerCount)
-            assertTrue(realState.gitPanelWidthMode == PanelWidthMode.AUTO_FIT.name)
+            assertEquals(initialListenerCount + 1, fixture.tree.treeExpansionListeners.size)
+            assertEquals(PanelWidthMode.AUTO_FIT.name, realState.gitPanelWidthMode)
         }
     }
 

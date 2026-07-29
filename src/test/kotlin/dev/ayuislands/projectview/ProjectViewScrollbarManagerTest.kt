@@ -172,11 +172,11 @@ class ProjectViewScrollbarManagerTest {
                 renderer.getTreeCellRendererComponent(
                     JTree(),
                     "root",
-                    false,
-                    true,
-                    false,
-                    0,
-                    false,
+                    selected = false,
+                    expanded = true,
+                    leaf = false,
+                    row = 0,
+                    hasFocus = false,
                 ) as SimpleColoredComponent
 
             assertEquals(native, rendered)

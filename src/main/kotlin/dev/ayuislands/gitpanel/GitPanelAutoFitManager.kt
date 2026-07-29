@@ -162,17 +162,16 @@ class GitPanelAutoFitManager(
                     JTable::class.java,
                 ) != null
 
-            if (firstHasTable) {
-                if (!LicenseChecker.isLicensedOrGrace()) return
-                splitter.proportion =
+            val proportion =
+                if (firstHasTable) {
                     (1.0f - fixedWidth.toFloat() / splitter.width.toFloat())
                         .coerceIn(MIN_INNER_PROPORTION, MAX_INNER_PROPORTION)
-            } else {
-                if (!LicenseChecker.isLicensedOrGrace()) return
-                splitter.proportion =
+                } else {
                     (fixedWidth.toFloat() / splitter.width.toFloat())
                         .coerceIn(MIN_OUTER_PROPORTION, MAX_OUTER_PROPORTION)
-            }
+                }
+            if (!LicenseChecker.isLicensedOrGrace()) return
+            splitter.proportion = proportion
         }
     }
 
