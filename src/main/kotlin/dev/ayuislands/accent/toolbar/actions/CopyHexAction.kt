@@ -35,7 +35,7 @@ class CopyHexAction : DumbAwareAction("Copy Hex", "Copy the current accent hex t
                 LOG.warn("CopyHex: resolve failed", exception)
                 return
             }
-        CopyPasteManager.getInstance().setContents(StringSelection(hex))
+        (CopyPasteManager.getInstance()::setContents)(StringSelection(hex))
     }
 
     private companion object {

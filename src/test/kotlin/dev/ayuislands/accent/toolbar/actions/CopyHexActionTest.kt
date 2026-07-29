@@ -97,9 +97,9 @@ class CopyHexActionTest {
     @Test
     fun `actionPerformed writes resolved hex to clipboard via StringSelection`() {
         val captured = slot<Transferable>()
-        every { mockClipboard.setContents(capture(captured)) } returns Unit
+        every { (mockClipboard::setContents)(capture(captured)) } returns Unit
         CopyHexAction().actionPerformed(newEvent())
-        verify(exactly = 1) { mockClipboard.setContents(any()) }
+        verify(exactly = 1) { (mockClipboard::setContents)(any()) }
         assertEquals("#FFCC66", captured.captured.getTransferData(DataFlavor.stringFlavor))
     }
 
@@ -109,7 +109,7 @@ class CopyHexActionTest {
         // answers must produce two distinct clipboard writes; a cached field
         // implementation would write the first value twice.
         val captured = mutableListOf<Transferable>()
-        every { mockClipboard.setContents(any()) } answers {
+        every { (mockClipboard::setContents)(any()) } answers {
             captured += firstArg<Transferable>()
         }
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFCC66"
@@ -125,6 +125,6 @@ class CopyHexActionTest {
     fun `actionPerformed is a no-op when AyuVariant detect returns null (belt-and-braces)`() {
         every { AccentContext.detectQuickSwitcher() } returns null
         CopyHexAction().actionPerformed(newEvent())
-        verify(exactly = 0) { mockClipboard.setContents(any()) }
+        verify(exactly = 0) { (mockClipboard::setContents)(any()) }
     }
 }
