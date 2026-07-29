@@ -85,6 +85,7 @@ class AyuIslandsStartupActivityTest {
                     retryAction = action
                 },
                 recheckDelayProvider = { null },
+                projectsProvider = { listOf(project) },
             )
 
         retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
@@ -124,6 +125,7 @@ class AyuIslandsStartupActivityTest {
                     scheduledActions += action
                 },
                 recheckDelayProvider = { 100_000L },
+                projectsProvider = { listOf(project) },
             )
 
         retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
@@ -131,6 +133,53 @@ class AyuIslandsStartupActivityTest {
 
         assertEquals(2, attempts)
         assertEquals(listOf(5_000L, 100_000L), scheduledDelays)
+    }
+
+    @Test
+    fun `scheduled startup checks reconcile only currently open projects`() {
+        val startupProject = mockk<Project>(relaxed = true)
+        val currentProject = mockk<Project>(relaxed = true)
+        every { startupProject.isDisposed } returns true
+        every { currentProject.isDisposed } returns false
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val reconciledProjects = mutableListOf<List<Project>>()
+        var attempts = 0
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, projects ->
+                    attempts += 1
+                    reconciledProjects += projects.toList()
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { 100_000L },
+                projectsProvider = { listOf(startupProject, currentProject) },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(startupProject))
+        scheduledActions.removeFirst().invoke()
+        scheduledActions.removeFirst().invoke()
+
+        assertEquals(
+            listOf(
+                listOf(startupProject),
+                listOf(currentProject),
+                listOf(currentProject),
+            ),
+            reconciledProjects,
+        )
     }
 
     @Test

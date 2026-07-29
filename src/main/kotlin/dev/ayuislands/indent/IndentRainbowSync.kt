@@ -307,7 +307,7 @@ object IndentRainbowSync {
         error: Throwable,
     ) {
         if (!rollbackPalette(resolved, current, error)) {
-            state.irOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+            captureRecoveryPalette(state, resolved, error)
         } else if (ownership == IntegrationOwnership.UNOWNED) {
             clearOwnership(state)
         }
@@ -325,15 +325,23 @@ object IndentRainbowSync {
                 suspendOwnership(state)
                 return IntegrationOutcome.Skipped
             }
+        val pending =
+            state.irPendingPalette() ?: run {
+                suspendOwnership(state)
+                return IntegrationOutcome.Skipped
+            }
         val baseEnum =
             paletteEnumValues?.get(base.type) ?: run {
-                suspendOwnership(state)
                 return failedOutcome(
                     RESTORE_FAILED,
                     IllegalStateException("palette enum ${base.type} is unavailable"),
                 )
             }
         return try {
+            if (resolved.readPalette().palette != pending) {
+                suspendOwnership(state)
+                return IntegrationOutcome.Skipped
+            }
             resolved.writePalette(base, baseEnum)
             clearOwnership(state)
             null
@@ -499,6 +507,23 @@ private fun clearOwnership(state: AyuIslandsState) {
     state.irAppliedType = null
     state.irAppliedPalette = null
     state.irAppliedColorCount = 0
+}
+
+private fun captureRecoveryPalette(
+    state: AyuIslandsState,
+    resolved: ResolvedIrState,
+    error: Throwable,
+) {
+    try {
+        state.storeIrApplied(resolved.readPalette().palette)
+        state.irOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+    } catch (captureError: ReflectiveOperationException) {
+        error.addSuppressed(captureError)
+        suspendOwnership(state)
+    } catch (captureError: RuntimeException) {
+        error.addSuppressed(captureError)
+        suspendOwnership(state)
+    }
 }
 
 private fun ResolvedIrState.writePaletteOrError(

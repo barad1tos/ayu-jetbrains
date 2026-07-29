@@ -341,9 +341,26 @@ internal object CodeGlanceProIntegration {
         error: Throwable,
     ) {
         if (!access.rollbackViewport(current, error)) {
-            state.cgpOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+            captureRecoveryViewport(state, access, error)
         } else if (ownership == IntegrationOwnership.UNOWNED) {
             clearOwnership(state)
+        }
+    }
+
+    private fun captureRecoveryViewport(
+        state: AyuIslandsState,
+        access: CgpAccess,
+        error: Throwable,
+    ) {
+        try {
+            state.storeCgpApplied(access.readViewport())
+            state.cgpOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+        } catch (captureError: ReflectiveOperationException) {
+            error.addSuppressed(captureError)
+            suspendOwnership(state)
+        } catch (captureError: RuntimeException) {
+            error.addSuppressed(captureError)
+            suspendOwnership(state)
         }
     }
 
@@ -359,7 +376,16 @@ internal object CodeGlanceProIntegration {
                 suspendOwnership(state)
                 return IntegrationOutcome.Skipped
             }
+        val pending =
+            state.cgpAppliedViewport() ?: run {
+                suspendOwnership(state)
+                return IntegrationOutcome.Skipped
+            }
         return try {
+            if (access.readViewport() != pending) {
+                suspendOwnership(state)
+                return IntegrationOutcome.Skipped
+            }
             access.writeViewport(base)
             clearOwnership(state)
             null
@@ -378,7 +404,6 @@ internal object CodeGlanceProIntegration {
                 suspendOwnership(state)
                 return IntegrationOutcome.Skipped
             }
-        restoreWithHook(state, base)?.let { return it }
 
         resolveCgpMethods()
         val resolutionFailure = cgpResolutionFailure

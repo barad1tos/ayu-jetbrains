@@ -83,3 +83,10 @@ internal fun AyuIslandsState.irAppliedPalette(): IrPalette? =
         palette = irAppliedPalette ?: return null,
         colorCount = irAppliedColorCount,
     )
+
+internal fun AyuIslandsState.irPendingPalette(): IrPalette? =
+    IrPalette(
+        type = irAppliedType ?: return null,
+        palette = irAppliedPalette,
+        colorCount = irAppliedColorCount,
+    )

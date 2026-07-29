@@ -4,6 +4,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
@@ -46,6 +47,9 @@ internal class AyuIslandsStartupActivity(
         LicenseRecheckScheduler.getInstance().schedule(delayMs, action)
     },
     private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
+    private val projectsProvider: () -> Iterable<Project> = {
+        ProjectManager.getInstance().openProjects.asList()
+    },
 ) : ProjectActivity {
     override suspend fun execute(project: Project) {
         val themeName = AyuVariant.currentThemeName()
@@ -437,30 +441,28 @@ internal class AyuIslandsStartupActivity(
         if (entitlement == LicenseEntitlement.UNKNOWN) return
         val result = reconcile(entitlement, projects)
         if (!result.isSuccess) {
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS, projects)
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS)
         }
     }
 
-    private fun scheduleStartupCheck(
-        delayMs: Long,
-        projects: List<Project>,
-    ) {
+    private fun scheduleStartupCheck(delayMs: Long) {
         scheduleRecheck(delayMs) {
-            runScheduledStartupCheck(projects)
+            runScheduledStartupCheck()
         }
     }
 
-    private fun runScheduledStartupCheck(projects: List<Project>) {
+    private fun runScheduledStartupCheck() {
         val entitlement = entitlementProvider()
         if (entitlement == LicenseEntitlement.UNKNOWN) {
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS, projects)
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS)
             return
         }
+        val projects = projectsProvider().filterNot(Project::isDisposed)
         val result = reconcile(entitlement, projects)
         when {
-            !result.isSuccess -> scheduleStartupCheck(RECONCILIATION_RETRY_MS, projects)
+            !result.isSuccess -> scheduleStartupCheck(RECONCILIATION_RETRY_MS)
             entitlement == LicenseEntitlement.LICENSED ->
-                recheckDelayProvider()?.let { scheduleStartupCheck(it, projects) }
+                recheckDelayProvider()?.let(::scheduleStartupCheck)
         }
     }
 

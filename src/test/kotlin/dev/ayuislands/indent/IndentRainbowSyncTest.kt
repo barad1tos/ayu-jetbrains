@@ -316,6 +316,46 @@ class IndentRainbowSyncTest {
     }
 
     @Test
+    fun `manual Indent Rainbow edit prevents pending recovery from overwriting the palette`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        harness.shouldFailNextCountAndRollbackPalette = true
+        assertTrue(IndentRainbowSync.apply(AyuVariant.MIRAGE, TEST_ACCENT_HEX) is IntegrationOutcome.Failed)
+        harness.type = FakePaletteType.DEFAULT
+        harness.palette = "manual-palette"
+        harness.colorCount = 1
+
+        val outcome = IndentRainbowSync.restoreOwnedState()
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.irOwnership)
+        assertEquals(FakePaletteType.DEFAULT, harness.type)
+        assertEquals("manual-palette", harness.palette)
+        assertEquals(1, harness.colorCount)
+    }
+
+    @Test
+    fun `missing recovery enum keeps Indent Rainbow recovery retryable`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        harness.shouldFailNextCountAndRollbackPalette = true
+        assertTrue(IndentRainbowSync.apply(AyuVariant.MIRAGE, TEST_ACCENT_HEX) is IntegrationOutcome.Failed)
+        setPrivateField(
+            "paletteEnumValues",
+            FakePaletteType.entries.filterNot { it == FakePaletteType.RAINBOW }.associateBy { it.name },
+        )
+
+        assertTrue(IndentRainbowSync.restoreOwnedState() is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.irOwnership)
+
+        setPrivateField("paletteEnumValues", FakePaletteType.entries.associateBy { it.name })
+        assertEquals(IntegrationOutcome.Restored, IndentRainbowSync.restoreOwnedState())
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
+    }
+
+    @Test
     fun `missing Indent Rainbow baseline never forces DEFAULT`() {
         val harness =
             installIrHarness(

@@ -563,6 +563,28 @@ class AccentApplicatorRevertAllIntegrationTest {
     }
 
     @Test
+    fun `manual CodeGlance Pro edit prevents pending recovery from overwriting the viewport`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        viewport.shouldRejectNextThicknessAndRollbackBorder = true
+        assertTrue(CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6") is IntegrationOutcome.Failed)
+        viewport.setViewportColor("ABCDEF")
+        viewport.setViewportBorderColor("FEDCBA")
+        viewport.setViewportBorderThickness(7)
+
+        val outcome = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.cgpOwnership)
+        assertEquals("ABCDEF", viewport.viewportColor)
+        assertEquals("FEDCBA", viewport.viewportBorderColor)
+        assertEquals(7, viewport.viewportBorderThickness)
+    }
+
+    @Test
     fun `missing CodeGlance Pro baseline never writes documented defaults`() {
         val cgpService = installCgpService()
         val viewport = cgpService.getState()
