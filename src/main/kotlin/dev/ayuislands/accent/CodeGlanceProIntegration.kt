@@ -399,11 +399,10 @@ internal object CodeGlanceProIntegration {
     }
 
     private fun restorePendingViewport(state: AyuIslandsState): IntegrationOutcome {
-        val base =
-            state.cgpBaseViewport() ?: run {
-                suspendOwnership(state)
-                return IntegrationOutcome.Skipped
-            }
+        if (state.cgpBaseViewport() == null) {
+            suspendOwnership(state)
+            return IntegrationOutcome.Skipped
+        }
 
         resolveCgpMethods()
         val resolutionFailure = cgpResolutionFailure
