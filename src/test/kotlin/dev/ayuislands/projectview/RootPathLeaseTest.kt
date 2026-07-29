@@ -130,6 +130,44 @@ class RootPathLeaseTest {
         assertEquals(true, currentValue)
     }
 
+    @Test
+    fun `cold release restores the durable registry baseline`() {
+        state.hasRootPathLease = true
+        state.wasRootPathShown = true
+        state.wasRootPathChanged = true
+        var currentValue = false
+        val registryValue =
+            registryValue(
+                read = { currentValue },
+                write = { currentValue = it },
+                wasChanged = true,
+            )
+
+        RootPathLease().release(mockk(), registryValue)
+
+        assertEquals(true, currentValue)
+        assertEquals(false, state.hasRootPathLease)
+    }
+
+    @Test
+    fun `cold release preserves manual registry drift`() {
+        state.hasRootPathLease = true
+        state.wasRootPathShown = false
+        state.wasRootPathChanged = true
+        var currentValue = true
+        val registryValue =
+            registryValue(
+                read = { currentValue },
+                write = { currentValue = it },
+                wasChanged = true,
+            )
+
+        RootPathLease().release(mockk(), registryValue)
+
+        assertEquals(true, currentValue)
+        assertEquals(false, state.hasRootPathLease)
+    }
+
     private fun registryValue(
         read: () -> Boolean,
         write: (Boolean) -> Unit,

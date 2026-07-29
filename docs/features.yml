@@ -105,7 +105,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "afab19b4"
+          last_verified_sha: "5e725785"
           last_verified_date: "2026-07-29"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
@@ -127,7 +127,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "afab19b4"
+          last_verified_sha: "5e725785"
           last_verified_date: "2026-07-29"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
@@ -451,7 +451,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "f879bd1c"
+          last_verified_sha: "6412f22c"
           last_verified_date: "2026-07-29"
           content_sha256: ad849b17308901bc2dac85f895978be656f578c9c31f857b9e9578e5cf4289f2
 

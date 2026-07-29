@@ -33,7 +33,11 @@ internal class RootPathLease {
         project: Project,
         registryValue: RegistryValue,
     ) {
-        val current = ownership ?: return
+        val current = ownership
+        if (current == null) {
+            releasePersistedOwnership(registryValue)
+            return
+        }
         if (project !in current.projects) return
 
         detectManualDrift(current, registryValue)
@@ -43,15 +47,33 @@ internal class RootPathLease {
         }
 
         if (!current.isDrifted) {
-            if (current.snapshot.wasChanged) {
-                registryValue.setValue(current.snapshot.value)
-            } else {
-                registryValue.resetToDefault()
-            }
+            restoreSnapshot(current.snapshot, registryValue)
         }
         AyuIslandsSettings.getInstance().state.clearRootPathSnapshot()
         current.projects -= project
         ownership = null
+    }
+
+    private fun releasePersistedOwnership(registryValue: RegistryValue) {
+        val state = AyuIslandsSettings.getInstance().state
+        val snapshot = state.rootPathSnapshot() ?: return
+        if (registryValue.asBoolean()) {
+            LOG.warn("Project view Registry value changed outside Ayu; preserving the manual value")
+        } else {
+            restoreSnapshot(snapshot, registryValue)
+        }
+        state.clearRootPathSnapshot()
+    }
+
+    private fun restoreSnapshot(
+        snapshot: RegistrySnapshot,
+        registryValue: RegistryValue,
+    ) {
+        if (snapshot.wasChanged) {
+            registryValue.setValue(snapshot.value)
+        } else {
+            registryValue.resetToDefault()
+        }
     }
 
     private fun startOwnership(
