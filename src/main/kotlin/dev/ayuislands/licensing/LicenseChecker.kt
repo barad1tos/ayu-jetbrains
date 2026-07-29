@@ -22,18 +22,68 @@ import dev.ayuislands.reapply.ReapplyStep
 import dev.ayuislands.reapply.ThemeReapplication
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.CommitPathDisplayMode
 import dev.ayuislands.settings.PanelWidthMode
-import dev.ayuislands.syntax.SyntaxIntensityService
-import dev.ayuislands.syntax.SyntaxIntensityState
-import dev.ayuislands.syntax.SyntaxPreset
-import dev.ayuislands.syntax.SyntaxReadabilityOptions
-import dev.ayuislands.vcs.VcsColorPreset
 import org.jetbrains.annotations.VisibleForTesting
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+
+internal enum class LicenseEntitlement {
+    LICENSED,
+    UNLICENSED,
+    UNKNOWN,
+}
+
+internal data class EntitlementResult(
+    val entitlement: LicenseEntitlement,
+    val lastLicensedMs: Long,
+    val isStampReset: Boolean = false,
+)
+
+/**
+ * Resolves the effective runtime entitlement without reading or mutating application state.
+ *
+ * | Marketplace result | Stored stamp | Runtime entitlement | Stored stamp result |
+ * |---|---|---|---|
+ * | `true` | any | `LICENSED` | monotonic maximum with `nowMs` |
+ * | `null` | any | `UNKNOWN` | unchanged |
+ * | `false` | future | `UNLICENSED` | reset to zero |
+ * | `false` | within 48-hour grace | `LICENSED` | unchanged |
+ * | `false` | expired or absent | `UNLICENSED` | unchanged |
+ */
+internal fun resolveEntitlement(
+    rawLicense: Boolean?,
+    lastLicensedMs: Long,
+    nowMs: Long,
+): EntitlementResult =
+    when {
+        rawLicense == true ->
+            EntitlementResult(
+                entitlement = LicenseEntitlement.LICENSED,
+                lastLicensedMs = maxOf(lastLicensedMs, nowMs),
+            )
+        rawLicense == null ->
+            EntitlementResult(
+                entitlement = LicenseEntitlement.UNKNOWN,
+                lastLicensedMs = lastLicensedMs,
+            )
+        lastLicensedMs > nowMs ->
+            EntitlementResult(
+                entitlement = LicenseEntitlement.UNLICENSED,
+                lastLicensedMs = 0,
+                isStampReset = true,
+            )
+        lastLicensedMs > 0 && nowMs - lastLicensedMs in 0 until OFFLINE_GRACE_MS ->
+            EntitlementResult(
+                entitlement = LicenseEntitlement.LICENSED,
+                lastLicensedMs = lastLicensedMs,
+            )
+        else ->
+            EntitlementResult(
+                entitlement = LicenseEntitlement.UNLICENSED,
+                lastLicensedMs = lastLicensedMs,
+            )
+    }
 
 object LicenseChecker {
     const val PRODUCT_CODE = "PAYUISLANDS"
@@ -43,7 +93,7 @@ object LicenseChecker {
     private val verifier = LicenseVerifier()
 
     /**
-     * Test seam for the wall-clock reads inside [isLicensedOrGrace].
+     * Test seam for the wall-clock reads inside [currentEntitlement].
      *
      * Production code uses the real system clock; tests can pin it to a deterministic
      * value to exercise the rollback guard and grace-window boundaries without relying
@@ -90,53 +140,43 @@ object LicenseChecker {
     }
 
     /**
-     * Treat null (not initialized) as licensed per grace-period policy.
+     * Returns the effective runtime entitlement while keeping an uninitialized
+     * Marketplace facade distinct from a confirmed licensed state.
      *
-     * Also provides a 48-hour offline grace window: if the license was confirmed
-     * within the last 48 hours but the current check returns false (e.g. offline,
-     * server unreachable), the user keeps pro features until the grace window
-     * expires. This prevents a single offline restart from locking out a paid user.
-     *
-     * **Anti-cheat guards** (see `LicenseCheckerAntiCheatTest`):
-     *  - Monotonic clamp on write (`maxOf`): a future-fabricated `lastKnownLicensedMs`
-     *    from hand-edited XML will only ever be replaced by a real `now` on the next
-     *    legitimate licensed check, never moved further forward.
-     *  - Rollback detection on read: if `lastKnownLicensedMs > now`, we assume the
-     *    system clock was rolled back or the stamp was tampered to the future, so
-     *    we revoke grace and clear the stamp. Combined with monotonic clamp, this
-     *    means an attacker cannot stretch the 48 h grace window beyond real time.
-     *  - XML signing is out of scope (key would live in the jar, trivially
-     *    extractable for a solo plugin). Tampering remains possible but self-corrects
-     *    the moment Marketplace confirms a stamp.
+     * A confirmed license advances the offline-grace timestamp monotonically.
+     * A future timestamp on an unlicensed check revokes grace and resets the stamp.
+     * [LicenseEntitlement.UNKNOWN] never changes the stamp and must not trigger a
+     * lifecycle transition.
      */
-    fun isLicensedOrGrace(): Boolean {
-        val licensed = isLicensed()
+    internal fun currentEntitlement(): LicenseEntitlement {
+        val rawLicense = isLicensed()
         val state = AyuIslandsSettings.getInstance().state
         val now = nowMsSupplier()
-        if (licensed == true) {
-            state.lastKnownLicensedMs = maxOf(state.lastKnownLicensedMs, now)
-            return true
+        val previousStamp = state.lastKnownLicensedMs
+        val result = resolveEntitlement(rawLicense, previousStamp, now)
+
+        if (result.lastLicensedMs != previousStamp) {
+            state.lastKnownLicensedMs = result.lastLicensedMs
         }
-        if (licensed == null) return true
-        if (state.lastKnownLicensedMs > now) {
+        if (result.isStampReset) {
             LOG.warn(
                 "Clock rollback or lastKnownLicensedMs tamper detected " +
-                    "(stamp=${state.lastKnownLicensedMs}, now=$now); " +
+                    "(stamp=$previousStamp, now=$now); " +
                     "revoking grace and resetting stamp",
             )
-            state.lastKnownLicensedMs = 0L
-            return false
         }
-        val elapsed = now - state.lastKnownLicensedMs
-        if (state.lastKnownLicensedMs > 0 && elapsed in 0 until OFFLINE_GRACE_MS) {
+        if (rawLicense == false && result.entitlement == LicenseEntitlement.LICENSED) {
+            val elapsed = now - result.lastLicensedMs
             LOG.info(
                 "License check returned false but within ${elapsed / MS_PER_HOUR}h " +
                     "offline grace (${OFFLINE_GRACE_HOURS}h window) — treating as licensed",
             )
-            return true
         }
-        return false
+        return result.entitlement
     }
+
+    /** Treat unknown Marketplace startup state as runtime fail-open without confirming a transition. */
+    fun isLicensedOrGrace(): Boolean = currentEntitlement() != LicenseEntitlement.UNLICENSED
 
     /** Open the JetBrains registration / purchase dialog. */
     fun requestLicense(message: String) {
@@ -215,96 +255,17 @@ object LicenseChecker {
         state.workspaceDefaultsApplied = true
     }
 
-    /**
-     * Revert paid features to free defaults for the given variant.
-     *
-     * State mutations are wrapped in `synchronized(state)` to tolerate rare
-     * concurrent callers (unlicensed path from `StartupLicenseHandler`, license
-     * transition listener, and any future direct callers). `BaseState` itself
-     * is not thread-safe for parallel writes, and the writes here are idempotent
-     * resets — a lost update would produce the same terminal state, but the lock
-     * prevents a half-committed toggle map from leaking. The downstream
-     * [ThemeReapplication.reapply] call (accent, glow, VCS colors) intentionally
-     * stays *outside* the lock: it hops to EDT and can take other platform
-     * locks, so holding `state` across it would risk deadlock.
-     */
+    /** Apply the free runtime presentation without changing saved premium preferences. */
     fun revertToFreeDefaults(variant: AyuVariant) {
-        val state = AyuIslandsSettings.getInstance().state
-
-        synchronized(state) {
-            // Disable glow (premium feature)
-            state.glowEnabled = false
-
-            // Reset VCS color customization — premium feature. The master toggle
-            // goes off so the EditorColorsScheme falls back to stock XML on the
-            // next applier pass; every per-section preset returns to AMBIENT,
-            // every per-category slider returns to AMBIENT_SLIDER, and every
-            // section-expanded flag returns to its default-constructor value.
-            //
-            // Reset covers all 11 categories — including the placeholder
-            // intensities (merge 3-way, inline diff, local history, branch
-            // indicator, branches popup, commit highlights) — so when those
-            // categories ship, a user who downgraded mid-cycle starts from the
-            // same baseline as a fresh install. Without that, the re-purchase
-            // experience would surface non-default sliders from a stale premium
-            // session.
-            state.vcsColorEnabled = false
-            state.vcsDiffPreset = VcsColorPreset.AMBIENT.name
-            state.vcsMergePreset = VcsColorPreset.AMBIENT.name
-            state.vcsBlamePreset = VcsColorPreset.AMBIENT.name
-            state.vcsDiffIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsProjectViewIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsGutterIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsConflictMarkerIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsBlameIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsMerge3WayIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsInlineDiffIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsLocalHistoryIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsBranchIndicatorIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsBranchesPopupIntensity = VcsColorPreset.AMBIENT_SLIDER
-            state.vcsCommitHighlightIntensity = VcsColorPreset.AMBIENT_SLIDER
-            // Diff section opens expanded by default; the other two collapse on
-            // downgrade to match a fresh-install layout.
-            state.vcsDiffSectionExpanded = true
-            state.vcsMergeSectionExpanded = false
-            state.vcsBlameSectionExpanded = false
-
-            // Reset workspace settings to free defaults
-            state.projectPanelWidthMode = PanelWidthMode.DEFAULT.name
-            state.commitPanelWidthMode = PanelWidthMode.DEFAULT.name
-            state.gitPanelWidthMode = PanelWidthMode.DEFAULT.name
-            state.commitPanelPathDisplayMode = CommitPathDisplayMode.INLINE.name
-            state.commitPanelPathMinHiddenLevels = AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS
-            state.commitPanelPathMaxHiddenLevels = AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS
-            state.hideProjectRootPath = false
-            state.hideProjectViewHScrollbar = false
-
-            // Disable plugin integrations (premium features)
-            state.cgpIntegrationEnabled = false
-            state.irIntegrationEnabled = false
-
-            // Restore the Quick Switcher widget to its free-tier default (visible
-            // by default). A user who hid the chip while licensed and then
-            // downgraded would otherwise lose their only Settings affordance to
-            // re-enable it; Pattern G symmetric reset puts the chip back per default.
-            state.quickSwitcherWidgetEnabled = true
-
-            // Stop accent rotation (premium feature)
-            state.accentRotationEnabled = false
-        }
-
-        resetSyntaxIntensityToFreeDefaults()
-
         ApplicationManager.getApplication().getService(AccentRotationService::class.java)?.stopRotation()
 
         // Re-apply accent (free-tier feature stays), sync glow, and revert VCS colors
         // through the shared reapplication seam so this caller matches the LAF-listener
-        // and rotation-tick paths. `LicenseRevert`'s plan is [ApplyExplicitHex, Glow,
-        // VcsRevert] (see `ThemeReapplication.planFor`) — same order as before this migration.
+        // and rotation-tick paths.
         val freeHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
         ThemeReapplication.reapply(ReapplyReason.LicenseRevert(freeHex)) { result ->
-            for (failure in result.failures) {
-                LOG.warn("License revert step=${failure.step} failed", failure.error)
+            for ((step, error) in result.failures) {
+                LOG.warn("License revert step=$step failed", error)
             }
             if (result.failed(ReapplyStep.ApplyExplicitHex)) {
                 notifyRevertIncomplete(
@@ -333,31 +294,6 @@ object LicenseChecker {
             .getNotificationGroup(NOTIFICATION_GROUP)
             .createNotification(title, body, NotificationType.WARNING)
             .notify(null)
-    }
-
-    private fun resetSyntaxIntensityToFreeDefaults() {
-        try {
-            val syntaxState = SyntaxIntensityState.getInstance().state
-            syntaxState.selectedPreset = SyntaxPreset.AMBIENT.name
-            syntaxState.subordinatePreset = SyntaxPreset.AMBIENT.name
-            syntaxState.customOverrides.clear()
-            syntaxState.customStyles.clear()
-            syntaxState.dimComments = false
-            syntaxState.softenDocumentation = false
-            syntaxState.quietOperators = false
-            syntaxState.emphasizeDeclarations = false
-            SyntaxIntensityService
-                .getInstance()
-                .apply(
-                    SyntaxPreset.AMBIENT,
-                    emptyMap(),
-                    SyntaxPreset.AMBIENT,
-                    emptyMap(),
-                    SyntaxReadabilityOptions.DEFAULT,
-                )
-        } catch (exception: RuntimeException) {
-            LOG.warn("Syntax intensity revert after license downgrade failed", exception)
-        }
     }
 
     /**
@@ -422,9 +358,6 @@ object LicenseChecker {
     private const val PRO_DEFAULT_NEON_WIDTH = 2
     private const val TRIAL_WARNING_7_DAY_THRESHOLD = 7L
     private const val TRIAL_WARNING_3_DAY_THRESHOLD = 3L
-    private const val MS_PER_HOUR = 3_600_000L
-    private const val OFFLINE_GRACE_HOURS = 48L
-    private const val OFFLINE_GRACE_MS = OFFLINE_GRACE_HOURS * MS_PER_HOUR
     private const val MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/30373-ayu-islands"
 
     /**
@@ -466,3 +399,7 @@ object LicenseChecker {
         return isDev
     }
 }
+
+private const val MS_PER_HOUR = 3_600_000L
+private const val OFFLINE_GRACE_HOURS = 48L
+private const val OFFLINE_GRACE_MS = OFFLINE_GRACE_HOURS * MS_PER_HOUR

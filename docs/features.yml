@@ -105,8 +105,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "77f3416"
-          last_verified_date: "2026-06-30"
+          last_verified_sha: "b95c003a"
+          last_verified_date: "2026-07-29"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
       - id: accent-scoped-language
@@ -127,8 +127,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "77f3416"
-          last_verified_date: "2026-06-30"
+          last_verified_sha: "b95c003a"
+          last_verified_date: "2026-07-29"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
       - id: accent-language-breakdown
@@ -399,8 +399,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "aa35c9b2"
-          last_verified_date: "2026-06-16"
+          last_verified_sha: "b95c003a"
+          last_verified_date: "2026-07-29"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
   workspace:
@@ -513,8 +513,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "77f3416"
-          last_verified_date: "2026-06-16"
+          last_verified_sha: "b95c003a"
+          last_verified_date: "2026-07-29"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 
   onboarding:

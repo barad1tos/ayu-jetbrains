@@ -174,13 +174,13 @@ class LicenseCheckerProDefaultsTest {
     // revertToFreeDefaults
 
     @Test
-    fun `revertToFreeDefaults disables glow`() {
+    fun `revertToFreeDefaults preserves glow preference`() {
         state.glowEnabled = true
         mockAccentApplicator()
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertFalse(state.glowEnabled)
+        assertTrue(state.glowEnabled)
     }
 
     @Test
@@ -213,7 +213,7 @@ class LicenseCheckerProDefaultsTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets all workspace settings to defaults`() {
+    fun `revertToFreeDefaults preserves all workspace settings`() {
         state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
@@ -226,14 +226,14 @@ class LicenseCheckerProDefaultsTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
-        assertEquals(PanelWidthMode.DEFAULT.name, state.commitPanelWidthMode)
-        assertEquals(PanelWidthMode.DEFAULT.name, state.gitPanelWidthMode)
-        assertEquals(CommitPathDisplayMode.INLINE.name, state.commitPanelPathDisplayMode)
-        assertEquals(AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS, state.commitPanelPathMinHiddenLevels)
-        assertEquals(AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS, state.commitPanelPathMaxHiddenLevels)
-        assertFalse(state.hideProjectRootPath)
-        assertFalse(state.hideProjectViewHScrollbar)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.projectPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.commitPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.gitPanelWidthMode)
+        assertEquals(CommitPathDisplayMode.TOOLTIP.name, state.commitPanelPathDisplayMode)
+        assertEquals(2, state.commitPanelPathMinHiddenLevels)
+        assertEquals(4, state.commitPanelPathMaxHiddenLevels)
+        assertTrue(state.hideProjectRootPath)
+        assertTrue(state.hideProjectViewHScrollbar)
     }
 
     @Test
@@ -247,33 +247,33 @@ class LicenseCheckerProDefaultsTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets cgpIntegrationEnabled to false`() {
+    fun `revertToFreeDefaults preserves cgpIntegrationEnabled`() {
         state.cgpIntegrationEnabled = true
         mockAccentApplicator()
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertFalse(state.cgpIntegrationEnabled)
+        assertTrue(state.cgpIntegrationEnabled)
     }
 
     @Test
-    fun `revertToFreeDefaults resets irIntegrationEnabled to false`() {
+    fun `revertToFreeDefaults preserves irIntegrationEnabled`() {
         state.irIntegrationEnabled = true
         mockAccentApplicator()
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertFalse(state.irIntegrationEnabled)
+        assertTrue(state.irIntegrationEnabled)
     }
 
     @Test
-    fun `revertToFreeDefaults resets accentRotationEnabled to false`() {
+    fun `revertToFreeDefaults preserves accentRotationEnabled`() {
         state.accentRotationEnabled = true
         mockAccentApplicator()
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertFalse(state.accentRotationEnabled)
+        assertTrue(state.accentRotationEnabled)
     }
 
     @Test
@@ -334,7 +334,6 @@ class LicenseCheckerProDefaultsTest {
         // Should not throw — exception is caught internally
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        // State changes still applied before the accent re-apply
         assertFalse(state.glowEnabled)
     }
 
