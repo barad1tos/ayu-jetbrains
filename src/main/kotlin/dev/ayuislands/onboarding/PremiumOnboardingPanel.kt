@@ -23,6 +23,7 @@ import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.BorderLayout
 import java.awt.Color
@@ -574,6 +575,10 @@ internal class PremiumOnboardingPanel(
         val state = AyuIslandsSettings.getInstance().state
         if (state.installedFonts.contains(entry.familyName)) {
             FontInstaller.applyOnly(preset, project)
+            return
+        }
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            LicenseChecker.requestLicense("Unlock font installation")
             return
         }
         val consent = FontInstallConsent.confirmInstall(entry, project) ?: return
