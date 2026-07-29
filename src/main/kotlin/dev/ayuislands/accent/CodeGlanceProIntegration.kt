@@ -285,7 +285,9 @@ internal object CodeGlanceProIntegration {
                 suspendOwnership(state)
                 return IntegrationOutcome.Skipped
             }
-            access.restoreViewport(current, base)?.let { return failedOutcome(CGP_RESTORE_FAILED, it) }
+            access
+                .restoreViewport(current, base)
+                ?.let { return handleRestoreFailure(state, access, it) }
             clearOwnership(state)
             log.info("CodeGlance Pro viewport restored to its pre-Ayu values")
             IntegrationOutcome.Restored
@@ -297,6 +299,17 @@ internal object CodeGlanceProIntegration {
         } catch (exception: RuntimeException) {
             failedOutcome(CGP_RESTORE_FAILED, exception)
         }
+    }
+
+    private fun handleRestoreFailure(
+        state: AyuIslandsState,
+        access: CgpAccess,
+        failure: ViewportWriteFailure,
+    ): IntegrationOutcome.Failed {
+        if (!failure.isRolledBack) {
+            captureRecoveryViewport(state, access, failure.error)
+        }
+        return failedOutcome(CGP_RESTORE_FAILED, failure.error)
     }
 
     fun revertCodeGlanceProViewport(): IntegrationOutcome = restoreOwnedState()
@@ -522,6 +535,11 @@ private data class CgpViewport(
     val thickness: Int,
 )
 
+private data class ViewportWriteFailure(
+    val error: Throwable,
+    val isRolledBack: Boolean,
+)
+
 private data class CgpAccess(
     val config: Any,
     val getColor: Method,
@@ -562,20 +580,17 @@ private fun CgpAccess.writeViewportOrError(viewport: CgpViewport): Throwable? =
 private fun CgpAccess.restoreViewport(
     current: CgpViewport,
     base: CgpViewport,
-): Throwable? =
+): ViewportWriteFailure? =
     try {
         writeViewport(base)
         null
     } catch (exception: InvocationTargetException) {
         val error = exception.cause ?: exception
-        rollbackViewport(current, error)
-        error
+        ViewportWriteFailure(error, rollbackViewport(current, error))
     } catch (exception: ReflectiveOperationException) {
-        rollbackViewport(current, exception)
-        exception
+        ViewportWriteFailure(exception, rollbackViewport(current, exception))
     } catch (exception: RuntimeException) {
-        rollbackViewport(current, exception)
-        exception
+        ViewportWriteFailure(exception, rollbackViewport(current, exception))
     }
 
 private fun CgpAccess.rollbackViewport(

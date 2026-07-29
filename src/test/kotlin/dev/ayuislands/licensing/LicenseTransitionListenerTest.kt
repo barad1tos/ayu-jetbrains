@@ -101,6 +101,55 @@ class LicenseTransitionListenerTest {
     }
 
     @Test
+    fun `licensed result after unknown restores a persisted unlicensed runtime`() {
+        state.lastConfirmedEntitlement = LicenseEntitlement.UNLICENSED.name
+        val listener = listenerFor(LicenseEntitlement.UNKNOWN, LicenseEntitlement.LICENSED)
+
+        listener.licenseStateChanged(facade)
+        listener.licenseStateChanged(facade)
+
+        assertEquals(
+            listOf(LicenseEntitlement.LICENSED to listOf(project)),
+            reconciliations,
+        )
+    }
+
+    @Test
+    fun `unknown grace check schedules another short retry`() {
+        val scheduledDelays = mutableListOf<Long>()
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val remaining =
+            ArrayDeque(
+                listOf(
+                    LicenseEntitlement.LICENSED,
+                    LicenseEntitlement.UNKNOWN,
+                    LicenseEntitlement.UNLICENSED,
+                ),
+            )
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { remaining.removeFirst() },
+                reconcile = { entitlement, projects ->
+                    recordReconciliation(entitlement, projects)
+                    ReconciliationResult.Success
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { 100_000L },
+                scheduleRecheck = { delayMs, action ->
+                    scheduledDelays += delayMs
+                    scheduledActions += action
+                },
+            )
+
+        listener.licenseStateChanged(facade)
+        scheduledActions.removeFirst().invoke()
+
+        assertEquals(listOf(100_000L, 5_000L), scheduledDelays)
+        scheduledActions.removeFirst().invoke()
+        assertEquals(listOf(LicenseEntitlement.UNLICENSED), reconciliations.map { it.first })
+    }
+
+    @Test
     fun `unknown between known states cannot hide license loss`() {
         val listener =
             listenerFor(

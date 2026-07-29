@@ -231,6 +231,47 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
+    fun `scheduled startup check retries when reconciliation throws`() {
+        val project = mockk<Project>(relaxed = true)
+        var disposalReads = 0
+        every { project.isDisposed } answers {
+            disposalReads += 1
+            if (disposalReads == 1) false else error("project disposed check failed")
+        }
+        val scheduledActions = mutableListOf<() -> Unit>()
+        var reconciliationAttempts = 0
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, projects ->
+                    reconciliationAttempts += 1
+                    if (reconciliationAttempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        projects.single().isDisposed
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { null },
+                projectsProvider = { listOf(project) },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
+        scheduledActions.removeFirst().invoke()
+
+        assertEquals(2, reconciliationAttempts)
+        assertEquals(1, scheduledActions.size)
+    }
+
+    @Test
     fun `runStep rethrows VirtualMachineError so the JVM crash reporter receives it`() {
         // Locks the rethrow: OOM, StackOverflowError, InternalError indicate unrecoverable
         // JVM state and continuing would risk cascading corruption. The test triggers an

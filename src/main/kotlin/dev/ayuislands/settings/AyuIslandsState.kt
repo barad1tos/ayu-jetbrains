@@ -238,6 +238,9 @@ class AyuIslandsState : BaseState() {
     // Project View tweaks
     var hideProjectRootPath by property(false)
     var hideProjectViewHScrollbar by property(false)
+    var hasRootPathLease by property(false)
+    var wasRootPathShown by property(false)
+    var wasRootPathChanged by property(false)
 
     // Editor scrollbar visibility
     var hideEditorVScrollbar by property(false)

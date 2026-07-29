@@ -2,14 +2,36 @@ package dev.ayuislands.projectview
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.RegistryValue
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class RootPathLeaseTest {
+    private lateinit var state: AyuIslandsState
+
+    @BeforeTest
+    fun setUp() {
+        state = AyuIslandsState()
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkAll()
+    }
+
     @Test
     fun `last project restores the shared registry baseline`() {
         var currentValue = true
@@ -86,13 +108,36 @@ class RootPathLeaseTest {
         assertEquals(2, resetAttempts)
     }
 
+    @Test
+    fun `restart restores the durable registry baseline`() {
+        var currentValue = true
+        val registryValue =
+            registryValue(
+                read = { currentValue },
+                write = { currentValue = it },
+                wasChanged = true,
+            )
+        val firstProject = mockk<Project>()
+        val reopenedProject = mockk<Project>()
+
+        RootPathLease().acquire(firstProject, registryValue)
+        assertEquals(false, currentValue)
+
+        val reopenedLease = RootPathLease()
+        reopenedLease.acquire(reopenedProject, registryValue)
+        reopenedLease.release(reopenedProject, registryValue)
+
+        assertEquals(true, currentValue)
+    }
+
     private fun registryValue(
         read: () -> Boolean,
         write: (Boolean) -> Unit,
+        wasChanged: Boolean = false,
     ): RegistryValue {
         val registryValue = mockk<RegistryValue>(relaxed = true)
         every { registryValue.asBoolean() } answers { read() }
-        every { registryValue.isChangedFromDefault() } returns false
+        every { registryValue.isChangedFromDefault() } returns wasChanged
         every { registryValue.setValue(any<Boolean>()) } answers {
             write(firstArg())
         }

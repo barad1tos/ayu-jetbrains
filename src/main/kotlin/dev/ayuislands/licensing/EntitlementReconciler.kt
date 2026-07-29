@@ -155,6 +155,7 @@ internal object EntitlementReconciler {
         }
     }
 
+    @Suppress("TooGenericExceptionCaught") // Surface isolation records checked reflection failures too.
     private inline fun runSurface(
         failures: MutableList<ReconciliationFailure>,
         description: String,
@@ -162,7 +163,7 @@ internal object EntitlementReconciler {
     ) {
         try {
             action()
-        } catch (exception: RuntimeException) {
+        } catch (exception: Exception) {
             failures += ReconciliationFailure(description, exception)
         }
     }

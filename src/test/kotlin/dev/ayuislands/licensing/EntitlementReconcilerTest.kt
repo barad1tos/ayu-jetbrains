@@ -25,6 +25,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.lang.reflect.InvocationTargetException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -222,6 +223,23 @@ class EntitlementReconcilerTest {
                 .single()
                 .error.message,
         )
+    }
+
+    @Test
+    fun `checked integration failure does not block remaining surfaces`() {
+        val reflectionFailure = InvocationTargetException(IllegalStateException("state access failed"))
+        every { CodeGlanceProIntegration.restoreOwnedState() } throws reflectionFailure
+
+        val result = EntitlementReconciler.reconcile(LicenseEntitlement.UNLICENSED, listOf(project))
+
+        verify(exactly = 1) { IndentRainbowSync.restoreOwnedState() }
+        verifyWorkspaceApplied()
+        verify(exactly = 1) { VcsColorApplier.revertAll() }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(context) }
+        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+        verify(exactly = 1) { syntax.reapplyForActiveLaf() }
+        assertEquals(listOf("restore CodeGlance Pro"), result.failures.map { it.operation })
+        assertEquals(reflectionFailure, result.failures.single().error)
     }
 
     @Test

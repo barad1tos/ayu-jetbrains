@@ -6,6 +6,8 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.util.concurrency.annotations.RequiresEdt
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 
 @Service(Service.Level.APP)
 internal class RootPathLease {
@@ -18,17 +20,7 @@ internal class RootPathLease {
     ) {
         val current = ownership
         if (current == null) {
-            val snapshot =
-                RegistrySnapshot(
-                    value = registryValue.asBoolean(),
-                    wasChanged = registryValue.isChangedFromDefault(),
-                )
-            registryValue.setValue(false)
-            ownership =
-                RegistryOwnership(
-                    snapshot = snapshot,
-                    projects = mutableSetOf(project),
-                )
+            startOwnership(project, registryValue)
             return
         }
 
@@ -57,8 +49,43 @@ internal class RootPathLease {
                 registryValue.resetToDefault()
             }
         }
+        AyuIslandsSettings.getInstance().state.clearRootPathSnapshot()
         current.projects -= project
         ownership = null
+    }
+
+    private fun startOwnership(
+        project: Project,
+        registryValue: RegistryValue,
+    ) {
+        val state = AyuIslandsSettings.getInstance().state
+        val savedSnapshot = state.rootPathSnapshot()
+        val snapshot =
+            savedSnapshot
+                ?: RegistrySnapshot(
+                    value = registryValue.asBoolean(),
+                    wasChanged = registryValue.isChangedFromDefault(),
+                )
+        val current =
+            RegistryOwnership(
+                snapshot = snapshot,
+                projects = mutableSetOf(project),
+            )
+        ownership = current
+
+        if (savedSnapshot != null) {
+            detectManualDrift(current, registryValue)
+            return
+        }
+
+        state.storeRootPathSnapshot(snapshot)
+        try {
+            registryValue.setValue(false)
+        } catch (exception: RuntimeException) {
+            ownership = null
+            state.clearRootPathSnapshot()
+            throw exception
+        }
     }
 
     private fun detectManualDrift(
@@ -87,3 +114,25 @@ private data class RegistryOwnership(
     val projects: MutableSet<Project>,
     var isDrifted: Boolean = false,
 )
+
+private fun AyuIslandsState.rootPathSnapshot(): RegistrySnapshot? =
+    if (hasRootPathLease) {
+        RegistrySnapshot(
+            value = wasRootPathShown,
+            wasChanged = wasRootPathChanged,
+        )
+    } else {
+        null
+    }
+
+private fun AyuIslandsState.storeRootPathSnapshot(snapshot: RegistrySnapshot) {
+    wasRootPathShown = snapshot.value
+    wasRootPathChanged = snapshot.wasChanged
+    hasRootPathLease = true
+}
+
+private fun AyuIslandsState.clearRootPathSnapshot() {
+    hasRootPathLease = false
+    wasRootPathShown = false
+    wasRootPathChanged = false
+}

@@ -15,11 +15,10 @@ import dev.ayuislands.settings.AyuIslandsSettings
  *     the next IDE startup surfaces the premium wizard via OnboardingOrchestrator.
  *     No mid-session UI is shown — the re-armed wizard appears at next launch only.
  *
- * Runtime surfaces are delegated to [EntitlementReconciler]. An initial licensed
- * callback records state without repainting; an initial unlicensed callback reconciles
- * once because startup may have rendered optimistically while licensing was unavailable.
- * UNKNOWN callbacks do not update the remembered state and cannot manufacture a later
- * transition.
+ * Runtime surfaces are delegated to [EntitlementReconciler]. A first definitive callback
+ * reconciles when it differs from the last persisted confirmation; a fresh initial licensed
+ * callback still records state without repainting. UNKNOWN callbacks preserve the remembered
+ * state and schedule another short observation.
  *
  * State mutation and runtime reconciliation are dispatched to EDT because Topic
  * listeners may fire on arbitrary threads.
@@ -33,8 +32,11 @@ internal class LicenseTransitionListener(
     },
     private val dispatch: (() -> Unit) -> Unit = { ApplicationManager.getApplication().invokeLater(it) },
     private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
+    private val confirmedEntitlementProvider: () -> LicenseEntitlement = {
+        LicenseEntitlement.fromName(AyuIslandsSettings.getInstance().state.lastConfirmedEntitlement)
+    },
     private val scheduleRecheck: (Long, () -> Unit) -> Unit = { delayMs, action ->
-        LicenseRecheckScheduler.getInstance().schedule(delayMs, action)
+        LicenseRecheckScheduler.getInstance().schedule(LicenseRecheckSlot.TRANSITION, delayMs, action)
     },
 ) : LicensingFacade.LicenseStateListener {
     private var previousEntitlement: LicenseEntitlement? = null
@@ -45,10 +47,15 @@ internal class LicenseTransitionListener(
 
     private fun processChange() {
         try {
+            val previous =
+                previousEntitlement
+                    ?: confirmedEntitlementProvider().takeUnless { it == LicenseEntitlement.UNKNOWN }
             val entitlement = entitlementProvider()
-            if (entitlement == LicenseEntitlement.UNKNOWN) return
+            if (entitlement == LicenseEntitlement.UNKNOWN) {
+                scheduleRetry()
+                return
+            }
 
-            val previous = previousEntitlement
             if (requiresReconciliation(previous, entitlement)) {
                 val result = reconcile(entitlement, projectsProvider())
                 if (!result.isSuccess) {

@@ -24,6 +24,7 @@ import dev.ayuislands.licensing.EntitlementReconciler
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.licensing.LicenseRecheckScheduler
+import dev.ayuislands.licensing.LicenseRecheckSlot
 import dev.ayuislands.licensing.ReconciliationResult
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -44,7 +45,7 @@ internal class AyuIslandsStartupActivity(
     private val reconcile: (LicenseEntitlement, Iterable<Project>) -> ReconciliationResult =
         EntitlementReconciler::reconcile,
     private val scheduleRecheck: (Long, () -> Unit) -> Unit = { delayMs, action ->
-        LicenseRecheckScheduler.getInstance().schedule(delayMs, action)
+        LicenseRecheckScheduler.getInstance().schedule(LicenseRecheckSlot.STARTUP, delayMs, action)
     },
     private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
     private val projectsProvider: () -> Iterable<Project> = {
@@ -439,7 +440,7 @@ internal class AyuIslandsStartupActivity(
         projects: List<Project>,
     ) {
         if (entitlement == LicenseEntitlement.UNKNOWN) return
-        val result = reconcile(entitlement, projects)
+        val result = reconcileWithRetry(entitlement, projects) ?: return
         if (!result.isSuccess) {
             scheduleStartupCheck(RECONCILIATION_RETRY_MS)
         }
@@ -468,13 +469,25 @@ internal class AyuIslandsStartupActivity(
                 scheduleStartupCheck(RECONCILIATION_RETRY_MS)
                 return
             }
-        val result = reconcile(entitlement, projects)
+        val result = reconcileWithRetry(entitlement, projects) ?: return
         when {
             !result.isSuccess -> scheduleStartupCheck(RECONCILIATION_RETRY_MS)
             entitlement == LicenseEntitlement.LICENSED ->
                 recheckDelayProvider()?.let(::scheduleStartupCheck)
         }
     }
+
+    private fun reconcileWithRetry(
+        entitlement: LicenseEntitlement,
+        projects: Iterable<Project>,
+    ): ReconciliationResult? =
+        try {
+            reconcile(entitlement, projects)
+        } catch (exception: RuntimeException) {
+            LOG.warn("License reconciliation threw before returning a result; retrying", exception)
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS)
+            null
+        }
 
     @org.jetbrains.annotations.TestOnly
     internal fun reconcileForTest(

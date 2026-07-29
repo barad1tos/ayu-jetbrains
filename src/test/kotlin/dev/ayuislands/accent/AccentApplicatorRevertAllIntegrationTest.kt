@@ -536,6 +536,27 @@ class AccentApplicatorRevertAllIntegrationTest {
     }
 
     @Test
+    fun `failed CodeGlance Pro restore and rollback remain recoverable`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+        viewport.shouldRejectNextThicknessAndRollbackBorder = true
+
+        val failed = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.cgpOwnership)
+        assertEquals(IntegrationOutcome.Restored, CodeGlanceProIntegration.restoreOwnedState())
+        assertEquals("112233", viewport.viewportColor)
+        assertEquals("445566", viewport.viewportBorderColor)
+        assertEquals(3, viewport.viewportBorderThickness)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
+    }
+
+    @Test
     fun `failed first CodeGlance Pro write recovers the original baseline before retry`() {
         val cgpService = installCgpService()
         val viewport = cgpService.getState()
