@@ -138,8 +138,16 @@ class LicenseTransitionListenerTest {
                         else -> LicenseEntitlement.LICENSED
                     }
                 },
-                reconcile = ::recordReconciliation,
+                reconcile = {
+                    entitlement,
+                    projects,
+                    ->
+                    recordReconciliation(entitlement, projects)
+                    ReconciliationResult.Success
+                },
                 dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, _ -> },
             )
         val loggedErrors = mutableListOf<Throwable?>()
         val processor =
@@ -170,12 +178,101 @@ class LicenseTransitionListenerTest {
         )
     }
 
+    @Test
+    fun `same confirmed entitlement retries after reconciliation failure`() {
+        var attempts = 0
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { LicenseEntitlement.UNLICENSED },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh Project view",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, _ -> },
+            )
+
+        listener.licenseStateChanged(facade)
+        listener.licenseStateChanged(facade)
+
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `grace recheck reconciles expiry without another facade callback`() {
+        var entitlement = LicenseEntitlement.LICENSED
+        var scheduled: (() -> Unit)? = null
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { entitlement },
+                reconcile = {
+                    current,
+                    projects,
+                    ->
+                    recordReconciliation(current, projects)
+                    ReconciliationResult.Success
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { 1_000L },
+                scheduleRecheck = { _, action -> scheduled = action },
+            )
+
+        listener.licenseStateChanged(facade)
+        entitlement = LicenseEntitlement.UNLICENSED
+        checkNotNull(scheduled).invoke()
+
+        assertEquals(listOf(LicenseEntitlement.UNLICENSED), reconciliations.map { it.first })
+    }
+
+    @Test
+    fun `entitlement provider runs inside the serialized dispatch`() {
+        val queued = mutableListOf<() -> Unit>()
+        var providerCalls = 0
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = {
+                    providerCalls += 1
+                    LicenseEntitlement.LICENSED
+                },
+                reconcile = { _, _ -> ReconciliationResult.Success },
+                dispatch = { queued += it },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, _ -> },
+            )
+
+        listener.licenseStateChanged(facade)
+
+        assertEquals(0, providerCalls)
+        queued.single().invoke()
+        assertEquals(1, providerCalls)
+    }
+
     private fun listenerFor(vararg entitlements: LicenseEntitlement): LicenseTransitionListener {
         val remaining = ArrayDeque(entitlements.toList())
         return LicenseTransitionListener(
             entitlementProvider = { remaining.removeFirst() },
-            reconcile = ::recordReconciliation,
+            reconcile = {
+                entitlement,
+                projects,
+                ->
+                recordReconciliation(entitlement, projects)
+                ReconciliationResult.Success
+            },
             dispatch = { it() },
+            recheckDelayProvider = { null },
+            scheduleRecheck = { _, _ -> },
         )
     }
 

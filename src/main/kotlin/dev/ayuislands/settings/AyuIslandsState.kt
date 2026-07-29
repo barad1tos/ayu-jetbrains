@@ -76,6 +76,7 @@ class AyuIslandsState : BaseState() {
     var proDefaultsApplied by property(false)
     var everBeenPro by property(false)
     var lastKnownLicensedMs by property(0L)
+    var lastConfirmedEntitlement by string("UNKNOWN")
     var workspaceDefaultsApplied by property(false)
     var trialWelcomeShown by property(false)
     var freeOnboardingShown by property(false)

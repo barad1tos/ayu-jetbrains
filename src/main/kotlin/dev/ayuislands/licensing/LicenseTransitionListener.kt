@@ -26,28 +26,45 @@ import dev.ayuislands.settings.AyuIslandsSettings
  */
 internal class LicenseTransitionListener(
     private val entitlementProvider: () -> LicenseEntitlement = LicenseChecker::currentEntitlement,
-    private val reconcile: (LicenseEntitlement, Iterable<Project>) -> Unit = EntitlementReconciler::reconcile,
+    private val reconcile: (LicenseEntitlement, Iterable<Project>) -> ReconciliationResult =
+        EntitlementReconciler::reconcile,
     private val dispatch: (() -> Unit) -> Unit = { ApplicationManager.getApplication().invokeLater(it) },
+    private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
+    private val scheduleRecheck: (Long, () -> Unit) -> Unit = { delayMs, action ->
+        LicenseRecheckScheduler.getInstance().schedule(delayMs, action)
+    },
 ) : LicensingFacade.LicenseStateListener {
-    @Volatile
     private var previousEntitlement: LicenseEntitlement? = null
 
     override fun licenseStateChanged(facade: LicensingFacade?) {
+        dispatch(::processChange)
+    }
+
+    private fun processChange() {
         try {
             val entitlement = entitlementProvider()
             if (entitlement == LicenseEntitlement.UNKNOWN) return
 
             val previous = previousEntitlement
-            previousEntitlement = entitlement
-            if (!requiresReconciliation(previous, entitlement)) return
-
-            dispatch {
+            if (requiresReconciliation(previous, entitlement)) {
+                val result = reconcile(entitlement, openProjects())
+                if (!result.isSuccess) {
+                    scheduleNextCheck(entitlement)
+                    return
+                }
                 rearmPremiumOnboarding(previous, entitlement)
-                reconcile(entitlement, openProjects())
             }
+            previousEntitlement = entitlement
+            scheduleNextCheck(entitlement)
         } catch (exception: RuntimeException) {
             LOG.error("Ayu license: failed to handle license state change", exception)
         }
+    }
+
+    private fun scheduleNextCheck(entitlement: LicenseEntitlement) {
+        if (entitlement != LicenseEntitlement.LICENSED) return
+        val delayMs = recheckDelayProvider() ?: return
+        scheduleRecheck(delayMs) { licenseStateChanged(null) }
     }
 
     private fun rearmPremiumOnboarding(

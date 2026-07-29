@@ -32,6 +32,12 @@ internal enum class LicenseEntitlement {
     LICENSED,
     UNLICENSED,
     UNKNOWN,
+
+    ;
+
+    companion object {
+        fun fromName(value: String?): LicenseEntitlement = entries.firstOrNull { it.name == value } ?: UNKNOWN
+    }
 }
 
 internal data class EntitlementResult(
@@ -158,6 +164,9 @@ object LicenseChecker {
         if (result.lastLicensedMs != previousStamp) {
             state.lastKnownLicensedMs = result.lastLicensedMs
         }
+        if (result.entitlement != LicenseEntitlement.UNKNOWN) {
+            state.lastConfirmedEntitlement = result.entitlement.name
+        }
         if (result.isStampReset) {
             LOG.warn(
                 "Clock rollback or lastKnownLicensedMs tamper detected " +
@@ -175,8 +184,32 @@ object LicenseChecker {
         return result.entitlement
     }
 
-    /** Treat unknown Marketplace startup state as runtime fail-open without confirming a transition. */
-    fun isLicensedOrGrace(): Boolean = currentEntitlement() != LicenseEntitlement.UNLICENSED
+    /**
+     * Treat an unknown Marketplace startup state as fail-open only until the first
+     * confirmed entitlement. A transient outage cannot undo a confirmed loss.
+     */
+    fun isLicensedOrGrace(): Boolean =
+        when (currentEntitlement()) {
+            LicenseEntitlement.LICENSED -> true
+            LicenseEntitlement.UNLICENSED -> false
+            LicenseEntitlement.UNKNOWN ->
+                LicenseEntitlement.fromName(
+                    AyuIslandsSettings.getInstance().state.lastConfirmedEntitlement,
+                ) != LicenseEntitlement.UNLICENSED
+        }
+
+    internal fun nextRecheckDelayMs(): Long? {
+        val state = AyuIslandsSettings.getInstance().state
+        if (LicenseEntitlement.fromName(state.lastConfirmedEntitlement) != LicenseEntitlement.LICENSED) {
+            return null
+        }
+        val now = nowMsSupplier()
+        val stamp = state.lastKnownLicensedMs
+        if (stamp <= 0 || stamp > now) return null
+        val elapsed = now - stamp
+        if (elapsed >= OFFLINE_GRACE_MS) return null
+        return OFFLINE_GRACE_MS - elapsed
+    }
 
     /** Open the JetBrains registration / purchase dialog. */
     fun requestLicense(message: String) {

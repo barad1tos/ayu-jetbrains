@@ -25,6 +25,9 @@ import io.mockk.verify
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class EntitlementReconcilerTest {
     private lateinit var state: AyuIslandsState
@@ -144,6 +147,16 @@ class EntitlementReconcilerTest {
     }
 
     @Test
+    fun `follow system accent keeps saved rotation suspended after recovery`() {
+        state.accentRotationEnabled = true
+        state.followSystemAccent = true
+
+        EntitlementReconciler.reconcile(LicenseEntitlement.LICENSED, emptyList())
+
+        verify(exactly = 0) { AccentRotationService.getInstance() }
+    }
+
+    @Test
     fun `disposed projects are excluded from workspace reconciliation`() {
         val disposed =
             mockk<Project> {
@@ -162,11 +175,27 @@ class EntitlementReconcilerTest {
     fun `workspace failure does not block remaining surfaces`() {
         every { projectView.apply() } throws RuntimeException("cleanup failed")
 
-        EntitlementReconciler.reconcile(LicenseEntitlement.UNLICENSED, listOf(project))
+        val result = EntitlementReconciler.reconcile(LicenseEntitlement.UNLICENSED, listOf(project))
 
         verify(exactly = 1) { editorScrollbars.apply() }
         verify(exactly = 1) { VcsColorApplier.revertAll() }
         verify(exactly = 1) { AccentApplicator.applyForFocusedProject(context) }
+        assertFalse(result.isSuccess)
+        assertEquals(listOf("refresh Project view"), result.failures.map { it.operation })
+        assertEquals(
+            "cleanup failed",
+            result.failures
+                .single()
+                .error.message,
+        )
+    }
+
+    @Test
+    fun `successful reconciliation returns an empty structured result`() {
+        val result = EntitlementReconciler.reconcile(LicenseEntitlement.UNLICENSED, listOf(project))
+
+        assertTrue(result.isSuccess)
+        assertTrue(result.failures.isEmpty())
     }
 
     private fun verifyWorkspaceApplied() {

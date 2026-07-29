@@ -16,6 +16,22 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.vcs.VcsColorApplier
 
+internal data class ReconciliationFailure(
+    val operation: String,
+    val error: Throwable,
+)
+
+internal data class ReconciliationResult(
+    val failures: List<ReconciliationFailure>,
+) {
+    val isSuccess: Boolean
+        get() = failures.isEmpty()
+
+    companion object {
+        val Success = ReconciliationResult(emptyList())
+    }
+}
+
 /**
  * Reconciles runtime-only premium surfaces after a definitive entitlement result.
  *
@@ -29,62 +45,74 @@ internal object EntitlementReconciler {
     fun reconcile(
         entitlement: LicenseEntitlement,
         projects: Iterable<Project>,
-    ) {
-        if (entitlement == LicenseEntitlement.UNKNOWN) return
+    ): ReconciliationResult {
+        if (entitlement == LicenseEntitlement.UNKNOWN) return ReconciliationResult.Success
+        val failures = mutableListOf<ReconciliationFailure>()
 
-        runSurface("close Quick Switcher popups") {
+        runSurface(failures, "close Quick Switcher popups") {
             QuickSwitcherPopup.closeOpenPopups()
         }
         if (entitlement == LicenseEntitlement.UNLICENSED) {
-            runSurface("stop accent rotation") {
+            runSurface(failures, "stop accent rotation") {
                 AccentRotationService.getInstance().stopRotation()
             }
         }
 
         projects
             .filterNot { it.isDisposed }
-            .forEach(::reconcileWorkspace)
+            .forEach { reconcileWorkspace(it, failures) }
 
-        runSurface("refresh VCS colors") {
+        runSurface(failures, "refresh VCS colors") {
             when (entitlement) {
                 LicenseEntitlement.LICENSED -> VcsColorApplier.applyAll()
                 LicenseEntitlement.UNLICENSED -> VcsColorApplier.revertAll()
                 LicenseEntitlement.UNKNOWN -> return@runSurface
             }
         }
-        runSurface("re-apply accent") {
+        runSurface(failures, "re-apply accent") {
             AccentContext.detect()?.let(AccentApplicator::applyForFocusedProject)
         }
-        runSurface("refresh glow") {
+        runSurface(failures, "refresh glow") {
             GlowOverlayManager.syncGlowForAllProjects()
         }
-        runSurface("refresh syntax") {
+        runSurface(failures, "refresh syntax") {
             SyntaxIntensityService.getInstance().reapplyForActiveLaf()
         }
 
         if (entitlement == LicenseEntitlement.LICENSED) {
-            runSurface("resume accent rotation", ::resumeRotation)
+            runSurface(failures, "resume accent rotation", ::resumeRotation)
         }
+        if (failures.isNotEmpty()) {
+            LOG.warn(
+                "Ayu entitlement reconciliation incomplete: " +
+                    failures.joinToString { it.operation },
+                failures.first().error,
+            )
+        }
+        return ReconciliationResult(failures.toList())
     }
 
-    private fun reconcileWorkspace(project: Project) {
-        runSurface("refresh Project view") {
+    private fun reconcileWorkspace(
+        project: Project,
+        failures: MutableList<ReconciliationFailure>,
+    ) {
+        runSurface(failures, "refresh Project view") {
             ProjectViewScrollbarManager.getInstance(project).apply()
         }
-        runSurface("refresh editor scrollbars") {
+        runSurface(failures, "refresh editor scrollbars") {
             EditorScrollbarManager.getInstance(project).apply()
         }
-        runSurface("refresh Commit panel") {
+        runSurface(failures, "refresh Commit panel") {
             CommitPanelAutoFitManager.getInstance(project).apply()
         }
-        runSurface("refresh Git panel") {
+        runSurface(failures, "refresh Git panel") {
             GitPanelAutoFitManager.getInstance(project).apply()
         }
     }
 
     private fun resumeRotation() {
         val state = AyuIslandsSettings.getInstance().state
-        if (!state.accentRotationEnabled) return
+        if (!state.accentRotationEnabled || state.followSystemAccent) return
 
         val service = AccentRotationService.getInstance()
         val intervalMs = state.accentRotationIntervalHours * MS_PER_HOUR
@@ -98,13 +126,14 @@ internal object EntitlementReconciler {
     }
 
     private inline fun runSurface(
+        failures: MutableList<ReconciliationFailure>,
         description: String,
         action: () -> Unit,
     ) {
         try {
             action()
         } catch (exception: RuntimeException) {
-            LOG.warn("Ayu entitlement: failed to $description", exception)
+            failures += ReconciliationFailure(description, exception)
         }
     }
 
