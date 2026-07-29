@@ -2201,6 +2201,32 @@ class AccentApplicatorTest {
     }
 
     @Test
+    fun `applyTabUnderline uses free runtime height then restores licensed saved height without mutation`() {
+        state.glowTabMode = "FULL"
+        state.tabUnderlineHeight = 7
+        state.tabUnderlineGlowSync = true
+        state.glowEnabled = false
+
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        invokeApplyTabUnderline(state, AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        invokeApplyTabUnderline(state, AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        verify(exactly = 1) {
+            UIManager.put(
+                "EditorTabs.underlineHeight",
+                Integer.valueOf(AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT),
+            )
+        }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(7)) }
+        assertEquals(7, state.tabUnderlineHeight)
+        assertTrue(state.tabUnderlineGlowSync)
+        assertEquals("FULL", state.glowTabMode)
+        assertFalse(state.glowEnabled)
+    }
+
+    @Test
     fun `applyTabUnderline sets neutral gray when OFF and variant present`() {
         state.glowTabMode = "OFF"
 

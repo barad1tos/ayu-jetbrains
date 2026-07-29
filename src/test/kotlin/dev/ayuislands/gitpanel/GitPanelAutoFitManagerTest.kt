@@ -28,6 +28,8 @@ import javax.swing.JPanel
 import javax.swing.JTable
 import javax.swing.JTree
 import javax.swing.SwingUtilities
+import javax.swing.event.TreeExpansionEvent
+import javax.swing.tree.TreePath
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -482,4 +484,120 @@ class GitPanelAutoFitManagerTest {
             }
         }
     }
+
+    @Test
+    fun `entitlement loss removes AUTO_FIT automation without changing preferences`() {
+        SwingUtilities.invokeAndWait {
+            var licensed = true
+            every { LicenseChecker.isLicensedOrGrace() } answers { licensed }
+            val fixture = createAutoFitFixture()
+            val initialListenerCount = fixture.tree.treeExpansionListeners.size
+            val savedMaxWidth = realState.gitPanelAutoFitMaxWidth
+            val savedMinWidth = realState.gitPanelAutoFitMinWidth
+
+            fixture.manager.apply()
+            assertTrue(fixture.tree.treeExpansionListeners.size > initialListenerCount)
+
+            licensed = false
+            fixture.manager.apply()
+
+            assertTrue(fixture.tree.treeExpansionListeners.size == initialListenerCount)
+            assertTrue(realState.gitPanelWidthMode == PanelWidthMode.AUTO_FIT.name)
+            assertTrue(realState.gitPanelAutoFitMaxWidth == savedMaxWidth)
+            assertTrue(realState.gitPanelAutoFitMinWidth == savedMinWidth)
+        }
+    }
+
+    @Test
+    fun `delayed AUTO_FIT does not mutate geometry after entitlement loss`() {
+        SwingUtilities.invokeAndWait {
+            var licensed = true
+            every { LicenseChecker.isLicensedOrGrace() } answers { licensed }
+            val fixture = createAutoFitFixture()
+            fixture.manager.apply()
+            fixture.splitter.proportion = 0.9f
+
+            fixture.tree.treeExpansionListeners.forEach {
+                it.treeExpanded(TreeExpansionEvent(fixture.tree, TreePath(fixture.tree.model.root)))
+            }
+            licensed = false
+            fixture.manager.flushDebounceForTesting()
+
+            assertTrue(fixture.splitter.proportion == 0.9f)
+        }
+    }
+
+    @Test
+    fun `fixed geometry mutation is gated when entitlement is lost`() {
+        SwingUtilities.invokeAndWait {
+            every { LicenseChecker.isLicensedOrGrace() } returnsMany listOf(true, false)
+            realState.gitPanelWidthMode = PanelWidthMode.FIXED.name
+            realState.gitPanelFixedWidth = 300
+            val fixture = createAutoFitFixture()
+            fixture.splitter.proportion = 0.4f
+
+            fixture.manager.apply()
+
+            assertTrue(fixture.splitter.proportion == 0.4f)
+        }
+    }
+
+    @Test
+    fun `relicensing restores automation for preserved AUTO_FIT mode`() {
+        SwingUtilities.invokeAndWait {
+            var licensed = true
+            every { LicenseChecker.isLicensedOrGrace() } answers { licensed }
+            val fixture = createAutoFitFixture()
+            val initialListenerCount = fixture.tree.treeExpansionListeners.size
+
+            fixture.manager.apply()
+            licensed = false
+            fixture.manager.apply()
+            licensed = true
+            fixture.manager.apply()
+
+            assertTrue(fixture.tree.treeExpansionListeners.size > initialListenerCount)
+            assertTrue(realState.gitPanelWidthMode == PanelWidthMode.AUTO_FIT.name)
+        }
+    }
+
+    private fun createAutoFitFixture(): AutoFitFixture {
+        realState.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
+        realState.gitPanelAutoFitMaxWidth = 500
+        realState.gitPanelAutoFitMinWidth = 200
+        mockkObject(AutoFitCalculator)
+        every { AutoFitCalculator.measureTreeMaxRowWidth(any()) } returns 250
+
+        val tree = JTree()
+        val tablePanel = JPanel(FlowLayout()).apply { add(JTable()) }
+        val treePanel = JPanel(FlowLayout()).apply { add(tree) }
+        val splitter =
+            Splitter().apply {
+                setSize(1000, 400)
+                firstComponent = tablePanel
+                secondComponent = treePanel
+            }
+        val logContent =
+            mockk<Content>(relaxed = true) {
+                every { tabName } returns "Log"
+                every { component } returns splitter
+            }
+        val contentManager =
+            mockk<ContentManager>(relaxed = true) {
+                every { contents } returns arrayOf(logContent)
+            }
+        val toolWindow =
+            mockk<ToolWindow>(relaxed = true) {
+                every { this@mockk.contentManager } returns contentManager
+            }
+        every { toolWindowManager.getToolWindow("Version Control") } returns toolWindow
+
+        return AutoFitFixture(GitPanelAutoFitManager(project), tree, splitter)
+    }
+
+    private data class AutoFitFixture(
+        val manager: GitPanelAutoFitManager,
+        val tree: JTree,
+        val splitter: Splitter,
+    )
 }

@@ -467,13 +467,13 @@ class IndentRainbowSyncTest {
     }
 
     @Test
-    fun `logWarning does not throw`() {
-        invokePrivate("logWarning", "test action", RuntimeException("test message"))
+    fun `logResolutionWarning does not throw`() {
+        invokePrivate("logResolutionWarning", IllegalArgumentException("test message"))
     }
 
     @Test
-    fun `logWarning handles exception with null message`() {
-        invokePrivate("logWarning", "test action", RuntimeException())
+    fun `logResolutionWarning handles exception with null message`() {
+        invokePrivate("logResolutionWarning", IllegalArgumentException())
     }
 
     @Test

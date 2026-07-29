@@ -745,7 +745,12 @@ object AccentApplicator {
             scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
         }
 
-        val height = resolveUnderlineHeight(state, tabMode)
+        val height =
+            if (isChromeAllowed) {
+                resolveUnderlineHeight(state, tabMode)
+            } else {
+                AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT
+            }
         if (context == AccentContext.External) {
             ExternalChromeOwnership.markTabUnderline()
         }

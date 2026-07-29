@@ -3,9 +3,13 @@ package dev.ayuislands.commitpanel
 import com.intellij.openapi.application.Application
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.CommitPathDisplayMode
 import dev.ayuislands.settings.PanelWidthMode
+import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.Container
@@ -16,6 +20,8 @@ import javax.swing.JTree
 import javax.swing.SwingUtilities
 import javax.swing.tree.DefaultMutableTreeNode
 import javax.swing.tree.TreeCellRenderer
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -29,6 +35,40 @@ private const val SAMPLE_SOURCE_PATH = "sample/source/root/package/renderer"
 private const val DIRECTORY_ROW_PATH = "fixtures/domain/subsystem/renderer"
 
 class CommitPathShorteningRendererTest {
+    @BeforeTest
+    fun setUp() {
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+    }
+
+    @AfterTest
+    fun tearDown() {
+        unmockkObject(LicenseChecker)
+    }
+
+    @Test
+    fun `stale renderer delegates native output untouched when unlicensed`() {
+        SwingUtilities.invokeAndWait {
+            val native =
+                SimpleColoredComponent().apply {
+                    append("File.kt", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append("  alpha/beta/gamma", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    toolTipText = "native tooltip"
+                }
+            val renderer =
+                CommitPathShorteningRenderer(
+                    delegate = TreeCellRenderer { _, _, _, _, _, _, _ -> native },
+                    canApply = { false },
+                )
+
+            val rendered = render(renderer, treeWithVisibleWidth(100))
+
+            assertSame(native, rendered)
+            assertEquals(listOf("File.kt", "  alpha/beta/gamma"), rendered.fragmentsForTest())
+            assertEquals("native tooltip", rendered.toolTipText)
+        }
+    }
+
     @Test
     fun `renderer shortens only the path fragment when commit width is managed`() {
         SwingUtilities.invokeAndWait {

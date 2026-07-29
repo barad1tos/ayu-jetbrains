@@ -34,6 +34,8 @@ class ProjectViewScrollbarManager(
 ) : Disposable {
     private var originalScrollbarPolicy: Int? = null
     private var registryKeyModified = false
+    private var originalRegistryValue: Boolean? = null
+    private var registryWasChanged = false
     private var trackedTree: JTree? = null
     private var lastAppliedHidePath: Boolean? = null
     private var rendererListener: PropertyChangeListener? = null
@@ -42,6 +44,7 @@ class ProjectViewScrollbarManager(
             project = project,
             toolWindowId = TOOL_WINDOW_ID,
             minWidth = AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
+            canApply = { LicenseChecker.isLicensedOrGrace() },
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitMaxWidth }
             minWidthProvider = { AyuIslandsSettings.getInstance().state.projectPanelAutoFitMinWidth }
@@ -88,7 +91,10 @@ class ProjectViewScrollbarManager(
     }
 
     fun apply() {
-        if (!LicenseChecker.isLicensedOrGrace()) return
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            cleanupRuntime()
+            return
+        }
         applyScrollbar()
         applyRootDisplay()
         manageAutoFit()
@@ -146,11 +152,14 @@ class ProjectViewScrollbarManager(
                 return
             }
         if (hidePath) {
+            if (!registryKeyModified) {
+                originalRegistryValue = registryKey.asBoolean()
+                registryWasChanged = registryKey.isChangedFromDefault()
+            }
             registryKey.setValue(false)
             registryKeyModified = true
         } else if (registryKeyModified) {
-            registryKey.resetToDefault()
-            registryKeyModified = false
+            restoreRegistryKey(registryKey)
         }
 
         val tree = findProjectTree() ?: return
@@ -192,6 +201,7 @@ class ProjectViewScrollbarManager(
                         event.newValue as? TreeCellRenderer
                             ?: return@PropertyChangeListener
                     if (newRenderer !is RootFilteringRenderer &&
+                        LicenseChecker.isLicensedOrGrace() &&
                         AyuIslandsSettings.getInstance().state.hideProjectRootPath
                     ) {
                         tree.cellRenderer =
@@ -246,6 +256,10 @@ class ProjectViewScrollbarManager(
     }
 
     override fun dispose() {
+        cleanupRuntime()
+    }
+
+    private fun cleanupRuntime() {
         removeRendererGuard()
         autoFitter.removeExpansionListener()
         val scrollPane = findProjectScrollPane()
@@ -256,19 +270,37 @@ class ProjectViewScrollbarManager(
         }
         if (registryKeyModified) {
             try {
-                Registry.get(SHOW_URL_KEY).resetToDefault()
+                restoreRegistryKey(Registry.get(SHOW_URL_KEY))
             } catch (_: MissingResourceException) {
                 LOG.warn(
                     "Registry key '$SHOW_URL_KEY' not " +
                         "found during dispose",
                 )
             }
-            registryKeyModified = false
         }
         val tree = findProjectTree()
         if (tree != null) {
             unwrapRenderer(tree)
         }
+        lastAppliedHidePath = null
+    }
+
+    private fun restoreRegistryKey(registryKey: com.intellij.openapi.util.registry.RegistryValue) {
+        val savedValue = originalRegistryValue
+        if (savedValue == null) {
+            LOG.warn("Project view registry snapshot missing; preserving the current runtime value")
+            registryKeyModified = false
+            registryWasChanged = false
+            return
+        }
+        if (registryWasChanged) {
+            registryKey.setValue(savedValue)
+        } else {
+            registryKey.resetToDefault()
+        }
+        registryKeyModified = false
+        originalRegistryValue = null
+        registryWasChanged = false
     }
 
     companion object {
@@ -287,9 +319,10 @@ class ProjectViewScrollbarManager(
  * Filters root node path fragments.
  * Reads settings LIVE on every render — no state caching needed.
  */
-private class RootFilteringRenderer(
+internal class RootFilteringRenderer(
     val delegate: TreeCellRenderer,
     private val project: Project,
+    private val canApply: () -> Boolean = { LicenseChecker.isLicensedOrGrace() },
 ) : TreeCellRenderer {
     override fun getTreeCellRendererComponent(
         tree: JTree,
@@ -310,7 +343,7 @@ private class RootFilteringRenderer(
                 row,
                 hasFocus,
             )
-        if (row == 0 && component is SimpleColoredComponent) {
+        if (canApply() && row == 0 && component is SimpleColoredComponent) {
             filterRootFragments(component)
         }
         return component

@@ -197,7 +197,7 @@ object IndentRainbowSync {
 
     /**
      * Restores the exact pre-Ayu palette only while all current values still
-     * match Ayu's last successful write.
+     * match the most recent successful Ayu write.
      */
     internal fun restoreOwnedState(): IntegrationOutcome {
         val state = AyuIslandsSettings.getInstance().state
@@ -396,10 +396,10 @@ object IndentRainbowSync {
             refreshMethod = instance.javaClass.getMethod("refreshEditorIndentColors")
         } catch (exception: ReflectiveOperationException) {
             resolutionFailure = exception
-            logWarning(RESOLUTION_FAILED, exception)
+            logResolutionWarning(exception)
         } catch (exception: RuntimeException) {
             resolutionFailure = exception
-            logWarning(RESOLUTION_FAILED, exception)
+            logResolutionWarning(exception)
         }
     }
 
@@ -413,12 +413,9 @@ object IndentRainbowSync {
         return getService.invoke(application, serviceClass)
     }
 
-    private fun logWarning(
-        action: String,
-        exception: Throwable,
-    ) {
+    private fun logResolutionWarning(exception: Throwable) {
         log.warn(
-            "Indent Rainbow $action: " +
+            "Indent Rainbow $RESOLUTION_FAILED: " +
                 "${exception.javaClass.simpleName}: ${exception.message}",
         )
     }

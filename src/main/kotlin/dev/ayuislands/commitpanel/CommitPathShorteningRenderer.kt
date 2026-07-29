@@ -5,6 +5,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.CommitPathDisplayMode
@@ -23,6 +24,7 @@ internal class CommitPathShorteningRenderer(
     internal val delegate: TreeCellRenderer,
     private val stateProvider: () -> AyuIslandsState = { AyuIslandsSettings.getInstance().state },
     private val isLockProhibited: () -> Boolean = Companion::isLockProhibited,
+    private val canApply: () -> Boolean = { LicenseChecker.isLicensedOrGrace() },
 ) : TreeCellRenderer {
     override fun getTreeCellRendererComponent(
         tree: JTree,
@@ -33,6 +35,9 @@ internal class CommitPathShorteningRenderer(
         row: Int,
         hasFocus: Boolean,
     ): Component {
+        if (!canApply()) {
+            return delegate.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
+        }
         // The macOS accessibility bridge walks tree nodes from EDT dispatches
         // that prohibit taking the platform RW lock (`Dispatchers.UI` /
         // `prohibitTakingLocksInsideAndRun`), but the platform changes-tree

@@ -1,11 +1,11 @@
 package dev.ayuislands
 
 import com.intellij.openapi.project.Project
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -45,7 +45,6 @@ class StartupLicenseStateTest {
         mockkObject(LicenseChecker)
         every { LicenseChecker.enableProDefaults() } just runs
         every { LicenseChecker.applyWorkspaceDefaults() } just runs
-        every { LicenseChecker.revertToFreeDefaults(any()) } just runs
         every { LicenseChecker.notifyTrialExpired(any()) } just runs
 
         mockkObject(StartupLicenseHandler)
@@ -137,30 +136,21 @@ class StartupLicenseStateTest {
         verify(exactly = 0) { LicenseChecker.applyWorkspaceDefaults() }
     }
 
-    // applyUnlicensedDefaults
+    // applyEntitlement
 
     @Test
-    fun `unlicensed state calls revertToFreeDefaults`() {
-        StartupLicenseHandler.applyUnlicensedDefaults(
-            project,
-            AyuVariant.MIRAGE,
-            settings,
-        )
+    fun `unlicensed state does not rewrite defaults`() {
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
 
-        verify(exactly = 1) {
-            LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        }
+        verify(exactly = 0) { LicenseChecker.enableProDefaults() }
+        verify(exactly = 0) { LicenseChecker.applyWorkspaceDefaults() }
     }
 
     @Test
     fun `unlicensed state sets trialExpiredNotified flag`() {
         state.trialExpiredNotified = false
 
-        StartupLicenseHandler.applyUnlicensedDefaults(
-            project,
-            AyuVariant.DARK,
-            settings,
-        )
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
 
         assertTrue(state.trialExpiredNotified)
         verify(exactly = 1) {
@@ -172,13 +162,32 @@ class StartupLicenseStateTest {
     fun `unlicensed state skips notification when already notified`() {
         state.trialExpiredNotified = true
 
-        StartupLicenseHandler.applyUnlicensedDefaults(
-            project,
-            AyuVariant.LIGHT,
-            settings,
-        )
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
 
         verify(exactly = 0) { LicenseChecker.notifyTrialExpired(any()) }
+    }
+
+    @Test
+    fun `unknown entitlement does not mutate license state`() {
+        state.trialExpiredNotified = false
+        state.proDefaultsApplied = false
+
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNKNOWN, project, settings)
+
+        assertFalse(state.trialExpiredNotified)
+        assertFalse(state.proDefaultsApplied)
+        verify(exactly = 0) { LicenseChecker.notifyTrialExpired(any()) }
+        verify(exactly = 0) { LicenseChecker.enableProDefaults() }
+        verify(exactly = 0) { LicenseChecker.applyWorkspaceDefaults() }
+    }
+
+    @Test
+    fun `licensed entitlement delegates to licensed activation`() {
+        state.proDefaultsApplied = false
+
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
+
+        verify(exactly = 1) { LicenseChecker.enableProDefaults() }
     }
 
     // scheduleFreeWizard (Timer-based file opening verified by integration/manual test)
@@ -370,11 +379,11 @@ class StartupLicenseStateTest {
     @Test
     fun `trial expiry notification fires only once across multiple restarts`() {
         // Session 1: trial expires, user sees the notification
-        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
         // Session 2: IDE restart, same persisted state — notification must NOT re-fire
-        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
         // Session 3: another restart — still silent
-        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
 
         verify(exactly = 1) { LicenseChecker.notifyTrialExpired(project) }
         assertTrue(state.trialExpiredNotified)
@@ -383,7 +392,7 @@ class StartupLicenseStateTest {
     @Test
     fun `full cycle from unlicensed to licensed to expire to re-license preserves user customizations`() {
         // Session 1: fresh unlicensed install, trial already expired
-        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
         assertTrue(state.trialExpiredNotified)
 
         // Session 2: user buys a license — first activation triggers pro defaults.
@@ -408,7 +417,7 @@ class StartupLicenseStateTest {
         assertTrue(state.premiumOnboardingShown)
 
         // Session 4: license expires
-        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.MIRAGE, settings)
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
         assertTrue(state.trialExpiredNotified)
 
         // Session 5: user re-purchases. Because everBeenPro is true, the real
@@ -435,7 +444,7 @@ class StartupLicenseStateTest {
         state.freeOnboardingShown = true
 
         // Session 2: trial/license expires
-        StartupLicenseHandler.applyUnlicensedDefaults(project, AyuVariant.DARK, settings)
+        StartupLicenseHandler.applyEntitlement(LicenseEntitlement.UNLICENSED, project, settings)
         assertTrue(state.trialExpiredNotified)
         // Premium wizard flag is untouched by unlicensed path
         assertTrue(state.premiumOnboardingShown)

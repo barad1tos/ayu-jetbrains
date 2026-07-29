@@ -38,9 +38,9 @@ class ThemeReapplicationPlanTest {
     }
 
     @Test
-    fun `license revert applies explicit hex, syncs glow, reverts vcs`() {
+    fun `license revert applies explicit hex, syncs glow, reverts vcs and syntax`() {
         val plan = ThemeReapplication.planFor(ReapplyReason.LicenseRevert("#E6B450"))
-        assertEquals(listOf(ApplyExplicitHex, Glow, VcsRevert), plan)
+        assertEquals(listOf(ApplyExplicitHex, Glow, VcsRevert, Syntax), plan)
     }
 
     @Test

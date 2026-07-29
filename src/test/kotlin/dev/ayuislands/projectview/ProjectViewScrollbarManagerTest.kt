@@ -9,6 +9,8 @@ import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import com.intellij.ui.SimpleColoredComponent
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.messages.MessageBus
@@ -32,6 +34,7 @@ import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
+import javax.swing.tree.TreeCellRenderer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -130,19 +133,55 @@ class ProjectViewScrollbarManagerTest {
     }
 
     @Test
-    fun `apply does nothing when not licensed`() {
+    fun `unlicensed apply restores runtime scrollbar and gain reapplies settings`() {
+        realState.hideProjectViewHScrollbar = true
+        val tree = JTree()
+        val scrollPane = JScrollPane(tree)
+        val originalPolicy = scrollPane.horizontalScrollBarPolicy
+        val wrapper = JPanel(FlowLayout()).apply { add(scrollPane) }
+        setupToolWindowContent(wrapper)
+
+        val manager = createAndDrain()
+        assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, scrollPane.horizontalScrollBarPolicy)
+
         every {
             LicenseChecker.isLicensedOrGrace()
         } returns false
-
-        val manager = createAndDrain()
-
         SwingUtilities.invokeAndWait {
             manager.apply()
         }
+        assertEquals(originalPolicy, scrollPane.horizontalScrollBarPolicy)
 
-        // No tool window interaction beyond init drain
-        // (which also exited early due to no license)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        SwingUtilities.invokeAndWait { manager.apply() }
+        assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, scrollPane.horizontalScrollBarPolicy)
+    }
+
+    @Test
+    fun `stale root renderer preserves native output when unlicensed`() {
+        SwingUtilities.invokeAndWait {
+            val native =
+                SimpleColoredComponent().apply {
+                    append("TestProject", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append("  /tmp/test", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                }
+            val delegate = TreeCellRenderer { _, _, _, _, _, _, _ -> native }
+            val renderer = RootFilteringRenderer(delegate, project) { false }
+
+            val rendered =
+                renderer.getTreeCellRendererComponent(
+                    JTree(),
+                    "root",
+                    false,
+                    true,
+                    false,
+                    0,
+                    false,
+                ) as SimpleColoredComponent
+
+            assertEquals(native, rendered)
+            assertEquals(2, rendered.fragmentCount)
+        }
     }
 
     @Test

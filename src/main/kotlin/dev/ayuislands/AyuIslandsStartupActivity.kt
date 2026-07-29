@@ -19,9 +19,10 @@ import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.licensing.EntitlementReconciler
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
-import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
@@ -182,29 +183,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
         val isReturningUser = settings.state.lastSeenVersion != null
 
         // Check license state and initialize workspace services (inside EDT callback)
-        checkLicenseState(project, variant, settings, isReturningUser)
+        checkLicenseState(project, settings, isReturningUser)
 
         // Auto-switch theme to match macOS Light/Dark mode
         if (settings.state.followSystemAppearance) {
             AppearanceSyncService.getInstance().syncIfNeeded()
-        }
-
-        // Start accent rotation if enabled (premium feature)
-        try {
-            if (settings.state.accentRotationEnabled && LicenseChecker.isLicensedOrGrace()) {
-                val rotationService = AccentRotationService.getInstance()
-                val lastSwitch = settings.state.accentRotationLastSwitchMs
-                val intervalMs = settings.state.accentRotationIntervalHours * MS_PER_HOUR
-                val elapsed = System.currentTimeMillis() - lastSwitch
-                if (lastSwitch == 0L || elapsed >= intervalMs) {
-                    rotationService.rotateNow()
-                } else {
-                    val remainingMs = intervalMs - elapsed
-                    rotationService.startRotationWithDelay(remainingMs)
-                }
-            }
-        } catch (exception: RuntimeException) {
-            LOG.error("Accent rotation startup failed", exception)
         }
 
         // Show a one-time update notification if the plugin version changed
@@ -384,12 +367,11 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
     private fun checkLicenseState(
         project: Project,
-        variant: AyuVariant,
         settings: AyuIslandsSettings,
         isReturningUser: Boolean,
     ) {
-        val isLicensed = LicenseChecker.isLicensedOrGrace()
-        LOG.info("Ayu Islands license check: ${if (isLicensed) "licensed" else "not licensed"}")
+        val entitlement = LicenseChecker.currentEntitlement()
+        LOG.info("Ayu Islands license check: ${entitlement.name.lowercase()}")
 
         val trialDays = LicenseChecker.getTrialDaysRemaining()
         if (trialDays != null) {
@@ -409,24 +391,30 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
             var wizardAction: dev.ayuislands.onboarding.WizardAction? = null
 
             runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
-            runStep("resolve-onboarding") {
-                wizardAction = StartupLicenseHandler.resolveOnboarding(isLicensed, settings, isReturningUser)
-            }
-            if (isLicensed) {
-                runStep("apply-licensed-defaults") { StartupLicenseHandler.applyLicensedDefaults(settings) }
-            } else {
-                runStep("apply-unlicensed-defaults") {
-                    StartupLicenseHandler.applyUnlicensedDefaults(project, variant, settings)
+            if (entitlement != LicenseEntitlement.UNKNOWN) {
+                runStep("resolve-onboarding") {
+                    wizardAction =
+                        StartupLicenseHandler.resolveOnboarding(
+                            entitlement == LicenseEntitlement.LICENSED,
+                            settings,
+                            isReturningUser,
+                        )
+                }
+                runStep("apply-entitlement") {
+                    StartupLicenseHandler.applyEntitlement(entitlement, project, settings)
                 }
             }
             runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
             runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
+            runStep("reconcile-entitlement") {
+                EntitlementReconciler.reconcile(entitlement, listOf(project))
+            }
             runStep("handle-wizard-action") {
                 wizardAction?.let {
                     StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
                 }
             }
-            if (isLicensed) {
+            if (entitlement == LicenseEntitlement.LICENSED) {
                 runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
             }
         }
@@ -492,6 +480,5 @@ internal class AyuIslandsStartupActivity : ProjectActivity {
 
     companion object {
         private val LOG = logger<AyuIslandsStartupActivity>()
-        private const val MS_PER_HOUR = 3_600_000L
     }
 }
