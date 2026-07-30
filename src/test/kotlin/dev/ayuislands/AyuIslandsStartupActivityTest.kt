@@ -122,6 +122,7 @@ class AyuIslandsStartupActivityTest {
     fun `definitive startup retry completes the deferred consumer workflow once`() {
         var entitlement = LicenseEntitlement.UNKNOWN
         var discoveryAttempts = 0
+        var onboardingAttempts = 0
         val scheduledActions = mutableListOf<() -> Unit>()
         val disposedProject = mockk<Project>(relaxed = true)
         val project = mockk<Project>(relaxed = true)
@@ -140,7 +141,11 @@ class AyuIslandsStartupActivityTest {
         every { StartupLicenseHandler.initWorkspaceServices(project, settings) } returns Unit
         every {
             StartupLicenseHandler.resolveOnboarding(true, settings, false)
-        } returns WizardAction.NoWizard
+        } answers {
+            onboardingAttempts += 1
+            if (onboardingAttempts == 1) error("onboarding resolution failed")
+            WizardAction.NoWizard
+        }
         every {
             StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
         } returns Unit
@@ -187,9 +192,15 @@ class AyuIslandsStartupActivityTest {
             verify(exactly = 0) {
                 StartupLicenseHandler.applyEntitlement(any(), any(), any())
             }
+            val captured = mutableListOf<Pair<String, Throwable?>>()
+            LoggedErrorProcessor.executeWith<RuntimeException>(capturingProcessor(captured)) {
+                scheduledActions.removeFirst().invoke()
+            }
+            assertEquals("License startup step 'resolve-onboarding' failed", captured.single().first)
+            assertEquals(1, scheduledActions.size)
             scheduledActions.removeFirst().invoke()
 
-            verify(exactly = 1) {
+            verify(exactly = 2) {
                 StartupLicenseHandler.resolveOnboarding(true, settings, false)
             }
             verify(exactly = 1) {
@@ -199,7 +210,7 @@ class AyuIslandsStartupActivityTest {
                 StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
             }
             verify(exactly = 1) { LicenseChecker.checkTrialExpiryWarning(project) }
-            assertEquals(3, discoveryAttempts)
+            assertEquals(4, discoveryAttempts)
         } finally {
             unmockkAll()
         }
@@ -209,6 +220,7 @@ class AyuIslandsStartupActivityTest {
     fun `definitive startup retry resumes wizard work without repeating entitlement apply`() {
         var entitlement = LicenseEntitlement.UNKNOWN
         var reconciliationAttempts = 0
+        var entitlementAttempts = 0
         var wizardAttempts = 0
         val scheduledActions = mutableListOf<() -> Unit>()
         val project = mockk<Project>(relaxed = true)
@@ -229,7 +241,10 @@ class AyuIslandsStartupActivityTest {
         } returns WizardAction.NoWizard
         every {
             StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
-        } returns Unit
+        } answers {
+            entitlementAttempts += 1
+            if (entitlementAttempts == 1) error("entitlement application failed")
+        }
         every {
             StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
         } answers {
@@ -261,23 +276,38 @@ class AyuIslandsStartupActivityTest {
             SwingUtilities.invokeAndWait {}
 
             entitlement = LicenseEntitlement.LICENSED
-            val captured = mutableListOf<Pair<String, Throwable?>>()
-            LoggedErrorProcessor.executeWith<RuntimeException>(capturingProcessor(captured)) {
+            val entitlementFailure = mutableListOf<Pair<String, Throwable?>>()
+            LoggedErrorProcessor.executeWith<RuntimeException>(capturingProcessor(entitlementFailure)) {
                 scheduledActions.removeFirst().invoke()
             }
 
             assertEquals(1, reconciliationAttempts)
             assertEquals(1, scheduledActions.size)
-            assertEquals("License startup step 'handle-wizard-action' failed", captured.single().first)
+            assertEquals(
+                "License startup step 'apply-entitlement' failed",
+                entitlementFailure.single().first,
+            )
+
+            val wizardFailure = mutableListOf<Pair<String, Throwable?>>()
+            LoggedErrorProcessor.executeWith<RuntimeException>(capturingProcessor(wizardFailure)) {
+                scheduledActions.removeFirst().invoke()
+            }
+
+            assertEquals(2, reconciliationAttempts)
+            assertEquals(1, scheduledActions.size)
+            assertEquals(
+                "License startup step 'handle-wizard-action' failed",
+                wizardFailure.single().first,
+            )
 
             scheduledActions.removeFirst().invoke()
 
-            assertEquals(2, reconciliationAttempts)
+            assertEquals(3, reconciliationAttempts)
             assertEquals(2, wizardAttempts)
             verify(exactly = 1) {
                 StartupLicenseHandler.resolveOnboarding(true, settings, false)
             }
-            verify(exactly = 1) {
+            verify(exactly = 2) {
                 StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
             }
             verify(exactly = 1) { LicenseChecker.checkTrialExpiryWarning(project) }

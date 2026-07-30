@@ -464,6 +464,7 @@ internal class AyuIslandsStartupActivity(
         isReturningUser: Boolean,
         adaptiveDelayMs: Int,
     ): (LicenseEntitlement, List<Project>) -> Boolean {
+        var resolvedEntitlement: LicenseEntitlement? = null
         var appliedEntitlement: LicenseEntitlement? = null
         var wizardAction: WizardAction? = null
         var isWizardHandled = false
@@ -471,18 +472,26 @@ internal class AyuIslandsStartupActivity(
 
         return workflow@{ entitlement, projects ->
             val project = projects.firstOrNull { !it.isDisposed } ?: return@workflow false
-            if (appliedEntitlement != entitlement) {
-                wizardAction =
-                    applyDefinitiveEntitlement(
-                        entitlement = entitlement,
-                        project = project,
-                        settings = settings,
-                        isReturningUser = isReturningUser,
-                    )
-                appliedEntitlement = entitlement
-                isWizardHandled = false
-                isTrialChecked = entitlement != LicenseEntitlement.LICENSED
+            if (resolvedEntitlement != entitlement) {
+                runStep("resolve-onboarding") {
+                    wizardAction =
+                        StartupLicenseHandler.resolveOnboarding(
+                            entitlement == LicenseEntitlement.LICENSED,
+                            settings,
+                            isReturningUser,
+                        )
+                    resolvedEntitlement = entitlement
+                    isWizardHandled = false
+                }
             }
+            if (appliedEntitlement != entitlement) {
+                runStep("apply-entitlement") {
+                    StartupLicenseHandler.applyEntitlement(entitlement, project, settings)
+                    appliedEntitlement = entitlement
+                    isTrialChecked = entitlement != LicenseEntitlement.LICENSED
+                }
+            }
+            if (resolvedEntitlement != entitlement || appliedEntitlement != entitlement) return@workflow false
             if (!isWizardHandled) {
                 isWizardHandled =
                     runStep("handle-wizard-action") {
