@@ -292,6 +292,49 @@ class IndentRainbowSyncTest {
     }
 
     @Test
+    fun `failed Indent Rainbow restore and rollback remain recoverable`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
+        IndentRainbowSync.apply(AyuVariant.MIRAGE, TEST_ACCENT_HEX)
+        harness.shouldFailNextCountAndRollbackPalette = true
+
+        val failed = IndentRainbowSync.restoreOwnedState()
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.irOwnership)
+        assertEquals(IntegrationOutcome.Restored, IndentRainbowSync.restoreOwnedState())
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
+    }
+
+    @Test
+    fun `transient Indent Rainbow resolution failure preserves owned recovery`() {
+        state.irOwnership = IntegrationOwnership.OWNED.name
+        state.irBaseType = FakePaletteType.RAINBOW.name
+        state.irBasePalette = "user-palette"
+        state.irBaseColorCount = 4
+        state.irAppliedType = FakePaletteType.CUSTOM.name
+        state.irAppliedPalette = "ayu-palette"
+        state.irAppliedColorCount = 11
+        setPrivateField("methodsResolved", true)
+        setPrivateField("resolutionFailure", ClassNotFoundException("temporary"))
+
+        val failed = IndentRainbowSync.restoreOwnedState()
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.OWNED.name, state.irOwnership)
+        assertEquals(false, getPrivateField("methodsResolved"))
+        assertEquals(null, getPrivateField<Throwable?>("resolutionFailure"))
+
+        val harness = installIrHarness(FakePaletteType.CUSTOM, "ayu-palette", 11)
+        assertEquals(IntegrationOutcome.Restored, IndentRainbowSync.restoreOwnedState())
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user-palette", harness.palette)
+        assertEquals(4, harness.colorCount)
+    }
+
+    @Test
     fun `failed first Indent Rainbow write recovers the original baseline before retry`() {
         state.irIntegrationEnabled = true
         val harness = installIrHarness(FakePaletteType.RAINBOW, "user-palette", 4)
@@ -722,7 +765,7 @@ class IndentRainbowSyncTest {
     }
 
     @Test
-    fun `apply suspends ownership when Indent Rainbow schema is unavailable`() {
+    fun `apply keeps ownership retryable when Indent Rainbow schema is unavailable`() {
         state.irIntegrationEnabled = true
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
@@ -731,9 +774,10 @@ class IndentRainbowSyncTest {
         val outcome = callApply()
 
         assertTrue(outcome is IntegrationOutcome.Failed)
-        assertEquals(IntegrationOwnership.SUSPENDED.name, state.irOwnership)
-        assertTrue(getPrivateField("methodsResolved"))
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.irOwnership)
+        assertEquals(false, getPrivateField("methodsResolved"))
         assertNull(getPrivateField("irConfig"))
+        assertNull(getPrivateField("resolutionFailure"))
     }
 
     @Test

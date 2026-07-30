@@ -6,6 +6,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.SimpleColoredComponent
@@ -35,8 +36,10 @@ class ProjectViewScrollbarManager(
     internal constructor(
         project: Project,
         rootPathLease: RootPathLease,
+        registryValueProvider: () -> RegistryValue = { Registry.get(SHOW_URL_KEY) },
     ) : this(project) {
         rootPathLeaseProvider = { rootPathLease }
+        this.registryValueProvider = registryValueProvider
     }
 
     private var originalScrollbarPolicy: Int? = null
@@ -45,6 +48,7 @@ class ProjectViewScrollbarManager(
     private var lastAppliedHidePath: Boolean? = null
     private var rendererListener: PropertyChangeListener? = null
     private var rootPathLeaseProvider: () -> RootPathLease = RootPathLease::getInstance
+    private var registryValueProvider: () -> RegistryValue = { Registry.get(SHOW_URL_KEY) }
     private val rootPathLease: RootPathLease
         get() = rootPathLeaseProvider()
     private val autoFitter =
@@ -151,7 +155,7 @@ class ProjectViewScrollbarManager(
         // Only resetToDefault when WE changed it — don't override the user's choice.
         val registryKey =
             try {
-                Registry.get(SHOW_URL_KEY)
+                registryValueProvider()
             } catch (_: MissingResourceException) {
                 LOG.warn(
                     "Registry key '$SHOW_URL_KEY' not " +
@@ -275,16 +279,14 @@ class ProjectViewScrollbarManager(
                 originalScrollbarPolicy!!
             originalScrollbarPolicy = null
         }
-        if (hasRegistryLease) {
-            try {
-                rootPathLease.release(project, Registry.get(SHOW_URL_KEY))
-                hasRegistryLease = false
-            } catch (_: MissingResourceException) {
-                LOG.warn(
-                    "Registry key '$SHOW_URL_KEY' not " +
-                        "found during dispose",
-                )
-            }
+        try {
+            rootPathLease.release(project, registryValueProvider())
+            hasRegistryLease = false
+        } catch (_: MissingResourceException) {
+            LOG.warn(
+                "Registry key '$SHOW_URL_KEY' not " +
+                    "found during dispose",
+            )
         }
         val tree = findProjectTree()
         if (tree != null) {

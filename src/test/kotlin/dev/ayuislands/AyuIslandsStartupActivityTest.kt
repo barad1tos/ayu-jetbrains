@@ -6,6 +6,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.licensing.ReconciliationFailure
 import dev.ayuislands.licensing.ReconciliationResult
+import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsState
@@ -16,6 +17,7 @@ import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.util.EnumSet
+import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -114,6 +116,83 @@ class AyuIslandsStartupActivityTest {
 
         assertEquals(0, reconciliationAttempts)
         assertEquals(listOf(5_000L), scheduledDelays)
+    }
+
+    @Test
+    fun `definitive startup retry completes the deferred consumer workflow once`() {
+        var entitlement = LicenseEntitlement.UNKNOWN
+        var discoveryAttempts = 0
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val project = mockk<Project>(relaxed = true)
+        every { project.isDisposed } returns false
+        val settings =
+            mockk<AyuIslandsSettings> {
+                every { state } returns AyuIslandsState()
+            }
+        mockkObject(StartupLicenseHandler)
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.getTrialDaysRemaining() } returns null
+        every { LicenseChecker.checkTrialExpiryWarning(project) } returns Unit
+        every { StartupLicenseHandler.computeAdaptiveDelay() } returns 1
+        every { StartupLicenseHandler.runOnboardingMigration(settings) } returns Unit
+        every { StartupLicenseHandler.initWorkspaceServices(project, settings) } returns Unit
+        every {
+            StartupLicenseHandler.resolveOnboarding(true, settings, false)
+        } returns WizardAction.NoWizard
+        every {
+            StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
+        } returns Unit
+        every {
+            StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
+        } returns Unit
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { entitlement },
+                reconcile = { _, _ -> ReconciliationResult.Success },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { null },
+                projectsProvider = {
+                    discoveryAttempts += 1
+                    if (discoveryAttempts == 1) error("project discovery failed")
+                    listOf(project)
+                },
+            )
+
+        try {
+            val method =
+                AyuIslandsStartupActivity::class.java.getDeclaredMethod(
+                    "checkLicenseState",
+                    Project::class.java,
+                    AyuIslandsSettings::class.java,
+                    Boolean::class.javaPrimitiveType,
+                )
+            method.isAccessible = true
+            method.invoke(retryingActivity, project, settings, false)
+            SwingUtilities.invokeAndWait {}
+
+            verify(exactly = 0) {
+                StartupLicenseHandler.applyEntitlement(any(), any(), any())
+            }
+            entitlement = LicenseEntitlement.LICENSED
+            scheduledActions.removeFirst().invoke()
+            verify(exactly = 0) {
+                StartupLicenseHandler.applyEntitlement(any(), any(), any())
+            }
+            scheduledActions.removeFirst().invoke()
+
+            verify(exactly = 1) {
+                StartupLicenseHandler.resolveOnboarding(true, settings, false)
+            }
+            verify(exactly = 1) {
+                StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
+            }
+            verify(exactly = 1) {
+                StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
+            }
+            verify(exactly = 1) { LicenseChecker.checkTrialExpiryWarning(project) }
+        } finally {
+            unmockkAll()
+        }
     }
 
     @Test

@@ -9,7 +9,6 @@ import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import org.jetbrains.annotations.TestOnly
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 
@@ -176,7 +175,7 @@ internal object CodeGlanceProIntegration {
         resolveCgpMethods()
         val resolutionFailure = cgpResolutionFailure
         if (resolutionFailure != null) {
-            suspendOwnership(state)
+            resetReflectionCache()
             return IntegrationOutcome.Failed(CGP_RESOLUTION_FAILED, resolutionFailure)
         }
         val access = resolvedAccess() ?: return IntegrationOutcome.Skipped
@@ -274,7 +273,7 @@ internal object CodeGlanceProIntegration {
         resolveCgpMethods()
         val resolutionFailure = cgpResolutionFailure
         if (resolutionFailure != null) {
-            suspendOwnership(state)
+            resetReflectionCache()
             return IntegrationOutcome.Failed(CGP_RESOLUTION_FAILED, resolutionFailure)
         }
         val access = resolvedAccess() ?: return IntegrationOutcome.Skipped
@@ -317,7 +316,9 @@ internal object CodeGlanceProIntegration {
     fun prepareExplicitEnable() {
         val state = AyuIslandsSettings.getInstance().state
         state.isCgpOwnershipMigrated = true
-        clearOwnership(state)
+        if (IntegrationOwnership.fromName(state.cgpOwnership) == IntegrationOwnership.SUSPENDED) {
+            clearOwnership(state)
+        }
     }
 
     private fun resolvedAccess(): CgpAccess? {
@@ -338,7 +339,9 @@ internal object CodeGlanceProIntegration {
     private fun failedOutcome(
         operation: String,
         error: Throwable,
+        captureRecovery: (() -> Unit)? = null,
     ): IntegrationOutcome.Failed {
+        captureRecovery?.invoke()
         log.warn(
             "CodeGlance Pro $operation: ${error.javaClass.simpleName}: ${error.message}",
             error,
@@ -403,11 +406,18 @@ internal object CodeGlanceProIntegration {
             clearOwnership(state)
             null
         } catch (exception: InvocationTargetException) {
-            failedOutcome(CGP_RESTORE_FAILED, exception.cause ?: exception)
+            val error = exception.cause ?: exception
+            failedOutcome(CGP_RESTORE_FAILED, error) {
+                captureRecoveryViewport(state, access, error)
+            }
         } catch (exception: ReflectiveOperationException) {
-            failedOutcome(CGP_RESTORE_FAILED, exception)
+            failedOutcome(CGP_RESTORE_FAILED, exception) {
+                captureRecoveryViewport(state, access, exception)
+            }
         } catch (exception: RuntimeException) {
-            failedOutcome(CGP_RESTORE_FAILED, exception)
+            failedOutcome(CGP_RESTORE_FAILED, exception) {
+                captureRecoveryViewport(state, access, exception)
+            }
         }
     }
 
@@ -450,20 +460,8 @@ internal object CodeGlanceProIntegration {
         return getService.invoke(application, serviceClass)
     }
 
-    /**
-     * Test-only helper that resets the cached CGP reflection chain so a
-     * subsequent invocation re-runs [resolveCgpMethods]. Tests that drive the
-     * reflection path (CGP installed, real setters reachable via mocks)
-     * MUST call this in `@AfterTest` so subsequent tests start from a clean
-     * slate; without it, a leaked stub from one test poisons the next.
-     *
-     * Lives here rather than in the test file so the field set is owned by
-     * the producer of those fields — drift between test reflection and
-     * production declarations breaks at compile time, not at runtime.
-     * Pattern I — typed test seam matches the production state owner.
-     */
-    @TestOnly
-    internal fun resetReflectionCacheForTests() {
+    /** Invalidates a failed reflection chain so the next reconciliation resolves it again. */
+    internal fun resetReflectionCache() {
         cgpService = null
         cgpGetState = null
         cgpGetColor = null

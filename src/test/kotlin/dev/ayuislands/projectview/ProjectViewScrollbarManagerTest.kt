@@ -160,6 +160,28 @@ class ProjectViewScrollbarManagerTest {
     }
 
     @Test
+    fun `fresh unlicensed manager releases the persisted root path lease`() {
+        realState.hideProjectRootPath = true
+        realState.hasRootPathLease = true
+        realState.wasRootPathShown = true
+        realState.wasRootPathChanged = true
+        rootPathLease = mockk(relaxed = true)
+        every { registryValue.asBoolean() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val manager =
+            ProjectViewScrollbarManager(
+                project = project,
+                rootPathLease = rootPathLease,
+                registryValueProvider = { registryValue },
+            )
+        SwingUtilities.invokeAndWait {}
+        SwingUtilities.invokeAndWait { manager.apply() }
+
+        verify(atLeast = 1) { rootPathLease.release(project, registryValue) }
+    }
+
+    @Test
     fun `stale root renderer preserves native output when unlicensed`() {
         SwingUtilities.invokeAndWait {
             val native =

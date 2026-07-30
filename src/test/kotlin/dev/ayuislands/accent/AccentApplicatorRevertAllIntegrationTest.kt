@@ -119,7 +119,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         // Reflection-path tests stash mocks into [CodeGlanceProIntegration]'s
         // private reflection cache. Without this reset, a test failure could
         // leave pinned mocks visible to a subsequent test in the same worker JVM.
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCache()
         restoreOriginalEpName()
         unmockkAll()
         clearAllMocks()
@@ -402,7 +402,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockPlugin.pluginClassLoader } returns cgpService.javaClass.classLoader
         every { mockApplication.getService(any<Class<*>>()) } returns cgpService
 
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCache()
         CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
 
         val state = cgpService.getState()
@@ -581,6 +581,53 @@ class AccentApplicatorRevertAllIntegrationTest {
         assertEquals("112233", viewport.viewportColor)
         assertEquals("445566", viewport.viewportBorderColor)
         assertEquals(3, viewport.viewportBorderThickness)
+    }
+
+    @Test
+    fun `failed pending CodeGlance Pro recovery captures the partial viewport for retry`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        viewport.shouldRejectNextThicknessAndRollbackBorder = true
+        assertTrue(
+            CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6") is IntegrationOutcome.Failed,
+        )
+        viewport.shouldRejectNextBorder = true
+
+        val failed = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.cgpOwnership)
+        assertEquals(IntegrationOutcome.Restored, CodeGlanceProIntegration.restoreOwnedState())
+        assertEquals("112233", viewport.viewportColor)
+        assertEquals("445566", viewport.viewportBorderColor)
+        assertEquals(3, viewport.viewportBorderThickness)
+    }
+
+    @Test
+    fun `transient CodeGlance Pro resolution failure preserves owned recovery`() {
+        seedOwnedCgp()
+        mockkObject(AyuPlugin)
+        val brokenPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
+        every { AyuPlugin.findLoadedPlugin(any()) } returns brokenPlugin
+        every { brokenPlugin.pluginClassLoader } returns MissingCgpClassLoader
+
+        val failed = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.OWNED.name, state.cgpOwnership)
+
+        val cgpService = installCgpService(shouldResetCache = false)
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("00FF00")
+        viewport.setViewportBorderColor("A0A0A0")
+        viewport.setViewportBorderThickness(0)
+        assertEquals(IntegrationOutcome.Restored, CodeGlanceProIntegration.restoreOwnedState())
+        assertEquals("123456", viewport.viewportColor)
+        assertEquals("654321", viewport.viewportBorderColor)
+        assertEquals(2, viewport.viewportBorderThickness)
     }
 
     @Test
@@ -1078,10 +1125,10 @@ class AccentApplicatorRevertAllIntegrationTest {
         // CGP installed but with a stale plugin entry.
         //
         // Reflection cache is reset in `@AfterTest` via
-        // `CodeGlanceProIntegration.resetReflectionCacheForTests()`, otherwise the
+        // `CodeGlanceProIntegration.resetReflectionCache()`, otherwise the
         // `cgpMethodsResolved = true` flag set on entry would leak into
         // the next test.
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCache()
         mockkObject(AyuPlugin)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
@@ -1096,7 +1143,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         val serviceField = CodeGlanceProIntegration::class.java.getDeclaredField("cgpService")
         serviceField.isAccessible = true
         assertTrue(outcome is IntegrationOutcome.Failed)
-        assertEquals(IntegrationOwnership.SUSPENDED.name, state.cgpOwnership)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
         assertEquals(
             null,
             serviceField.get(CodeGlanceProIntegration),
@@ -1115,8 +1162,8 @@ class AccentApplicatorRevertAllIntegrationTest {
         // first catch's `ReflectiveOperationException` does NOT match.
         //
         // Reflection cache is reset in `@AfterTest` via
-        // `CodeGlanceProIntegration.resetReflectionCacheForTests()`.
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        // `CodeGlanceProIntegration.resetReflectionCache()`.
+        CodeGlanceProIntegration.resetReflectionCache()
         mockkObject(AyuPlugin)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
@@ -1129,7 +1176,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         val serviceField = CodeGlanceProIntegration::class.java.getDeclaredField("cgpService")
         serviceField.isAccessible = true
         assertTrue(outcome is IntegrationOutcome.Failed)
-        assertEquals(IntegrationOwnership.SUSPENDED.name, state.cgpOwnership)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
         assertEquals(
             null,
             serviceField.get(CodeGlanceProIntegration),
@@ -1152,7 +1199,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         // [syncCodeGlanceProViewport] reach the production reflection branch
         // instead of short-circuiting on `cgpService ?: return`. Uses raw
         // field writes routed through the typed
-        // [CodeGlanceProIntegration.resetReflectionCacheForTests] helper for cleanup.
+        // [CodeGlanceProIntegration.resetReflectionCache] helper for cleanup.
         // Marks `cgpMethodsResolved = true` so `resolveCgpMethods` is a no-op
         // (we already supplied the cached refs).
         val ownerClass = CodeGlanceProIntegration::class.java
@@ -1200,14 +1247,16 @@ class AccentApplicatorRevertAllIntegrationTest {
         }
     }
 
-    private fun installCgpService(): CodeGlanceConfigService {
+    private fun installCgpService(shouldResetCache: Boolean = true): CodeGlanceConfigService {
         val service = CodeGlanceConfigService()
         mockkObject(AyuPlugin)
         val plugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findLoadedPlugin(any()) } returns plugin
         every { plugin.pluginClassLoader } returns service.javaClass.classLoader
         every { mockApplication.getService(any<Class<*>>()) } returns service
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        if (shouldResetCache) {
+            CodeGlanceProIntegration.resetReflectionCache()
+        }
         return service
     }
 

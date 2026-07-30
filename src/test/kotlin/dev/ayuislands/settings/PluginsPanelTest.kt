@@ -335,6 +335,41 @@ class PluginsPanelTest {
     }
 
     @Test
+    fun `explicit integration opt-in preserves pending recovery baselines`() {
+        state.cgpOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+        state.cgpBaseColor = "112233"
+        state.cgpAppliedColor = "AABBCC"
+        state.irOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+        state.irBasePalette = "user-palette"
+        state.irAppliedPalette = "partial-palette"
+        every { ConflictRegistry.isCodeGlanceProDetected() } returns true
+        every { ConflictRegistry.isIndentRainbowDetected() } returns true
+        mockkObject(CodeGlanceProIntegration)
+        every { CodeGlanceProIntegration.prepareExplicitEnable() } answers { callOriginal() }
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.prepareExplicitEnable() } answers { callOriginal() }
+        mockkObject(AccentApplicator)
+        every {
+            AccentApplicator.applyForFocusedProject(any<AccentContext>())
+        } returns "#AABBCC"
+
+        val pluginsPanel = PluginsPanel()
+        val dialogPanel = buildDialogPanel(pluginsPanel)
+        val checkboxes = descendants(dialogPanel, JCheckBox::class.java)
+        checkboxes.first { it.text == "CodeGlance Pro viewport" }.doClick()
+        checkboxes.first { it.text == "Indent Rainbow guides" }.doClick()
+
+        pluginsPanel.apply()
+
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.cgpOwnership)
+        assertEquals("112233", state.cgpBaseColor)
+        assertEquals("AABBCC", state.cgpAppliedColor)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.irOwnership)
+        assertEquals("user-palette", state.irBasePalette)
+        assertEquals("partial-palette", state.irAppliedPalette)
+    }
+
+    @Test
     fun `integration opt-out preserves suspension until a later explicit opt-in`() {
         state.cgpIntegrationEnabled = true
         state.irIntegrationEnabled = true

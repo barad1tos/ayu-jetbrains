@@ -407,22 +407,43 @@ internal class AyuIslandsStartupActivity(
 
             runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
             if (entitlement != LicenseEntitlement.UNKNOWN) {
-                runStep("resolve-onboarding") {
-                    wizardAction =
-                        StartupLicenseHandler.resolveOnboarding(
-                            entitlement == LicenseEntitlement.LICENSED,
-                            settings,
-                            isReturningUser,
-                        )
-                }
-                runStep("apply-entitlement") {
-                    StartupLicenseHandler.applyEntitlement(entitlement, project, settings)
-                }
+                wizardAction =
+                    applyDefinitiveEntitlement(
+                        entitlement = entitlement,
+                        project = project,
+                        settings = settings,
+                        isReturningUser = isReturningUser,
+                    )
             }
             runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
             runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
             runStep("reconcile-entitlement") {
-                reconcileAtStartup(entitlement, listOf(project))
+                val deferredEntitlement =
+                    if (entitlement == LicenseEntitlement.UNKNOWN) {
+                        { current: LicenseEntitlement, projects: List<Project> ->
+                            projects.firstOrNull()?.let { currentProject ->
+                                val action =
+                                    applyDefinitiveEntitlement(
+                                        entitlement = current,
+                                        project = currentProject,
+                                        settings = settings,
+                                        isReturningUser = isReturningUser,
+                                    )
+                                action?.let {
+                                    StartupLicenseHandler.handleWizardAction(it, currentProject, adaptiveDelayMs)
+                                }
+                                if (current == LicenseEntitlement.LICENSED) {
+                                    runStep("check-trial-expiry") {
+                                        LicenseChecker.checkTrialExpiryWarning(currentProject)
+                                    }
+                                }
+                            }
+                            Unit
+                        }
+                    } else {
+                        null
+                    }
+                reconcileAtStartup(entitlement, listOf(project), deferredEntitlement)
             }
             runStep("handle-wizard-action") {
                 wizardAction?.let {
@@ -435,28 +456,55 @@ internal class AyuIslandsStartupActivity(
         }
     }
 
+    private fun applyDefinitiveEntitlement(
+        entitlement: LicenseEntitlement,
+        project: Project,
+        settings: AyuIslandsSettings,
+        isReturningUser: Boolean,
+    ): dev.ayuislands.onboarding.WizardAction? {
+        var wizardAction: dev.ayuislands.onboarding.WizardAction? = null
+        runStep("resolve-onboarding") {
+            wizardAction =
+                StartupLicenseHandler.resolveOnboarding(
+                    entitlement == LicenseEntitlement.LICENSED,
+                    settings,
+                    isReturningUser,
+                )
+        }
+        runStep("apply-entitlement") {
+            StartupLicenseHandler.applyEntitlement(entitlement, project, settings)
+        }
+        return wizardAction
+    }
+
     private fun reconcileAtStartup(
         entitlement: LicenseEntitlement,
         projects: List<Project>,
+        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Unit)? = null,
     ) {
         if (entitlement == LicenseEntitlement.UNKNOWN) {
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS)
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
             return
         }
         val result = reconcileWithRetry(entitlement, projects) ?: return
         scheduleNextStartupCheck(entitlement, result)
     }
 
-    private fun scheduleStartupCheck(delayMs: Long) {
+    private fun scheduleStartupCheck(
+        delayMs: Long,
+        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Unit)? = null,
+    ) {
         scheduleRecheck(delayMs) {
-            runScheduledStartupCheck()
+            runScheduledStartupCheck(onDefinitiveEntitlement)
         }
     }
 
-    private fun runScheduledStartupCheck() {
+    private fun runScheduledStartupCheck(
+        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Unit)? = null,
+    ) {
         val entitlement = entitlementProvider()
         if (entitlement == LicenseEntitlement.UNKNOWN) {
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS)
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
             return
         }
         val projects =
@@ -467,9 +515,10 @@ internal class AyuIslandsStartupActivity(
                     "Scheduled license reconciliation could not discover current projects; retrying",
                     exception,
                 )
-                scheduleStartupCheck(RECONCILIATION_RETRY_MS)
+                scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
                 return
             }
+        onDefinitiveEntitlement?.invoke(entitlement, projects)
         val result = reconcileWithRetry(entitlement, projects) ?: return
         scheduleNextStartupCheck(entitlement, result)
     }

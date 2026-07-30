@@ -2276,12 +2276,12 @@ class AccentApplicatorTest {
     }
 
     private fun resetCodeGlanceProState() {
-        // Use the typed `CodeGlanceProIntegration.resetReflectionCacheForTests`
+        // Use the typed `CodeGlanceProIntegration.resetReflectionCache`
         // helper instead of hand-rolled raw-reflection writes. A field loop
         // that iterated five field names as raw strings would silently leave
         // stale state in the next test on rename. The helper lives next to
         // the fields it resets — a Kotlin rename refactors both at once.
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCache()
     }
 
     private fun createExternalChromeElement(isEnabled: Boolean = true): AbstractChromeElement =

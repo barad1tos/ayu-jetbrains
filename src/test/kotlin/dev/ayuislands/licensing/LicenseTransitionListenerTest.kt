@@ -299,6 +299,45 @@ class LicenseTransitionListenerTest {
     }
 
     @Test
+    fun `failed reconciliation retains the baseline persisted before the provider mutates it`() {
+        var persistedEntitlement = LicenseEntitlement.LICENSED
+        var attempts = 0
+        var retryAction: (() -> Unit)? = null
+        val listener =
+            LicenseTransitionListener(
+                confirmedProvider = { persistedEntitlement },
+                entitlementProvider = {
+                    LicenseEntitlement.UNLICENSED.also {
+                        persistedEntitlement = it
+                    }
+                },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh Project view",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, action -> retryAction = action },
+            )
+
+        listener.licenseStateChanged(facade)
+        checkNotNull(retryAction).invoke()
+
+        assertEquals(2, attempts)
+    }
+
+    @Test
     fun `project enumeration failure retries without committing the transition`() {
         var enumerationAttempts = 0
         var retryAction: (() -> Unit)? = null

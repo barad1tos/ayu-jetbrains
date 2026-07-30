@@ -32,14 +32,15 @@ internal class LicenseTransitionListener(
     },
     private val dispatch: (() -> Unit) -> Unit = { ApplicationManager.getApplication().invokeLater(it) },
     private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
-    private val confirmedEntitlementProvider: () -> LicenseEntitlement = {
+    confirmedProvider: () -> LicenseEntitlement = {
         LicenseEntitlement.fromName(AyuIslandsSettings.getInstance().state.lastConfirmedEntitlement)
     },
     private val scheduleRecheck: (Long, () -> Unit) -> Unit = { delayMs, action ->
         LicenseRecheckScheduler.getInstance().schedule(LicenseRecheckSlot.TRANSITION, delayMs, action)
     },
 ) : LicensingFacade.LicenseStateListener {
-    private var previousEntitlement: LicenseEntitlement? = null
+    private var previousEntitlement: LicenseEntitlement? =
+        confirmedProvider().takeUnless { it == LicenseEntitlement.UNKNOWN }
 
     override fun licenseStateChanged(facade: LicensingFacade?) {
         dispatch(::processChange)
@@ -47,9 +48,7 @@ internal class LicenseTransitionListener(
 
     private fun processChange() {
         try {
-            val previous =
-                previousEntitlement
-                    ?: confirmedEntitlementProvider().takeUnless { it == LicenseEntitlement.UNKNOWN }
+            val previous = previousEntitlement
             val entitlement = entitlementProvider()
             if (entitlement == LicenseEntitlement.UNKNOWN) {
                 scheduleRetry()

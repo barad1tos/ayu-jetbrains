@@ -105,7 +105,7 @@ object IndentRainbowSync {
         }
         resolveApplyGate(state)?.let { return it }
 
-        val resolved = resolveOrReturn() ?: return unresolvedOutcome(state, SYNC_FAILED)
+        val resolved = resolveOrReturn() ?: return unresolvedOutcome(SYNC_FAILED)
         val enumValue =
             customEnumValue ?: return schemaFailure(state, SYNC_FAILED, "CUSTOM palette enum is unavailable")
 
@@ -217,7 +217,7 @@ object IndentRainbowSync {
             return IntegrationOutcome.Skipped
         }
 
-        val resolved = resolveOrReturn() ?: return unresolvedOutcome(state, RESTORE_FAILED)
+        val resolved = resolveOrReturn() ?: return unresolvedOutcome(RESTORE_FAILED)
         val baseEnum =
             paletteEnumValues?.get(base.type)
                 ?: return schemaFailure(state, RESTORE_FAILED, "palette enum ${base.type} is unavailable")
@@ -228,7 +228,7 @@ object IndentRainbowSync {
                 suspendOwnership(state)
                 return IntegrationOutcome.Skipped
             }
-            writeRestoredPalette(resolved, current, base, baseEnum)?.let { return it }
+            writeRestoredPalette(state, resolved, current, base, baseEnum)?.let { return it }
             clearOwnership(state)
             log.info("Indent Rainbow palette restored to its pre-Ayu values")
             return IntegrationOutcome.Restored
@@ -246,7 +246,9 @@ object IndentRainbowSync {
     internal fun prepareExplicitEnable() {
         val state = AyuIslandsSettings.getInstance().state
         state.isIrOwnershipMigrated = true
-        clearOwnership(state)
+        if (IntegrationOwnership.fromName(state.irOwnership) == IntegrationOwnership.SUSPENDED) {
+            clearOwnership(state)
+        }
     }
 
     private fun resolveOrReturn(): ResolvedIrState? {
@@ -264,10 +266,7 @@ object IndentRainbowSync {
         )
     }
 
-    private fun unresolvedOutcome(
-        state: AyuIslandsState,
-        operation: String,
-    ): IntegrationOutcome {
+    private fun unresolvedOutcome(operation: String): IntegrationOutcome {
         val failure =
             resolutionFailure
                 ?: if (irConfig != null) {
@@ -275,7 +274,19 @@ object IndentRainbowSync {
                 } else {
                     return IntegrationOutcome.Skipped
                 }
-        suspendOwnership(state)
+        irConfig = null
+        paletteTypeField = null
+        customPaletteField = null
+        customPaletteNumberColorsField = null
+        customEnumValue = null
+        defaultEnumValue = null
+        paletteEnumValues = null
+        cachedDataUpdateMethod = null
+        cachedDataCompanion = null
+        refreshMethod = null
+        irColorsInstance = null
+        methodsResolved = false
+        resolutionFailure = null
         return failedOutcome(operation, failure)
     }
 
@@ -355,7 +366,7 @@ object IndentRainbowSync {
     }
 
     private fun restorePendingPalette(state: AyuIslandsState): IntegrationOutcome {
-        val resolved = resolveOrReturn() ?: return unresolvedOutcome(state, RESTORE_FAILED)
+        val resolved = resolveOrReturn() ?: return unresolvedOutcome(RESTORE_FAILED)
         return recoverPendingPalette(state, resolved) ?: IntegrationOutcome.Restored
     }
 
@@ -376,25 +387,22 @@ object IndentRainbowSync {
         }
 
     private fun writeRestoredPalette(
+        state: AyuIslandsState,
         resolved: ResolvedIrState,
         current: CurrentIrPalette,
         base: IrPalette,
         baseEnum: Any,
-    ): IntegrationOutcome.Failed? =
-        try {
-            resolved.writePalette(base, baseEnum)
-            null
-        } catch (exception: InvocationTargetException) {
-            val error = exception.cause ?: exception
-            rollbackPalette(resolved, current, error)
-            failedOutcome(RESTORE_FAILED, error)
-        } catch (exception: ReflectiveOperationException) {
-            rollbackPalette(resolved, current, exception)
-            failedOutcome(RESTORE_FAILED, exception)
-        } catch (exception: RuntimeException) {
-            rollbackPalette(resolved, current, exception)
-            failedOutcome(RESTORE_FAILED, exception)
-        }
+    ): IntegrationOutcome.Failed? {
+        val error = resolved.writePaletteOrError(base, baseEnum) ?: return null
+        handleApplyRollback(
+            state = state,
+            resolved = resolved,
+            current = current,
+            ownership = IntegrationOwnership.OWNED,
+            error = error,
+        )
+        return failedOutcome(RESTORE_FAILED, error)
+    }
 
     private fun resolveReflection() {
         if (methodsResolved) return
