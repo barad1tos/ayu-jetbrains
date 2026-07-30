@@ -377,7 +377,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockSetBorderColor.invoke(mockConfig, any()) } returns null
         every { mockSetBorderThickness.invoke(mockConfig, any()) } returns null
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -698,7 +698,7 @@ class AccentApplicatorRevertAllIntegrationTest {
             null
         }
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -731,7 +731,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockSetColor.invoke(mockConfig, any()) } throws
             java.lang.reflect.InvocationTargetException(IllegalStateException("CGP setter rejected"))
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -759,7 +759,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockSetColor.invoke(mockConfig, any()) } throws
             IllegalAccessException("CGP setter inaccessible")
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -795,7 +795,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         }
         every { mockSetBorderThickness.invoke(mockConfig, any()) } returns null
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -821,8 +821,8 @@ class AccentApplicatorRevertAllIntegrationTest {
         // [CodeGlanceProIntegration.revertCodeGlanceProViewport]. Pre-test, the
         // `syncCodeGlanceProViewport` reflection happy path (CodeGlanceProIntegration.kt
         // lines ~152-169) had no behavior-locked test — only the
-        // `cgpService ?: return` short-circuit was hit. This stages the
-        // reflection chain via `installCgpReflectionMocks`, calls sync
+        // `cgpMethods ?: return` short-circuit was hit. This stages the
+        // reflection chain via `seedCgpMethods`, calls sync
         // directly, and verifies all three setters fire with the `#`
         // stripped from the input AND in the documented order: color,
         // border-color, border-thickness=1 (active accent thickness, NOT
@@ -850,7 +850,7 @@ class AccentApplicatorRevertAllIntegrationTest {
             null
         }
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -890,7 +890,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockSetBorderColor.invoke(mockConfig, any()) } returns null
         every { mockSetBorderThickness.invoke(mockConfig, any()) } returns null
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -921,7 +921,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         val mockSetBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
         every { mockGetState.invoke(mockService) } returns null
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -953,7 +953,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockSetColor.invoke(mockConfig, any()) } throws
             java.lang.reflect.InvocationTargetException(IllegalStateException("CGP setter rejected"))
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -981,7 +981,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockSetColor.invoke(mockConfig, any()) } throws
             IllegalAccessException("CGP setter inaccessible")
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -1008,7 +1008,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockSetColor.invoke(mockConfig, any()) } throws
             IllegalStateException("CGP internal NPE")
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -1032,7 +1032,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         val mockSetBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
         every { mockGetState.invoke(mockService) } returns null
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -1066,7 +1066,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockSetColor.invoke(mockConfig, any()) } throws
             IllegalStateException("CGP internal NPE on revert")
 
-        installCgpReflectionMocks(
+        seedCgpMethods(
             service = mockService,
             getState = mockGetState,
             setColor = mockSetColor,
@@ -1115,8 +1115,7 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `syncCodeGlanceProViewport resolveCgpMethods catches ReflectiveOperationException when CGP class missing`() {
-        // Pattern B isolation: drives the `ReflectiveOperationException` catch
-        // inside `resolveCgpMethods` (CodeGlanceProIntegration.kt lines 116-121).
+        // Pattern B isolation: drives the `ReflectiveOperationException` catch.
         // When the CGP plugin reports a classloader but `Class.forName` cannot
         // locate `com.nasller.codeglance.config.CodeGlanceConfigService` (the
         // test classpath has no CGP), `Class.forName` throws
@@ -1136,26 +1135,15 @@ class AccentApplicatorRevertAllIntegrationTest {
         // plugin is present, but the service class is absent.
         every { mockPlugin.pluginClassLoader } returns MissingCgpClassLoader
 
-        // No throw expected. The `cgpService` field stays null because the
-        // catch swallows before it can be assigned.
         val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
 
-        val serviceField = CodeGlanceProIntegration::class.java.getDeclaredField("cgpService")
-        serviceField.isAccessible = true
         assertTrue(outcome is IntegrationOutcome.Failed)
         assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
-        assertEquals(
-            null,
-            serviceField.get(CodeGlanceProIntegration),
-            "cgpService MUST stay null after `Class.forName` throws — the catch " +
-                "must short-circuit before any field assignment.",
-        )
     }
 
     @Test
     fun `syncCodeGlanceProViewport resolveCgpMethods catches RuntimeException when classloader misbehaves`() {
-        // Pattern B isolation: drives the `RuntimeException` catch inside
-        // `resolveCgpMethods` (CodeGlanceProIntegration.kt lines 122-127).
+        // Pattern B isolation: drives the `RuntimeException` catch.
         // A classloader subclass that throws `IllegalStateException` from
         // `loadClass` exercises the second catch — covers a CGP plugin in a
         // weird state (corrupt jar, security manager rejection) where the
@@ -1173,78 +1161,38 @@ class AccentApplicatorRevertAllIntegrationTest {
         // not a `ReflectiveOperationException` — the second catch handles it.
         val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
 
-        val serviceField = CodeGlanceProIntegration::class.java.getDeclaredField("cgpService")
-        serviceField.isAccessible = true
         assertTrue(outcome is IntegrationOutcome.Failed)
         assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
-        assertEquals(
-            null,
-            serviceField.get(CodeGlanceProIntegration),
-            "cgpService MUST stay null after the classloader throws " +
-                "RuntimeException — the broader catch must short-circuit before " +
-                "any field assignment.",
-        )
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private fun installCgpReflectionMocks(
+    private fun seedCgpMethods(
         service: Any,
         getState: java.lang.reflect.Method,
         setColor: java.lang.reflect.Method,
         setBorderColor: java.lang.reflect.Method,
         setBorderThickness: java.lang.reflect.Method,
     ) {
-        // Stage non-null reflection chain so [revertCodeGlanceProViewport] /
-        // [syncCodeGlanceProViewport] reach the production reflection branch
-        // instead of short-circuiting on `cgpService ?: return`. Uses raw
-        // field writes routed through the typed
-        // [CodeGlanceProIntegration.resetReflectionCache] helper for cleanup.
-        // Marks `cgpMethodsResolved = true` so `resolveCgpMethods` is a no-op
-        // (we already supplied the cached refs).
-        val ownerClass = CodeGlanceProIntegration::class.java
         val getColor = mockk<java.lang.reflect.Method>(relaxed = true)
         val getBorderColor = mockk<java.lang.reflect.Method>(relaxed = true)
         val getBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
         every { getColor.invoke(any()) } returns "00FF00"
         every { getBorderColor.invoke(any()) } returns "A0A0A0"
         every { getBorderThickness.invoke(any()) } returns 0
-        ownerClass.getDeclaredField("cgpService").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, service)
-        }
-        ownerClass.getDeclaredField("cgpGetState").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, getState)
-        }
-        ownerClass.getDeclaredField("cgpGetColor").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, getColor)
-        }
-        ownerClass.getDeclaredField("cgpGetBorder").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, getBorderColor)
-        }
-        ownerClass.getDeclaredField("cgpGetThickness").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, getBorderThickness)
-        }
-        ownerClass.getDeclaredField("cgpSetColor").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, setColor)
-        }
-        ownerClass.getDeclaredField("cgpSetBorder").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, setBorderColor)
-        }
-        ownerClass.getDeclaredField("cgpSetThickness").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, setBorderThickness)
-        }
-        ownerClass.getDeclaredField("cgpMethodsResolved").apply {
-            isAccessible = true
-            set(CodeGlanceProIntegration, true)
-        }
+        CodeGlanceProIntegration.seedReflectionMethods(
+            CodeGlanceProIntegration.CgpMethods(
+                service = service,
+                getState = getState,
+                viewport =
+                    CodeGlanceProIntegration.CgpViewportMethods(
+                        getColor = getColor,
+                        getBorder = getBorderColor,
+                        getThickness = getBorderThickness,
+                        setColor = setColor,
+                        setBorder = setBorderColor,
+                        setThickness = setBorderThickness,
+                    ),
+            ),
+        )
     }
 
     private fun installCgpService(shouldResetCache: Boolean = true): CodeGlanceConfigService {

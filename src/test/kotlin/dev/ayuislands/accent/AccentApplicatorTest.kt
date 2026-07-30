@@ -178,20 +178,9 @@ class AccentApplicatorTest {
         invokePrivate("repaintAllWindows", windows)
     }
 
-    /**
-     * The CGP reflection chain lives on the peer object [CodeGlanceProIntegration]
-     * to keep [AccentApplicator] under the detekt `TooManyFunctions` cap. The
-     * CodeGlance Pro reflection fields and method-resolution state live on
-     * [CodeGlanceProIntegration]; everything else
-     * stays on [AccentApplicator]. The helpers below dispatch by name so existing
-     * tests can keep their AccentApplicator-flavoured reflection without
-     * re-templating every `setPrivateField(...)` callsite.
-     */
+    /** Routes the one private CodeGlance method to its owning object. */
     private fun ownerForName(name: String): Any =
-        if (name.startsWith(CODE_GLANCE_FIELD_PREFIX) ||
-            name == "syncCodeGlanceProViewport" ||
-            name == CODE_GLANCE_METHOD_RESOLUTION
-        ) {
+        if (name == CODE_GLANCE_METHOD_RESOLUTION) {
             CodeGlanceProIntegration
         } else {
             AccentApplicator
@@ -215,16 +204,6 @@ class AccentApplicatorTest {
         val field = owner.javaClass.getDeclaredField(fieldName)
         field.isAccessible = true
         return field.get(owner) as T
-    }
-
-    private fun setPrivateField(
-        fieldName: String,
-        value: Any?,
-    ) {
-        val owner = ownerForName(fieldName)
-        val field = owner.javaClass.getDeclaredField(fieldName)
-        field.isAccessible = true
-        field.set(owner, value)
     }
 
     @Test
@@ -568,27 +547,20 @@ class AccentApplicatorTest {
     fun `CodeGlance Pro viewport sync returns early when integration is disabled`() {
         state.cgpIntegrationEnabled = false
 
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
 
-        // Should not throw. The method-resolution flag can be true from prior tests
-        // because the peer object owns static state, but this branch exits before
-        // doing any work on the config.
-        val service = getPrivateField<Any?>(CODE_GLANCE_SERVICE_FIELD)
-        // The service should be null because no CodeGlance Pro plugin is
-        // installed in tests.
-        assertEquals(null, service)
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        verify(exactly = 0) { AyuPlugin.findLoadedPlugin(any()) }
     }
 
     @Test
     fun `CodeGlance Pro viewport sync with enabled flag but no plugin does not throw`() {
         state.cgpIntegrationEnabled = true
 
-        // Method resolution tries to find the CodeGlance Pro plugin, which does not
-        // exist in this test harness, so the service stays null and sync returns early.
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
 
-        val service = getPrivateField<Any?>(CODE_GLANCE_SERVICE_FIELD)
-        assertEquals(null, service)
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        verify(exactly = 1) { AyuPlugin.findLoadedPlugin(any()) }
     }
 
     // revertAlwaysOnEditorKeys
@@ -780,17 +752,12 @@ class AccentApplicatorTest {
     // CodeGlance Pro method resolution.
 
     @Test
-    fun `CodeGlance Pro method resolution sets flag when plugin is missing`() {
-        // Reset the flag first via reflection
+    fun `CodeGlance Pro method resolution checks plugin when cache is empty`() {
         resetCodeGlanceProState()
 
         invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
 
-        val resolved = getPrivateField<Boolean>(CODE_GLANCE_METHODS_RESOLVED_FIELD)
-        assertTrue(
-            resolved,
-            "CodeGlance Pro methods should be marked resolved after first call",
-        )
+        verify(exactly = 1) { AyuPlugin.findLoadedPlugin(any()) }
     }
 
     @Test
@@ -800,9 +767,7 @@ class AccentApplicatorTest {
         invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
         invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
 
-        // Should not throw — second call exits immediately via the guard
-        val resolved = getPrivateField<Boolean>(CODE_GLANCE_METHODS_RESOLVED_FIELD)
-        assertTrue(resolved)
+        verify(exactly = 1) { AyuPlugin.findLoadedPlugin(any()) }
     }
 
     // AttrOverride data class
@@ -830,49 +795,15 @@ class AccentApplicatorTest {
         }
     }
 
-    // CodeGlance Pro viewport sync: various null method fields.
-
-    @Test
-    fun `CodeGlance Pro viewport sync exits early when service is null`() {
-        state.cgpIntegrationEnabled = true
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        // Service left as null.
-
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
-    }
-
-    @Test
-    fun `CodeGlance Pro viewport sync exits early when get-state method is null`() {
-        state.cgpIntegrationEnabled = true
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        setPrivateField(CODE_GLANCE_SERVICE_FIELD, Any())
-
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
-    }
-
-    @Test
-    fun `CodeGlance Pro viewport sync exits early when color setter is null`() {
-        state.cgpIntegrationEnabled = true
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        setPrivateField(CODE_GLANCE_SERVICE_FIELD, Any())
-        setPrivateField(
-            CODE_GLANCE_GET_STATE_FIELD,
-            Any::class.java.getMethod("toString"),
-        )
-
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
-    }
-
     // CodeGlance Pro method resolution: additional scenarios.
 
     @Test
     fun `CodeGlance Pro method resolution skips when already resolved`() {
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        seedCodeGlanceMethods(Any(), mockk(relaxed = true), Any())
 
         invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
 
-        val service = getPrivateField<Any?>(CODE_GLANCE_SERVICE_FIELD)
-        assertEquals(null, service)
+        verify(exactly = 0) { AyuPlugin.findLoadedPlugin(any()) }
     }
 
     @Test
@@ -883,9 +814,8 @@ class AccentApplicatorTest {
 
         invokePrivate(CODE_GLANCE_METHOD_RESOLUTION)
 
-        val service = getPrivateField<Any?>(CODE_GLANCE_SERVICE_FIELD)
-        assertEquals(null, service)
-        assertTrue(getPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD))
+        verify(exactly = 1) { AyuPlugin.findLoadedPlugin(any()) }
+        verify(exactly = 1) { mockPlugin.pluginClassLoader }
     }
 
     // Field constant verification
@@ -1860,47 +1790,57 @@ class AccentApplicatorTest {
         return element
     }
 
+    private fun seedCodeGlanceMethods(
+        service: Any,
+        getState: Method,
+        config: Any,
+    ): CodeGlanceProIntegration.CgpViewportMethods {
+        val viewport = viewportMethods(config)
+        CodeGlanceProIntegration.seedReflectionMethods(
+            CodeGlanceProIntegration.CgpMethods(
+                service = service,
+                getState = getState,
+                viewport = viewport,
+            ),
+        )
+        return viewport
+    }
+
+    private fun viewportMethods(config: Any): CodeGlanceProIntegration.CgpViewportMethods {
+        val viewport =
+            CodeGlanceProIntegration.CgpViewportMethods(
+                getColor = mockk(relaxed = true),
+                getBorder = mockk(relaxed = true),
+                getThickness = mockk(relaxed = true),
+                setColor = mockk(relaxed = true),
+                setBorder = mockk(relaxed = true),
+                setThickness = mockk(relaxed = true),
+            )
+        every { viewport.getColor.invoke(config) } returns "123456"
+        every { viewport.getBorder.invoke(config) } returns "654321"
+        every { viewport.getThickness.invoke(config) } returns 2
+        return viewport
+    }
+
     // Tests for syncCodeGlanceProViewport full flow
 
     @Test
     fun `syncCodeGlanceProViewport full flow with all methods resolved`() {
         state.cgpIntegrationEnabled = true
 
-        // Set up mock CGP service and methods
         val mockConfig = Any()
         val mockService = Any()
         val mockGetState = mockk<Method>(relaxed = true)
-        val mockGetColor = mockk<Method>(relaxed = true)
-        val mockGetBorderColor = mockk<Method>(relaxed = true)
-        val mockGetBorderThickness = mockk<Method>(relaxed = true)
-        val mockSetColor = mockk<Method>(relaxed = true)
-        val mockSetBorderColor = mockk<Method>(relaxed = true)
-        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+        val viewport = seedCodeGlanceMethods(mockService, mockGetState, mockConfig)
 
         every { mockGetState.invoke(any()) } returns mockConfig
-        every { mockGetColor.invoke(mockConfig) } returns "123456"
-        every { mockGetBorderColor.invoke(mockConfig) } returns "654321"
-        every { mockGetBorderThickness.invoke(mockConfig) } returns 2
-        every { mockSetColor.invoke(any(), any()) } returns null
-        every { mockSetBorderColor.invoke(any(), any()) } returns null
-        every { mockSetBorderThickness.invoke(any(), any()) } returns null
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
 
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
-        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
-        setPrivateField(CGP_GET_COLOR_FIELD, mockGetColor)
-        setPrivateField(CGP_GET_BORDER_FIELD, mockGetBorderColor)
-        setPrivateField(CGP_GET_THICKNESS_FIELD, mockGetBorderThickness)
-        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
-
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
-
+        assertEquals(IntegrationOutcome.Applied, outcome)
         verify { mockGetState.invoke(mockService) }
-        verify { mockSetColor.invoke(mockConfig, ACCENT_HEX_STRIPPED) }
-        verify { mockSetBorderColor.invoke(mockConfig, ACCENT_HEX_STRIPPED) }
-        verify { mockSetBorderThickness.invoke(mockConfig, 1) }
+        verify { viewport.setColor.invoke(mockConfig, ACCENT_HEX_STRIPPED) }
+        verify { viewport.setBorder.invoke(mockConfig, ACCENT_HEX_STRIPPED) }
+        verify { viewport.setThickness.invoke(mockConfig, 1) }
     }
 
     @Test
@@ -1918,35 +1858,18 @@ class AccentApplicatorTest {
         val mockConfig = Any()
         val mockService = Any()
         val mockGetState = mockk<Method>(relaxed = true)
-        val mockGetColor = mockk<Method>(relaxed = true)
-        val mockGetBorderColor = mockk<Method>(relaxed = true)
-        val mockGetBorderThickness = mockk<Method>(relaxed = true)
-        val mockSetColor = mockk<Method>(relaxed = true)
-        val mockSetBorderColor = mockk<Method>(relaxed = true)
-        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+        val viewport = seedCodeGlanceMethods(mockService, mockGetState, mockConfig)
         every { mockGetState.invoke(any()) } returns mockConfig
-        every { mockGetColor.invoke(mockConfig) } returns ACCENT_HEX_STRIPPED
-        every { mockGetBorderColor.invoke(mockConfig) } returns ACCENT_HEX_STRIPPED
-        every { mockGetBorderThickness.invoke(mockConfig) } returns 1
-        every { mockSetColor.invoke(any(), any()) } returns null
-        every { mockSetBorderColor.invoke(any(), any()) } returns null
-        every { mockSetBorderThickness.invoke(any(), any()) } returns null
+        every { viewport.getColor.invoke(mockConfig) } returns ACCENT_HEX_STRIPPED
+        every { viewport.getBorder.invoke(mockConfig) } returns ACCENT_HEX_STRIPPED
+        every { viewport.getThickness.invoke(mockConfig) } returns 1
 
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
-        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
-        setPrivateField(CGP_GET_COLOR_FIELD, mockGetColor)
-        setPrivateField(CGP_GET_BORDER_FIELD, mockGetBorderColor)
-        setPrivateField(CGP_GET_THICKNESS_FIELD, mockGetBorderThickness)
-        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
 
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
-
-        verify { mockSetColor.invoke(mockConfig, "123456") }
-        verify { mockSetBorderColor.invoke(mockConfig, "654321") }
-        verify { mockSetBorderThickness.invoke(mockConfig, 2) }
+        assertEquals(IntegrationOutcome.Restored, outcome)
+        verify { viewport.setColor.invoke(mockConfig, "123456") }
+        verify { viewport.setBorder.invoke(mockConfig, "654321") }
+        verify { viewport.setThickness.invoke(mockConfig, 2) }
         assertTrue(state.cgpIntegrationEnabled)
     }
 
@@ -1957,35 +1880,13 @@ class AccentApplicatorTest {
         val mockConfig = Any()
         val mockService = Any()
         val mockGetState = mockk<Method>(relaxed = true)
-        val mockGetColor = mockk<Method>(relaxed = true)
-        val mockGetBorderColor = mockk<Method>(relaxed = true)
-        val mockGetBorderThickness = mockk<Method>(relaxed = true)
-        val mockSetColor = mockk<Method>(relaxed = true)
-        val mockSetBorderColor = mockk<Method>(relaxed = true)
-        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+        val viewport = seedCodeGlanceMethods(mockService, mockGetState, mockConfig)
 
         every { mockGetState.invoke(any()) } returns mockConfig
-        every { mockGetColor.invoke(mockConfig) } returns "123456"
-        every { mockGetBorderColor.invoke(mockConfig) } returns "654321"
-        every { mockGetBorderThickness.invoke(mockConfig) } returns 2
-        every { mockSetColor.invoke(any(), any()) } returns null
-        every { mockSetBorderColor.invoke(any(), any()) } returns null
-        every { mockSetBorderThickness.invoke(any(), any()) } returns null
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#E6B450")
 
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
-        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
-        setPrivateField(CGP_GET_COLOR_FIELD, mockGetColor)
-        setPrivateField(CGP_GET_BORDER_FIELD, mockGetBorderColor)
-        setPrivateField(CGP_GET_THICKNESS_FIELD, mockGetBorderThickness)
-        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
-
-        invokePrivate("syncCodeGlanceProViewport", "#E6B450")
-
-        // Verify the hash was stripped
-        verify { mockSetColor.invoke(mockConfig, "E6B450") }
+        assertEquals(IntegrationOutcome.Applied, outcome)
+        verify { viewport.setColor.invoke(mockConfig, "E6B450") }
     }
 
     @Test
@@ -1994,23 +1895,14 @@ class AccentApplicatorTest {
 
         val mockService = Any()
         val mockGetState = mockk<Method>(relaxed = true)
-        val mockSetColor = mockk<Method>(relaxed = true)
-        val mockSetBorderColor = mockk<Method>(relaxed = true)
-        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+        val viewport = seedCodeGlanceMethods(mockService, mockGetState, Any())
 
         every { mockGetState.invoke(any()) } returns null
 
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
-        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
-        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
 
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
-
-        // setColor should not be called since config is null
-        verify(exactly = 0) { mockSetColor.invoke(any(), any()) }
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        verify(exactly = 0) { viewport.setColor.invoke(any(), any()) }
     }
 
     @Test
@@ -2020,23 +1912,15 @@ class AccentApplicatorTest {
         val mockConfig = Any()
         val mockService = Any()
         val mockGetState = mockk<Method>(relaxed = true)
-        val mockSetColor = mockk<Method>(relaxed = true)
-        val mockSetBorderColor = mockk<Method>(relaxed = true)
-        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+        val viewport = seedCodeGlanceMethods(mockService, mockGetState, mockConfig)
 
         every { mockGetState.invoke(any()) } returns mockConfig
-        every { mockSetColor.invoke(any(), any()) } throws
+        every { viewport.setColor.invoke(any(), any()) } throws
             java.lang.reflect.InvocationTargetException(RuntimeException("inner"))
 
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
-        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
-        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
 
-        // Should not throw
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+        assertTrue(outcome is IntegrationOutcome.Failed)
     }
 
     @Test
@@ -2046,22 +1930,14 @@ class AccentApplicatorTest {
         val mockConfig = Any()
         val mockService = Any()
         val mockGetState = mockk<Method>(relaxed = true)
-        val mockSetColor = mockk<Method>(relaxed = true)
-        val mockSetBorderColor = mockk<Method>(relaxed = true)
-        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+        val viewport = seedCodeGlanceMethods(mockService, mockGetState, mockConfig)
 
         every { mockGetState.invoke(any()) } returns mockConfig
-        every { mockSetColor.invoke(any(), any()) } throws RuntimeException("CGP exploded")
+        every { viewport.setColor.invoke(any(), any()) } throws RuntimeException("CGP exploded")
 
-        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
-        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
-        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
-        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
-        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
 
-        // Should not throw
-        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+        assertTrue(outcome is IntegrationOutcome.Failed)
     }
 
     // Helpers
@@ -2346,25 +2222,7 @@ class AccentApplicatorTest {
     private companion object {
         private const val ACCENT_HEX_STRIPPED = "FFCC66"
         private const val EXTERNAL_CHROME_TEST_KEY = "Ayu.Test.externalChrome"
-        private const val CODE_GLANCE_FIELD_PREFIX = "c" + "g" + "p"
         private const val CODE_GLANCE_METHOD_RESOLUTION =
             "resolve" + "C" + "g" + "p" + "Methods"
-        private const val CODE_GLANCE_SERVICE_FIELD = CODE_GLANCE_FIELD_PREFIX + "Service"
-        private const val CODE_GLANCE_GET_STATE_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "GetState"
-        private const val CGP_GET_COLOR_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "GetColor"
-        private const val CGP_GET_BORDER_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "GetBorder"
-        private const val CGP_GET_THICKNESS_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "GetThickness"
-        private const val CODE_GLANCE_SET_COLOR_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "SetColor"
-        private const val CODE_GLANCE_SET_BORDER_COLOR_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "SetBorder"
-        private const val CODE_GLANCE_SET_BORDER_THICKNESS_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "SetThickness"
-        private const val CODE_GLANCE_METHODS_RESOLVED_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "MethodsResolved"
     }
 }

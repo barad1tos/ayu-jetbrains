@@ -9,6 +9,7 @@ import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import org.jetbrains.annotations.TestOnly
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 
@@ -76,22 +77,23 @@ internal object CodeGlanceProIntegration {
     internal const val CGP_DEFAULT_VIEWPORT_BORDER_COLOR = "A0A0A0"
     internal const val CGP_DEFAULT_VIEWPORT_BORDER_THICKNESS = 0
 
+    internal data class CgpMethods(
+        val service: Any,
+        val getState: Method,
+        val viewport: CgpViewportMethods,
+    )
+
+    internal data class CgpViewportMethods(
+        val getColor: Method,
+        val getBorder: Method,
+        val getThickness: Method,
+        val setColor: Method,
+        val setBorder: Method,
+        val setThickness: Method,
+    )
+
     // Cached CodeGlance Pro reflection objects (resolved once per session)
-    @Volatile private var cgpService: Any? = null
-
-    @Volatile private var cgpGetState: Method? = null
-
-    @Volatile private var cgpGetColor: Method? = null
-
-    @Volatile private var cgpGetBorder: Method? = null
-
-    @Volatile private var cgpGetThickness: Method? = null
-
-    @Volatile private var cgpSetColor: Method? = null
-
-    @Volatile private var cgpSetBorder: Method? = null
-
-    @Volatile private var cgpSetThickness: Method? = null
+    @Volatile private var cgpMethods: CgpMethods? = null
 
     @Volatile private var cgpMethodsResolved = false
 
@@ -118,21 +120,21 @@ internal object CodeGlanceProIntegration {
             val getState = service.javaClass.getMethod("getState")
             val config = getState.invoke(service) ?: return
             val configClass = config.javaClass
-            val getColor = configClass.getMethod("getViewportColor")
-            val getBorder = configClass.getMethod("getViewportBorderColor")
-            val getThickness = configClass.getMethod("getViewportBorderThickness")
-            val setColor = configClass.getMethod("setViewportColor", String::class.java)
-            val setBorder = configClass.getMethod("setViewportBorderColor", String::class.java)
-            val setThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java)
-
-            cgpService = service
-            cgpGetState = getState
-            cgpGetColor = getColor
-            cgpGetBorder = getBorder
-            cgpGetThickness = getThickness
-            cgpSetColor = setColor
-            cgpSetBorder = setBorder
-            cgpSetThickness = setThickness
+            val viewport =
+                CgpViewportMethods(
+                    getColor = configClass.getMethod("getViewportColor"),
+                    getBorder = configClass.getMethod("getViewportBorderColor"),
+                    getThickness = configClass.getMethod("getViewportBorderThickness"),
+                    setColor = configClass.getMethod("setViewportColor", String::class.java),
+                    setBorder = configClass.getMethod("setViewportBorderColor", String::class.java),
+                    setThickness = configClass.getMethod("setViewportBorderThickness", Int::class.java),
+                )
+            cgpMethods =
+                CgpMethods(
+                    service = service,
+                    getState = getState,
+                    viewport = viewport,
+                )
         } catch (exception: ReflectiveOperationException) {
             cgpResolutionFailure = exception
             log.warn(
@@ -322,17 +324,17 @@ internal object CodeGlanceProIntegration {
     }
 
     private fun resolvedAccess(): CgpAccess? {
-        val service = cgpService ?: return null
-        val getState = cgpGetState ?: return null
-        val config = getState.invoke(service) ?: return null
+        val methods = cgpMethods ?: return null
+        val config = methods.getState.invoke(methods.service) ?: return null
+        val viewport = methods.viewport
         return CgpAccess(
             config = config,
-            getColor = cgpGetColor ?: return null,
-            getBorder = cgpGetBorder ?: return null,
-            getThickness = cgpGetThickness ?: return null,
-            setColor = cgpSetColor ?: return null,
-            setBorder = cgpSetBorder ?: return null,
-            setThickness = cgpSetThickness ?: return null,
+            getColor = viewport.getColor,
+            getBorder = viewport.getBorder,
+            getThickness = viewport.getThickness,
+            setColor = viewport.setColor,
+            setBorder = viewport.setBorder,
+            setThickness = viewport.setThickness,
         )
     }
 
@@ -460,16 +462,16 @@ internal object CodeGlanceProIntegration {
         return getService.invoke(application, serviceClass)
     }
 
+    @TestOnly
+    internal fun seedReflectionMethods(methods: CgpMethods) {
+        cgpMethods = methods
+        cgpMethodsResolved = true
+        cgpResolutionFailure = null
+    }
+
     /** Invalidates a failed reflection chain so the next reconciliation resolves it again. */
     internal fun resetReflectionCache() {
-        cgpService = null
-        cgpGetState = null
-        cgpGetColor = null
-        cgpGetBorder = null
-        cgpGetThickness = null
-        cgpSetColor = null
-        cgpSetBorder = null
-        cgpSetThickness = null
+        cgpMethods = null
         cgpMethodsResolved = false
         cgpResolutionFailure = null
     }
