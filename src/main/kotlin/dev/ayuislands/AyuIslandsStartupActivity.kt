@@ -439,11 +439,12 @@ internal class AyuIslandsStartupActivity(
         entitlement: LicenseEntitlement,
         projects: List<Project>,
     ) {
-        if (entitlement == LicenseEntitlement.UNKNOWN) return
-        val result = reconcileWithRetry(entitlement, projects) ?: return
-        if (!result.isSuccess) {
+        if (entitlement == LicenseEntitlement.UNKNOWN) {
             scheduleStartupCheck(RECONCILIATION_RETRY_MS)
+            return
         }
+        val result = reconcileWithRetry(entitlement, projects) ?: return
+        scheduleNextStartupCheck(entitlement, result)
     }
 
     private fun scheduleStartupCheck(delayMs: Long) {
@@ -470,6 +471,13 @@ internal class AyuIslandsStartupActivity(
                 return
             }
         val result = reconcileWithRetry(entitlement, projects) ?: return
+        scheduleNextStartupCheck(entitlement, result)
+    }
+
+    private fun scheduleNextStartupCheck(
+        entitlement: LicenseEntitlement,
+        result: ReconciliationResult,
+    ) {
         when {
             !result.isSuccess -> scheduleStartupCheck(RECONCILIATION_RETRY_MS)
             entitlement == LicenseEntitlement.LICENSED ->

@@ -97,6 +97,47 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
+    fun `unknown startup entitlement schedules a definitive state retry`() {
+        var reconciliationAttempts = 0
+        val scheduledDelays = mutableListOf<Long>()
+        val project = mockk<Project>(relaxed = true)
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                reconcile = { _, _ ->
+                    reconciliationAttempts += 1
+                    ReconciliationResult.Success
+                },
+                scheduleRecheck = { delayMs, _ -> scheduledDelays += delayMs },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.UNKNOWN, listOf(project))
+
+        assertEquals(0, reconciliationAttempts)
+        assertEquals(listOf(5_000L), scheduledDelays)
+    }
+
+    @Test
+    fun `successful licensed startup schedules the adaptive license check`() {
+        var reconciliationAttempts = 0
+        val scheduledDelays = mutableListOf<Long>()
+        val project = mockk<Project>(relaxed = true)
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                reconcile = { _, _ ->
+                    reconciliationAttempts += 1
+                    ReconciliationResult.Success
+                },
+                scheduleRecheck = { delayMs, _ -> scheduledDelays += delayMs },
+                recheckDelayProvider = { 100_000L },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
+
+        assertEquals(1, reconciliationAttempts)
+        assertEquals(listOf(100_000L), scheduledDelays)
+    }
+
+    @Test
     fun `successful startup retry restores the adaptive license check`() {
         var attempts = 0
         val scheduledDelays = mutableListOf<Long>()
