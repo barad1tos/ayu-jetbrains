@@ -57,18 +57,17 @@ class AyuIslandsStateSnapshotTest {
     }
 
     @Test
-    fun `after revertToFreeDefaults matches snapshot`() {
+    fun `revertToFreeDefaults preserves the complete settings snapshot`() {
         val state = AyuIslandsState()
         val settings = mockk<AyuIslandsSettings>(relaxed = true)
         every { settings.state } returns state
         every { settings.getAccentForVariant(any()) } returns "#FFCC66"
         every { AyuIslandsSettings.getInstance() } returns settings
         LicenseChecker.enableProDefaults()
+        LicenseChecker.applyWorkspaceDefaults()
+        val before = serializeState(state)
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertMatchesSnapshot(
-            "settings/after-revert-to-free-defaults.txt",
-            serializeState(state),
-        )
+        kotlin.test.assertEquals(before, serializeState(state))
     }
 
     @Test
@@ -100,7 +99,14 @@ private fun serializeState(state: AyuIslandsState): String =
         appendLine("bracketMatch=${state.bracketMatch}")
         appendLine("bracketScopeEnabled=${state.bracketScopeEnabled}")
         appendLine("caretRow=${state.caretRow}")
+        appendLine("cgpAppliedBorder=${state.cgpAppliedBorder}")
+        appendLine("cgpAppliedColor=${state.cgpAppliedColor}")
+        appendLine("cgpAppliedThickness=${state.cgpAppliedThickness}")
+        appendLine("cgpBaseBorder=${state.cgpBaseBorder}")
+        appendLine("cgpBaseColor=${state.cgpBaseColor}")
+        appendLine("cgpBaseThickness=${state.cgpBaseThickness}")
         appendLine("cgpIntegrationEnabled=${state.cgpIntegrationEnabled}")
+        appendLine("cgpOwnership=${state.cgpOwnership}")
         appendLine("commitPanelAutoFitMinWidth=${state.commitPanelAutoFitMinWidth}")
         appendLine("commitPanelFixedWidth=${state.commitPanelFixedWidth}")
         appendLine("commitPanelWidthMode=${state.commitPanelWidthMode}")
@@ -146,6 +152,13 @@ private fun serializeState(state: AyuIslandsState): String =
         appendLine("irErrorHighlightEnabled=${state.irErrorHighlightEnabled}")
         appendLine("irFailedVersion=${state.irFailedVersion}")
         appendLine("irIntegrationEnabled=${state.irIntegrationEnabled}")
+        appendLine("irAppliedColorCount=${state.irAppliedColorCount}")
+        appendLine("irAppliedPalette=${state.irAppliedPalette}")
+        appendLine("irAppliedType=${state.irAppliedType}")
+        appendLine("irBaseColorCount=${state.irBaseColorCount}")
+        appendLine("irBasePalette=${state.irBasePalette}")
+        appendLine("irBaseType=${state.irBaseType}")
+        appendLine("irOwnership=${state.irOwnership}")
         appendLine("lastDarkAppearanceTheme=${state.lastDarkAppearanceTheme}")
         appendLine("lastKnownLicensedMs=${state.lastKnownLicensedMs}")
         appendLine("lastLightAppearanceTheme=${state.lastLightAppearanceTheme}")

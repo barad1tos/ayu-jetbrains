@@ -17,6 +17,8 @@ import dev.ayuislands.accent.conflict.ConflictType
 import dev.ayuislands.accent.elements.AbstractChromeElement
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.IntegrationOutcome
+import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -85,6 +87,8 @@ class AccentApplicatorTest {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
+        state.isCgpOwnershipMigrated = true
+        state.isIrOwnershipMigrated = true
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
 
@@ -294,7 +298,7 @@ class AccentApplicatorTest {
     fun `apply snapshots chrome entitlement once`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#FFCC66")
@@ -961,7 +965,7 @@ class AccentApplicatorTest {
     fun `apply calls applyAlwaysOnUiKeys and applyAlwaysOnEditorKeys on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#FFCC66")
@@ -980,7 +984,7 @@ class AccentApplicatorTest {
         // but the old `any()` matcher would still pass. Assert the exact hex flows through.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
@@ -996,7 +1000,7 @@ class AccentApplicatorTest {
         stubExternalChromeBase(Color(0x24, 0x29, 0x36))
         mockEpExtensionList(listOf(visualElement, chromeElement))
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.chromePanelBorder = true
@@ -1020,7 +1024,7 @@ class AccentApplicatorTest {
         stubExternalChromeBase(Color(0x24, 0x29, 0x36))
         mockEpExtensionList(listOf(visualElement, chromeElement))
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1045,7 +1049,7 @@ class AccentApplicatorTest {
         stubExternalChromeBase(Color(0x24, 0x29, 0x36))
         mockEpExtensionList(listOf(chromeElement))
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1068,7 +1072,7 @@ class AccentApplicatorTest {
         stubExternalChromeBase(Color(0x24, 0x29, 0x36))
         mockEpExtensionList(listOf(chromeElement))
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1092,7 +1096,7 @@ class AccentApplicatorTest {
         stubExternalChromeBase(Color(0x24, 0x29, 0x36))
         mockEpExtensionList(listOf(chromeElement))
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1113,7 +1117,7 @@ class AccentApplicatorTest {
     fun `partial external underline write remains owned for retry`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1133,7 +1137,7 @@ class AccentApplicatorTest {
     fun `failed external underline cleanup remains owned for retry`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1157,7 +1161,7 @@ class AccentApplicatorTest {
         stubExternalChromeBase(null)
         mockEpExtensionList(listOf(chromeElement))
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1177,7 +1181,7 @@ class AccentApplicatorTest {
         stubExternalChromeBase(Color(0x24, 0x29, 0x36))
         mockEpExtensionList(listOf(chromeElement))
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeChromeTintEnabled = true
@@ -1197,7 +1201,7 @@ class AccentApplicatorTest {
         stubExternalChromeBase(Color(0x24, 0x29, 0x36))
         mockEpExtensionList(listOf(chromeElement))
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         every { LicenseChecker.isLicensedOrGrace() } returns false
         state.cgpIntegrationEnabled = false
         state.externalThemeEnhancementsEnabled = true
@@ -1228,7 +1232,7 @@ class AccentApplicatorTest {
     fun `apply calls repaintAllWindows`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         val mockWindow = mockk<Window>(relaxed = true)
         every { mockWindow.isDisplayable } returns true
@@ -1243,7 +1247,7 @@ class AccentApplicatorTest {
     fun `apply runs work directly when on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns true
 
@@ -1261,7 +1265,7 @@ class AccentApplicatorTest {
         // multi-window restores would flicker Gold before each StartupActivity ran.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#5CCFE6")
@@ -1275,7 +1279,7 @@ class AccentApplicatorTest {
         // ticks, and per-project swaps leave the right color for the next restart.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
         AccentApplicator.applyFromHexString("#5CCFE6")
@@ -1296,7 +1300,7 @@ class AccentApplicatorTest {
         // malformed shapes that used to crash the applier.
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
         // None of these should throw; none should set the cached hex.
@@ -1317,7 +1321,7 @@ class AccentApplicatorTest {
     fun `apply accepts well-formed 6-digit hex with hash prefix`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
         // Boundary: exactly #RRGGBB with valid hex digits. Must go through the full
@@ -1332,7 +1336,7 @@ class AccentApplicatorTest {
     fun `apply accepts mixed-case hex digits`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
         // Upper and lower case 0-9A-Fa-f are all valid per Color.decode.
@@ -1367,7 +1371,7 @@ class AccentApplicatorTest {
     fun `apply posts to invokeLater when not on EDT`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns Unit
+        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
         every { SwingUtilities.isEventDispatchThread() } returns false
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
@@ -1517,7 +1521,46 @@ class AccentApplicatorTest {
 
         verify(exactly = 1) { chromeElement.applyNeutral(AyuVariant.MIRAGE) }
         verify(exactly = 0) { chromeElement.apply(any()) }
-        kotlin.test.assertTrue(state.chromePanelBorder)
+        assertTrue(state.chromePanelBorder)
+    }
+
+    @Test
+    fun `applyElements unlicensed uses the default enabled state without erasing a visual preference`() {
+        val visualElement = mockk<AccentElement>(relaxed = true)
+        every { visualElement.id } returns AccentElementId.INLAY_HINTS
+        every { visualElement.displayName } returns "Inlay hints"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        state.setToggle(AccentElementId.INLAY_HINTS, false)
+        mockEpExtensionList(listOf(visualElement))
+
+        invokeApplyElements(state, Color.decode("#FFCC66"), AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        verify(exactly = 1) { visualElement.apply(any()) }
+        verify(exactly = 0) { visualElement.applyNeutral(any()) }
+        assertFalse(state.isToggleEnabled(AccentElementId.INLAY_HINTS))
+    }
+
+    @Test
+    fun `applyElements unlicensed ignores a persisted force override`() {
+        val visualElement = mockk<AccentElement>(relaxed = true)
+        every { visualElement.id } returns AccentElementId.INLAY_HINTS
+        every { visualElement.displayName } returns "Inlay hints"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        every { ConflictRegistry.getConflictFor(AccentElementId.INLAY_HINTS) } returns
+            ConflictEntry(
+                pluginDisplayName = "Conflicting plugin",
+                pluginId = "conflicting.plugin",
+                affectedElements = setOf(AccentElementId.INLAY_HINTS),
+                type = ConflictType.BLOCK,
+            )
+        state.forceOverrides.add(AccentElementId.INLAY_HINTS.name)
+        mockEpExtensionList(listOf(visualElement))
+
+        invokeApplyElements(state, Color.decode("#FFCC66"), AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        verify(exactly = 1) { visualElement.applyNeutral(AyuVariant.MIRAGE) }
+        verify(exactly = 0) { visualElement.apply(any()) }
+        assertTrue(AccentElementId.INLAY_HINTS.name in state.forceOverrides)
     }
 
     @Test
@@ -1827,11 +1870,17 @@ class AccentApplicatorTest {
         val mockConfig = Any()
         val mockService = Any()
         val mockGetState = mockk<Method>(relaxed = true)
+        val mockGetColor = mockk<Method>(relaxed = true)
+        val mockGetBorderColor = mockk<Method>(relaxed = true)
+        val mockGetBorderThickness = mockk<Method>(relaxed = true)
         val mockSetColor = mockk<Method>(relaxed = true)
         val mockSetBorderColor = mockk<Method>(relaxed = true)
         val mockSetBorderThickness = mockk<Method>(relaxed = true)
 
         every { mockGetState.invoke(any()) } returns mockConfig
+        every { mockGetColor.invoke(mockConfig) } returns "123456"
+        every { mockGetBorderColor.invoke(mockConfig) } returns "654321"
+        every { mockGetBorderThickness.invoke(mockConfig) } returns 2
         every { mockSetColor.invoke(any(), any()) } returns null
         every { mockSetBorderColor.invoke(any(), any()) } returns null
         every { mockSetBorderThickness.invoke(any(), any()) } returns null
@@ -1839,6 +1888,9 @@ class AccentApplicatorTest {
         setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
         setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
         setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CGP_GET_COLOR_FIELD, mockGetColor)
+        setPrivateField(CGP_GET_BORDER_FIELD, mockGetBorderColor)
+        setPrivateField(CGP_GET_THICKNESS_FIELD, mockGetBorderThickness)
         setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
         setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
         setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
@@ -1852,17 +1904,30 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `syncCodeGlanceProViewport strips hash prefix from accent hex`() {
+    fun `syncCodeGlanceProViewport unlicensed reverts a persisted enabled integration`() {
         state.cgpIntegrationEnabled = true
+        state.cgpOwnership = IntegrationOwnership.OWNED.name
+        state.cgpBaseColor = "123456"
+        state.cgpBaseBorder = "654321"
+        state.cgpBaseThickness = 2
+        state.cgpAppliedColor = ACCENT_HEX_STRIPPED
+        state.cgpAppliedBorder = ACCENT_HEX_STRIPPED
+        state.cgpAppliedThickness = 1
+        every { LicenseChecker.isLicensedOrGrace() } returns false
 
         val mockConfig = Any()
         val mockService = Any()
         val mockGetState = mockk<Method>(relaxed = true)
+        val mockGetColor = mockk<Method>(relaxed = true)
+        val mockGetBorderColor = mockk<Method>(relaxed = true)
+        val mockGetBorderThickness = mockk<Method>(relaxed = true)
         val mockSetColor = mockk<Method>(relaxed = true)
         val mockSetBorderColor = mockk<Method>(relaxed = true)
         val mockSetBorderThickness = mockk<Method>(relaxed = true)
-
         every { mockGetState.invoke(any()) } returns mockConfig
+        every { mockGetColor.invoke(mockConfig) } returns ACCENT_HEX_STRIPPED
+        every { mockGetBorderColor.invoke(mockConfig) } returns ACCENT_HEX_STRIPPED
+        every { mockGetBorderThickness.invoke(mockConfig) } returns 1
         every { mockSetColor.invoke(any(), any()) } returns null
         every { mockSetBorderColor.invoke(any(), any()) } returns null
         every { mockSetBorderThickness.invoke(any(), any()) } returns null
@@ -1870,6 +1935,49 @@ class AccentApplicatorTest {
         setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
         setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
         setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CGP_GET_COLOR_FIELD, mockGetColor)
+        setPrivateField(CGP_GET_BORDER_FIELD, mockGetBorderColor)
+        setPrivateField(CGP_GET_THICKNESS_FIELD, mockGetBorderThickness)
+        setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
+        setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
+
+        invokePrivate("syncCodeGlanceProViewport", "#FFCC66")
+
+        verify { mockSetColor.invoke(mockConfig, "123456") }
+        verify { mockSetBorderColor.invoke(mockConfig, "654321") }
+        verify { mockSetBorderThickness.invoke(mockConfig, 2) }
+        assertTrue(state.cgpIntegrationEnabled)
+    }
+
+    @Test
+    fun `syncCodeGlanceProViewport strips hash prefix from accent hex`() {
+        state.cgpIntegrationEnabled = true
+
+        val mockConfig = Any()
+        val mockService = Any()
+        val mockGetState = mockk<Method>(relaxed = true)
+        val mockGetColor = mockk<Method>(relaxed = true)
+        val mockGetBorderColor = mockk<Method>(relaxed = true)
+        val mockGetBorderThickness = mockk<Method>(relaxed = true)
+        val mockSetColor = mockk<Method>(relaxed = true)
+        val mockSetBorderColor = mockk<Method>(relaxed = true)
+        val mockSetBorderThickness = mockk<Method>(relaxed = true)
+
+        every { mockGetState.invoke(any()) } returns mockConfig
+        every { mockGetColor.invoke(mockConfig) } returns "123456"
+        every { mockGetBorderColor.invoke(mockConfig) } returns "654321"
+        every { mockGetBorderThickness.invoke(mockConfig) } returns 2
+        every { mockSetColor.invoke(any(), any()) } returns null
+        every { mockSetBorderColor.invoke(any(), any()) } returns null
+        every { mockSetBorderThickness.invoke(any(), any()) } returns null
+
+        setPrivateField(CODE_GLANCE_METHODS_RESOLVED_FIELD, true)
+        setPrivateField(CODE_GLANCE_SERVICE_FIELD, mockService)
+        setPrivateField(CODE_GLANCE_GET_STATE_FIELD, mockGetState)
+        setPrivateField(CGP_GET_COLOR_FIELD, mockGetColor)
+        setPrivateField(CGP_GET_BORDER_FIELD, mockGetBorderColor)
+        setPrivateField(CGP_GET_THICKNESS_FIELD, mockGetBorderThickness)
         setPrivateField(CODE_GLANCE_SET_COLOR_FIELD, mockSetColor)
         setPrivateField(CODE_GLANCE_SET_BORDER_COLOR_FIELD, mockSetBorderColor)
         setPrivateField(CODE_GLANCE_SET_BORDER_THICKNESS_FIELD, mockSetBorderThickness)
@@ -2095,6 +2203,32 @@ class AccentApplicatorTest {
     }
 
     @Test
+    fun `applyTabUnderline uses free runtime height then restores licensed saved height without mutation`() {
+        state.glowTabMode = "FULL"
+        state.tabUnderlineHeight = 7
+        state.tabUnderlineGlowSync = true
+        state.glowEnabled = false
+
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        invokeApplyTabUnderline(state, AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        invokeApplyTabUnderline(state, AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        verify(exactly = 1) {
+            UIManager.put(
+                "EditorTabs.underlineHeight",
+                Integer.valueOf(AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT),
+            )
+        }
+        verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", Integer.valueOf(7)) }
+        assertEquals(7, state.tabUnderlineHeight)
+        assertTrue(state.tabUnderlineGlowSync)
+        assertEquals("FULL", state.glowTabMode)
+        assertFalse(state.glowEnabled)
+    }
+
+    @Test
     fun `applyTabUnderline sets neutral gray when OFF and variant present`() {
         state.glowTabMode = "OFF"
 
@@ -2142,12 +2276,12 @@ class AccentApplicatorTest {
     }
 
     private fun resetCodeGlanceProState() {
-        // Use the typed `CodeGlanceProIntegration.resetReflectionCacheForTests`
+        // Use the typed `CodeGlanceProIntegration.resetReflectionCache`
         // helper instead of hand-rolled raw-reflection writes. A field loop
         // that iterated five field names as raw strings would silently leave
         // stale state in the next test on rename. The helper lives next to
         // the fields it resets — a Kotlin rename refactors both at once.
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCache()
     }
 
     private fun createExternalChromeElement(isEnabled: Boolean = true): AbstractChromeElement =
@@ -2218,12 +2352,18 @@ class AccentApplicatorTest {
         private const val CODE_GLANCE_SERVICE_FIELD = CODE_GLANCE_FIELD_PREFIX + "Service"
         private const val CODE_GLANCE_GET_STATE_FIELD =
             CODE_GLANCE_FIELD_PREFIX + "GetState"
+        private const val CGP_GET_COLOR_FIELD =
+            CODE_GLANCE_FIELD_PREFIX + "GetColor"
+        private const val CGP_GET_BORDER_FIELD =
+            CODE_GLANCE_FIELD_PREFIX + "GetBorder"
+        private const val CGP_GET_THICKNESS_FIELD =
+            CODE_GLANCE_FIELD_PREFIX + "GetThickness"
         private const val CODE_GLANCE_SET_COLOR_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "SetViewportColor"
+            CODE_GLANCE_FIELD_PREFIX + "SetColor"
         private const val CODE_GLANCE_SET_BORDER_COLOR_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "SetViewportBorderColor"
+            CODE_GLANCE_FIELD_PREFIX + "SetBorder"
         private const val CODE_GLANCE_SET_BORDER_THICKNESS_FIELD =
-            CODE_GLANCE_FIELD_PREFIX + "SetViewportBorderThickness"
+            CODE_GLANCE_FIELD_PREFIX + "SetThickness"
         private const val CODE_GLANCE_METHODS_RESOLVED_FIELD =
             CODE_GLANCE_FIELD_PREFIX + "MethodsResolved"
     }

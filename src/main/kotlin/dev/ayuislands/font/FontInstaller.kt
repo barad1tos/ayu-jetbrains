@@ -12,6 +12,7 @@ import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.io.HttpRequests
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
@@ -57,6 +58,7 @@ object FontInstaller {
         PERMISSION_DENIED,
         DROPDOWN_STALE,
         APPLY_FAILED,
+        PREMIUM_REQUIRED,
         UNKNOWN,
     }
 
@@ -89,6 +91,10 @@ object FontInstaller {
         FontCatalog.requireCanonicalEntry(entry)
         require(consent.matches(entry)) {
             "Install consent does not match ${entry.preset.name}"
+        }
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            fail(entry, project, FailureKind.PREMIUM_REQUIRED, onComplete, null)
+            return
         }
         val task =
             object : Task.Backgroundable(project, "Installing ${entry.displayName}…", true) {
@@ -428,6 +434,8 @@ object FontInstaller {
             FailureKind.APPLY_FAILED ->
                 "Installed, but couldn't apply automatically. " +
                     "Open Settings → Editor → Font to pick ${entry.familyName}."
+            FailureKind.PREMIUM_REQUIRED ->
+                "Ayu Islands Pro license is required to install or reinstall fonts from Settings."
             FailureKind.UNKNOWN ->
                 "Unexpected error. Please report at $GH_ISSUES_URL."
         }

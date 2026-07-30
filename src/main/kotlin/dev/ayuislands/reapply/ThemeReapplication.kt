@@ -59,7 +59,7 @@ object ThemeReapplication {
             }
 
             is ReapplyReason.LicenseRevert -> {
-                listOf(ApplyExplicitHex, Glow, VcsRevert)
+                listOf(ApplyExplicitHex, Glow, VcsRevert, Syntax)
             }
 
             is ReapplyReason.RotationTick -> {

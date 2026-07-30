@@ -126,6 +126,17 @@ class PinAccentActionTest {
     }
 
     @Test
+    fun `actionPerformed after license loss does not write or apply`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        PinAccentAction().actionPerformed(newEvent())
+
+        assertTrue(state.projectAccents.isEmpty())
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
     fun `actionPerformed calls notifyExternalApply only when applyFromHexString returns true (Pattern D)`() {
         // Pattern D Boolean gate.
         every { AccentApplicator.applyFromHexString("#7F52FF") } returns true

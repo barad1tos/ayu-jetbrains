@@ -47,6 +47,7 @@ import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
+import java.awt.EventQueue
 import java.awt.KeyboardFocusManager
 import java.awt.Point
 import java.awt.Rectangle
@@ -1915,10 +1916,17 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     private fun rebuildRouteGraph(manager: GlowOverlayManager) {
-        val controller = readRouteController(manager)
-        val method = controller.javaClass.getDeclaredMethod("rebuildGraph")
-        method.isAccessible = true
-        method.invoke(controller)
+        val rebuild = {
+            val controller = readRouteController(manager)
+            val method = controller.javaClass.getDeclaredMethod("rebuildGraph")
+            method.isAccessible = true
+            method.invoke(controller)
+        }
+        if (EventQueue.isDispatchThread()) {
+            rebuild()
+        } else {
+            EventQueue.invokeAndWait { rebuild() }
+        }
     }
 
     private fun scheduleGraphRefresh(manager: GlowOverlayManager) {

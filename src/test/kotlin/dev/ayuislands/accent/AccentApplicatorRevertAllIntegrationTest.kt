@@ -14,13 +14,13 @@ import com.intellij.util.messages.MessageBus
 import com.nasller.codeglance.config.CodeGlanceConfigService
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.IntegrationOutcome
+import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.ui.ComponentTreeRefresher
-import io.mockk.Runs
 import io.mockk.clearAllMocks
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -92,6 +92,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         // Default: CGP integration enabled so revertCodeGlanceProViewport reaches
         // the hook. Per-test overrides flip this to exercise the gate.
         state.cgpIntegrationEnabled = true
+        state.isCgpOwnershipMigrated = true
 
         mockkStatic(ProjectManager::class)
         every { ProjectManager.getInstance() } returns mockProjectManager
@@ -101,7 +102,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { ComponentTreeRefresher.notifyOnly(any()) } returns Unit
 
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.revert() } just Runs
+        every { IndentRainbowSync.revert() } returns IntegrationOutcome.Skipped
 
         // Default to an empty EP list so revertAll's loop runs without each test
         // re-stubbing the EP. Ensures the new IR/CGP revert calls are reachable.
@@ -118,7 +119,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         // Reflection-path tests stash mocks into [CodeGlanceProIntegration]'s
         // private reflection cache. Without this reset, a test failure could
         // leave pinned mocks visible to a subsequent test in the same worker JVM.
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCache()
         restoreOriginalEpName()
         unmockkAll()
         clearAllMocks()
@@ -133,6 +134,7 @@ class AccentApplicatorRevertAllIntegrationTest {
 
     @Test
     fun `revertAll calls revertCodeGlanceProViewport`() {
+        seedOwnedCgp()
         val observed = mutableListOf<Triple<String, String, Int>>()
         AccentApplicator.codeGlanceProRevertHook.set { c, bc, bt -> observed += Triple(c, bc, bt) }
         try {
@@ -148,11 +150,8 @@ class AccentApplicatorRevertAllIntegrationTest {
     }
 
     @Test
-    fun `revertCodeGlanceProViewport writes documented defaults via hook`() {
-        // The three defaults are javap-verified from CodeGlanceConfig-2.0.2.
-        // The test pins the exact tuple — drift on any value would silently
-        // re-paint the user's CGP viewport with whatever default the agent
-        // guessed.
+    fun `revertCodeGlanceProViewport writes captured baseline via hook`() {
+        seedOwnedCgp()
         val observed = mutableListOf<Triple<String, String, Int>>()
         AccentApplicator.codeGlanceProRevertHook.set { c, bc, bt -> observed += Triple(c, bc, bt) }
         try {
@@ -160,7 +159,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         } finally {
             AccentApplicator.resetCodeGlanceProRevertHookForTests()
         }
-        assertEquals(listOf(Triple("00FF00", "A0A0A0", 0)), observed)
+        assertEquals(listOf(Triple("123456", "654321", 2)), observed)
     }
 
     @Test
@@ -169,6 +168,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         // revert. Both integrations are wrapped in narrow `RuntimeException`
         // catches.
         every { IndentRainbowSync.revert() } throws RuntimeException("IR exploded")
+        seedOwnedCgp()
 
         val cgpObserved = mutableListOf<Triple<String, String, Int>>()
         AccentApplicator.codeGlanceProRevertHook.set { c, bc, bt -> cgpObserved += Triple(c, bc, bt) }
@@ -208,9 +208,13 @@ class AccentApplicatorRevertAllIntegrationTest {
         val project = mockProject()
         every { mockProjectManager.openProjects } returns arrayOf(project)
         every { UIManager.put(any<String>(), isNull()) } throws RuntimeException("UI clear exploded")
+        seedOwnedCgp()
 
         val events = mutableListOf<String>()
-        every { IndentRainbowSync.revert() } answers { events += "ir_revert" }
+        every { IndentRainbowSync.revert() } answers {
+            events += "ir_revert"
+            IntegrationOutcome.Restored
+        }
         AccentApplicator.codeGlanceProRevertHook.set { _, _, _ -> events += "cgp_revert" }
         try {
             AccentApplicator.revertAll() // MUST NOT throw — every step is isolated
@@ -233,10 +237,12 @@ class AccentApplicatorRevertAllIntegrationTest {
         // holds) — the explicit timeline closes that hole.
         val project = mockProject()
         every { mockProjectManager.openProjects } returns arrayOf(project)
+        seedOwnedCgp()
 
         val events = mutableListOf<String>()
         every { IndentRainbowSync.revert() } answers {
             events += "ir_revert"
+            IntegrationOutcome.Restored
         }
         every { ComponentTreeRefresher.notifyOnly(project) } answers {
             events += "notify_only"
@@ -290,6 +296,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         // because the path is reachable from every revertAll call (theme
         // switch, license loss); the toggle does NOT gate cleanup.
         state.cgpIntegrationEnabled = false
+        seedOwnedCgp()
         var hookInvoked = false
         AccentApplicator.codeGlanceProRevertHook.set { _, _, _ -> hookInvoked = true }
         try {
@@ -306,13 +313,14 @@ class AccentApplicatorRevertAllIntegrationTest {
     }
 
     @Test
-    fun `syncCodeGlanceProViewport with cgpIntegrationEnabled false fires revert path with documented defaults`() {
+    fun `syncCodeGlanceProViewport with cgpIntegrationEnabled false restores captured baseline`() {
         // Toggle-off after a previous apply. Without this fix, the
         // disabled-branch returns silently, leaving CGP's app-scoped cache
         // tinted with the previous Ayu accent forever. Mirrors
         // IndentRainbowSync.apply, which already reverts on
         // !irIntegrationEnabled.
         state.cgpIntegrationEnabled = false
+        seedOwnedCgp()
         val observed = mutableListOf<Triple<String, String, Int>>()
         AccentApplicator.codeGlanceProRevertHook.set { c, bc, bt -> observed += Triple(c, bc, bt) }
         try {
@@ -321,11 +329,9 @@ class AccentApplicatorRevertAllIntegrationTest {
             AccentApplicator.resetCodeGlanceProRevertHookForTests()
         }
         assertEquals(
-            listOf(Triple("00FF00", "A0A0A0", 0)),
+            listOf(Triple("123456", "654321", 2)),
             observed,
-            "syncCodeGlanceProViewport with cgpIntegrationEnabled=false MUST drive " +
-                "the revert path with the documented javap-verified defaults — " +
-                "matches IndentRainbowSync.apply's same-shape symmetry (Pattern G).",
+            "Disabling CGP integration must restore the exact pre-Ayu viewport.",
         )
     }
 
@@ -334,6 +340,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         state.cgpIntegrationEnabled = true
         state.externalThemeEnhancementsEnabled = true
         state.externalThemeCodeGlanceProEnabled = false
+        seedOwnedCgp()
         val observed = mutableListOf<Triple<String, String, Int>>()
         AccentApplicator.codeGlanceProRevertHook.set { color, borderColor, borderThickness ->
             observed += Triple(color, borderColor, borderThickness)
@@ -344,9 +351,9 @@ class AccentApplicatorRevertAllIntegrationTest {
             AccentApplicator.resetCodeGlanceProRevertHookForTests()
         }
         assertEquals(
-            listOf(Triple("00FF00", "A0A0A0", 0)),
+            listOf(Triple("123456", "654321", 2)),
             observed,
-            "External CodeGlance Pro permission OFF must reset CGP instead of inheriting Ayu accent.",
+            "External CodeGlance Pro permission OFF must restore the captured viewport.",
         )
     }
 
@@ -395,7 +402,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockPlugin.pluginClassLoader } returns cgpService.javaClass.classLoader
         every { mockApplication.getService(any<Class<*>>()) } returns cgpService
 
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCache()
         CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
 
         val state = cgpService.getState()
@@ -413,12 +420,262 @@ class AccentApplicatorRevertAllIntegrationTest {
     }
 
     @Test
-    fun `revertCodeGlanceProViewport via reflection writes documented defaults in order`() {
-        // When CGP IS installed (reflection chain primed), revertAll exercises
-        // the reflection setters. codeGlanceProRevertHook stays null so the
-        // production path runs. Verifies the three setters fire with the exact
-        // javap-verified defaults AND in the documented order: color, border
-        // color, border thickness.
+    fun `integration failure keeps the accent apply marked incomplete`() {
+        mockkObject(AccentContext.Companion)
+        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
+        every {
+            IndentRainbowSync.apply(any<AccentContext>(), any())
+        } returns
+            IntegrationOutcome.Failed(
+                operation = "sync failed",
+                error = IllegalStateException("Indent Rainbow rejected the palette"),
+            )
+
+        AccentApplicator.apply(AccentHex.require("#5CCFE6"))
+
+        assertEquals(false, state.lastApplyOk)
+    }
+
+    @Test
+    fun `first sync captures exact CodeGlance Pro viewport before writing Ayu values`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+
+        assertEquals(IntegrationOutcome.Applied, outcome)
+        assertEquals(IntegrationOwnership.OWNED.name, state.cgpOwnership)
+        assertEquals("112233", state.cgpBaseColor)
+        assertEquals("445566", state.cgpBaseBorder)
+        assertEquals(3, state.cgpBaseThickness)
+        assertEquals("5CCFE6", state.cgpAppliedColor)
+        assertEquals("5CCFE6", state.cgpAppliedBorder)
+        assertEquals(1, state.cgpAppliedThickness)
+    }
+
+    @Test
+    fun `restore writes CodeGlance Pro baseline only while current values match last applied`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+
+        val outcome = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertEquals(IntegrationOutcome.Restored, outcome)
+        assertEquals("112233", viewport.viewportColor)
+        assertEquals("445566", viewport.viewportBorderColor)
+        assertEquals(3, viewport.viewportBorderThickness)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
+        assertEquals(null, state.cgpBaseColor)
+        assertEquals(null, state.cgpAppliedColor)
+    }
+
+    @Test
+    fun `manual CodeGlance Pro edit suspends ownership without another Ayu write`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+        viewport.setViewportColor("ABCDEF")
+
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.cgpOwnership)
+        assertEquals("ABCDEF", viewport.viewportColor)
+        assertEquals("5CCFE6", viewport.viewportBorderColor)
+        assertEquals(1, viewport.viewportBorderThickness)
+    }
+
+    @Test
+    fun `legacy CodeGlance Pro state suspends instead of capturing an Ayu viewport as baseline`() {
+        state.isCgpOwnershipMigrated = false
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("5CCFE6")
+        viewport.setViewportBorderColor("5CCFE6")
+        viewport.setViewportBorderThickness(1)
+
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66")
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.cgpOwnership)
+        assertTrue(state.isCgpOwnershipMigrated)
+        assertEquals("5CCFE6", viewport.viewportColor)
+        assertEquals("5CCFE6", viewport.viewportBorderColor)
+        assertEquals(1, viewport.viewportBorderThickness)
+        assertEquals(null, state.cgpBaseColor)
+    }
+
+    @Test
+    fun `failed CodeGlance Pro restore rolls a partial write back to the applied viewport`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+        viewport.shouldRejectNextBorder = true
+
+        val outcome = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertTrue(outcome is IntegrationOutcome.Failed)
+        assertEquals("5CCFE6", viewport.viewportColor)
+        assertEquals("5CCFE6", viewport.viewportBorderColor)
+        assertEquals(1, viewport.viewportBorderThickness)
+        assertEquals(IntegrationOwnership.OWNED.name, state.cgpOwnership)
+        assertEquals("112233", state.cgpBaseColor)
+    }
+
+    @Test
+    fun `failed CodeGlance Pro restore and rollback remain recoverable`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+        viewport.shouldRejectNextThicknessAndRollbackBorder = true
+
+        val failed = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.cgpOwnership)
+        assertEquals(IntegrationOutcome.Restored, CodeGlanceProIntegration.restoreOwnedState())
+        assertEquals("112233", viewport.viewportColor)
+        assertEquals("445566", viewport.viewportBorderColor)
+        assertEquals(3, viewport.viewportBorderThickness)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
+    }
+
+    @Test
+    fun `failed first CodeGlance Pro write recovers the original baseline before retry`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        viewport.shouldRejectNextThicknessAndRollbackBorder = true
+
+        val failed = CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.cgpOwnership)
+        assertEquals("112233", state.cgpBaseColor)
+        assertEquals("445566", state.cgpBaseBorder)
+        assertEquals(3, state.cgpBaseThickness)
+
+        assertEquals(
+            IntegrationOutcome.Applied,
+            CodeGlanceProIntegration.syncCodeGlanceProViewport("#FFCC66"),
+        )
+        assertEquals(IntegrationOutcome.Restored, CodeGlanceProIntegration.restoreOwnedState())
+        assertEquals("112233", viewport.viewportColor)
+        assertEquals("445566", viewport.viewportBorderColor)
+        assertEquals(3, viewport.viewportBorderThickness)
+    }
+
+    @Test
+    fun `failed pending CodeGlance Pro recovery captures the partial viewport for retry`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        viewport.shouldRejectNextThicknessAndRollbackBorder = true
+        assertTrue(
+            CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6") is IntegrationOutcome.Failed,
+        )
+        viewport.shouldRejectNextBorder = true
+
+        val failed = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.cgpOwnership)
+        assertEquals(IntegrationOutcome.Restored, CodeGlanceProIntegration.restoreOwnedState())
+        assertEquals("112233", viewport.viewportColor)
+        assertEquals("445566", viewport.viewportBorderColor)
+        assertEquals(3, viewport.viewportBorderThickness)
+    }
+
+    @Test
+    fun `transient CodeGlance Pro resolution failure preserves owned recovery`() {
+        seedOwnedCgp()
+        mockkObject(AyuPlugin)
+        val brokenPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
+        every { AyuPlugin.findLoadedPlugin(any()) } returns brokenPlugin
+        every { brokenPlugin.pluginClassLoader } returns MissingCgpClassLoader
+
+        val failed = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertTrue(failed is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.OWNED.name, state.cgpOwnership)
+
+        val cgpService = installCgpService(shouldResetCache = false)
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("00FF00")
+        viewport.setViewportBorderColor("A0A0A0")
+        viewport.setViewportBorderThickness(0)
+        assertEquals(IntegrationOutcome.Restored, CodeGlanceProIntegration.restoreOwnedState())
+        assertEquals("123456", viewport.viewportColor)
+        assertEquals("654321", viewport.viewportBorderColor)
+        assertEquals(2, viewport.viewportBorderThickness)
+    }
+
+    @Test
+    fun `manual CodeGlance Pro edit prevents pending recovery from overwriting the viewport`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("112233")
+        viewport.setViewportBorderColor("445566")
+        viewport.setViewportBorderThickness(3)
+        viewport.shouldRejectNextThicknessAndRollbackBorder = true
+        assertTrue(CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6") is IntegrationOutcome.Failed)
+        viewport.setViewportColor("ABCDEF")
+        viewport.setViewportBorderColor("FEDCBA")
+        viewport.setViewportBorderThickness(7)
+
+        val outcome = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.cgpOwnership)
+        assertEquals("ABCDEF", viewport.viewportColor)
+        assertEquals("FEDCBA", viewport.viewportBorderColor)
+        assertEquals(7, viewport.viewportBorderThickness)
+    }
+
+    @Test
+    fun `missing CodeGlance Pro baseline never writes documented defaults`() {
+        val cgpService = installCgpService()
+        val viewport = cgpService.getState()
+        viewport.setViewportColor("5CCFE6")
+        viewport.setViewportBorderColor("5CCFE6")
+        viewport.setViewportBorderThickness(1)
+        state.cgpOwnership = IntegrationOwnership.OWNED.name
+        state.cgpAppliedColor = "5CCFE6"
+        state.cgpAppliedBorder = "5CCFE6"
+        state.cgpAppliedThickness = 1
+
+        val outcome = CodeGlanceProIntegration.restoreOwnedState()
+
+        assertEquals(IntegrationOutcome.Skipped, outcome)
+        assertEquals(IntegrationOwnership.SUSPENDED.name, state.cgpOwnership)
+        assertEquals("5CCFE6", viewport.viewportColor)
+        assertEquals("5CCFE6", viewport.viewportBorderColor)
+        assertEquals(1, viewport.viewportBorderThickness)
+    }
+
+    @Test
+    fun `revertCodeGlanceProViewport via reflection restores captured baseline in order`() {
+        seedOwnedCgp()
         val mockConfig = mockk<Any>(relaxed = true)
         val mockService = mockk<Any>(relaxed = true)
         val mockGetState = mockk<java.lang.reflect.Method>(relaxed = true)
@@ -428,15 +685,15 @@ class AccentApplicatorRevertAllIntegrationTest {
         every { mockGetState.invoke(mockService) } returns mockConfig
 
         val callOrder = mutableListOf<String>()
-        every { mockSetColor.invoke(mockConfig, "00FF00") } answers {
+        every { mockSetColor.invoke(mockConfig, "123456") } answers {
             callOrder += "color"
             null
         }
-        every { mockSetBorderColor.invoke(mockConfig, "A0A0A0") } answers {
+        every { mockSetBorderColor.invoke(mockConfig, "654321") } answers {
             callOrder += "border-color"
             null
         }
-        every { mockSetBorderThickness.invoke(mockConfig, 0) } answers {
+        every { mockSetBorderThickness.invoke(mockConfig, 2) } answers {
             callOrder += "border-thickness"
             null
         }
@@ -454,10 +711,7 @@ class AccentApplicatorRevertAllIntegrationTest {
         assertEquals(
             listOf("color", "border-color", "border-thickness"),
             callOrder,
-            "CGP revert MUST call setViewportColor, setViewportBorderColor, " +
-                "setViewportBorderThickness in that order with documented defaults — " +
-                "regression in order or values would silently re-paint the user's CGP " +
-                "viewport with whatever default the agent guessed.",
+            "CGP restore must reproduce the captured pre-Ayu viewport in a stable order.",
         )
     }
 
@@ -839,6 +1093,7 @@ class AccentApplicatorRevertAllIntegrationTest {
                 every { revert() } throws RuntimeException("EP element exploded on revert")
             }
         mockEpExtensionList(listOf(brokenElement))
+        seedOwnedCgp()
 
         val cgpObserved = mutableListOf<Triple<String, String, Int>>()
         AccentApplicator.codeGlanceProRevertHook.set { c, bc, bt -> cgpObserved += Triple(c, bc, bt) }
@@ -870,10 +1125,10 @@ class AccentApplicatorRevertAllIntegrationTest {
         // CGP installed but with a stale plugin entry.
         //
         // Reflection cache is reset in `@AfterTest` via
-        // `CodeGlanceProIntegration.resetReflectionCacheForTests()`, otherwise the
+        // `CodeGlanceProIntegration.resetReflectionCache()`, otherwise the
         // `cgpMethodsResolved = true` flag set on entry would leak into
         // the next test.
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        CodeGlanceProIntegration.resetReflectionCache()
         mockkObject(AyuPlugin)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
@@ -883,10 +1138,12 @@ class AccentApplicatorRevertAllIntegrationTest {
 
         // No throw expected. The `cgpService` field stays null because the
         // catch swallows before it can be assigned.
-        CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
 
         val serviceField = CodeGlanceProIntegration::class.java.getDeclaredField("cgpService")
         serviceField.isAccessible = true
+        assertTrue(outcome is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
         assertEquals(
             null,
             serviceField.get(CodeGlanceProIntegration),
@@ -905,8 +1162,8 @@ class AccentApplicatorRevertAllIntegrationTest {
         // first catch's `ReflectiveOperationException` does NOT match.
         //
         // Reflection cache is reset in `@AfterTest` via
-        // `CodeGlanceProIntegration.resetReflectionCacheForTests()`.
-        CodeGlanceProIntegration.resetReflectionCacheForTests()
+        // `CodeGlanceProIntegration.resetReflectionCache()`.
+        CodeGlanceProIntegration.resetReflectionCache()
         mockkObject(AyuPlugin)
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
         every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
@@ -914,10 +1171,12 @@ class AccentApplicatorRevertAllIntegrationTest {
 
         // No throw expected. `IllegalStateException` is a `RuntimeException`,
         // not a `ReflectiveOperationException` — the second catch handles it.
-        CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
+        val outcome = CodeGlanceProIntegration.syncCodeGlanceProViewport("#5CCFE6")
 
         val serviceField = CodeGlanceProIntegration::class.java.getDeclaredField("cgpService")
         serviceField.isAccessible = true
+        assertTrue(outcome is IntegrationOutcome.Failed)
+        assertEquals(IntegrationOwnership.UNOWNED.name, state.cgpOwnership)
         assertEquals(
             null,
             serviceField.get(CodeGlanceProIntegration),
@@ -940,10 +1199,16 @@ class AccentApplicatorRevertAllIntegrationTest {
         // [syncCodeGlanceProViewport] reach the production reflection branch
         // instead of short-circuiting on `cgpService ?: return`. Uses raw
         // field writes routed through the typed
-        // [CodeGlanceProIntegration.resetReflectionCacheForTests] helper for cleanup.
+        // [CodeGlanceProIntegration.resetReflectionCache] helper for cleanup.
         // Marks `cgpMethodsResolved = true` so `resolveCgpMethods` is a no-op
         // (we already supplied the cached refs).
         val ownerClass = CodeGlanceProIntegration::class.java
+        val getColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val getBorderColor = mockk<java.lang.reflect.Method>(relaxed = true)
+        val getBorderThickness = mockk<java.lang.reflect.Method>(relaxed = true)
+        every { getColor.invoke(any()) } returns "00FF00"
+        every { getBorderColor.invoke(any()) } returns "A0A0A0"
+        every { getBorderThickness.invoke(any()) } returns 0
         ownerClass.getDeclaredField("cgpService").apply {
             isAccessible = true
             set(CodeGlanceProIntegration, service)
@@ -952,15 +1217,27 @@ class AccentApplicatorRevertAllIntegrationTest {
             isAccessible = true
             set(CodeGlanceProIntegration, getState)
         }
-        ownerClass.getDeclaredField("cgpSetViewportColor").apply {
+        ownerClass.getDeclaredField("cgpGetColor").apply {
+            isAccessible = true
+            set(CodeGlanceProIntegration, getColor)
+        }
+        ownerClass.getDeclaredField("cgpGetBorder").apply {
+            isAccessible = true
+            set(CodeGlanceProIntegration, getBorderColor)
+        }
+        ownerClass.getDeclaredField("cgpGetThickness").apply {
+            isAccessible = true
+            set(CodeGlanceProIntegration, getBorderThickness)
+        }
+        ownerClass.getDeclaredField("cgpSetColor").apply {
             isAccessible = true
             set(CodeGlanceProIntegration, setColor)
         }
-        ownerClass.getDeclaredField("cgpSetViewportBorderColor").apply {
+        ownerClass.getDeclaredField("cgpSetBorder").apply {
             isAccessible = true
             set(CodeGlanceProIntegration, setBorderColor)
         }
-        ownerClass.getDeclaredField("cgpSetViewportBorderThickness").apply {
+        ownerClass.getDeclaredField("cgpSetThickness").apply {
             isAccessible = true
             set(CodeGlanceProIntegration, setBorderThickness)
         }
@@ -968,6 +1245,29 @@ class AccentApplicatorRevertAllIntegrationTest {
             isAccessible = true
             set(CodeGlanceProIntegration, true)
         }
+    }
+
+    private fun installCgpService(shouldResetCache: Boolean = true): CodeGlanceConfigService {
+        val service = CodeGlanceConfigService()
+        mockkObject(AyuPlugin)
+        val plugin = mockk<IdeaPluginDescriptor>(relaxed = true)
+        every { AyuPlugin.findLoadedPlugin(any()) } returns plugin
+        every { plugin.pluginClassLoader } returns service.javaClass.classLoader
+        every { mockApplication.getService(any<Class<*>>()) } returns service
+        if (shouldResetCache) {
+            CodeGlanceProIntegration.resetReflectionCache()
+        }
+        return service
+    }
+
+    private fun seedOwnedCgp() {
+        state.cgpOwnership = IntegrationOwnership.OWNED.name
+        state.cgpBaseColor = "123456"
+        state.cgpBaseBorder = "654321"
+        state.cgpBaseThickness = 2
+        state.cgpAppliedColor = "00FF00"
+        state.cgpAppliedBorder = "A0A0A0"
+        state.cgpAppliedThickness = 0
     }
 
     private fun mockProject(): Project {

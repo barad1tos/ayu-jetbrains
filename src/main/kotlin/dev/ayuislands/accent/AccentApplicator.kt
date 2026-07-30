@@ -21,6 +21,7 @@ import dev.ayuislands.accent.elements.AbstractChromeElement
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.propagateFailure
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -141,25 +142,32 @@ object AccentApplicator {
             ColorKey.find("TAB_UNDERLINE"),
         )
 
-    private data class AttrOverride(
+    private enum class AttributeTarget {
+        FOREGROUND,
+        EFFECT_COLOR,
+        ERROR_STRIPE,
+    }
+
+    private data class AttributeOverride(
         val key: String,
-        val foreground: Boolean = false,
-        val effectColor: Boolean = false,
-        val errorStripe: Boolean = false,
+        val targets: Set<AttributeTarget>,
     )
 
     // Always-on editor TextAttributesKey overrides
     private val ALWAYS_ON_EDITOR_ATTR_OVERRIDES =
         listOf(
-            AttrOverride("BOOKMARKS_ATTRIBUTES", errorStripe = true),
-            AttrOverride("DEBUGGER_INLINED_VALUES_MODIFIED", foreground = true),
-            AttrOverride("LIVE_TEMPLATE_ATTRIBUTES", effectColor = true),
-            AttrOverride("LOG_INFO_OUTPUT", foreground = true),
-            AttrOverride("RUNTIME_ERROR", effectColor = true),
-            AttrOverride("SMART_COMPLETION_STATISTICAL_MATCHED_ITEM", foreground = true),
-            AttrOverride("TEXT_STYLE_WARNING", effectColor = true),
-            AttrOverride("TODO_DEFAULT_ATTRIBUTES", foreground = true),
-            AttrOverride("WARNING_ATTRIBUTES", effectColor = true, errorStripe = true),
+            AttributeOverride("BOOKMARKS_ATTRIBUTES", setOf(AttributeTarget.ERROR_STRIPE)),
+            AttributeOverride("DEBUGGER_INLINED_VALUES_MODIFIED", setOf(AttributeTarget.FOREGROUND)),
+            AttributeOverride("LIVE_TEMPLATE_ATTRIBUTES", setOf(AttributeTarget.EFFECT_COLOR)),
+            AttributeOverride("LOG_INFO_OUTPUT", setOf(AttributeTarget.FOREGROUND)),
+            AttributeOverride("RUNTIME_ERROR", setOf(AttributeTarget.EFFECT_COLOR)),
+            AttributeOverride("SMART_COMPLETION_STATISTICAL_MATCHED_ITEM", setOf(AttributeTarget.FOREGROUND)),
+            AttributeOverride("TEXT_STYLE_WARNING", setOf(AttributeTarget.EFFECT_COLOR)),
+            AttributeOverride("TODO_DEFAULT_ATTRIBUTES", setOf(AttributeTarget.FOREGROUND)),
+            AttributeOverride(
+                "WARNING_ATTRIBUTES",
+                setOf(AttributeTarget.EFFECT_COLOR, AttributeTarget.ERROR_STRIPE),
+            ),
         )
 
     /**
@@ -237,13 +245,16 @@ object AccentApplicator {
                     )
                 }
                 put(AccentApplyStep.SyncIndentRainbow) {
-                    IndentRainbowSync.apply(
-                        checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
-                        trimmedHex,
-                    )
+                    IndentRainbowSync
+                        .apply(
+                            checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
+                            trimmedHex,
+                        ).propagateFailure()
                 }
                 put(AccentApplyStep.SyncCodeGlanceProViewport) {
-                    CodeGlanceProIntegration.syncCodeGlanceProViewport(trimmedHex, context)
+                    CodeGlanceProIntegration
+                        .syncCodeGlanceProViewport(trimmedHex, context)
+                        .propagateFailure()
                 }
                 put(AccentApplyStep.ApplyAlwaysOnEditorKeys) { applyAlwaysOnEditorKeys(accent) }
                 put(AccentApplyStep.NotifyComponentTrees) {
@@ -487,9 +498,13 @@ object AccentApplicator {
             buildMap {
                 put(AccentApplyStep.ClearUiAndExtensions) { clearReverseUiAndExtensions() }
                 put(AccentApplyStep.RevertAlwaysOnEditorKeys) { revertAlwaysOnEditorKeys() }
-                put(AccentApplyStep.RevertIndentRainbow) { IndentRainbowSync.revert() }
+                put(AccentApplyStep.RevertIndentRainbow) {
+                    IndentRainbowSync.revert().propagateFailure()
+                }
                 put(AccentApplyStep.RevertCodeGlanceProViewport) {
-                    CodeGlanceProIntegration.revertCodeGlanceProViewport()
+                    CodeGlanceProIntegration
+                        .revertCodeGlanceProViewport()
+                        .propagateFailure()
                 }
                 put(AccentApplyStep.NotifyComponentTrees) {
                     // Cached JBColor instances survive a bare UIManager.put(key, null)
@@ -514,8 +529,8 @@ object AccentApplicator {
             plan = revertPlan(),
             executeStep = { step -> workers.getValue(step)() },
         ) { failures ->
-            for (failure in failures) {
-                log.warn("Accent revert step ${failure.step} failed; remaining steps still ran", failure.error)
+            for ((step, error) in failures) {
+                log.warn("Accent revert step $step failed; remaining steps still ran", error)
             }
         }
     }
@@ -565,26 +580,18 @@ object AccentApplicator {
         }
     }
 
-    private fun canTintExternalChrome(
-        state: AyuIslandsState,
-        context: AccentContext,
-        isChromeAllowed: Boolean,
-    ): Boolean =
-        context != AccentContext.External ||
-            (state.isExternalChromeTintAllowed() && isChromeAllowed)
-
     private fun applyElements(
         state: AyuIslandsState,
         accent: Color,
         context: AccentContext,
-        isChromeAllowed: Boolean,
+        isPremiumAllowed: Boolean,
     ) {
         if (context == AccentContext.External) {
             ExternalChromeOwnership.apply(
                 elements = EP_NAME.extensionList,
                 state = state,
                 accent = accent,
-                isAllowed = canTintExternalChrome(state, context, isChromeAllowed),
+                isAllowed = canTintExternalChrome(state, context, isPremiumAllowed),
             )
             return
         }
@@ -592,49 +599,57 @@ object AccentApplicator {
 
         val variant = context.variant
         for (element in EP_NAME.extensionList) {
-            if (element.id.group == AccentGroup.CHROME && !isChromeAllowed) {
-                neutralizeOrRevert(element, variant)
-                continue
-            }
-            val enabled = ChromeTintContext.isToggleEnabled(state, element.id)
-            if (!enabled) {
-                neutralizeOrRevert(element, variant)
-                continue
-            }
-            val conflict = ConflictRegistry.getConflictFor(element.id)
-            val forceOverride = element.id.name in state.forceOverrides
-            if (conflict != null && !forceOverride) {
-                neutralizeOrRevert(element, variant)
-                continue
-            }
-            if (conflict != null) {
-                log.warn(
-                    "Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}",
-                )
-            }
+            applyElement(state, element, accent, variant, isPremiumAllowed)
+        }
+    }
+
+    private fun applyElement(
+        state: AyuIslandsState,
+        element: AccentElement,
+        accent: Color,
+        variant: AyuVariant?,
+        isPremiumAllowed: Boolean,
+    ) {
+        if (element.id.group == AccentGroup.CHROME && !isPremiumAllowed) {
+            neutralizeOrRevert(element, variant)
+            return
+        }
+        if (!isElementEnabled(state, element.id, isPremiumAllowed)) {
+            neutralizeOrRevert(element, variant)
+            return
+        }
+        val conflict = ConflictRegistry.getConflictFor(element.id)
+        if (conflict != null && !canForceOverride(state, element.id, isPremiumAllowed)) {
+            neutralizeOrRevert(element, variant)
+            return
+        }
+        if (conflict != null) {
+            log.warn(
+                "Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}",
+            )
+        }
+        try {
+            element.apply(accent)
+        } catch (exception: RuntimeException) {
+            log.warn(
+                "Failed to apply accent to ${element.displayName}",
+                exception,
+            )
+            // A partial apply can leave UIManager / live peers in a
+            // mixed tinted+stock state; a subsequent `ChromeBaseColors.get()`
+            // would capture those tinted values as the stock baseline and
+            // poison the cache for the rest of the session. Roll back this
+            // element so the next apply starts from a clean slate.
+            // Narrow the catch to RuntimeException so
+            // Error / CancellationException still propagate and don't get
+            // demoted to a WARN line.
             try {
-                element.apply(accent)
-            } catch (exception: RuntimeException) {
+                element.revert()
+            } catch (revertException: RuntimeException) {
                 log.warn(
-                    "Failed to apply accent to ${element.displayName}",
-                    exception,
+                    "Revert after failed apply also failed for ${element.displayName}",
+                    revertException,
                 )
-                // A partial apply can leave UIManager / live peers in a
-                // mixed tinted+stock state; a subsequent `ChromeBaseColors.get()`
-                // would capture those tinted values as the stock baseline and
-                // poison the cache for the rest of the session. Roll back this
-                // element so the next apply starts from a clean slate.
-                // Narrow the catch to RuntimeException so
-                // Error / CancellationException still propagate and don't get
-                // demoted to a WARN line.
-                try {
-                    element.revert()
-                } catch (revertException: RuntimeException) {
-                    log.warn(
-                        "Revert after failed apply also failed for ${element.displayName}",
-                        revertException,
-                    )
-                }
             }
         }
     }
@@ -697,13 +712,13 @@ object AccentApplicator {
         }
 
         // TextAttributesKey entries -- clone existing, override only accent properties
-        for (override in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
-            val attrKey = TextAttributesKey.find(override.key)
+        for ((key, targets) in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
+            val attrKey = TextAttributesKey.find(key)
             val existing = scheme.getAttributes(attrKey)
             val updated = existing?.clone() ?: TextAttributes()
-            if (override.foreground) updated.foregroundColor = accent
-            if (override.effectColor) updated.effectColor = accent
-            if (override.errorStripe) updated.errorStripeColor = accent
+            if (AttributeTarget.FOREGROUND in targets) updated.foregroundColor = accent
+            if (AttributeTarget.EFFECT_COLOR in targets) updated.effectColor = accent
+            if (AttributeTarget.ERROR_STRIPE in targets) updated.errorStripeColor = accent
             scheme.setAttributes(attrKey, updated)
         }
 
@@ -745,7 +760,12 @@ object AccentApplicator {
             scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
         }
 
-        val height = resolveUnderlineHeight(state, tabMode)
+        val height =
+            if (isChromeAllowed) {
+                resolveUnderlineHeight(state, tabMode)
+            } else {
+                AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT
+            }
         if (context == AccentContext.External) {
             ExternalChromeOwnership.markTabUnderline()
         }
@@ -764,8 +784,8 @@ object AccentApplicator {
             scheme.setColor(colorKey, null)
         }
 
-        for (override in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
-            val attrKey = TextAttributesKey.find(override.key)
+        for ((key) in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
+            val attrKey = TextAttributesKey.find(key)
             val fallback = attrKey.fallbackAttributeKey
             val defaultAttrs =
                 if (fallback != null) scheme.getAttributes(fallback) else null
@@ -994,6 +1014,26 @@ private fun effectiveTabMode(
     } else {
         GlowTabMode.MINIMAL
     }
+
+private fun canTintExternalChrome(
+    state: AyuIslandsState,
+    context: AccentContext,
+    isChromeAllowed: Boolean,
+): Boolean =
+    context != AccentContext.External ||
+        (state.isExternalChromeTintAllowed() && isChromeAllowed)
+
+private fun isElementEnabled(
+    state: AyuIslandsState,
+    elementId: AccentElementId,
+    isPremiumAllowed: Boolean,
+): Boolean = !isPremiumAllowed || ChromeTintContext.isToggleEnabled(state, elementId)
+
+private fun canForceOverride(
+    state: AyuIslandsState,
+    elementId: AccentElementId,
+    isPremiumAllowed: Boolean,
+): Boolean = isPremiumAllowed && elementId.name in state.forceOverrides
 
 internal fun resolveUnderlineHeight(
     state: AyuIslandsState,

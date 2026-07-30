@@ -498,6 +498,32 @@ class CommitPanelAutoFitManagerTest {
     }
 
     @Test
+    fun `license gain reinstalls path renderer from preserved mode`() {
+        SwingUtilities.invokeAndWait {
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            realState.commitPanelWidthMode = PanelWidthMode.FIXED.name
+            realState.commitPanelFixedWidth = 350
+            val tree = JTree()
+            val panel =
+                JPanel(FlowLayout()).apply {
+                    add(tree)
+                    setSize(200, 400)
+                }
+            setupCommitToolWindow(panel)
+            val manager = CommitPanelAutoFitManager(project)
+            manager.apply()
+
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+            manager.apply()
+            assertTrue(tree.cellRenderer !is CommitPathShorteningRenderer)
+
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            manager.apply()
+            assertTrue(tree.cellRenderer is CommitPathShorteningRenderer)
+        }
+    }
+
+    @Test
     fun `apply removes path shortening renderer when commit tree disappears`() {
         SwingUtilities.invokeAndWait {
             every {

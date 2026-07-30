@@ -3,11 +3,11 @@ package dev.ayuislands
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.onboarding.FreeOnboardingVirtualFile
 import dev.ayuislands.onboarding.OnboardingOrchestrator
 import dev.ayuislands.onboarding.OnboardingSchedulerService
@@ -185,17 +185,22 @@ internal object StartupLicenseHandler {
         }
     }
 
-    fun applyUnlicensedDefaults(
+    fun applyEntitlement(
+        entitlement: LicenseEntitlement,
         project: Project,
-        variant: AyuVariant,
         settings: AyuIslandsSettings,
     ) {
-        LicenseChecker.revertToFreeDefaults(variant)
-        LOG.info(
-            "Ayu Islands reverted to free defaults " +
-                "for ${variant.name}",
-        )
+        when (entitlement) {
+            LicenseEntitlement.LICENSED -> applyLicensedDefaults(settings)
+            LicenseEntitlement.UNLICENSED -> notifyUnlicensed(project, settings)
+            LicenseEntitlement.UNKNOWN -> return
+        }
+    }
 
+    private fun notifyUnlicensed(
+        project: Project,
+        settings: AyuIslandsSettings,
+    ) {
         if (!settings.state.trialExpiredNotified) {
             LicenseChecker.notifyTrialExpired(project)
             settings.state.trialExpiredNotified = true

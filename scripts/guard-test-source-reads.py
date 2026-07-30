@@ -110,10 +110,6 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/test/kotlin/dev/ayuislands/glow/GlowLifecycleGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/glow/GlowOverlayManager.kt",
     ): Allowance(1, "banned platform API guard"),
-    (
-        "src/test/kotlin/dev/ayuislands/licensing/LicenseCheckerQuickSwitcherRevertTest.kt",
-        "src/main/kotlin/dev/ayuislands/licensing/LicenseChecker.kt",
-    ): Allowance(1, "documented quick-switcher revert-order compromise"),
 }
 
 

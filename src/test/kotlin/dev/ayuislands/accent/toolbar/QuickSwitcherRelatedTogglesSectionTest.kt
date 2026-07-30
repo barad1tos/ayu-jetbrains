@@ -7,6 +7,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.ToggleTile
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -50,6 +51,8 @@ class QuickSwitcherRelatedTogglesSectionTest {
         every { AyuVariant.detect() } returns AyuVariant.DARK
         mockkObject(AccentContext.Companion)
         every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.DARK)
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
     }
 
     @AfterTest
@@ -70,6 +73,15 @@ class QuickSwitcherRelatedTogglesSectionTest {
         val section = QuickSwitcherRelatedTogglesSection()
         val tiles = (section.component as JPanel).components.filterIsInstance<ToggleTile>()
         assertEquals(4, tiles.size, "Expected exactly 4 ToggleTile children")
+    }
+
+    @Test
+    fun `free mode contains only Follow system accent`() {
+        val section = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
+        val tiles = (section.component as JPanel).components.filterIsInstance<ToggleTile>()
+
+        assertEquals(1, tiles.size)
+        assertEquals("Follow system accent", labelOf(tiles.single()))
     }
 
     @Test
@@ -169,6 +181,26 @@ class QuickSwitcherRelatedTogglesSectionTest {
     }
 
     @Test
+    fun `queued toggle click after license loss leaves state and runtime services untouched`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.glowEnabled = true
+        mockkObject(GlowOverlayManager.Companion)
+        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
+        val section = QuickSwitcherRelatedTogglesSection()
+        val glowTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .first { tile -> labelOf(tile) == "Glow" }
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        glowTile.toggleSwitch.flip()
+
+        assertTrue(state.glowEnabled, "A stale click must not mutate the saved preference")
+        verify(exactly = 0) { GlowOverlayManager.syncGlowForAllProjects() }
+    }
+
+    @Test
     fun `clicking Accent rotation off stops rotation service immediately`() {
         val state = AyuIslandsSettings.getInstance().state
         state.accentRotationEnabled = true
@@ -190,7 +222,7 @@ class QuickSwitcherRelatedTogglesSectionTest {
     }
 
     @Test
-    fun `clicking Follow system accent on disables rotation and reapplies focused accent`() {
+    fun `clicking Follow system accent on suspends rotation without changing its saved preference`() {
         val state = AyuIslandsSettings.getInstance().state
         state.followSystemAccent = false
         state.accentRotationEnabled = true
@@ -209,9 +241,95 @@ class QuickSwitcherRelatedTogglesSectionTest {
         followTile.toggleSwitch.flip()
 
         assertEquals(true, state.followSystemAccent, "Follow tile must persist enabled state")
-        assertEquals(false, state.accentRotationEnabled, "Follow system accent must disable accent rotation")
+        assertEquals(true, state.accentRotationEnabled, "Follow system accent must preserve the rotation preference")
         verify(exactly = 1) { rotationService.stopRotation() }
         verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK)) }
+    }
+
+    @Test
+    fun `free Follow system accent remains interactive after license loss`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.followSystemAccent = false
+        state.accentRotationEnabled = true
+        val rotationService = mockk<AccentRotationService>(relaxed = true)
+        mockkObject(AccentRotationService.Companion)
+        every { AccentRotationService.getInstance() } returns rotationService
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#7DCFFF"
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val section = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
+        val followTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .single()
+
+        followTile.toggleSwitch.flip()
+
+        assertEquals(true, state.followSystemAccent)
+        assertEquals(true, state.accentRotationEnabled, "The free toggle must preserve the premium preference")
+        verify(exactly = 1) { rotationService.stopRotation() }
+        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK)) }
+    }
+
+    @Test
+    fun `turning Follow system accent off resumes saved rotation only while licensed`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.followSystemAccent = true
+        state.accentRotationEnabled = true
+        val rotationService = mockk<AccentRotationService>(relaxed = true)
+        mockkObject(AccentRotationService.Companion)
+        every { AccentRotationService.getInstance() } returns rotationService
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#7DCFFF"
+
+        val licensedSection = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
+        val licensedFollowTile =
+            (licensedSection.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .single()
+
+        licensedFollowTile.toggleSwitch.flip()
+
+        assertEquals(false, state.followSystemAccent)
+        verify(exactly = 1) { rotationService.startRotation() }
+
+        state.followSystemAccent = true
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val freeSection = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
+        val freeFollowTile =
+            (freeSection.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .single()
+
+        freeFollowTile.toggleSwitch.flip()
+
+        assertEquals(false, state.followSystemAccent)
+        verify(exactly = 1) { rotationService.startRotation() }
+    }
+
+    @Test
+    fun `enabling saved rotation while following system does not start runtime rotation`() {
+        val state = AyuIslandsSettings.getInstance().state
+        state.followSystemAccent = true
+        state.accentRotationEnabled = false
+        val rotationService = mockk<AccentRotationService>(relaxed = true)
+        mockkObject(AccentRotationService.Companion)
+        every { AccentRotationService.getInstance() } returns rotationService
+
+        val section = QuickSwitcherRelatedTogglesSection()
+        val rotationTile =
+            (section.component as JPanel)
+                .components
+                .filterIsInstance<ToggleTile>()
+                .first { tile -> labelOf(tile) == "Accent rotation" }
+
+        rotationTile.toggleSwitch.flip()
+
+        assertEquals(true, state.accentRotationEnabled)
+        assertEquals(true, state.followSystemAccent)
+        verify(exactly = 0) { rotationService.startRotation() }
     }
 
     @Test

@@ -38,10 +38,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Free-tier lockdown: assert that `revertToFreeDefaults` strips every premium
- * capability while preserving the free-tier features — accent color, accent
- * rotation toggles (disabled), panel defaults — and that the operation is
- * idempotent and safe under concurrent invocation.
+ * Runtime downgrade contract: saved premium and free-tier preferences remain
+ * unchanged while runtime services are stopped or reapplied through entitlement gates.
  *
  * "Free tier" is the pair (6 themes + full accent palette + colour picker). The
  * themes live in `plugin.xml` as `<themeProvider>` entries; a sanity test here
@@ -98,10 +96,10 @@ class FreeTierLockdownTest {
     // ---------- Individual premium-feature lockdown ----------
 
     @Test
-    fun `revertToFreeDefaults disables glow`() {
+    fun `revertToFreeDefaults preserves glow preference`() {
         state.glowEnabled = true
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertFalse(state.glowEnabled)
+        assertTrue(state.glowEnabled)
     }
 
     @Test
@@ -117,7 +115,7 @@ class FreeTierLockdownTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertFalse(state.glowEnabled)
+        assertTrue(state.glowEnabled)
         assertEquals(GlowShape.WAVEFORM.name, state.glowShape)
         assertEquals(WaveformMovement.COUNTER_CLOCKWISE.name, state.waveformDirection)
         assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
@@ -128,24 +126,24 @@ class FreeTierLockdownTest {
     }
 
     @Test
-    fun `revertToFreeDefaults disables accent rotation and stops the service`() {
+    fun `revertToFreeDefaults preserves accent rotation and stops the service`() {
         state.accentRotationEnabled = true
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertFalse(state.accentRotationEnabled)
+        assertTrue(state.accentRotationEnabled)
         verify(exactly = 1) { rotationService.stopRotation() }
     }
 
     @Test
-    fun `revertToFreeDefaults disables both plugin integrations`() {
+    fun `revertToFreeDefaults preserves both plugin integrations`() {
         state.cgpIntegrationEnabled = true
         state.irIntegrationEnabled = true
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.DARK)
 
-        assertFalse(state.cgpIntegrationEnabled)
-        assertFalse(state.irIntegrationEnabled)
+        assertTrue(state.cgpIntegrationEnabled)
+        assertTrue(state.irIntegrationEnabled)
     }
 
     @Test
@@ -206,38 +204,38 @@ class FreeTierLockdownTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets all three panel width modes to DEFAULT`() {
+    fun `revertToFreeDefaults preserves all three panel width modes`() {
         state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.commitPanelWidthMode = PanelWidthMode.FIXED.name
         state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
-        assertEquals(PanelWidthMode.DEFAULT.name, state.commitPanelWidthMode)
-        assertEquals(PanelWidthMode.DEFAULT.name, state.gitPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.projectPanelWidthMode)
+        assertEquals(PanelWidthMode.FIXED.name, state.commitPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, state.gitPanelWidthMode)
     }
 
     @Test
-    fun `revertToFreeDefaults resets project-view hide toggles`() {
+    fun `revertToFreeDefaults preserves project-view hide toggles`() {
         state.hideProjectRootPath = true
         state.hideProjectViewHScrollbar = true
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertFalse(state.hideProjectRootPath)
-        assertFalse(state.hideProjectViewHScrollbar)
+        assertTrue(state.hideProjectRootPath)
+        assertTrue(state.hideProjectViewHScrollbar)
     }
 
     @Test
-    fun `revertToFreeDefaults resets commit path display controls`() {
+    fun `revertToFreeDefaults preserves commit path display controls`() {
         state.commitPanelPathDisplayMode = CommitPathDisplayMode.TOOLTIP.name
         state.commitPanelPathMinHiddenLevels = 2
         state.commitPanelPathMaxHiddenLevels = 4
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertEquals(CommitPathDisplayMode.INLINE.name, state.commitPanelPathDisplayMode)
-        assertEquals(AyuIslandsState.DEFAULT_COMMIT_PATH_MIN_HIDDEN_LEVELS, state.commitPanelPathMinHiddenLevels)
-        assertEquals(AyuIslandsState.DEFAULT_COMMIT_PATH_MAX_HIDDEN_LEVELS, state.commitPanelPathMaxHiddenLevels)
+        assertEquals(CommitPathDisplayMode.TOOLTIP.name, state.commitPanelPathDisplayMode)
+        assertEquals(2, state.commitPanelPathMinHiddenLevels)
+        assertEquals(4, state.commitPanelPathMaxHiddenLevels)
     }
 
     // ---------- Free-tier preservation ----------
@@ -321,9 +319,9 @@ class FreeTierLockdownTest {
             LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
         }
 
-        assertFalse(state.glowEnabled)
-        assertFalse(state.accentRotationEnabled)
-        assertFalse(state.cgpIntegrationEnabled)
+        assertTrue(state.glowEnabled)
+        assertTrue(state.accentRotationEnabled)
+        assertTrue(state.cgpIntegrationEnabled)
         // Every element choice stays at its constructor default.
         for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
             assertTrue(state.isToggleEnabled(id))
@@ -335,13 +333,9 @@ class FreeTierLockdownTest {
     }
 
     @Test
-    fun `revertToFreeDefaults converges to the same state under concurrent callers`() {
-        // BaseState is not thread-safe for parallel writes, so the `synchronized(state)`
-        // block in revertToFreeDefaults is what makes this pass. Uses plain Threads
-        // rather than kotlinx.coroutines because mockkStatic recorders serialize
-        // callers on an internal lock — 16+ coroutines compound the contention into
-        // an effective hang. Four threads × three replays is enough to expose a race
-        // in the state mutation without overwhelming the mock layer.
+    fun `revertToFreeDefaults preserves state under concurrent callers`() {
+        // Plain threads exercise repeated runtime fallback while confirming that
+        // the method has no persisted-state write surface.
         repeat(3) {
             state.glowEnabled = true
             state.accentRotationEnabled = true
@@ -363,13 +357,13 @@ class FreeTierLockdownTest {
             threads.forEach { thread -> thread.join(5_000L) }
             threads.forEach { thread -> assertFalse(thread.isAlive, "thread still alive — suspected deadlock") }
 
-            assertFalse(state.glowEnabled)
-            assertFalse(state.accentRotationEnabled)
-            assertFalse(state.cgpIntegrationEnabled)
-            assertFalse(state.irIntegrationEnabled)
+            assertTrue(state.glowEnabled)
+            assertTrue(state.accentRotationEnabled)
+            assertTrue(state.cgpIntegrationEnabled)
+            assertTrue(state.irIntegrationEnabled)
             assertEquals("FULL", state.glowTabMode)
-            assertFalse(state.hideProjectRootPath)
-            assertFalse(state.hideProjectViewHScrollbar)
+            assertTrue(state.hideProjectRootPath)
+            assertTrue(state.hideProjectViewHScrollbar)
             for (id in AccentElementId.entries.filter { elementId -> elementId.group != AccentGroup.CHROME }) {
                 assertFalse(state.isToggleEnabled(id), "${id.name} must be preserved after concurrent revert")
             }

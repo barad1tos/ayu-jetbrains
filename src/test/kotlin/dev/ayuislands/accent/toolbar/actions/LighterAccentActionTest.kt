@@ -132,6 +132,17 @@ class LighterAccentActionTest {
     }
 
     @Test
+    fun `actionPerformed after license loss does not resolve or apply`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        LighterAccentAction().actionPerformed(newEvent())
+
+        verify(exactly = 0) { AccentResolver.resolve(any(), any<AccentContext>()) }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
     fun `actionPerformed in external context persists manual external accent`() {
         every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
         val state = AyuIslandsState()

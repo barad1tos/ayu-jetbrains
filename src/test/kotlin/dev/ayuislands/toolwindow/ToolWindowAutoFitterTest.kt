@@ -456,6 +456,34 @@ class ToolWindowAutoFitterTest {
     }
 
     @Test
+    fun `pending debounce does not mutate width after entitlement loss`() {
+        SwingUtilities.invokeAndWait {
+            mockCalculatorForWidth(280)
+            var licensed = true
+            val tree = JTree()
+            val panel =
+                JPanel(FlowLayout()).apply {
+                    add(tree)
+                    setSize(200, 400)
+                }
+            val content = mockk<Content> { every { component } returns panel }
+            val contentManager = mockk<ContentManager> { every { contents } returns arrayOf(content) }
+            every { toolWindowManager.getToolWindow("Project") } returns toolWindowEx
+            every { toolWindowEx.contentManager } returns contentManager
+            every { toolWindowEx.component } returns panel
+            every { toolWindowEx.type } returns ToolWindowType.DOCKED
+
+            val fitter = ToolWindowAutoFitter(project, "Project", 100) { licensed }
+            fitter.maxWidthProvider = { 500 }
+            fitter.scheduleAutoFit()
+            licensed = false
+            fitter.flushDebounceForTesting()
+
+            verify(exactly = 0) { toolWindowEx.stretchWidth(any()) }
+        }
+    }
+
+    @Test
     fun `AUTO_FIT to FIXED to AUTO_FIT reinstalls listener correctly`() {
         SwingUtilities.invokeAndWait {
             mockCalculatorForWidth(180)

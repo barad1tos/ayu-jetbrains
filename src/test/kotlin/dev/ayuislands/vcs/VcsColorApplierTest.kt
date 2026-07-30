@@ -9,6 +9,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.clearAllMocks
@@ -22,6 +23,7 @@ import io.mockk.verify
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.awt.Color
@@ -66,6 +68,8 @@ class VcsColorApplierTest {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
 
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
@@ -255,6 +259,23 @@ class VcsColorApplierTest {
         verify(exactly = textAttrEntries.size) {
             mockScheme.setAttributes(any<TextAttributesKey>(), null)
         }
+    }
+
+    @Test
+    fun `applyAll without a license reverts persisted premium colors`() {
+        state.vcsColorEnabled = true
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        VcsColorApplier.applyAll()
+
+        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
+        verify(exactly = colorKeyEntries.size) {
+            mockScheme.setColor(any<ColorKey>(), null)
+        }
+        verify(exactly = textAttrEntries.size) {
+            mockScheme.setAttributes(any<TextAttributesKey>(), null)
+        }
+        assertTrue(state.vcsColorEnabled)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

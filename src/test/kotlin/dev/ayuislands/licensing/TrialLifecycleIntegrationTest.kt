@@ -186,6 +186,8 @@ class TrialLifecycleIntegrationTest {
 
         // Day 10: user disables glow manually (mid-trial customization).
         state.glowEnabled = false
+        state.accentRotationEnabled = true
+        state.cgpIntegrationEnabled = true
 
         // Day 23: 7 days remaining. First warning fires and latches.
         advanceToTrialDay(23)
@@ -260,9 +262,9 @@ class TrialLifecycleIntegrationTest {
         // StartupLicenseHandler would now invoke revertToFreeDefaults +
         // notifyTrialExpired. Simulate that.
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertFalse(state.glowEnabled, "revert keeps glow off")
-        assertFalse(state.accentRotationEnabled)
-        assertFalse(state.cgpIntegrationEnabled)
+        assertFalse(state.glowEnabled, "saved glow choice remains off")
+        assertTrue(state.accentRotationEnabled, "saved rotation choice survives runtime shutdown")
+        assertTrue(state.cgpIntegrationEnabled, "saved integration choice survives runtime fallback")
         LicenseChecker.notifyTrialExpired(null)
         state.trialExpiredNotified = true
 
@@ -290,6 +292,8 @@ class TrialLifecycleIntegrationTest {
         )
         assertTrue(state.proDefaultsApplied, "enableProDefaults still sets the applied latch")
         assertTrue(state.everBeenPro)
+        assertTrue(state.accentRotationEnabled, "relicense restores the exact saved rotation choice")
+        assertTrue(state.cgpIntegrationEnabled, "relicense restores the exact saved integration choice")
     }
 
     // ---------- Focused per-step assertions ----------

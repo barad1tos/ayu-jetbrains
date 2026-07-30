@@ -46,6 +46,7 @@ class GitPanelAutoFitManager(
     }
 
     private fun scheduleFitIfWidthManaged() {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val mode =
             PanelWidthMode.fromString(
                 AyuIslandsSettings.getInstance().state.gitPanelWidthMode,
@@ -64,7 +65,10 @@ class GitPanelAutoFitManager(
     }
 
     fun apply() {
-        if (!LicenseChecker.isLicensedOrGrace()) return
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            removeExpansionListeners()
+            return
+        }
         val mode =
             PanelWidthMode.fromString(
                 AyuIslandsSettings.getInstance().state.gitPanelWidthMode,
@@ -83,6 +87,7 @@ class GitPanelAutoFitManager(
     }
 
     private fun fitSplitters() {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val logContent = findLogTabContent() ?: return
         val splitters =
             AutoFitCalculator
@@ -119,6 +124,7 @@ class GitPanelAutoFitManager(
                 AutoFitCalculator.calculateDesiredWidth(maxRowWidth, maxWidth, minWidth)
             val currentWidth = ((1.0f - splitter.proportion) * splitter.width).toInt()
             if (AutoFitCalculator.isJitterOnly(currentWidth, desiredWidth)) return
+            if (!LicenseChecker.isLicensedOrGrace()) return
             splitter.proportion =
                 (1.0f - desiredWidth.toFloat() / splitter.width.toFloat())
                     .coerceIn(MIN_INNER_PROPORTION, MAX_INNER_PROPORTION)
@@ -131,6 +137,7 @@ class GitPanelAutoFitManager(
                 AutoFitCalculator.calculateDesiredWidth(maxRowWidth, maxWidth, minWidth)
             val currentWidth = (splitter.proportion * splitter.width).toInt()
             if (AutoFitCalculator.isJitterOnly(currentWidth, desiredWidth)) return
+            if (!LicenseChecker.isLicensedOrGrace()) return
             splitter.proportion =
                 (desiredWidth.toFloat() / splitter.width.toFloat())
                     .coerceIn(MIN_OUTER_PROPORTION, MAX_OUTER_PROPORTION)
@@ -138,6 +145,7 @@ class GitPanelAutoFitManager(
     }
 
     private fun setFixedProportions() {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val logContent = findLogTabContent() ?: return
         val splitters =
             AutoFitCalculator
@@ -154,15 +162,16 @@ class GitPanelAutoFitManager(
                     JTable::class.java,
                 ) != null
 
-            if (firstHasTable) {
-                splitter.proportion =
+            val proportion =
+                if (firstHasTable) {
                     (1.0f - fixedWidth.toFloat() / splitter.width.toFloat())
                         .coerceIn(MIN_INNER_PROPORTION, MAX_INNER_PROPORTION)
-            } else {
-                splitter.proportion =
+                } else {
                     (fixedWidth.toFloat() / splitter.width.toFloat())
                         .coerceIn(MIN_OUTER_PROPORTION, MAX_OUTER_PROPORTION)
-            }
+                }
+            if (!LicenseChecker.isLicensedOrGrace()) return
+            splitter.proportion = proportion
         }
     }
 
@@ -179,11 +188,11 @@ class GitPanelAutoFitManager(
             val listener =
                 object : TreeExpansionListener {
                     override fun treeExpanded(event: TreeExpansionEvent) {
-                        debounceTimer.restart()
+                        scheduleFitIfWidthManaged()
                     }
 
                     override fun treeCollapsed(event: TreeExpansionEvent) {
-                        debounceTimer.restart()
+                        scheduleFitIfWidthManaged()
                     }
                 }
             tree.addTreeExpansionListener(listener)

@@ -1,7 +1,12 @@
 package dev.ayuislands
 
+import com.intellij.openapi.project.Project
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.licensing.ReconciliationFailure
+import dev.ayuislands.licensing.ReconciliationResult
+import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsState
@@ -12,6 +17,7 @@ import io.mockk.mockkObject
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.util.EnumSet
+import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -50,6 +56,460 @@ class AyuIslandsStartupActivityTest {
 
         assertEquals(1, captured.size)
         assertEquals("License startup step 'step-X' failed", captured.single().first)
+    }
+
+    @Test
+    fun `startup reconciliation failure schedules a short retry`() {
+        var attempts = 0
+        var retryDelayMs: Long? = null
+        var retryAction: (() -> Unit)? = null
+        val project = mockk<Project>(relaxed = true)
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { delayMs, action ->
+                    retryDelayMs = delayMs
+                    retryAction = action
+                },
+                recheckDelayProvider = { null },
+                projectsProvider = { listOf(project) },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
+
+        assertEquals(1, attempts)
+        assertTrue(checkNotNull(retryDelayMs) < 60_000L)
+        checkNotNull(retryAction).invoke()
+        assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `unknown startup entitlement schedules a definitive state retry`() {
+        var reconciliationAttempts = 0
+        val scheduledDelays = mutableListOf<Long>()
+        val project = mockk<Project>(relaxed = true)
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                reconcile = { _, _ ->
+                    reconciliationAttempts += 1
+                    ReconciliationResult.Success
+                },
+                scheduleRecheck = { delayMs, _ -> scheduledDelays += delayMs },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.UNKNOWN, listOf(project))
+
+        assertEquals(0, reconciliationAttempts)
+        assertEquals(listOf(5_000L), scheduledDelays)
+    }
+
+    @Test
+    fun `definitive startup retry completes the deferred consumer workflow once`() {
+        var entitlement = LicenseEntitlement.UNKNOWN
+        var discoveryAttempts = 0
+        var onboardingAttempts = 0
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val disposedProject = mockk<Project>(relaxed = true)
+        val project = mockk<Project>(relaxed = true)
+        every { disposedProject.isDisposed } returns true
+        every { project.isDisposed } returns false
+        val settings =
+            mockk<AyuIslandsSettings> {
+                every { state } returns AyuIslandsState()
+            }
+        mockkObject(StartupLicenseHandler)
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.getTrialDaysRemaining() } returns null
+        every { LicenseChecker.checkTrialExpiryWarning(project) } returns Unit
+        every { StartupLicenseHandler.computeAdaptiveDelay() } returns 1
+        every { StartupLicenseHandler.runOnboardingMigration(settings) } returns Unit
+        every { StartupLicenseHandler.initWorkspaceServices(project, settings) } returns Unit
+        every {
+            StartupLicenseHandler.resolveOnboarding(true, settings, false)
+        } answers {
+            onboardingAttempts += 1
+            if (onboardingAttempts == 1) error("onboarding resolution failed")
+            WizardAction.NoWizard
+        }
+        every {
+            StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
+        } returns Unit
+        every {
+            StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
+        } returns Unit
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { entitlement },
+                reconcile = { _, _ -> ReconciliationResult.Success },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { null },
+                projectsProvider = {
+                    discoveryAttempts += 1
+                    when (discoveryAttempts) {
+                        1 -> error("project discovery failed")
+                        2 -> emptyList()
+                        else -> listOf(disposedProject, project)
+                    }
+                },
+            )
+
+        try {
+            val method =
+                AyuIslandsStartupActivity::class.java.getDeclaredMethod(
+                    "checkLicenseState",
+                    Project::class.java,
+                    AyuIslandsSettings::class.java,
+                    Boolean::class.javaPrimitiveType,
+                )
+            method.isAccessible = true
+            method.invoke(retryingActivity, project, settings, false)
+            SwingUtilities.invokeAndWait {}
+
+            verify(exactly = 0) {
+                StartupLicenseHandler.applyEntitlement(any(), any(), any())
+            }
+            entitlement = LicenseEntitlement.LICENSED
+            scheduledActions.removeFirst().invoke()
+            verify(exactly = 0) {
+                StartupLicenseHandler.applyEntitlement(any(), any(), any())
+            }
+            scheduledActions.removeFirst().invoke()
+            verify(exactly = 0) {
+                StartupLicenseHandler.applyEntitlement(any(), any(), any())
+            }
+            val captured = mutableListOf<Pair<String, Throwable?>>()
+            LoggedErrorProcessor.executeWith<RuntimeException>(capturingProcessor(captured)) {
+                scheduledActions.removeFirst().invoke()
+            }
+            assertEquals("License startup step 'resolve-onboarding' failed", captured.single().first)
+            assertEquals(1, scheduledActions.size)
+            scheduledActions.removeFirst().invoke()
+
+            verify(exactly = 2) {
+                StartupLicenseHandler.resolveOnboarding(true, settings, false)
+            }
+            verify(exactly = 1) {
+                StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
+            }
+            verify(exactly = 1) {
+                StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
+            }
+            verify(exactly = 1) { LicenseChecker.checkTrialExpiryWarning(project) }
+            assertEquals(4, discoveryAttempts)
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `definitive startup retry resumes wizard work without repeating entitlement apply`() {
+        var entitlement = LicenseEntitlement.UNKNOWN
+        var reconciliationAttempts = 0
+        var entitlementAttempts = 0
+        var wizardAttempts = 0
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val project = mockk<Project>(relaxed = true)
+        every { project.isDisposed } returns false
+        val settings =
+            mockk<AyuIslandsSettings> {
+                every { state } returns AyuIslandsState()
+            }
+        mockkObject(StartupLicenseHandler)
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.getTrialDaysRemaining() } returns null
+        every { LicenseChecker.checkTrialExpiryWarning(project) } returns Unit
+        every { StartupLicenseHandler.computeAdaptiveDelay() } returns 1
+        every { StartupLicenseHandler.runOnboardingMigration(settings) } returns Unit
+        every { StartupLicenseHandler.initWorkspaceServices(project, settings) } returns Unit
+        every {
+            StartupLicenseHandler.resolveOnboarding(true, settings, false)
+        } returns WizardAction.NoWizard
+        every {
+            StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
+        } answers {
+            entitlementAttempts += 1
+            if (entitlementAttempts == 1) error("entitlement application failed")
+        }
+        every {
+            StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
+        } answers {
+            wizardAttempts += 1
+            if (wizardAttempts == 1) error("wizard scheduling failed")
+        }
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { entitlement },
+                reconcile = { _, _ ->
+                    reconciliationAttempts += 1
+                    ReconciliationResult.Success
+                },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { null },
+                projectsProvider = { listOf(project) },
+            )
+
+        try {
+            val method =
+                AyuIslandsStartupActivity::class.java.getDeclaredMethod(
+                    "checkLicenseState",
+                    Project::class.java,
+                    AyuIslandsSettings::class.java,
+                    Boolean::class.javaPrimitiveType,
+                )
+            method.isAccessible = true
+            method.invoke(retryingActivity, project, settings, false)
+            SwingUtilities.invokeAndWait {}
+
+            entitlement = LicenseEntitlement.LICENSED
+            val entitlementFailure = mutableListOf<Pair<String, Throwable?>>()
+            LoggedErrorProcessor.executeWith<RuntimeException>(capturingProcessor(entitlementFailure)) {
+                scheduledActions.removeFirst().invoke()
+            }
+
+            assertEquals(1, reconciliationAttempts)
+            assertEquals(1, scheduledActions.size)
+            assertEquals(
+                "License startup step 'apply-entitlement' failed",
+                entitlementFailure.single().first,
+            )
+
+            val wizardFailure = mutableListOf<Pair<String, Throwable?>>()
+            LoggedErrorProcessor.executeWith<RuntimeException>(capturingProcessor(wizardFailure)) {
+                scheduledActions.removeFirst().invoke()
+            }
+
+            assertEquals(2, reconciliationAttempts)
+            assertEquals(1, scheduledActions.size)
+            assertEquals(
+                "License startup step 'handle-wizard-action' failed",
+                wizardFailure.single().first,
+            )
+
+            scheduledActions.removeFirst().invoke()
+
+            assertEquals(3, reconciliationAttempts)
+            assertEquals(2, wizardAttempts)
+            verify(exactly = 1) {
+                StartupLicenseHandler.resolveOnboarding(true, settings, false)
+            }
+            verify(exactly = 2) {
+                StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
+            }
+            verify(exactly = 1) { LicenseChecker.checkTrialExpiryWarning(project) }
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `successful licensed startup schedules the adaptive license check`() {
+        var reconciliationAttempts = 0
+        val scheduledDelays = mutableListOf<Long>()
+        val project = mockk<Project>(relaxed = true)
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                reconcile = { _, _ ->
+                    reconciliationAttempts += 1
+                    ReconciliationResult.Success
+                },
+                scheduleRecheck = { delayMs, _ -> scheduledDelays += delayMs },
+                recheckDelayProvider = { 100_000L },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
+
+        assertEquals(1, reconciliationAttempts)
+        assertEquals(listOf(100_000L), scheduledDelays)
+    }
+
+    @Test
+    fun `successful startup retry restores the adaptive license check`() {
+        var attempts = 0
+        val scheduledDelays = mutableListOf<Long>()
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val project = mockk<Project>(relaxed = true)
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { delayMs, action ->
+                    scheduledDelays += delayMs
+                    scheduledActions += action
+                },
+                recheckDelayProvider = { 100_000L },
+                projectsProvider = { listOf(project) },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
+        scheduledActions.single().invoke()
+
+        assertEquals(2, attempts)
+        assertEquals(listOf(5_000L, 100_000L), scheduledDelays)
+    }
+
+    @Test
+    fun `scheduled startup checks reconcile only currently open projects`() {
+        val startupProject = mockk<Project>(relaxed = true)
+        val currentProject = mockk<Project>(relaxed = true)
+        every { startupProject.isDisposed } returns true
+        every { currentProject.isDisposed } returns false
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val reconciledProjects = mutableListOf<List<Project>>()
+        var attempts = 0
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, projects ->
+                    attempts += 1
+                    reconciledProjects += projects.toList()
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { 100_000L },
+                projectsProvider = { listOf(startupProject, currentProject) },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(startupProject))
+        scheduledActions.removeFirst().invoke()
+        scheduledActions.removeFirst().invoke()
+
+        assertEquals(
+            listOf(
+                listOf(startupProject),
+                listOf(currentProject),
+                listOf(currentProject),
+            ),
+            reconciledProjects,
+        )
+    }
+
+    @Test
+    fun `scheduled startup check retries when current project discovery fails`() {
+        val startupProject = mockk<Project>(relaxed = true)
+        val currentProject = mockk<Project>(relaxed = true)
+        every { currentProject.isDisposed } returns false
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val reconciledProjects = mutableListOf<List<Project>>()
+        var reconciliationAttempts = 0
+        var discoveryAttempts = 0
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, projects ->
+                    reconciliationAttempts += 1
+                    reconciledProjects += projects.toList()
+                    if (reconciliationAttempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { null },
+                projectsProvider = {
+                    discoveryAttempts += 1
+                    if (discoveryAttempts == 1) {
+                        error("project discovery failed")
+                    }
+                    listOf(currentProject)
+                },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(startupProject))
+        scheduledActions.removeFirst().invoke()
+        scheduledActions.removeFirst().invoke()
+
+        assertEquals(2, reconciliationAttempts)
+        assertEquals(2, discoveryAttempts)
+        assertEquals(listOf(listOf(startupProject), listOf(currentProject)), reconciledProjects)
+    }
+
+    @Test
+    fun `scheduled startup check retries when reconciliation throws`() {
+        val project = mockk<Project>(relaxed = true)
+        var disposalReads = 0
+        every { project.isDisposed } answers {
+            disposalReads += 1
+            if (disposalReads == 1) false else error("project disposed check failed")
+        }
+        val scheduledActions = mutableListOf<() -> Unit>()
+        var reconciliationAttempts = 0
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.LICENSED },
+                reconcile = { _, projects ->
+                    reconciliationAttempts += 1
+                    if (reconciliationAttempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh syntax",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        projects.single().isDisposed
+                        ReconciliationResult.Success
+                    }
+                },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { null },
+                projectsProvider = { listOf(project) },
+            )
+
+        retryingActivity.reconcileForTest(LicenseEntitlement.LICENSED, listOf(project))
+        scheduledActions.removeFirst().invoke()
+
+        assertEquals(2, reconciliationAttempts)
+        assertEquals(1, scheduledActions.size)
     }
 
     @Test

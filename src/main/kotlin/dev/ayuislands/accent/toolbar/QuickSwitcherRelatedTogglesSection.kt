@@ -11,6 +11,7 @@ import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.ToggleSwitch
 import dev.ayuislands.accent.toolbar.popup.ToggleTile
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.GridLayout
@@ -19,8 +20,9 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
- * 2-column × 2-row grid of [ToggleTile] composites (icon + label +
- * [ToggleSwitch]) — replaces an earlier vertical checkbox stack.
+ * Grid of [ToggleTile] composites (icon + label + [ToggleSwitch]). Premium
+ * mode uses the full 2-column × 2-row layout; free mode keeps Follow System
+ * Accent as a single tile.
  *
  * The popup is an immediate command surface, not a Settings form. Each tile
  * writes the persistent state field and then runs the matching runtime
@@ -34,6 +36,7 @@ import javax.swing.JPanel
  */
 internal class QuickSwitcherRelatedTogglesSection(
     private val context: AccentContext? = AccentContext.detectQuickSwitcher(),
+    private val showPremiumToggles: Boolean = true,
 ) {
     val component: JComponent
 
@@ -52,11 +55,6 @@ internal class QuickSwitcherRelatedTogglesSection(
             }
         }
 
-        val chromeTile =
-            buildTile(AllIcons.General.Layout, "Chrome tinting", QuickSwitcherToggle.CHROME, accentSupplier)
-        val glowTile = buildTile(AllIcons.General.Note, "Glow", QuickSwitcherToggle.GLOW, accentSupplier)
-        val rotationTile =
-            buildTile(AllIcons.Actions.Refresh, "Accent rotation", QuickSwitcherToggle.ROTATION, accentSupplier)
         val followTile =
             buildTile(
                 AllIcons.General.Settings,
@@ -65,19 +63,37 @@ internal class QuickSwitcherRelatedTogglesSection(
                 accentSupplier,
             )
 
+        val rows = if (showPremiumToggles) PREMIUM_GRID_ROWS else FREE_GRID_ROWS
+        val columns = if (showPremiumToggles) PREMIUM_GRID_COLUMNS else FREE_GRID_COLUMNS
         component =
             JPanel(
                 GridLayout(
-                    GRID_ROWS,
-                    GRID_COLS,
+                    rows,
+                    columns,
                     JBUI.scale(Density.TILE_GAP),
                     JBUI.scale(Density.TILE_GAP),
                 ),
             ).apply {
                 isOpaque = false
-                add(chromeTile)
-                add(glowTile)
-                add(rotationTile)
+                if (showPremiumToggles) {
+                    add(
+                        buildTile(
+                            AllIcons.General.Layout,
+                            "Chrome tinting",
+                            QuickSwitcherToggle.CHROME,
+                            accentSupplier,
+                        ),
+                    )
+                    add(buildTile(AllIcons.General.Note, "Glow", QuickSwitcherToggle.GLOW, accentSupplier))
+                    add(
+                        buildTile(
+                            AllIcons.Actions.Refresh,
+                            "Accent rotation",
+                            QuickSwitcherToggle.ROTATION,
+                            accentSupplier,
+                        ),
+                    )
+                }
                 add(followTile)
             }
     }
@@ -100,8 +116,10 @@ internal class QuickSwitcherRelatedTogglesSection(
     }
 
     private companion object {
-        const val GRID_ROWS = 2
-        const val GRID_COLS = 2
+        const val PREMIUM_GRID_ROWS = 2
+        const val PREMIUM_GRID_COLUMNS = 2
+        const val FREE_GRID_ROWS = 1
+        const val FREE_GRID_COLUMNS = 1
         val LOG = logger<QuickSwitcherRelatedTogglesSection>()
     }
 }
@@ -128,6 +146,7 @@ private fun QuickSwitcherToggle.setSelected(
     selected: Boolean,
     context: AccentContext?,
 ) {
+    if (this != QuickSwitcherToggle.FOLLOW_SYSTEM && !LicenseChecker.isLicensedOrGrace()) return
     val state = AyuIslandsSettings.getInstance().state
     when (this) {
         QuickSwitcherToggle.CHROME -> {
@@ -142,19 +161,22 @@ private fun QuickSwitcherToggle.setSelected(
             state.accentRotationEnabled = selected
             val service = AccentRotationService.getInstance()
             if (selected) {
-                if (state.followSystemAccent) {
-                    state.followSystemAccent = false
+                if (!state.followSystemAccent) {
+                    service.startRotation()
                 }
-                service.startRotation()
             } else {
                 service.stopRotation()
             }
         }
         QuickSwitcherToggle.FOLLOW_SYSTEM -> {
             state.followSystemAccent = selected
-            if (selected && state.accentRotationEnabled) {
-                state.accentRotationEnabled = false
-                AccentRotationService.getInstance().stopRotation()
+            if (state.accentRotationEnabled) {
+                val service = AccentRotationService.getInstance()
+                if (selected) {
+                    service.stopRotation()
+                } else if (LicenseChecker.isLicensedOrGrace()) {
+                    service.startRotation()
+                }
             }
             applyFocusedAccent(context)
         }

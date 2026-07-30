@@ -9,6 +9,8 @@ import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
+import com.intellij.ui.SimpleColoredComponent
+import com.intellij.ui.SimpleTextAttributes
 import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.messages.MessageBus
@@ -32,6 +34,7 @@ import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
+import javax.swing.tree.TreeCellRenderer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -44,6 +47,7 @@ class ProjectViewScrollbarManagerTest {
     private lateinit var realState: AyuIslandsState
     private lateinit var connection: MessageBusConnection
     private lateinit var registryValue: RegistryValue
+    private lateinit var rootPathLease: RootPathLease
 
     @BeforeTest
     fun setUp() {
@@ -63,6 +67,7 @@ class ProjectViewScrollbarManagerTest {
         } returns settingsMock
 
         registryValue = mockk(relaxed = true)
+        rootPathLease = RootPathLease()
         every {
             Registry.get(any<String>())
         } returns registryValue
@@ -123,26 +128,84 @@ class ProjectViewScrollbarManagerTest {
      */
     private fun createAndDrain(): ProjectViewScrollbarManager {
         val manager =
-            ProjectViewScrollbarManager(project)
+            ProjectViewScrollbarManager(project, rootPathLease)
         // Drain the invokeLater posted by init{}
         SwingUtilities.invokeAndWait {}
         return manager
     }
 
     @Test
-    fun `apply does nothing when not licensed`() {
+    fun `unlicensed apply restores runtime scrollbar and gain reapplies settings`() {
+        realState.hideProjectViewHScrollbar = true
+        val tree = JTree()
+        val scrollPane = JScrollPane(tree)
+        val originalPolicy = scrollPane.horizontalScrollBarPolicy
+        val wrapper = JPanel(FlowLayout()).apply { add(scrollPane) }
+        setupToolWindowContent(wrapper)
+
+        val manager = createAndDrain()
+        assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, scrollPane.horizontalScrollBarPolicy)
+
         every {
             LicenseChecker.isLicensedOrGrace()
         } returns false
-
-        val manager = createAndDrain()
-
         SwingUtilities.invokeAndWait {
             manager.apply()
         }
+        assertEquals(originalPolicy, scrollPane.horizontalScrollBarPolicy)
 
-        // No tool window interaction beyond init drain
-        // (which also exited early due to no license)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        SwingUtilities.invokeAndWait { manager.apply() }
+        assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, scrollPane.horizontalScrollBarPolicy)
+    }
+
+    @Test
+    fun `fresh unlicensed manager releases the persisted root path lease`() {
+        realState.hideProjectRootPath = true
+        realState.hasRootPathLease = true
+        realState.wasRootPathShown = true
+        realState.wasRootPathChanged = true
+        rootPathLease = mockk(relaxed = true)
+        every { registryValue.asBoolean() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        val manager =
+            ProjectViewScrollbarManager(
+                project = project,
+                rootPathLease = rootPathLease,
+                registryValueProvider = { registryValue },
+            )
+        SwingUtilities.invokeAndWait {}
+        SwingUtilities.invokeAndWait { manager.apply() }
+
+        verify(atLeast = 1) { rootPathLease.release(project, registryValue) }
+    }
+
+    @Test
+    fun `stale root renderer preserves native output when unlicensed`() {
+        SwingUtilities.invokeAndWait {
+            val native =
+                SimpleColoredComponent().apply {
+                    append("TestProject", SimpleTextAttributes.REGULAR_ATTRIBUTES)
+                    append("  /tmp/test", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                }
+            val delegate = TreeCellRenderer { _, _, _, _, _, _, _ -> native }
+            val renderer = RootFilteringRenderer(delegate, project) { false }
+
+            val rendered =
+                renderer.getTreeCellRendererComponent(
+                    JTree(),
+                    "root",
+                    selected = false,
+                    expanded = true,
+                    leaf = false,
+                    row = 0,
+                    hasFocus = false,
+                ) as SimpleColoredComponent
+
+            assertEquals(native, rendered)
+            assertEquals(2, rendered.fragmentCount)
+        }
     }
 
     @Test
@@ -300,7 +363,7 @@ class ProjectViewScrollbarManagerTest {
             )
         } returns Unit
 
-        val manager = ProjectViewScrollbarManager(project)
+        val manager = ProjectViewScrollbarManager(project, rootPathLease)
         try {
             SwingUtilities.invokeAndWait {}
             clearMocks(toolWindowManager, answers = false)
@@ -341,7 +404,7 @@ class ProjectViewScrollbarManagerTest {
             )
         } returns Unit
 
-        val manager = ProjectViewScrollbarManager(project)
+        val manager = ProjectViewScrollbarManager(project, rootPathLease)
         try {
             SwingUtilities.invokeAndWait {}
             scrollPane.horizontalScrollBarPolicy =

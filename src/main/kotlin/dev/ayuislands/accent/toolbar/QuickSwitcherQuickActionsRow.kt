@@ -15,9 +15,9 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 
 /**
- * Quick-actions row inside the quick-switcher popup: five 28x28 icon-only
- * [IconPillButton] pills with tooltips, in the canonical order
- * (Pin → Random → Lighter → Darker → Copy Hex).
+ * Quick-actions row inside the quick-switcher popup. Premium mode shows five
+ * 28x28 icon-only [IconPillButton] pills in the canonical order
+ * (Pin → Random → Lighter → Darker → Copy Hex); free mode keeps Copy Hex.
  *
  * Icon choices (primary form, all verified present in 2025.1 `AllIcons.*`):
  *   - Pin     → `AllIcons.Actions.PinTab`
@@ -29,16 +29,19 @@ import javax.swing.JPanel
 internal class QuickSwitcherQuickActionsRow(
     private val anchor: JComponent,
     private val context: AccentContext,
+    private val showPremiumActions: Boolean = true,
 ) {
     val component: JPanel =
         JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(Density.ACTION_GAP), 0)).apply {
             isOpaque = false
-            if (context is AccentContext.Ayu) {
-                add(IconPillButton(PinAccentAction(), anchor, AllIcons.Actions.PinTab))
+            if (showPremiumActions) {
+                if (context is AccentContext.Ayu) {
+                    add(IconPillButton(PinAccentAction(), anchor, AllIcons.Actions.PinTab))
+                }
+                add(IconPillButton(RandomAccentAction(), anchor, AllIcons.Actions.Refresh))
+                add(IconPillButton(LighterAccentAction(), anchor, AllIcons.General.ChevronUp))
+                add(IconPillButton(DarkerAccentAction(), anchor, AllIcons.General.ChevronDown))
             }
-            add(IconPillButton(RandomAccentAction(), anchor, AllIcons.Actions.Refresh))
-            add(IconPillButton(LighterAccentAction(), anchor, AllIcons.General.ChevronUp))
-            add(IconPillButton(DarkerAccentAction(), anchor, AllIcons.General.ChevronDown))
             add(IconPillButton(CopyHexAction(), anchor, AllIcons.Actions.Copy))
         }
 }

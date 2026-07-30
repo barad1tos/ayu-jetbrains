@@ -22,6 +22,7 @@ class ToolWindowAutoFitter(
     private val project: Project,
     private val toolWindowId: String,
     private val minWidth: Int,
+    private val canApply: () -> Boolean = { true },
 ) {
     private var expansionListener: TreeExpansionListener? = null
     private var expansionTree: JTree? = null
@@ -36,8 +37,9 @@ class ToolWindowAutoFitter(
     // Reset in [removeExpansionListener] so a re-installed listener forces a fresh measurement.
     private var lastFingerprint: Int? = null
     private val debounceTimer =
-        Timer(DEBOUNCE_DELAY_MS) { applyAutoFitWidth(maxWidthProvider()) }
-            .apply { isRepeats = false }
+        Timer(DEBOUNCE_DELAY_MS) {
+            if (canApply()) applyAutoFitWidth(maxWidthProvider())
+        }.apply { isRepeats = false }
 
     /** Lambda to get the current max width from settings (called at fit time, not init time). */
     var maxWidthProvider: () -> Int = { DEFAULT_MAX_WIDTH }
@@ -49,7 +51,9 @@ class ToolWindowAutoFitter(
         assert(SwingUtilities.isEventDispatchThread()) {
             "applyAutoFitWidth must be called on EDT"
         }
+        if (!canApply()) return
         findTreeWithRetry { tree ->
+            if (!canApply()) return@findTreeWithRetry
             val toolWindowEx =
                 resolveToolWindowEx("Auto-fit")
                     ?: return@findTreeWithRetry
@@ -82,6 +86,7 @@ class ToolWindowAutoFitter(
         assert(SwingUtilities.isEventDispatchThread()) {
             "applyFixedWidth must be called on EDT"
         }
+        if (!canApply()) return
         val toolWindowEx = resolveToolWindowEx("Fixed-width") ?: return
         applyWidth(toolWindowEx, targetWidth)
     }
@@ -150,6 +155,10 @@ class ToolWindowAutoFitter(
         autoFitMaxWidth: Int,
         fixedWidth: Int,
     ) {
+        if (!canApply()) {
+            removeExpansionListener()
+            return
+        }
         when (mode) {
             PanelWidthMode.DEFAULT -> removeExpansionListener()
             PanelWidthMode.AUTO_FIT -> {
@@ -164,7 +173,9 @@ class ToolWindowAutoFitter(
     }
 
     fun installExpansionListener() {
+        if (!canApply()) return
         findTreeWithRetry { tree ->
+            if (!canApply()) return@findTreeWithRetry
             if (expansionTree === tree && expansionListener != null) return@findTreeWithRetry
 
             removeExpansionListener()
@@ -186,6 +197,7 @@ class ToolWindowAutoFitter(
     fun removeExpansionListener() {
         retryTimer?.stop()
         retryTimer = null
+        debounceTimer.stop()
         // Reset fingerprint so a future re-install forces a fresh measurement
         // (the previous tree may have been disposed; its rowCount/maxRowWidth
         // is stale).
@@ -195,10 +207,13 @@ class ToolWindowAutoFitter(
         tree.removeTreeExpansionListener(listener)
         expansionTree = null
         expansionListener = null
-        debounceTimer.stop()
     }
 
     fun scheduleAutoFit() {
+        if (!canApply()) {
+            debounceTimer.stop()
+            return
+        }
         debounceTimer.restart()
     }
 
@@ -219,7 +234,7 @@ class ToolWindowAutoFitter(
         retriesLeft: Int = MAX_RETRIES,
         onFound: (JTree) -> Unit,
     ) {
-        if (project.isDisposed) return
+        if (project.isDisposed || !canApply()) return
         val tree = findTree()
         if (tree != null) {
             onFound(tree)
@@ -232,7 +247,7 @@ class ToolWindowAutoFitter(
                     (MAX_RETRIES - retriesLeft + 1) *
                         RETRY_DELAY_MS,
                 ) {
-                    if (!project.isDisposed) {
+                    if (!project.isDisposed && canApply()) {
                         findTreeWithRetry(retriesLeft - 1, onFound)
                     }
                 }.apply {

@@ -1,25 +1,16 @@
 package dev.ayuislands.licensing
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.ui.LicensingFacade
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import io.mockk.Runs
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import io.mockk.verify
 import java.util.EnumSet
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -30,37 +21,24 @@ import kotlin.test.assertTrue
 
 class LicenseTransitionListenerTest {
     private lateinit var state: AyuIslandsState
-    private lateinit var projectManager: ProjectManager
+    private val reconciliations = mutableListOf<Pair<LicenseEntitlement, List<Project>>>()
     private val facade: LicensingFacade = mockk(relaxed = true)
+    private val project: Project = mockk(relaxed = true)
 
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
-        val settingsMock = mockk<AyuIslandsSettings>()
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns state
         mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns state
-        mockkObject(LicenseChecker)
-        mockkStatic(ApplicationManager::class)
-        mockkStatic(ProjectManager::class)
-        val appMock = mockk<com.intellij.openapi.application.Application>(relaxed = true)
-        projectManager = mockk(relaxed = true)
-        every { ApplicationManager.getApplication() } returns appMock
-        every { ProjectManager.getInstance() } returns projectManager
-        every { projectManager.openProjects } returns emptyArray()
-        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        every { AyuIslandsSettings.getInstance() } returns settings
 
-        // Mock the accent re-apply path so transition tests can assert that it fires
-        // (on either direction) without spinning up AccentApplicator's platform deps.
-        // Each test re-stubs [AyuVariant.detect] when it needs to exercise a
-        // different active accent context.
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFCC66"
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        mockkObject(CommitPanelAutoFitManager.Companion)
-        mockkObject(GlowOverlayManager.Companion)
-        every { GlowOverlayManager.syncGlowForAllProjects() } just Runs
+        reconciliations.clear()
+
+        mockkStatic(ProjectManager::class)
+        val projectManager = mockk<ProjectManager>()
+        every { ProjectManager.getInstance() } returns projectManager
+        every { projectManager.openProjects } returns arrayOf(project)
     }
 
     @AfterTest
@@ -69,36 +47,127 @@ class LicenseTransitionListenerTest {
     }
 
     @Test
-    fun `first licensed notification does not flip flag (initial state)`() {
+    fun `initial licensed notification records baseline without reconciliation`() {
         state.premiumOnboardingShown = true
-        every { LicenseChecker.isLicensedOrGrace() } returns true
 
-        LicenseTransitionListener().licenseStateChanged(facade)
+        listenerFor(LicenseEntitlement.LICENSED).licenseStateChanged(facade)
 
         assertTrue(state.premiumOnboardingShown)
+        assertTrue(reconciliations.isEmpty())
     }
 
     @Test
-    fun `unlicensed to licensed transition flips flag to false`() {
+    fun `initial unlicensed notification reconciles optimistic runtime once`() {
+        val listener = listenerFor(LicenseEntitlement.UNLICENSED, LicenseEntitlement.UNLICENSED)
+
+        listener.licenseStateChanged(facade)
+        listener.licenseStateChanged(facade)
+
+        assertEquals(
+            listOf(LicenseEntitlement.UNLICENSED to listOf(project)),
+            reconciliations,
+        )
+    }
+
+    @Test
+    fun `license loss and recovery reconcile once per transition`() {
         state.premiumOnboardingShown = true
-        val listener = LicenseTransitionListener()
-
-        every { LicenseChecker.isLicensedOrGrace() } returns false
+        val listener =
+            listenerFor(
+                LicenseEntitlement.LICENSED,
+                LicenseEntitlement.UNLICENSED,
+                LicenseEntitlement.UNLICENSED,
+                LicenseEntitlement.LICENSED,
+            )
         listener.licenseStateChanged(facade)
-        assertTrue(state.premiumOnboardingShown)
-
-        every { LicenseChecker.isLicensedOrGrace() } returns true
+        listener.licenseStateChanged(facade)
+        listener.licenseStateChanged(facade)
         listener.licenseStateChanged(facade)
 
+        assertEquals(
+            listOf(LicenseEntitlement.UNLICENSED, LicenseEntitlement.LICENSED),
+            reconciliations.map { it.first },
+        )
         assertFalse(state.premiumOnboardingShown)
     }
 
     @Test
-    fun `licensed to licensed refresh does not flip flag`() {
-        state.premiumOnboardingShown = true
-        val listener = LicenseTransitionListener()
+    fun `unknown result neither reconciles nor becomes transition baseline`() {
+        val listener = listenerFor(LicenseEntitlement.UNKNOWN, LicenseEntitlement.LICENSED)
+        listener.licenseStateChanged(facade)
+        listener.licenseStateChanged(facade)
 
-        every { LicenseChecker.isLicensedOrGrace() } returns true
+        assertTrue(reconciliations.isEmpty())
+    }
+
+    @Test
+    fun `licensed result after unknown restores a persisted unlicensed runtime`() {
+        state.lastConfirmedEntitlement = LicenseEntitlement.UNLICENSED.name
+        val listener = listenerFor(LicenseEntitlement.UNKNOWN, LicenseEntitlement.LICENSED)
+
+        listener.licenseStateChanged(facade)
+        listener.licenseStateChanged(facade)
+
+        assertEquals(
+            listOf(LicenseEntitlement.LICENSED to listOf(project)),
+            reconciliations,
+        )
+    }
+
+    @Test
+    fun `unknown grace check schedules another short retry`() {
+        val scheduledDelays = mutableListOf<Long>()
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val remaining =
+            ArrayDeque(
+                listOf(
+                    LicenseEntitlement.LICENSED,
+                    LicenseEntitlement.UNKNOWN,
+                    LicenseEntitlement.UNLICENSED,
+                ),
+            )
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { remaining.removeFirst() },
+                reconcile = { entitlement, projects ->
+                    recordReconciliation(entitlement, projects)
+                    ReconciliationResult.Success
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { 100_000L },
+                scheduleRecheck = { delayMs, action ->
+                    scheduledDelays += delayMs
+                    scheduledActions += action
+                },
+            )
+
+        listener.licenseStateChanged(facade)
+        scheduledActions.removeFirst().invoke()
+
+        assertEquals(listOf(100_000L, 5_000L), scheduledDelays)
+        scheduledActions.removeFirst().invoke()
+        assertEquals(listOf(LicenseEntitlement.UNLICENSED), reconciliations.map { it.first })
+    }
+
+    @Test
+    fun `unknown between known states cannot hide license loss`() {
+        val listener =
+            listenerFor(
+                LicenseEntitlement.LICENSED,
+                LicenseEntitlement.UNKNOWN,
+                LicenseEntitlement.UNLICENSED,
+            )
+        listener.licenseStateChanged(facade)
+        listener.licenseStateChanged(facade)
+        listener.licenseStateChanged(facade)
+
+        assertEquals(listOf(LicenseEntitlement.UNLICENSED), reconciliations.map { it.first })
+    }
+
+    @Test
+    fun `unknown result cannot rearm premium onboarding`() {
+        state.premiumOnboardingShown = true
+        val listener = listenerFor(LicenseEntitlement.UNLICENSED, LicenseEntitlement.UNKNOWN)
         listener.licenseStateChanged(facade)
         listener.licenseStateChanged(facade)
 
@@ -106,57 +175,29 @@ class LicenseTransitionListenerTest {
     }
 
     @Test
-    fun `unlicensed notifications do not flip flag`() {
+    fun `checker failure does not corrupt remembered entitlement`() {
         state.premiumOnboardingShown = true
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-
-        LicenseTransitionListener().licenseStateChanged(facade)
-
-        assertTrue(state.premiumOnboardingShown)
-    }
-
-    @Test
-    fun `transition with flag already false is a no-op`() {
-        state.premiumOnboardingShown = false
-        val listener = LicenseTransitionListener()
-
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-
-        assertFalse(state.premiumOnboardingShown)
-    }
-
-    @Test
-    fun `licensed to unlicensed revocation does not reset premiumOnboardingShown`() {
-        // User revokes license mid-session. The listener must NOT flip the flag
-        // — the premium wizard has already been shown, so re-arming it on
-        // revocation would re-trigger the wizard after next startup.
-        state.premiumOnboardingShown = true
-        val listener = LicenseTransitionListener()
-
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-        assertTrue(state.premiumOnboardingShown)
-
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-
-        assertTrue(state.premiumOnboardingShown)
-    }
-
-    @Test
-    fun `RuntimeException from LicenseChecker does not corrupt wasLicensed state`() {
-        // Simulates a platform glitch: first call throws, second succeeds as the
-        // actual unlicensed→licensed transition. The post-exception retry MUST
-        // still flip the flag — the listener must not be left in a broken state.
-        // The listener logs the failure via LOG.error, which TestLoggerFactory
-        // promotes into an AssertionError — install a LoggedErrorProcessor to
-        // suppress (but count) the promotion.
-        state.premiumOnboardingShown = true
-        val listener = LicenseTransitionListener()
-
+        var call = 0
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = {
+                    when (call++) {
+                        0 -> error("platform glitch")
+                        1 -> LicenseEntitlement.UNLICENSED
+                        else -> LicenseEntitlement.LICENSED
+                    }
+                },
+                reconcile = {
+                    entitlement,
+                    projects,
+                    ->
+                    recordReconciliation(entitlement, projects)
+                    ReconciliationResult.Success
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, _ -> },
+            )
         val loggedErrors = mutableListOf<Throwable?>()
         val processor =
             object : LoggedErrorProcessor() {
@@ -171,246 +212,243 @@ class LicenseTransitionListenerTest {
                 }
             }
 
-        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            every { LicenseChecker.isLicensedOrGrace() } throws RuntimeException("platform glitch")
+        LoggedErrorProcessor.executeWith<IllegalStateException>(processor) {
             listener.licenseStateChanged(facade)
-            assertTrue(state.premiumOnboardingShown, "exception must not mutate the flag")
-
-            every { LicenseChecker.isLicensedOrGrace() } returns false
             listener.licenseStateChanged(facade)
-            assertTrue(state.premiumOnboardingShown, "first successful call records baseline only")
-
-            every { LicenseChecker.isLicensedOrGrace() } returns true
             listener.licenseStateChanged(facade)
-            assertFalse(state.premiumOnboardingShown, "transition must still fire after glitch recovery")
         }
 
-        assertEquals(1, loggedErrors.size, "expected exactly one LOG.error for the glitched call")
-        assertEquals("platform glitch", loggedErrors[0]?.message)
-    }
-
-    // AccentResolver short-circuits per-project/per-language overrides when the
-    // user is unlicensed so chrome tinting falls back to the global accent. On
-    // either transition direction (licensed↔unlicensed) the listener MUST
-    // re-apply the accent so the chrome renderer picks up the fresh resolver
-    // output. Initial licensed notification stays quiet; initial unlicensed
-    // notification reconciles once because startup may have rendered while the
-    // licensing facade was still unavailable.
-
-    @Test
-    fun `initial notification does not re-apply accent`() {
-        // First notification records the baseline only. An apply here would fire
-        // on every IDE startup (Topic listeners receive a synthetic initial
-        // notification) and trigger a redundant chrome repaint.
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        LicenseTransitionListener().licenseStateChanged(facade)
-
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
-        verify(exactly = 0) { GlowOverlayManager.syncGlowForAllProjects() }
-    }
-
-    @Test
-    fun `initial unlicensed notification reconciles optimistically applied external chrome`() {
-        state.externalThemeEnhancementsEnabled = true
-        state.externalThemeChromeTintEnabled = true
-        every { AyuVariant.detect() } returns null
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        val openProject =
-            mockk<Project> {
-                every { isDisposed } returns false
-            }
-        val manager = mockk<CommitPanelAutoFitManager>(relaxed = true)
-        every { projectManager.openProjects } returns arrayOf(openProject)
-        every { CommitPanelAutoFitManager.getInstance(openProject) } returns manager
-
-        LicenseTransitionListener().licenseStateChanged(facade)
-
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
-        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
-        verify(exactly = 1) { manager.apply() }
-    }
-
-    @Test
-    fun `licensed to unlicensed transition re-applies accent for chrome refresh`() {
-        val listener = LicenseTransitionListener()
-        // Baseline call: licensed. No apply expected.
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
-
-        // Transition: licensed → unlicensed. Chrome must re-render using the
-        // global accent because the resolver now short-circuits overrides.
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
-    }
-
-    @Test
-    fun `licensed to unlicensed transition reapplies commit panel managers for open projects`() {
-        val openProject =
-            mockk<Project> {
-                every { isDisposed } returns false
-            }
-        val disposedProject =
-            mockk<Project> {
-                every { isDisposed } returns true
-            }
-        val manager = mockk<CommitPanelAutoFitManager>(relaxed = true)
-        every { projectManager.openProjects } returns arrayOf(openProject, disposedProject)
-        every { CommitPanelAutoFitManager.getInstance(openProject) } returns manager
-        val listener = LicenseTransitionListener()
-
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-
-        verify(exactly = 1) { manager.apply() }
-        verify(exactly = 0) { CommitPanelAutoFitManager.getInstance(disposedProject) }
-    }
-
-    @Test
-    fun `commit panel cleanup failure does not block license-loss accent reapply`() {
-        val openProject =
-            mockk<Project> {
-                every { isDisposed } returns false
-            }
-        val manager = mockk<CommitPanelAutoFitManager>()
-        every { projectManager.openProjects } returns arrayOf(openProject)
-        every { CommitPanelAutoFitManager.getInstance(openProject) } returns manager
-        every { manager.apply() } throws RuntimeException("renderer cleanup failed")
-        val listener = LicenseTransitionListener()
-
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-
-        verify(exactly = 1) { manager.apply() }
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
-    }
-
-    @Test
-    fun `unlicensed to licensed transition re-applies accent AND rearms wizard`() {
-        state.premiumOnboardingShown = true
-        val listener = LicenseTransitionListener()
-
-        // Baseline call: unlicensed. One reconciliation closes the optimistic
-        // startup window before the actual unlicensed → licensed transition.
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
-
-        // Transition: unlicensed → licensed. BOTH side effects fire:
-        //   - wizard re-arm (premiumOnboardingShown flipped to false)
-        //   - accent re-apply (overrides resolver now honors project/language rules)
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-
-        assertFalse(
-            state.premiumOnboardingShown,
-            "unlicensed→licensed transition must re-arm premium wizard for next startup",
+        assertEquals(1, loggedErrors.size)
+        assertEquals("platform glitch", loggedErrors.single()?.message)
+        assertFalse(state.premiumOnboardingShown)
+        assertEquals(
+            listOf(LicenseEntitlement.UNLICENSED, LicenseEntitlement.LICENSED),
+            reconciliations.map { it.first },
         )
-        verify(exactly = 2) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
     }
 
     @Test
-    fun `glow refresh follows license loss and recovery`() {
-        val listener = LicenseTransitionListener()
+    fun `same confirmed entitlement retries after reconciliation failure`() {
+        var attempts = 0
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { LicenseEntitlement.UNLICENSED },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh Project view",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, _ -> },
+            )
 
-        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
-        verify(exactly = 0) { GlowOverlayManager.syncGlowForAllProjects() }
+        listener.licenseStateChanged(facade)
 
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
-
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-        verify(exactly = 2) { GlowOverlayManager.syncGlowForAllProjects() }
+        assertEquals(2, attempts)
     }
 
     @Test
-    fun `glow refresh failure does not block accent reconciliation`() {
-        val listener = LicenseTransitionListener()
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-        every { GlowOverlayManager.syncGlowForAllProjects() } throws RuntimeException("glow refresh failed")
+    fun `failed reconciliation schedules a short retry without another facade callback`() {
+        var attempts = 0
+        var retryDelayMs: Long? = null
+        var retryAction: (() -> Unit)? = null
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { LicenseEntitlement.UNLICENSED },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh Project view",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { delayMs, action ->
+                    retryDelayMs = delayMs
+                    retryAction = action
+                },
+            )
 
-        every { LicenseChecker.isLicensedOrGrace() } returns false
         listener.licenseStateChanged(facade)
 
-        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
+        assertEquals(1, attempts)
+        assertTrue(checkNotNull(retryDelayMs) < 60_000L)
+        checkNotNull(retryAction).invoke()
+        assertEquals(2, attempts)
     }
 
     @Test
-    fun `licensed to licensed refresh does not re-apply accent (idempotent noise filter)`() {
-        // Topic listeners emit refresh notifications without an actual state
-        // change. Re-applying on every refresh would cause a chrome repaint loop
-        // during license heartbeats. The `previous != isNowLicensed` guard must
-        // suppress this path.
-        val listener = LicenseTransitionListener()
+    fun `failed reconciliation retains the baseline persisted before the provider mutates it`() {
+        var persistedEntitlement = LicenseEntitlement.LICENSED
+        var attempts = 0
+        var retryAction: (() -> Unit)? = null
+        val listener =
+            LicenseTransitionListener(
+                confirmedProvider = { persistedEntitlement },
+                entitlementProvider = {
+                    LicenseEntitlement.UNLICENSED.also {
+                        persistedEntitlement = it
+                    }
+                },
+                reconcile = { _, _ ->
+                    attempts += 1
+                    if (attempts == 1) {
+                        ReconciliationResult(
+                            listOf(
+                                ReconciliationFailure(
+                                    operation = "refresh Project view",
+                                    error = RuntimeException("first attempt failed"),
+                                ),
+                            ),
+                        )
+                    } else {
+                        ReconciliationResult.Success
+                    }
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, action -> retryAction = action },
+            )
 
-        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
-        listener.licenseStateChanged(facade)
+        checkNotNull(retryAction).invoke()
 
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
+        assertEquals(2, attempts)
     }
 
     @Test
-    fun `initial unlicensed reconcile is not repeated by unlicensed refresh`() {
-        // The first definitive unlicensed result closes the optimistic startup
-        // window; later identical heartbeats must not repaint again.
-        val listener = LicenseTransitionListener()
+    fun `project enumeration failure retries without committing the transition`() {
+        var enumerationAttempts = 0
+        var retryAction: (() -> Unit)? = null
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { LicenseEntitlement.UNLICENSED },
+                reconcile = { entitlement, projects ->
+                    recordReconciliation(entitlement, projects)
+                    ReconciliationResult.Success
+                },
+                projectsProvider = {
+                    enumerationAttempts += 1
+                    if (enumerationAttempts == 1) error("project enumeration failed")
+                    listOf(project)
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, action -> retryAction = action },
+            )
 
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-        listener.licenseStateChanged(facade)
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processError(
+                    category: String,
+                    message: String,
+                    details: Array<out String>,
+                    throwable: Throwable?,
+                ): Set<Action> = EnumSet.noneOf(Action::class.java)
+            }
+        LoggedErrorProcessor.executeWith<IllegalStateException>(processor) {
+            listener.licenseStateChanged(facade)
+        }
 
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.MIRAGE)) }
+        assertTrue(reconciliations.isEmpty())
+        checkNotNull(retryAction).invoke()
+        assertEquals(
+            listOf(LicenseEntitlement.UNLICENSED to listOf(project)),
+            reconciliations,
+        )
     }
 
     @Test
-    fun `transition without an active accent context skips re-apply silently`() {
-        // No Ayu theme and no external-theme support means the transition has
-        // no accent surface to refresh.
-        every { AyuVariant.detect() } returns null
+    fun `grace recheck reconciles expiry without another facade callback`() {
+        var entitlement = LicenseEntitlement.LICENSED
+        var scheduled: (() -> Unit)? = null
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = { entitlement },
+                reconcile = {
+                    current,
+                    projects,
+                    ->
+                    recordReconciliation(current, projects)
+                    ReconciliationResult.Success
+                },
+                dispatch = { it() },
+                recheckDelayProvider = { 1_000L },
+                scheduleRecheck = { _, action -> scheduled = action },
+            )
 
-        val listener = LicenseTransitionListener()
-        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
+        entitlement = LicenseEntitlement.UNLICENSED
+        checkNotNull(scheduled).invoke()
 
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
-
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AccentContext>()) }
+        assertEquals(listOf(LicenseEntitlement.UNLICENSED), reconciliations.map { it.first })
     }
 
     @Test
-    fun `external entitlement loss and regain reapply without changing preference`() {
-        state.externalThemeEnhancementsEnabled = true
-        state.externalThemeChromeTintEnabled = true
-        every { AyuVariant.detect() } returns null
-        val listener = LicenseTransitionListener()
+    fun `entitlement provider runs inside the serialized dispatch`() {
+        val queued = mutableListOf<() -> Unit>()
+        var providerCalls = 0
+        val listener =
+            LicenseTransitionListener(
+                entitlementProvider = {
+                    providerCalls += 1
+                    LicenseEntitlement.LICENSED
+                },
+                reconcile = { _, _ -> ReconciliationResult.Success },
+                dispatch = { queued += it },
+                recheckDelayProvider = { null },
+                scheduleRecheck = { _, _ -> },
+            )
 
-        every { LicenseChecker.isLicensedOrGrace() } returns true
         listener.licenseStateChanged(facade)
 
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        listener.licenseStateChanged(facade)
+        assertEquals(0, providerCalls)
+        queued.single().invoke()
+        assertEquals(1, providerCalls)
+    }
 
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
-        assertTrue(state.externalThemeChromeTintEnabled)
+    private fun listenerFor(vararg entitlements: LicenseEntitlement): LicenseTransitionListener {
+        val remaining = ArrayDeque(entitlements.toList())
+        return LicenseTransitionListener(
+            entitlementProvider = { remaining.removeFirst() },
+            reconcile = {
+                entitlement,
+                projects,
+                ->
+                recordReconciliation(entitlement, projects)
+                ReconciliationResult.Success
+            },
+            dispatch = { it() },
+            recheckDelayProvider = { null },
+            scheduleRecheck = { _, _ -> },
+        )
+    }
 
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        listener.licenseStateChanged(facade)
-
-        verify(exactly = 2) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
-        assertTrue(state.externalThemeChromeTintEnabled)
+    private fun recordReconciliation(
+        entitlement: LicenseEntitlement,
+        projects: Iterable<Project>,
+    ) {
+        reconciliations += entitlement to projects.toList()
     }
 }

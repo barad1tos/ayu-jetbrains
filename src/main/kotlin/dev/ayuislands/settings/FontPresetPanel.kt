@@ -22,6 +22,7 @@ import dev.ayuislands.font.FontSettings
 import dev.ayuislands.font.FontStatus
 import dev.ayuislands.font.FontUninstaller
 import dev.ayuislands.font.FontWeight
+import dev.ayuislands.licensing.LicenseChecker
 import java.awt.datatransfer.StringSelection
 import javax.swing.JCheckBox
 import javax.swing.JLabel
@@ -263,6 +264,10 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
      */
     private fun triggerLifecycleAction(uninstall: Boolean) {
         try {
+            if (!uninstall && !LicenseChecker.isLicensedOrGrace()) {
+                LicenseChecker.requestLicense("Unlock font installation")
+                return
+            }
             val preset = FontPreset.fromName(pendingPreset)
             val project = AccentApplicator.resolveFocusedProject()
             // CUSTOM has no install pipeline. The Install / Reinstall / Delete
@@ -357,7 +362,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                             return@link
                         }
                 val command = "brew install --cask $slug"
-                CopyPasteManager.getInstance().setContents(StringSelection(command))
+                copyToClipboard(command)
             }
             link("Run in Terminal") {
                 val preset = FontPreset.fromName(pendingPreset)
@@ -371,7 +376,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
                             return@link
                         }
                 val command = "brew install --cask $slug"
-                CopyPasteManager.getInstance().setContents(StringSelection(command))
+                copyToClipboard(command)
                 val state = AyuIslandsSettings.getInstance().state
                 if (state.fontInstallTerminal == "SYSTEM") {
                     ProcessBuilder("open", "-a", "Terminal").start()
@@ -675,6 +680,10 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         updateFontMissing()
         suppressListeners = false
     }
+}
+
+private fun copyToClipboard(text: String) {
+    (CopyPasteManager.getInstance()::setContents)(StringSelection(text))
 }
 
 /**

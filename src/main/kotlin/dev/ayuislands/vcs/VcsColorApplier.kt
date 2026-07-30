@@ -8,6 +8,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import java.awt.Color
@@ -43,6 +44,10 @@ internal object VcsColorApplier {
      * Safe to call from any thread — the EDT hop happens inside this method.
      */
     fun applyAll() {
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            revertAll()
+            return
+        }
         val state = AyuIslandsSettings.getInstance().state
         val variant = AyuVariant.detect()
         if (variant == null) {

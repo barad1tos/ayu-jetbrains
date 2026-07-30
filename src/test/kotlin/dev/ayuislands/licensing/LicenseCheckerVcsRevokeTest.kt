@@ -15,7 +15,6 @@ import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPreset
-import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import dev.ayuislands.vcs.VcsColorApplier
 import dev.ayuislands.vcs.VcsColorPreset
 import io.mockk.every
@@ -113,7 +112,7 @@ class LicenseCheckerVcsRevokeTest {
     // ---------- 11 intensity sliders ----------
 
     @Test
-    fun `revertToFreeDefaults resets all 11 VCS intensity fields to AMBIENT_SLIDER`() {
+    fun `revertToFreeDefaults preserves all 11 VCS intensity fields`() {
         // Seed every per-category intensity to a non-default value so the revert
         // is observable. 80 is well outside `AMBIENT_SLIDER` and inside the
         // 0..100 slider range, so the field accepts the write.
@@ -132,24 +131,23 @@ class LicenseCheckerVcsRevokeTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        val expected = VcsColorPreset.AMBIENT_SLIDER
-        assertEquals(expected, state.vcsDiffIntensity, "vcsDiffIntensity")
-        assertEquals(expected, state.vcsProjectViewIntensity, "vcsProjectViewIntensity")
-        assertEquals(expected, state.vcsGutterIntensity, "vcsGutterIntensity")
-        assertEquals(expected, state.vcsConflictMarkerIntensity, "vcsConflictMarkerIntensity")
-        assertEquals(expected, state.vcsMerge3WayIntensity, "vcsMerge3WayIntensity")
-        assertEquals(expected, state.vcsInlineDiffIntensity, "vcsInlineDiffIntensity")
-        assertEquals(expected, state.vcsBlameIntensity, "vcsBlameIntensity")
-        assertEquals(expected, state.vcsLocalHistoryIntensity, "vcsLocalHistoryIntensity")
-        assertEquals(expected, state.vcsBranchIndicatorIntensity, "vcsBranchIndicatorIntensity")
-        assertEquals(expected, state.vcsBranchesPopupIntensity, "vcsBranchesPopupIntensity")
-        assertEquals(expected, state.vcsCommitHighlightIntensity, "vcsCommitHighlightIntensity")
+        assertEquals(seed, state.vcsDiffIntensity, "vcsDiffIntensity")
+        assertEquals(seed, state.vcsProjectViewIntensity, "vcsProjectViewIntensity")
+        assertEquals(seed, state.vcsGutterIntensity, "vcsGutterIntensity")
+        assertEquals(seed, state.vcsConflictMarkerIntensity, "vcsConflictMarkerIntensity")
+        assertEquals(seed, state.vcsMerge3WayIntensity, "vcsMerge3WayIntensity")
+        assertEquals(seed, state.vcsInlineDiffIntensity, "vcsInlineDiffIntensity")
+        assertEquals(seed, state.vcsBlameIntensity, "vcsBlameIntensity")
+        assertEquals(seed, state.vcsLocalHistoryIntensity, "vcsLocalHistoryIntensity")
+        assertEquals(seed, state.vcsBranchIndicatorIntensity, "vcsBranchIndicatorIntensity")
+        assertEquals(seed, state.vcsBranchesPopupIntensity, "vcsBranchesPopupIntensity")
+        assertEquals(seed, state.vcsCommitHighlightIntensity, "vcsCommitHighlightIntensity")
     }
 
     // ---------- 3 preset names ----------
 
     @Test
-    fun `revertToFreeDefaults resets all 3 VCS preset names to AMBIENT`() {
+    fun `revertToFreeDefaults preserves all 3 VCS preset names`() {
         // Seed each section preset to `NEON` so we can see the revert ran. Using
         // `VcsColorPreset.NEON.name` (round-tripped through `byName`) instead of
         // a raw literal protects the assertion from a future enum-name change.
@@ -159,7 +157,7 @@ class LicenseCheckerVcsRevokeTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        val expected = VcsColorPreset.AMBIENT.name
+        val expected = VcsColorPreset.NEON.name
         assertEquals(expected, state.vcsDiffPreset)
         assertEquals(expected, state.vcsMergePreset)
         assertEquals(expected, state.vcsBlamePreset)
@@ -168,16 +166,16 @@ class LicenseCheckerVcsRevokeTest {
     // ---------- 1 master toggle ----------
 
     @Test
-    fun `revertToFreeDefaults clears vcsColorEnabled regardless of prior state`() {
+    fun `revertToFreeDefaults preserves vcsColorEnabled`() {
         state.vcsColorEnabled = true
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertFalse(state.vcsColorEnabled, "vcsColorEnabled must be false on free tier")
+        assertTrue(state.vcsColorEnabled, "Runtime entitlement must not overwrite the saved toggle")
     }
 
     // ---------- 3 section-expanded flags ----------
 
     @Test
-    fun `revertToFreeDefaults resets section-expanded flags to defaults`() {
+    fun `revertToFreeDefaults preserves section-expanded flags`() {
         // Seed all three to false so the diff flag has to flip back to true and
         // the merge/blame flags stay at false — exercises both branches of the
         // expanded-default contract.
@@ -187,7 +185,7 @@ class LicenseCheckerVcsRevokeTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertTrue(state.vcsDiffSectionExpanded, "diff section opens expanded by default")
+        assertFalse(state.vcsDiffSectionExpanded)
         assertFalse(state.vcsMergeSectionExpanded, "merge section collapses on downgrade")
         assertFalse(state.vcsBlameSectionExpanded, "blame section collapses on downgrade")
     }
@@ -202,7 +200,7 @@ class LicenseCheckerVcsRevokeTest {
     }
 
     @Test
-    fun `revertToFreeDefaults resets syntax intensity state and reapplies Ambient`() {
+    fun `revertToFreeDefaults preserves syntax intensity state`() {
         syntaxState.state.selectedPreset = SyntaxPreset.CUSTOM.name
         syntaxState.state.subordinatePreset = SyntaxPreset.NEON.name
         syntaxState.state.customOverrides["Java|KEYWORD"] = "85"
@@ -214,34 +212,23 @@ class LicenseCheckerVcsRevokeTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertEquals(SyntaxPreset.AMBIENT.name, syntaxState.state.selectedPreset)
-        assertEquals(SyntaxPreset.AMBIENT.name, syntaxState.state.subordinatePreset)
-        assertTrue(syntaxState.state.customOverrides.isEmpty(), "syntax custom overrides must be cleared")
-        assertTrue(syntaxState.state.customStyles.isEmpty(), "syntax custom styles must be cleared")
-        assertFalse(syntaxState.state.dimComments, "premium readability toggles must be cleared on downgrade")
-        assertFalse(syntaxState.state.softenDocumentation, "premium readability toggles must be cleared on downgrade")
-        assertFalse(syntaxState.state.quietOperators, "premium readability toggles must be cleared on downgrade")
-        assertFalse(syntaxState.state.emphasizeDeclarations, "premium readability toggles must be cleared on downgrade")
-        verify(exactly = 1) {
-            syntaxService.apply(
-                SyntaxPreset.AMBIENT,
-                emptyMap(),
-                SyntaxPreset.AMBIENT,
-                emptyMap(),
-                SyntaxReadabilityOptions.DEFAULT,
-            )
-        }
+        assertEquals(SyntaxPreset.CUSTOM.name, syntaxState.state.selectedPreset)
+        assertEquals(SyntaxPreset.NEON.name, syntaxState.state.subordinatePreset)
+        assertEquals("85", syntaxState.state.customOverrides["Java|KEYWORD"])
+        assertEquals("BOLD", syntaxState.state.customStyles["Java|KEYWORD"])
+        assertTrue(syntaxState.state.dimComments)
+        assertTrue(syntaxState.state.softenDocumentation)
+        assertTrue(syntaxState.state.quietOperators)
+        assertTrue(syntaxState.state.emphasizeDeclarations)
     }
 
-    // ---------- Defensive: applier exception does not block state reset ----------
+    // ---------- Defensive: runtime cleanup failure does not mutate saved state ----------
 
     @Test
-    fun `revertToFreeDefaults state reset still completes when VcsColorApplier revertAll throws`() {
-        // The applier call is wrapped in try-catch(RuntimeException) inside
-        // [LicenseChecker.revertToFreeDefaults] (Pattern B compliant). State
-        // mutations happen BEFORE the call inside the `synchronized(state)`
-        // block, so a thrown RuntimeException from `revertAll` must not roll
-        // back the field resets — only the editor scheme write-through is lost.
+    fun `revertToFreeDefaults preserves state when VcsColorApplier revertAll throws`() {
+        // ThemeReapplication isolates the VCS runtime cleanup failure. Persisted
+        // customization must remain untouched even when the IDE color-scheme
+        // applier cannot complete the downgrade presentation.
         every { VcsColorApplier.revertAll() } throws RuntimeException("boom")
 
         state.vcsColorEnabled = true
@@ -254,13 +241,13 @@ class LicenseCheckerVcsRevokeTest {
 
         LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
 
-        assertFalse(state.vcsColorEnabled)
-        assertEquals(VcsColorPreset.AMBIENT.name, state.vcsDiffPreset)
-        assertEquals(VcsColorPreset.AMBIENT.name, state.vcsMergePreset)
-        assertEquals(VcsColorPreset.AMBIENT.name, state.vcsBlamePreset)
-        assertEquals(VcsColorPreset.AMBIENT_SLIDER, state.vcsDiffIntensity)
-        assertEquals(VcsColorPreset.AMBIENT_SLIDER, state.vcsBlameIntensity)
-        assertTrue(state.vcsDiffSectionExpanded)
+        assertTrue(state.vcsColorEnabled)
+        assertEquals(VcsColorPreset.NEON.name, state.vcsDiffPreset)
+        assertEquals(VcsColorPreset.NEON.name, state.vcsMergePreset)
+        assertEquals(VcsColorPreset.NEON.name, state.vcsBlamePreset)
+        assertEquals(80, state.vcsDiffIntensity)
+        assertEquals(80, state.vcsBlameIntensity)
+        assertFalse(state.vcsDiffSectionExpanded)
         verify(exactly = 1) { VcsColorApplier.revertAll() }
     }
 }

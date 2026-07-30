@@ -25,6 +25,7 @@ class CommitPanelAutoFitManager(
             project = project,
             toolWindowId = TOOL_WINDOW_ID,
             minWidth = AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
+            canApply = { LicenseChecker.isLicensedOrGrace() },
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitCommitMaxWidth }
             minWidthProvider = { AyuIslandsSettings.getInstance().state.commitPanelAutoFitMinWidth }
@@ -99,7 +100,11 @@ class CommitPanelAutoFitManager(
 
         val current = tree.cellRenderer
         if (current !is CommitPathShorteningRenderer) {
-            tree.cellRenderer = CommitPathShorteningRenderer(current)
+            tree.cellRenderer =
+                CommitPathShorteningRenderer(
+                    current,
+                    canApply = { LicenseChecker.isLicensedOrGrace() },
+                )
             refreshTree(tree)
         }
         installPathRendererGuard(tree)
@@ -142,7 +147,11 @@ class CommitPanelAutoFitManager(
                     return@PropertyChangeListener
                 }
 
-                tree.cellRenderer = CommitPathShorteningRenderer(newRenderer)
+                tree.cellRenderer =
+                    CommitPathShorteningRenderer(
+                        newRenderer,
+                        canApply = { LicenseChecker.isLicensedOrGrace() },
+                    )
                 refreshTree(tree)
             }
         tree.addPropertyChangeListener("cellRenderer", pathRendererListener)

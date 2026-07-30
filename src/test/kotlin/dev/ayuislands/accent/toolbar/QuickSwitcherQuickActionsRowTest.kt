@@ -94,6 +94,22 @@ class QuickSwitcherQuickActionsRowTest {
         assertTrue(PinAccentAction::class.java.simpleName !in actions)
     }
 
+    @Test
+    fun `free mode contains only Copy Hex`() {
+        val row =
+            QuickSwitcherQuickActionsRow(
+                anchor = anchor,
+                context = AccentContext.Ayu(AyuVariant.MIRAGE),
+                showPremiumActions = false,
+            )
+        val actions =
+            row.component.components
+                .filterIsInstance<IconPillButton>()
+                .map { it.action::class.java.simpleName }
+
+        assertEquals(listOf(CopyHexAction::class.java.simpleName), actions)
+    }
+
     private companion object {
         const val EXPECTED_BUTTON_COUNT = 5
     }

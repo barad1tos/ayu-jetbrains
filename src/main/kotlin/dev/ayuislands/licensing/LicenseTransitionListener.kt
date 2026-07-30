@@ -2,121 +2,103 @@ package dev.ayuislands.licensing
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.LicensingFacade
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.settings.AyuIslandsSettings
 
 /**
- * Listens for license-state transitions and reacts on four axes:
+ * Listens for definitive license-state transitions.
  *
- *  1. **Premium wizard re-arm** — on unlicensed → licensed transitions only, resets
+ * On unlicensed → licensed transitions it resets
  *     [dev.ayuislands.settings.AyuIslandsState.premiumOnboardingShown] to `false` so
  *     the next IDE startup surfaces the premium wizard via OnboardingOrchestrator.
  *     No mid-session UI is shown — the re-armed wizard appears at next launch only.
  *
- *  2. **Chrome accent re-apply** — on EITHER transition direction (licensed↔unlicensed),
- *     re-applies the accent so chrome tinting picks up the fresh license state.
- *     [dev.ayuislands.accent.AccentResolver] short-circuits overrides when unlicensed
- *     (chrome falls back to global accent) and honors them when licensed. External
- *     chrome surfaces also re-evaluate their runtime entitlement without rewriting
- *     the stored preference.
+ * Runtime surfaces are delegated to [EntitlementReconciler]. A first definitive callback
+ * reconciles when it differs from the last persisted confirmation; a fresh initial licensed
+ * callback still records state without repainting. UNKNOWN callbacks preserve the remembered
+ * state and schedule another short observation.
  *
- *  3. **Glow refresh** — re-evaluates overlay entitlement for every open project
- *     so a downgrade removes premium overlays and a later renewal restores them.
- *
- *  4. **Workspace renderer cleanup** — on licensed → unlicensed transitions,
- *     re-applies Commit panel workspace management for open projects so paid
- *     path-display renderers are removed immediately, not only after restart.
- *
- * Tracks the previous license state to filter duplicate notifications. An initial
- * licensed callback records state without repainting; an initial unlicensed callback
- * performs one chrome reconciliation because startup may have optimistically rendered
- * while the licensing facade was still unavailable.
- *
- * State mutation and [AccentApplicator.applyForFocusedProject] (which is `@RequiresEdt`)
- * are dispatched to EDT via `invokeLater` because Topic listeners may fire on
- * arbitrary threads.
+ * State mutation and runtime reconciliation are dispatched to EDT because Topic
+ * listeners may fire on arbitrary threads.
  */
-internal class LicenseTransitionListener : LicensingFacade.LicenseStateListener {
-    @Volatile
-    private var wasLicensed: Boolean? = null
+internal class LicenseTransitionListener(
+    private val entitlementProvider: () -> LicenseEntitlement = LicenseChecker::currentEntitlement,
+    private val reconcile: (LicenseEntitlement, Iterable<Project>) -> ReconciliationResult =
+        EntitlementReconciler::reconcile,
+    private val projectsProvider: () -> List<Project> = {
+        ProjectManager.getInstance().openProjects.toList()
+    },
+    private val dispatch: (() -> Unit) -> Unit = { ApplicationManager.getApplication().invokeLater(it) },
+    private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
+    confirmedProvider: () -> LicenseEntitlement = {
+        LicenseEntitlement.fromName(AyuIslandsSettings.getInstance().state.lastConfirmedEntitlement)
+    },
+    private val scheduleRecheck: (Long, () -> Unit) -> Unit = { delayMs, action ->
+        LicenseRecheckScheduler.getInstance().schedule(LicenseRecheckSlot.TRANSITION, delayMs, action)
+    },
+) : LicensingFacade.LicenseStateListener {
+    private var previousEntitlement: LicenseEntitlement? =
+        confirmedProvider().takeUnless { it == LicenseEntitlement.UNKNOWN }
 
     override fun licenseStateChanged(facade: LicensingFacade?) {
-        try {
-            val isNowLicensed = LicenseChecker.isLicensedOrGrace()
-            val previous = wasLicensed
-            wasLicensed = isNowLicensed
-
-            // Re-arm premium wizard only on unlicensed → licensed transition.
-            // Skip initial notification (previous == null) and licensed → licensed refreshes.
-            if (previous == false && isNowLicensed) {
-                val state = AyuIslandsSettings.getInstance().state
-                if (state.premiumOnboardingShown) {
-                    ApplicationManager.getApplication().invokeLater {
-                        state.premiumOnboardingShown = false
-                        LOG.info("Ayu license: unlicensed->licensed transition; premium wizard re-armed")
-                    }
-                }
-            }
-
-            // Re-apply accent on either transition direction so chrome picks up the fresh
-            // license state. Resolver short-circuits overrides when unlicensed (chrome falls
-            // back to global accent) and honors them when licensed. `applyForFocusedProject`
-            // is @RequiresEdt — dispatch via invokeLater. AccentContext.detect() also
-            // preserves external-theme support, while null means no Ayu behavior is active.
-            val isTransition = previous != null && previous != isNowLicensed
-            val isInitialRevoke = previous == null && !isNowLicensed
-            if (isTransition || isInitialRevoke) {
-                ApplicationManager.getApplication().invokeLater {
-                    try {
-                        if (!isNowLicensed) {
-                            cleanupCommitPanelPathRendering()
-                        }
-
-                        try {
-                            GlowOverlayManager.syncGlowForAllProjects()
-                        } catch (exception: RuntimeException) {
-                            LOG.warn("Ayu license: failed to refresh glow overlays", exception)
-                        }
-                        val context = AccentContext.detect()
-                        if (context != null) {
-                            AccentApplicator.applyForFocusedProject(context)
-                            LOG.info("Ayu license transition: re-applied accent for chrome refresh")
-                        }
-                    } catch (exception: RuntimeException) {
-                        LOG.error("Ayu license: failed to refresh UI after license transition", exception)
-                    }
-                }
-            }
-        } catch (exception: RuntimeException) {
-            LOG.error("Ayu license: failed to handle license state change", exception)
-        }
+        dispatch(::processChange)
     }
 
-    private fun cleanupCommitPanelPathRendering() {
-        val openProjects =
-            try {
-                ProjectManager.getInstance().openProjects
-            } catch (exception: RuntimeException) {
-                LOG.warn("Ayu license: failed to enumerate projects for commit-panel cleanup", exception)
+    private fun processChange() {
+        try {
+            val previous = previousEntitlement
+            val entitlement = entitlementProvider()
+            if (entitlement == LicenseEntitlement.UNKNOWN) {
+                scheduleRetry()
                 return
             }
-        for (project in openProjects) {
-            if (!project.isDisposed) {
-                try {
-                    CommitPanelAutoFitManager.getInstance(project).apply()
-                } catch (exception: RuntimeException) {
-                    LOG.warn("Ayu license: failed to clean commit-panel rendering", exception)
+
+            if (requiresReconciliation(previous, entitlement)) {
+                val result = reconcile(entitlement, projectsProvider())
+                if (!result.isSuccess) {
+                    scheduleRetry()
+                    return
                 }
+                rearmPremiumOnboarding(previous, entitlement)
             }
+            previousEntitlement = entitlement
+            scheduleNextCheck(entitlement)
+        } catch (exception: RuntimeException) {
+            LOG.error("Ayu license: failed to handle license state change", exception)
+            scheduleRetry()
         }
     }
 
+    private fun scheduleRetry() {
+        scheduleRecheck(RECONCILIATION_RETRY_MS) { licenseStateChanged(null) }
+    }
+
+    private fun scheduleNextCheck(entitlement: LicenseEntitlement) {
+        if (entitlement != LicenseEntitlement.LICENSED) return
+        val delayMs = recheckDelayProvider() ?: return
+        scheduleRecheck(delayMs) { licenseStateChanged(null) }
+    }
+
+    private fun rearmPremiumOnboarding(
+        previous: LicenseEntitlement?,
+        entitlement: LicenseEntitlement,
+    ) {
+        if (previous != LicenseEntitlement.UNLICENSED || entitlement != LicenseEntitlement.LICENSED) return
+        val state = AyuIslandsSettings.getInstance().state
+        if (!state.premiumOnboardingShown) return
+        state.premiumOnboardingShown = false
+        LOG.info("Ayu license: unlicensed->licensed transition; premium wizard re-armed")
+    }
+
+    private fun requiresReconciliation(
+        previous: LicenseEntitlement?,
+        entitlement: LicenseEntitlement,
+    ): Boolean = previous?.let { it != entitlement } ?: (entitlement == LicenseEntitlement.UNLICENSED)
+
     private companion object {
+        private const val RECONCILIATION_RETRY_MS = 5_000L
         private val LOG = logger<LicenseTransitionListener>()
     }
 }

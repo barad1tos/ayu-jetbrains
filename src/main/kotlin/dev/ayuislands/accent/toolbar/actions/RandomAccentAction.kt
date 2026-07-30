@@ -31,6 +31,7 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
     }
 
     override fun actionPerformed(event: AnActionEvent) {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val context = AccentContext.detectQuickSwitcher() ?: return
         val hex =
             try {

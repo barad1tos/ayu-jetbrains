@@ -6,6 +6,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
+import com.intellij.openapi.util.registry.RegistryValue
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.SimpleColoredComponent
@@ -32,16 +33,30 @@ import javax.swing.tree.TreeCellRenderer
 class ProjectViewScrollbarManager(
     private val project: Project,
 ) : Disposable {
+    internal constructor(
+        project: Project,
+        rootPathLease: RootPathLease,
+        registryValueProvider: () -> RegistryValue = { Registry.get(SHOW_URL_KEY) },
+    ) : this(project) {
+        rootPathLeaseProvider = { rootPathLease }
+        this.registryValueProvider = registryValueProvider
+    }
+
     private var originalScrollbarPolicy: Int? = null
-    private var registryKeyModified = false
+    private var hasRegistryLease = false
     private var trackedTree: JTree? = null
     private var lastAppliedHidePath: Boolean? = null
     private var rendererListener: PropertyChangeListener? = null
+    private var rootPathLeaseProvider: () -> RootPathLease = RootPathLease::getInstance
+    private var registryValueProvider: () -> RegistryValue = { Registry.get(SHOW_URL_KEY) }
+    private val rootPathLease: RootPathLease
+        get() = rootPathLeaseProvider()
     private val autoFitter =
         ToolWindowAutoFitter(
             project = project,
             toolWindowId = TOOL_WINDOW_ID,
             minWidth = AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
+            canApply = { LicenseChecker.isLicensedOrGrace() },
         ).apply {
             maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitMaxWidth }
             minWidthProvider = { AyuIslandsSettings.getInstance().state.projectPanelAutoFitMinWidth }
@@ -88,7 +103,10 @@ class ProjectViewScrollbarManager(
     }
 
     fun apply() {
-        if (!LicenseChecker.isLicensedOrGrace()) return
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            cleanupRuntime()
+            return
+        }
         applyScrollbar()
         applyRootDisplay()
         manageAutoFit()
@@ -137,7 +155,7 @@ class ProjectViewScrollbarManager(
         // Only resetToDefault when WE changed it — don't override the user's choice.
         val registryKey =
             try {
-                Registry.get(SHOW_URL_KEY)
+                registryValueProvider()
             } catch (_: MissingResourceException) {
                 LOG.warn(
                     "Registry key '$SHOW_URL_KEY' not " +
@@ -146,11 +164,13 @@ class ProjectViewScrollbarManager(
                 return
             }
         if (hidePath) {
-            registryKey.setValue(false)
-            registryKeyModified = true
-        } else if (registryKeyModified) {
-            registryKey.resetToDefault()
-            registryKeyModified = false
+            if (!hasRegistryLease) {
+                rootPathLease.acquire(project, registryKey)
+                hasRegistryLease = true
+            }
+        } else if (hasRegistryLease) {
+            rootPathLease.release(project, registryKey)
+            hasRegistryLease = false
         }
 
         val tree = findProjectTree() ?: return
@@ -192,6 +212,7 @@ class ProjectViewScrollbarManager(
                         event.newValue as? TreeCellRenderer
                             ?: return@PropertyChangeListener
                     if (newRenderer !is RootFilteringRenderer &&
+                        LicenseChecker.isLicensedOrGrace() &&
                         AyuIslandsSettings.getInstance().state.hideProjectRootPath
                     ) {
                         tree.cellRenderer =
@@ -246,6 +267,10 @@ class ProjectViewScrollbarManager(
     }
 
     override fun dispose() {
+        cleanupRuntime()
+    }
+
+    private fun cleanupRuntime() {
         removeRendererGuard()
         autoFitter.removeExpansionListener()
         val scrollPane = findProjectScrollPane()
@@ -254,21 +279,20 @@ class ProjectViewScrollbarManager(
                 originalScrollbarPolicy!!
             originalScrollbarPolicy = null
         }
-        if (registryKeyModified) {
-            try {
-                Registry.get(SHOW_URL_KEY).resetToDefault()
-            } catch (_: MissingResourceException) {
-                LOG.warn(
-                    "Registry key '$SHOW_URL_KEY' not " +
-                        "found during dispose",
-                )
-            }
-            registryKeyModified = false
+        try {
+            rootPathLease.release(project, registryValueProvider())
+            hasRegistryLease = false
+        } catch (_: MissingResourceException) {
+            LOG.warn(
+                "Registry key '$SHOW_URL_KEY' not " +
+                    "found during dispose",
+            )
         }
         val tree = findProjectTree()
         if (tree != null) {
             unwrapRenderer(tree)
         }
+        lastAppliedHidePath = null
     }
 
     companion object {
@@ -287,9 +311,10 @@ class ProjectViewScrollbarManager(
  * Filters root node path fragments.
  * Reads settings LIVE on every render — no state caching needed.
  */
-private class RootFilteringRenderer(
+internal class RootFilteringRenderer(
     val delegate: TreeCellRenderer,
     private val project: Project,
+    private val canApply: () -> Boolean = { LicenseChecker.isLicensedOrGrace() },
 ) : TreeCellRenderer {
     override fun getTreeCellRendererComponent(
         tree: JTree,
@@ -310,7 +335,7 @@ private class RootFilteringRenderer(
                 row,
                 hasFocus,
             )
-        if (row == 0 && component is SimpleColoredComponent) {
+        if (canApply() && row == 0 && component is SimpleColoredComponent) {
             filterRootFragments(component)
         }
         return component

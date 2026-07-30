@@ -143,6 +143,17 @@ class LicenseCheckerTest {
     }
 
     @Test
+    fun `unknown facade state preserves a confirmed unlicensed decision`() {
+        every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
+        val facade = mockk<LicensingFacade>()
+        every { LicensingFacade.getInstance() } returnsMany listOf(facade, null)
+        every { facade.getConfirmationStamp(LicenseChecker.PRODUCT_CODE) } returns null
+
+        assertFalse(LicenseChecker.isLicensedOrGrace())
+        assertFalse(LicenseChecker.isLicensedOrGrace())
+    }
+
+    @Test
     fun `isLicensedOrGrace returns false when explicitly not licensed`() {
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
         val facade = mockk<LicensingFacade>()
@@ -197,6 +208,22 @@ class LicenseCheckerTest {
         LicenseCheckerClockSeam.withFixedNow(fixedNow) {
             realState.lastKnownLicensedMs = fixedNow - (48L * msPerHour)
             assertFalse(LicenseChecker.isLicensedOrGrace(), "Exactly 48h must be outside grace window (strict <)")
+        }
+    }
+
+    @Test
+    fun `licensed grace schedules a recheck at the exact expiry boundary`() {
+        val realState = AyuIslandsState()
+        val settingsMock = mockk<AyuIslandsSettings>()
+        every { AyuIslandsSettings.getInstance() } returns settingsMock
+        every { settingsMock.state } returns realState
+        val fixedNow = 1_700_000_000_000L
+        val elapsedMs = 47L * 3_600_000L
+        realState.lastConfirmedEntitlement = LicenseEntitlement.LICENSED.name
+        realState.lastKnownLicensedMs = fixedNow - elapsedMs
+
+        LicenseCheckerClockSeam.withFixedNow(fixedNow) {
+            assertEquals(3_600_000L, LicenseChecker.nextRecheckDelayMs())
         }
     }
 

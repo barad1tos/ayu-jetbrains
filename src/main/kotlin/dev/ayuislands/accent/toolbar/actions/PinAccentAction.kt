@@ -34,6 +34,7 @@ class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to
     }
 
     override fun actionPerformed(event: AnActionEvent) {
+        if (!LicenseChecker.isLicensedOrGrace()) return
         val context = AccentContext.detect()
         if (context !is AccentContext.Ayu) return
         val variant = context.ayuVariant
