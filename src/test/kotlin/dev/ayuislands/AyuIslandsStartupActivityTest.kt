@@ -123,7 +123,9 @@ class AyuIslandsStartupActivityTest {
         var entitlement = LicenseEntitlement.UNKNOWN
         var discoveryAttempts = 0
         val scheduledActions = mutableListOf<() -> Unit>()
+        val disposedProject = mockk<Project>(relaxed = true)
         val project = mockk<Project>(relaxed = true)
+        every { disposedProject.isDisposed } returns true
         every { project.isDisposed } returns false
         val settings =
             mockk<AyuIslandsSettings> {
@@ -153,8 +155,11 @@ class AyuIslandsStartupActivityTest {
                 recheckDelayProvider = { null },
                 projectsProvider = {
                     discoveryAttempts += 1
-                    if (discoveryAttempts == 1) error("project discovery failed")
-                    listOf(project)
+                    when (discoveryAttempts) {
+                        1 -> error("project discovery failed")
+                        2 -> emptyList()
+                        else -> listOf(disposedProject, project)
+                    }
                 },
             )
 
@@ -179,6 +184,10 @@ class AyuIslandsStartupActivityTest {
                 StartupLicenseHandler.applyEntitlement(any(), any(), any())
             }
             scheduledActions.removeFirst().invoke()
+            verify(exactly = 0) {
+                StartupLicenseHandler.applyEntitlement(any(), any(), any())
+            }
+            scheduledActions.removeFirst().invoke()
 
             verify(exactly = 1) {
                 StartupLicenseHandler.resolveOnboarding(true, settings, false)
@@ -188,6 +197,88 @@ class AyuIslandsStartupActivityTest {
             }
             verify(exactly = 1) {
                 StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
+            }
+            verify(exactly = 1) { LicenseChecker.checkTrialExpiryWarning(project) }
+            assertEquals(3, discoveryAttempts)
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `definitive startup retry resumes wizard work without repeating entitlement apply`() {
+        var entitlement = LicenseEntitlement.UNKNOWN
+        var reconciliationAttempts = 0
+        var wizardAttempts = 0
+        val scheduledActions = mutableListOf<() -> Unit>()
+        val project = mockk<Project>(relaxed = true)
+        every { project.isDisposed } returns false
+        val settings =
+            mockk<AyuIslandsSettings> {
+                every { state } returns AyuIslandsState()
+            }
+        mockkObject(StartupLicenseHandler)
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.getTrialDaysRemaining() } returns null
+        every { LicenseChecker.checkTrialExpiryWarning(project) } returns Unit
+        every { StartupLicenseHandler.computeAdaptiveDelay() } returns 1
+        every { StartupLicenseHandler.runOnboardingMigration(settings) } returns Unit
+        every { StartupLicenseHandler.initWorkspaceServices(project, settings) } returns Unit
+        every {
+            StartupLicenseHandler.resolveOnboarding(true, settings, false)
+        } returns WizardAction.NoWizard
+        every {
+            StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
+        } returns Unit
+        every {
+            StartupLicenseHandler.handleWizardAction(WizardAction.NoWizard, project, 1)
+        } answers {
+            wizardAttempts += 1
+            if (wizardAttempts == 1) error("wizard scheduling failed")
+        }
+        val retryingActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { entitlement },
+                reconcile = { _, _ ->
+                    reconciliationAttempts += 1
+                    ReconciliationResult.Success
+                },
+                scheduleRecheck = { _, action -> scheduledActions += action },
+                recheckDelayProvider = { null },
+                projectsProvider = { listOf(project) },
+            )
+
+        try {
+            val method =
+                AyuIslandsStartupActivity::class.java.getDeclaredMethod(
+                    "checkLicenseState",
+                    Project::class.java,
+                    AyuIslandsSettings::class.java,
+                    Boolean::class.javaPrimitiveType,
+                )
+            method.isAccessible = true
+            method.invoke(retryingActivity, project, settings, false)
+            SwingUtilities.invokeAndWait {}
+
+            entitlement = LicenseEntitlement.LICENSED
+            val captured = mutableListOf<Pair<String, Throwable?>>()
+            LoggedErrorProcessor.executeWith<RuntimeException>(capturingProcessor(captured)) {
+                scheduledActions.removeFirst().invoke()
+            }
+
+            assertEquals(1, reconciliationAttempts)
+            assertEquals(1, scheduledActions.size)
+            assertEquals("License startup step 'handle-wizard-action' failed", captured.single().first)
+
+            scheduledActions.removeFirst().invoke()
+
+            assertEquals(2, reconciliationAttempts)
+            assertEquals(2, wizardAttempts)
+            verify(exactly = 1) {
+                StartupLicenseHandler.resolveOnboarding(true, settings, false)
+            }
+            verify(exactly = 1) {
+                StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
             }
             verify(exactly = 1) { LicenseChecker.checkTrialExpiryWarning(project) }
         } finally {

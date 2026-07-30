@@ -26,6 +26,7 @@ import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.licensing.LicenseRecheckScheduler
 import dev.ayuislands.licensing.LicenseRecheckSlot
 import dev.ayuislands.licensing.ReconciliationResult
+import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
@@ -403,7 +404,7 @@ internal class AyuIslandsStartupActivity(
         // scheduling, or trial warning blew up.
         SwingUtilities.invokeLater {
             if (project.isDisposed) return@invokeLater
-            var wizardAction: dev.ayuislands.onboarding.WizardAction? = null
+            var wizardAction: WizardAction? = null
 
             runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
             if (entitlement != LicenseEntitlement.UNKNOWN) {
@@ -420,26 +421,7 @@ internal class AyuIslandsStartupActivity(
             runStep("reconcile-entitlement") {
                 val deferredEntitlement =
                     if (entitlement == LicenseEntitlement.UNKNOWN) {
-                        { current: LicenseEntitlement, projects: List<Project> ->
-                            projects.firstOrNull()?.let { currentProject ->
-                                val action =
-                                    applyDefinitiveEntitlement(
-                                        entitlement = current,
-                                        project = currentProject,
-                                        settings = settings,
-                                        isReturningUser = isReturningUser,
-                                    )
-                                action?.let {
-                                    StartupLicenseHandler.handleWizardAction(it, currentProject, adaptiveDelayMs)
-                                }
-                                if (current == LicenseEntitlement.LICENSED) {
-                                    runStep("check-trial-expiry") {
-                                        LicenseChecker.checkTrialExpiryWarning(currentProject)
-                                    }
-                                }
-                            }
-                            Unit
-                        }
+                        deferredWorkflow(settings, isReturningUser, adaptiveDelayMs)
                     } else {
                         null
                     }
@@ -461,8 +443,8 @@ internal class AyuIslandsStartupActivity(
         project: Project,
         settings: AyuIslandsSettings,
         isReturningUser: Boolean,
-    ): dev.ayuislands.onboarding.WizardAction? {
-        var wizardAction: dev.ayuislands.onboarding.WizardAction? = null
+    ): WizardAction? {
+        var wizardAction: WizardAction? = null
         runStep("resolve-onboarding") {
             wizardAction =
                 StartupLicenseHandler.resolveOnboarding(
@@ -477,10 +459,52 @@ internal class AyuIslandsStartupActivity(
         return wizardAction
     }
 
+    private fun deferredWorkflow(
+        settings: AyuIslandsSettings,
+        isReturningUser: Boolean,
+        adaptiveDelayMs: Int,
+    ): (LicenseEntitlement, List<Project>) -> Boolean {
+        var appliedEntitlement: LicenseEntitlement? = null
+        var wizardAction: WizardAction? = null
+        var isWizardHandled = false
+        var isTrialChecked = false
+
+        return workflow@{ entitlement, projects ->
+            val project = projects.firstOrNull { !it.isDisposed } ?: return@workflow false
+            if (appliedEntitlement != entitlement) {
+                wizardAction =
+                    applyDefinitiveEntitlement(
+                        entitlement = entitlement,
+                        project = project,
+                        settings = settings,
+                        isReturningUser = isReturningUser,
+                    )
+                appliedEntitlement = entitlement
+                isWizardHandled = false
+                isTrialChecked = entitlement != LicenseEntitlement.LICENSED
+            }
+            if (!isWizardHandled) {
+                isWizardHandled =
+                    runStep("handle-wizard-action") {
+                        wizardAction?.let {
+                            StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
+                        }
+                    }
+            }
+            if (!isTrialChecked) {
+                isTrialChecked =
+                    runStep("check-trial-expiry") {
+                        LicenseChecker.checkTrialExpiryWarning(project)
+                    }
+            }
+            isWizardHandled && isTrialChecked
+        }
+    }
+
     private fun reconcileAtStartup(
         entitlement: LicenseEntitlement,
         projects: List<Project>,
-        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Unit)? = null,
+        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
     ) {
         if (entitlement == LicenseEntitlement.UNKNOWN) {
             scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
@@ -492,7 +516,7 @@ internal class AyuIslandsStartupActivity(
 
     private fun scheduleStartupCheck(
         delayMs: Long,
-        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Unit)? = null,
+        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
     ) {
         scheduleRecheck(delayMs) {
             runScheduledStartupCheck(onDefinitiveEntitlement)
@@ -500,7 +524,7 @@ internal class AyuIslandsStartupActivity(
     }
 
     private fun runScheduledStartupCheck(
-        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Unit)? = null,
+        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
     ) {
         val entitlement = entitlementProvider()
         if (entitlement == LicenseEntitlement.UNKNOWN) {
@@ -518,8 +542,13 @@ internal class AyuIslandsStartupActivity(
                 scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
                 return
             }
-        onDefinitiveEntitlement?.invoke(entitlement, projects)
-        val result = reconcileWithRetry(entitlement, projects) ?: return
+        val isWorkflowComplete = onDefinitiveEntitlement?.invoke(entitlement, projects) ?: true
+        val pendingWorkflow = onDefinitiveEntitlement?.takeUnless { isWorkflowComplete }
+        val result = reconcileWithRetry(entitlement, projects, pendingWorkflow) ?: return
+        if (pendingWorkflow != null) {
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS, pendingWorkflow)
+            return
+        }
         scheduleNextStartupCheck(entitlement, result)
     }
 
@@ -537,12 +566,13 @@ internal class AyuIslandsStartupActivity(
     private fun reconcileWithRetry(
         entitlement: LicenseEntitlement,
         projects: Iterable<Project>,
+        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
     ): ReconciliationResult? =
         try {
             reconcile(entitlement, projects)
         } catch (exception: RuntimeException) {
             LOG.warn("License reconciliation threw before returning a result; retrying", exception)
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS)
+            scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
             null
         }
 
@@ -579,18 +609,20 @@ internal class AyuIslandsStartupActivity(
     private inline fun runStep(
         name: String,
         block: () -> Unit,
-    ) {
+    ): Boolean =
         try {
             block()
+            true
         } catch (exception: RuntimeException) {
             LOG.error("License startup step '$name' failed", exception)
+            false
         } catch (error: VirtualMachineError) {
             LOG.error("License startup step '$name' failed with VM error", error)
             throw error
         } catch (error: Error) {
             LOG.error("License startup step '$name' failed with Error", error)
+            false
         }
-    }
 
     /**
      * Test-only hook around [runStep]. Private functions are unreachable from test classes
