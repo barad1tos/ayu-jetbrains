@@ -16,6 +16,11 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_ROOT = REPO_ROOT / "src/test/kotlin"
+ACCENT_APPLICATOR_SOURCE = "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt"
+FOCUS_OPENER_TEST = (
+    "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt"
+)
+BANNED_API_GUARD = "banned platform API guard"
 
 STRING_LITERAL_RE = re.compile(r'"(?:\\.|[^"\\\n])*"')
 PATH_FACTORY_RE = re.compile(
@@ -48,32 +53,32 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
     ): Allowance(1, "path-classification fixture, not a file read"),
     (
         "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
+        ACCENT_APPLICATOR_SOURCE,
     ): Allowance(1, "documented RequiresEdt annotation compromise"),
     (
         "src/test/kotlin/dev/ayuislands/AyuIslandsStartupActivityTest.kt",
         "src/main/kotlin/dev/ayuislands/AyuIslandsStartupActivity.kt",
     ): Allowance(1, "documented startup wiring compromise"),
     (
-        "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt",
+        FOCUS_OPENER_TEST,
         "src/main/kotlin/dev/ayuislands/ui/FocusWinningTabOpener.kt",
     ): Allowance(1, "documented EDT-hop shape compromise (Dispatchers.EDT undispatchable headless)"),
     (
-        "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt",
+        FOCUS_OPENER_TEST,
         "src/main/kotlin/dev/ayuislands/whatsnew/WhatsNewLauncher.kt",
     ): Allowance(1, "documented opener wiring compromise"),
     (
-        "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt",
+        FOCUS_OPENER_TEST,
         "src/main/kotlin/dev/ayuislands/StartupLicenseHandler.kt",
     ): Allowance(1, "documented opener wiring compromise"),
     (
         "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorBannedApiGuardTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
-    ): Allowance(1, "banned platform API guard"),
+        ACCENT_APPLICATOR_SOURCE,
+    ): Allowance(1, BANNED_API_GUARD),
     (
         "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorBannedApiGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/accent/AccentApplyPlanRunner.kt",
-    ): Allowance(1, "banned platform API guard"),
+    ): Allowance(1, BANNED_API_GUARD),
     (
         "src/test/kotlin/dev/ayuislands/accent/AccentResolutionChainBuilderGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/accent/AccentResolutionChainBuilder.kt",
@@ -92,7 +97,7 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
     ): Allowance(1, "documented chrome live-refresh symmetry compromise"),
     (
         "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorFocusedProjectTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
+        ACCENT_APPLICATOR_SOURCE,
     ): Allowance(1, "documented focused-project publish-gate compromise"),
     (
         "src/test/kotlin/dev/ayuislands/accent/Gap4BannedApiGuardTest.kt",
@@ -105,11 +110,11 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
     (
         "src/test/kotlin/dev/ayuislands/glow/GlowFallbackBannedApiGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/glow/GlowOverlayManager.kt",
-    ): Allowance(1, "banned platform API guard"),
+    ): Allowance(1, BANNED_API_GUARD),
     (
         "src/test/kotlin/dev/ayuislands/glow/GlowLifecycleGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/glow/GlowOverlayManager.kt",
-    ): Allowance(1, "banned platform API guard"),
+    ): Allowance(1, BANNED_API_GUARD),
 }
 
 
