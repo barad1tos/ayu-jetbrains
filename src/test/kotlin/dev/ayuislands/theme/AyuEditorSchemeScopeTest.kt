@@ -12,6 +12,8 @@ import io.mockk.verify
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 
@@ -85,6 +87,27 @@ class AyuEditorSchemeScopeTest {
         every { editorColorsManager.globalScheme } returns scheme("Ayu Islands Dark")
 
         assertSame(claimed, AyuEditorSchemeScope.claimedAccentSchemes().single())
+    }
+
+    @Test
+    fun `cleanup releases successful scheme and retains only failed identity`() {
+        val failedScheme = scheme("Ayu Islands Mirage")
+        val cleanedScheme = scheme("Ayu Islands Mirage")
+        every { editorColorsManager.globalScheme } returns failedScheme
+        AyuEditorSchemeScope.claimActiveScheme()
+        every { editorColorsManager.globalScheme } returns cleanedScheme
+        AyuEditorSchemeScope.claimActiveScheme()
+        AyuEditorSchemeScope.beginAccentCleanup()
+
+        assertFailsWith<IllegalStateException> {
+            AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
+                if (scheme === failedScheme) error("cleanup failed")
+            }
+        }
+        AyuEditorSchemeScope.releaseCleanAccentClaims()
+
+        assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
+        assertSame(failedScheme, AyuEditorSchemeScope.claimedAccentSchemes().single())
     }
 
     private fun scheme(name: String): EditorColorsScheme =

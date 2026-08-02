@@ -67,6 +67,16 @@ object AccentApplicator {
     private const val KEY_TAB_UNDERLINE_HEIGHT = "EditorTabs.underlineHeight"
     private const val KEY_TAB_UNDERLINE_ARC = "EditorTabs.underlineArc"
     private const val DEFAULT_UNDERLINE_ARC = 8
+    private val EDITOR_SCHEME_ELEMENTS =
+        setOf(
+            AccentElementId.INLAY_HINTS,
+            AccentElementId.CARET_ROW,
+            AccentElementId.PROGRESS_BAR,
+            AccentElementId.SCROLLBAR,
+            AccentElementId.LINKS,
+            AccentElementId.BRACKET_MATCH,
+            AccentElementId.MATCHING_TAG,
+        )
     private val TRANSPARENT_TAB_BACKGROUND =
         JBColor(
             ColorUtil.toAlpha(JBColor.BLACK, 0),
@@ -498,9 +508,30 @@ object AccentApplicator {
         val workers: Map<AccentApplyStep, () -> Unit> =
             buildMap {
                 put(AccentApplyStep.ClearUiAndExtensions) {
-                    clearReverseUiAndExtensions()?.let { throw it }
+                    AyuEditorSchemeScope.beginAccentCleanup()
+                    val clearResult = runCatchingPreservingCancellation { clearReverseUiAndExtensions() }
+                    clearResult.exceptionOrNull()?.let { error ->
+                        AyuEditorSchemeScope.retainAllAccentClaims()
+                        throw error
+                    }
+                    val failure = clearResult.getOrThrow()
+                    if (failure != null) {
+                        val hasUnattributedEditorFailure =
+                            failure.elementIds.any { it in EDITOR_SCHEME_ELEMENTS } &&
+                                !AyuEditorSchemeScope.hasAccentCleanupFailures()
+                        if (hasUnattributedEditorFailure) {
+                            AyuEditorSchemeScope.retainAllAccentClaims()
+                        }
+                        throw failure
+                    }
                 }
-                put(AccentApplyStep.RevertAlwaysOnEditorKeys) { revertAlwaysOnEditorKeys() }
+                put(AccentApplyStep.RevertAlwaysOnEditorKeys) {
+                    try {
+                        revertAlwaysOnEditorKeys()
+                    } finally {
+                        AyuEditorSchemeScope.releaseCleanAccentClaims()
+                    }
+                }
                 put(AccentApplyStep.RevertIndentRainbow) {
                     IndentRainbowSync.revert().propagateFailure()
                 }
@@ -535,18 +566,10 @@ object AccentApplicator {
             for ((step, error) in failures) {
                 log.warn("Accent revert step $step failed; remaining steps still ran", error)
             }
-            val editorCleanupFailed =
-                failures.any { failure ->
-                    failure.step == AccentApplyStep.ClearUiAndExtensions ||
-                        failure.step == AccentApplyStep.RevertAlwaysOnEditorKeys
-                }
-            if (!editorCleanupFailed) {
-                AyuEditorSchemeScope.releaseAccentClaims()
-            }
         }
     }
 
-    private fun clearReverseUiAndExtensions(): RuntimeException? {
+    private fun clearReverseUiAndExtensions(): ElementRevertFailure? {
         for (key in ALWAYS_ON_UI_KEYS) {
             UIManager.put(key, null)
         }
@@ -562,21 +585,18 @@ object AccentApplicator {
         ExternalChromeOwnership.releaseTabUnderline()
 
         val failedExternalReverts = mutableSetOf<AccentElementId>()
-        var firstFailure: RuntimeException? = null
+        var firstFailure: Throwable? = null
         for (element in EP_NAME.extensionList) {
-            try {
-                element.revert()
-            } catch (exception: RuntimeException) {
-                failedExternalReverts.add(element.id)
-                if (firstFailure == null) firstFailure = exception
-                log.warn(
-                    "Failed to revert ${element.displayName}",
-                    exception,
-                )
-            }
+            val failure = runCatchingPreservingCancellation { element.revert() }.exceptionOrNull() ?: continue
+            failedExternalReverts.add(element.id)
+            if (firstFailure == null) firstFailure = failure
+            log.warn(
+                "Failed to revert ${element.displayName}",
+                failure,
+            )
         }
         ExternalChromeOwnership.finishRevert(failedExternalReverts)
-        return firstFailure
+        return firstFailure?.let { ElementRevertFailure(failedExternalReverts, it) }
     }
 
     private fun neutralizeOrRevert(
@@ -794,10 +814,9 @@ object AccentApplicator {
     }
 
     private fun revertAlwaysOnEditorKeys() {
-        val schemes = AyuEditorSchemeScope.claimedAccentSchemes()
-        if (schemes.isEmpty()) return
+        if (AyuEditorSchemeScope.claimedAccentSchemes().isEmpty()) return
 
-        for (scheme in schemes) {
+        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
             for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
                 scheme.setColor(colorKey, null)
             }
@@ -819,6 +838,11 @@ object AccentApplicator {
                 .globalSchemeChange(null)
         }
     }
+
+    private class ElementRevertFailure(
+        val elementIds: Set<AccentElementId>,
+        cause: Throwable,
+    ) : RuntimeException(cause)
 
     /**
      * Write-side repaint pass over the JVM's window list. Filters by

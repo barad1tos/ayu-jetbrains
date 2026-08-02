@@ -74,7 +74,7 @@ class MatchingTagElement : AccentElement {
     }
 
     override fun revert() {
-        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
             val fallback = tagAttrKey.fallbackAttributeKey
             val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
             scheme.setAttributes(tagAttrKey, defaultAttrs ?: TextAttributes())

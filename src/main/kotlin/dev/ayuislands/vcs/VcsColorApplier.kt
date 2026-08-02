@@ -36,8 +36,7 @@ import java.util.IdentityHashMap
  */
 internal object VcsColorApplier {
     private val LOG = logger<VcsColorApplier>()
-    private val claimedSchemes: MutableSet<EditorColorsScheme> =
-        Collections.newSetFromMap(IdentityHashMap())
+    private val claimedEntries: MutableMap<EditorColorsScheme, MutableSet<VcsPaletteEntry>> = IdentityHashMap()
     private val enrolledSchemes: MutableSet<EditorColorsScheme> =
         Collections.newSetFromMap(IdentityHashMap())
 
@@ -54,7 +53,6 @@ internal object VcsColorApplier {
      */
     fun applyAll() {
         if (!LicenseChecker.isLicensedOrGrace()) {
-            AyuEditorSchemeScope.activeScheme()?.let(::claim)
             revertAll()
             return
         }
@@ -72,11 +70,10 @@ internal object VcsColorApplier {
                     currentScheme.takeIf(::isEnrolled)
                         ?: AyuEditorSchemeScope.activeScheme()
                         ?: return@invokeLater
-                claim(scheme)
                 writeAll(scheme, state, currentVariant)
                 repaintAllWindows()
             } else {
-                revertClaims(removeEnrollments = true)
+                revertClaimsWithRetry(removeEnrollments = true)
             }
         }
     }
@@ -86,8 +83,7 @@ internal object VcsColorApplier {
     fun applyCurrentScheme() {
         val state = AyuIslandsSettings.getInstance().state
         if (!VcsColorContext.isEnabled(state)) {
-            claim(EditorColorsManager.getInstance().globalScheme)
-            revertClaims(removeEnrollments = true)
+            revertClaimsWithRetry(removeEnrollments = true)
             return
         }
         if (!LicenseChecker.isLicensedOrGrace()) {
@@ -98,7 +94,6 @@ internal object VcsColorApplier {
         val scheme = EditorColorsManager.getInstance().globalScheme
 
         enroll(scheme)
-        claim(scheme)
         writeAll(scheme, state, variant)
         repaintAllWindows()
     }
@@ -113,7 +108,7 @@ internal object VcsColorApplier {
      */
     fun revertAll() {
         ApplicationManager.getApplication().invokeLater {
-            revertClaims()
+            revertClaimsWithRetry()
         }
     }
 
@@ -128,44 +123,68 @@ internal object VcsColorApplier {
             enrolledSchemes.contains(scheme)
         }
 
-    private fun claim(scheme: EditorColorsScheme) {
-        synchronized(claimedSchemes) {
-            claimedSchemes.add(scheme)
+    private fun claimEntry(
+        scheme: EditorColorsScheme,
+        entry: VcsPaletteEntry,
+    ) {
+        synchronized(claimedEntries) {
+            claimedEntries.getOrPut(scheme) { mutableSetOf() }.add(entry)
         }
     }
 
-    private fun revertClaims(removeEnrollments: Boolean = false) {
-        val schemes = synchronized(claimedSchemes) { claimedSchemes.toList() }
-        val failedSchemes: MutableSet<EditorColorsScheme> =
-            Collections.newSetFromMap(IdentityHashMap())
+    private fun releaseEntry(
+        scheme: EditorColorsScheme,
+        entry: VcsPaletteEntry,
+    ) {
+        synchronized(claimedEntries) {
+            claimedEntries[scheme]?.let { entries ->
+                entries.remove(entry)
+                if (entries.isEmpty()) claimedEntries.remove(scheme)
+            }
+        }
+    }
+
+    private fun revertClaimsWithRetry(removeEnrollments: Boolean = false) {
+        if (revertClaims(removeEnrollments)) {
+            revertClaims(removeEnrollments)
+        }
+    }
+
+    /** Returns true when at least one exact claimed entry still needs cleanup. */
+    private fun revertClaims(removeEnrollments: Boolean): Boolean {
+        val claims =
+            synchronized(claimedEntries) {
+                claimedEntries.map { (scheme, entries) -> scheme to entries.toList() }
+            }
         var failedEntries = 0
 
-        for (scheme in schemes) {
-            val failures = revertEveryEntry(scheme)
-            failedEntries += failures
-            if (failures == 0) {
-                synchronized(claimedSchemes) {
-                    claimedSchemes.remove(scheme)
+        for ((scheme, entries) in claims) {
+            for (entry in entries) {
+                if (safeRevertEntry(scheme, entry)) {
+                    releaseEntry(scheme, entry)
+                } else {
+                    failedEntries++
                 }
-            } else {
-                failedSchemes.add(scheme)
             }
         }
         if (removeEnrollments) {
             synchronized(enrolledSchemes) {
-                enrolledSchemes.retainAll(failedSchemes)
+                enrolledSchemes.removeIf { scheme ->
+                    synchronized(claimedEntries) { scheme !in claimedEntries }
+                }
             }
         }
         if (failedEntries > 0) {
             LOG.warn("VcsColorApplier.revertAll: $failedEntries entries failed to revert; see prior warnings")
         }
-        if (schemes.isNotEmpty()) repaintAllWindows()
+        if (claims.isNotEmpty()) repaintAllWindows()
+        return failedEntries > 0
     }
 
     @TestOnly
     fun resetClaims() {
-        synchronized(claimedSchemes) {
-            claimedSchemes.clear()
+        synchronized(claimedEntries) {
+            claimedEntries.clear()
         }
         synchronized(enrolledSchemes) {
             enrolledSchemes.clear()
@@ -177,12 +196,7 @@ internal object VcsColorApplier {
         state: AyuIslandsState,
         variant: AyuVariant,
     ) {
-        val failed =
-            if (VcsColorContext.isEnabled(state)) {
-                writeEveryEntry(scheme, state, variant)
-            } else {
-                revertEveryEntry(scheme)
-            }
+        val failed = writeEveryEntry(scheme, state, variant)
         if (failed > 0) LOG.warn("VcsColorApplier.writeAll: $failed entries failed; see prior warnings")
     }
 
@@ -195,17 +209,11 @@ internal object VcsColorApplier {
         for ((category, entries) in VcsColorPalette.allCategoriesAndEntries()) {
             val intensity = VcsColorContext.currentIntensity(category, state)
             for (entry in entries) {
-                if (!safeWriteEntry(scheme, entry, blendFor(entry, variant, intensity))) failed++
-            }
-        }
-        return failed
-    }
-
-    private fun revertEveryEntry(scheme: EditorColorsScheme): Int {
-        var failed = 0
-        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
-            for (entry in entries) {
-                if (!safeRevertEntry(scheme, entry)) failed++
+                if (safeWriteEntry(scheme, entry, blendFor(entry, variant, intensity))) {
+                    claimEntry(scheme, entry)
+                } else {
+                    failed++
+                }
             }
         }
         return failed

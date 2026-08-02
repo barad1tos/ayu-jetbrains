@@ -37,7 +37,7 @@ class BracketMatchElement : AccentElement {
     }
 
     override fun revert() {
-        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
             val fallback = braceAttrKey.fallbackAttributeKey
             val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
             scheme.setAttributes(braceAttrKey, defaultAttrs ?: TextAttributes())

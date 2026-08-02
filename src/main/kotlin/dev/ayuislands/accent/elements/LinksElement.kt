@@ -74,7 +74,7 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
             for (key in editorColorKeys) {
                 scheme.setColor(key, null)
             }

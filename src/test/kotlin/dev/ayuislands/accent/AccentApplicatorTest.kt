@@ -9,12 +9,14 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictEntry
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.conflict.ConflictType
 import dev.ayuislands.accent.elements.AbstractChromeElement
+import dev.ayuislands.accent.elements.InlayHintsElement
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.integration.IntegrationOutcome
@@ -39,6 +41,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -1398,6 +1401,53 @@ class AccentApplicatorTest {
         AccentApplicator.revertAll()
 
         assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
+    }
+
+    @Test
+    fun `revertAll releases editor claims after a chrome-only cleanup failure`() {
+        val failingElement = mockk<AccentElement>(relaxed = true)
+        every { failingElement.id } returns AccentElementId.STATUS_BAR
+        every { failingElement.displayName } returns "FailingChrome"
+        every { failingElement.revert() } throws RuntimeException("revert failed")
+        mockEpExtensionList(listOf(failingElement))
+        AyuEditorSchemeScope.claimActiveScheme()
+
+        AccentApplicator.revertAll()
+
+        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().isEmpty())
+    }
+
+    @Test
+    fun `revertAll releases cleaned scheme and retains only failed scheme identity`() {
+        val inlayKey = TextAttributesKey.find("INLAY_TEXT_WITHOUT_BACKGROUND")
+        val cleanedScheme = mockk<EditorColorsScheme>(relaxed = true)
+        every { cleanedScheme.name } returns "Ayu Islands Mirage"
+        every { cleanedScheme.getAttributes(any<TextAttributesKey>()) } returns TextAttributes()
+        every { mockColorsManager.globalScheme } returns mockScheme
+        AyuEditorSchemeScope.claimActiveScheme()
+        every { mockColorsManager.globalScheme } returns cleanedScheme
+        AyuEditorSchemeScope.claimActiveScheme()
+        every { mockScheme.setAttributes(inlayKey, null) } throws IllegalStateException("cleanup failed")
+        mockEpExtensionList(listOf(InlayHintsElement()))
+
+        AccentApplicator.revertAll()
+
+        assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
+        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().single() === mockScheme)
+    }
+
+    @Test
+    fun `later cancellation does not retain successfully cleaned editor claims`() {
+        mockEpExtensionList(emptyList())
+        AyuEditorSchemeScope.claimActiveScheme()
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.revert() } throws ProcessCanceledException()
+
+        assertFailsWith<ProcessCanceledException> {
+            AccentApplicator.revertAll()
+        }
+
+        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().isEmpty())
     }
 
     @Test

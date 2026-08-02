@@ -214,7 +214,28 @@ class VcsColorApplierTest {
     }
 
     @Test
+    fun `disabling VCS does not clean the newly selected unclaimed scheme`() {
+        state.vcsColorEnabled = true
+        VcsColorApplier.applyAll()
+
+        val replacement = mockk<EditorColorsScheme>(relaxed = true)
+        every { replacement.name } returns "Solarized Dark"
+        every { mockColorsManager.globalScheme } returns replacement
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
+        state.vcsColorEnabled = false
+
+        VcsColorApplier.applyCurrentScheme()
+
+        verify(exactly = 0) { replacement.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { replacement.setAttributes(any<TextAttributesKey>(), any()) }
+        verify(atLeast = 1) { mockScheme.setColor(any<ColorKey>(), null) }
+    }
+
+    @Test
     fun `applyAll - master disabled writes null to every palette entry (revert fan-out)`() {
+        state.vcsColorEnabled = true
+        VcsColorApplier.applyCurrentScheme()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
         state.vcsColorEnabled = false
 
         VcsColorApplier.applyCurrentScheme()
@@ -337,6 +358,9 @@ class VcsColorApplierTest {
         // Symmetric to safeWriteEntry: one failing scheme.setColor must not
         // abandon the rest of the revert. Fire through applyAll with
         // vcsColorEnabled=false (routes to revertEveryEntry).
+        state.vcsColorEnabled = true
+        VcsColorApplier.applyCurrentScheme()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
         state.vcsColorEnabled = false
         val colorKeyEntries = partitionPaletteByMode().first
         val poisonKeyName = colorKeyEntries.first().keyName
@@ -347,10 +371,9 @@ class VcsColorApplierTest {
         VcsColorApplier.applyCurrentScheme()
 
         val textAttrEntries = partitionPaletteByMode().second
-        // Same total-invocation invariant as the safeWriteEntry test: MockK
-        // records the throwing call, so total setColor invocations stay at
-        // colorKeyEntries.size. The remaining n-1 reverts landed successfully.
-        verify(exactly = colorKeyEntries.size) {
+        // The first pass still reaches every entry, then the bounded retry
+        // targets only the one failed key.
+        verify(exactly = colorKeyEntries.size + 1) {
             mockScheme.setColor(any<ColorKey>(), null)
         }
         verify(exactly = textAttrEntries.size) {
@@ -395,13 +418,16 @@ class VcsColorApplierTest {
         every { mockScheme.setColor(poisonKey, null) } returns Unit
         VcsColorApplier.revertAll()
 
-        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
-        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), null) }
-        verify(exactly = textAttrEntries.size) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+        verify(exactly = 1) { mockScheme.setColor(poisonKey, null) }
+        verify(exactly = 1) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
     }
 
     @Test
-    fun `applyAll without a license reverts persisted premium colors`() {
+    fun `applyAll without a license reverts claimed premium colors`() {
+        state.vcsColorEnabled = true
+        VcsColorApplier.applyAll()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
         state.vcsColorEnabled = true
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
@@ -415,6 +441,17 @@ class VcsColorApplierTest {
             mockScheme.setAttributes(any<TextAttributesKey>(), null)
         }
         assertTrue(state.vcsColorEnabled)
+    }
+
+    @Test
+    fun `applyAll without a license does not clean an unclaimed scheme`() {
+        state.vcsColorEnabled = true
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        VcsColorApplier.applyAll()
+
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

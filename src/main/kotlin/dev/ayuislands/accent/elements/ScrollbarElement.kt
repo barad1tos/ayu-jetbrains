@@ -71,7 +71,7 @@ class ScrollbarElement : AccentElement {
         for (key in hoverKeys + defaultKeys) {
             UIManager.put(key, null)
         }
-        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
             for (key in hoverKeys + defaultKeys) {
                 scheme.setColor(ColorKey.find(key), null)
             }

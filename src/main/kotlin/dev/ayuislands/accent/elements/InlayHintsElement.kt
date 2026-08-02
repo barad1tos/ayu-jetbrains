@@ -38,7 +38,7 @@ class InlayHintsElement : AccentElement {
     }
 
     override fun revert() {
-        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
             scheme.setAttributes(INLAY_KEY, null)
         }
     }
