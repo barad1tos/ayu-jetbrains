@@ -17,7 +17,6 @@ import dev.ayuislands.reapply.ReapplyStep.Font
 import dev.ayuislands.reapply.ReapplyStep.Glow
 import dev.ayuislands.reapply.ReapplyStep.Notify
 import dev.ayuislands.reapply.ReapplyStep.RevertAccent
-import dev.ayuislands.reapply.ReapplyStep.RevertFont
 import dev.ayuislands.reapply.ReapplyStep.Syntax
 import dev.ayuislands.reapply.ReapplyStep.VcsRevert
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -49,11 +48,11 @@ object ThemeReapplication {
                     }
 
                     AccentContext.External -> {
-                        listOf(RevertAccent, RevertFont, ApplyResolvedAccent, Glow)
+                        listOf(RevertAccent, ApplyResolvedAccent, Glow)
                     }
 
                     null -> {
-                        listOf(RevertAccent, RevertFont, Glow)
+                        listOf(RevertAccent, Glow)
                     }
                 }
             }
@@ -102,7 +101,7 @@ object ThemeReapplication {
     ) {
         when (step) {
             BindScheme, ApplyResolvedAccent, ApplyExplicitHex, RevertAccent -> runAccentStep(step, reason)
-            Font, RevertFont, Notify, Glow, Syntax, VcsRevert -> runSurfaceStep(step)
+            Font, Notify, Glow, Syntax, VcsRevert -> runSurfaceStep(step)
         }
     }
 
@@ -145,7 +144,7 @@ object ThemeReapplication {
             }
 
             // Surface steps are dispatched by runStep; unreachable here.
-            Font, RevertFont, Notify, Glow, Syntax, VcsRevert -> {
+            Font, Notify, Glow, Syntax, VcsRevert -> {
                 return
             }
         }
@@ -156,10 +155,6 @@ object ThemeReapplication {
         when (step) {
             Font -> {
                 FontPresetApplicator.applyFromState()
-            }
-
-            RevertFont -> {
-                FontPresetApplicator.revert()
             }
 
             Notify -> {

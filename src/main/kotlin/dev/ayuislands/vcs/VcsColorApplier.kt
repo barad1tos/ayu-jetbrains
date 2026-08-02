@@ -64,9 +64,14 @@ internal object VcsColorApplier {
      * Reverts every VCS color entry to stock — null-writes via
      * `scheme.setColor` (for ColorKey entries) and `scheme.setAttributes`
      * (for TextAttributesKey entries) so the scheme falls back to the XML
-     * baseline. Used when the master kill-switch flips ON → OFF.
+     * baseline. Used when the master kill-switch flips ON → OFF, and skipped
+     * after the active LAF is no longer an Ayu variant.
      */
     fun revertAll() {
+        if (AyuVariant.detect() == null) {
+            LOG.debug("VcsColorApplier.revertAll: no Ayu variant active; skipping")
+            return
+        }
         ApplicationManager.getApplication().invokeLater {
             val scheme = EditorColorsManager.getInstance().globalScheme
             val failed = revertEveryEntry(scheme)

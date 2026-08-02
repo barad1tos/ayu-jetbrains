@@ -98,6 +98,17 @@ class VcsColorApplierTest {
     }
 
     @Test
+    fun `revertAll - variant null is a no-op (no scheme writes)`() {
+        every { AyuVariant.detect() } returns null
+
+        VcsColorApplier.revertAll()
+
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+        verify(exactly = 0) { mockApplication.invokeLater(any()) }
+    }
+
+    @Test
     fun `applyAll - master disabled writes null to every palette entry (revert fan-out)`() {
         state.vcsColorEnabled = false
 
