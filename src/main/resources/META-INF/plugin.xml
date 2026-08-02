@@ -121,6 +121,12 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.8.1</h3>
+    <ul>
+      <li>[Paid] <b>Connected-island ECG routing</b> — Chaotic waveform mode can finish its current loop and continue across adjacent editor, tool-window, and neighboring IDE-window islands. Routes stay continuous through focus changes, empty editors, touching perimeters, and window lifecycle transitions without rewriting existing Glow preferences.</li>
+      <li>[Fix] <b>License and trial transitions</b> — premium effects and integrations return to free behavior immediately when access ends, while saved premium preferences remain untouched and resume after relicensing. Premium font installs are blocked without access, uninstall remains available, and temporary entitlement failures retry instead of becoming permanent.</li>
+      <li>[Fix] <b>Editor color-scheme ownership</b> — Ayu restores only caret, matched brace, link, inlay-hint, matching-tag, progress-bar, scrollbar, and VCS values it still owns. Manual edits, inherited values, editable copies, and foreign schemes survive theme changes, OS appearance changes, restarts, and feature toggles.</li>
+    </ul>
     <h3>2.8.0</h3>
     <ul>
       <li>[Paid] <b>Chrome tint on external themes</b> — selected chrome surfaces and the active tab underline can follow the Ayu accent on non-Ayu themes when explicitly enabled. It stays off by default, respects individual tint targets, and restores the host theme cleanly when disabled.</li>

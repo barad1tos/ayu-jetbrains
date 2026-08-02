@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.8.1] - 2026-08-03
+
+- [Paid] **Connected-island ECG routing** — Chaotic waveform mode can finish
+  its current loop and continue across adjacent editor, tool-window, and
+  neighboring IDE-window islands. Routes stay continuous through focus changes,
+  empty editors, touching perimeters, and window lifecycle transitions without
+  rewriting existing Glow preferences.
+- [Fix] **License and trial transitions** — premium effects and integrations
+  return to free behavior immediately when access ends, while saved premium
+  preferences remain untouched and resume after relicensing. Premium font
+  installs are blocked without access, uninstall remains available, and
+  temporary entitlement failures retry instead of becoming permanent.
+- [Fix] **Editor color-scheme ownership** — Ayu restores only caret, matched
+  brace, link, inlay-hint, matching-tag, progress-bar, scrollbar, and VCS values
+  it still owns. Manual edits, inherited values, editable copies, and foreign
+  schemes now survive theme changes, OS appearance changes, restarts, and
+  feature toggles.
+
 ## [2.8.0] - 2026-07-18
 
 - [Paid] **Chrome tint on external themes** — selected chrome surfaces and the

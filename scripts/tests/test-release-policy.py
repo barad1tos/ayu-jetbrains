@@ -97,6 +97,34 @@ class VerifyReleasePolicyTest(unittest.TestCase):
 
         self.assertFalse(report.has_errors, report.findings)
 
+    def test_paid_update_allows_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = make_repository(
+                Path(temporary_directory),
+                plugin_version="2.8.1",
+                plugin_xml_version="2.8.1",
+                changelog_text="""
+                    ## [2.8.1] - 2026-08-03
+
+                    - [Paid] Chaotic ECG routes across connected islands.
+
+                    ## [2.8.0] - 2026-07-18
+
+                    - [Paid] ECG waveform glow.
+                """,
+            )
+
+            report = run_release_policy(
+                root,
+                features_data(
+                    feature_id="glow-waveform",
+                    introduced="2.8.0",
+                    updated="2.8.1",
+                ),
+            )
+
+        self.assertFalse(report.has_errors, report.findings)
+
     def test_gradle_version_must_match_latest_changelog(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = make_repository(
@@ -221,6 +249,7 @@ def run_release_policy(root: Path, data: dict[str, object]) -> Report:
     changelog.GRADLE_PROPERTIES = root / "gradle.properties"
     changelog.PLUGIN_XML = root / "plugin.xml"
     report = Report()
+    changelog.check_changelog_cross_ref(data, report)
     changelog.check_semantic_release_policy(data, report)
     return report
 
@@ -229,16 +258,18 @@ def features_data(
     *,
     feature_id: str = "previous-feature",
     introduced: str = "2.7.5",
+    updated: str | None = None,
 ) -> dict[str, object]:
+    feature: dict[str, str] = {
+        "id": feature_id,
+        "introduced": introduced,
+    }
+    if updated is not None:
+        feature["updated"] = updated
     return {
         "categories": {
             "accent": {
-                "features": [
-                    {
-                        "id": feature_id,
-                        "introduced": introduced,
-                    }
-                ]
+                "features": [feature]
             }
         }
     }
