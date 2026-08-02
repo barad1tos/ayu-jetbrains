@@ -1,11 +1,11 @@
 package dev.ayuislands.accent.elements
 
 import com.intellij.openapi.editor.colors.ColorKey
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -13,6 +13,7 @@ import javax.swing.UIManager
 class ProgressBarElement : AccentElement {
     override val id = AccentElementId.PROGRESS_BAR
     override val displayName = "Progress Bar"
+    private val schemeOwner = EditorSchemeOwner.Element(id)
 
     private val uiKeys =
         listOf(
@@ -27,7 +28,7 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, color)
         }
         runOnEdt {
-            AyuEditorSchemeScope.claimActiveScheme()?.setColor(editorKey, color)
+            AyuEditorSchemeScope.writeColor(schemeOwner, editorKey, color)
         }
     }
 
@@ -36,11 +37,7 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, null)
         }
         runOnEdt {
-            val scheme = AyuEditorSchemeScope.claimActiveScheme()
-            if (scheme != null) {
-                val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-                scheme.setColor(editorKey, parentScheme?.getColor(editorKey))
-            }
+            AyuEditorSchemeScope.restore(schemeOwner)
         }
     }
 
@@ -49,9 +46,7 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, null)
         }
         runOnEdt {
-            AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
-                scheme.setColor(editorKey, null)
-            }
+            AyuEditorSchemeScope.restore(schemeOwner)
         }
     }
 

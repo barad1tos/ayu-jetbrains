@@ -5,12 +5,14 @@ import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
 import javax.swing.UIManager
 
 class ScrollbarElement : AccentElement {
     override val id = AccentElementId.SCROLLBAR
     override val displayName = "Scrollbar"
+    private val schemeOwner = EditorSchemeOwner.Element(id)
 
     private val hoverKeys =
         listOf(
@@ -56,14 +58,11 @@ class ScrollbarElement : AccentElement {
         // EditorColorsScheme keys (editor scrollbars via OpaqueAwareScrollBar).
         // Editor scrollbars bypass UIManager entirely — OpaqueAwareScrollBar installs
         // a ColorKey.FUNCTION_KEY that resolves colors from EditorColorsScheme.getColor().
-        val scheme = AyuEditorSchemeScope.claimActiveScheme()
-        if (scheme != null) {
-            for (key in hoverKeys) {
-                scheme.setColor(ColorKey.find(key), hoverColor)
-            }
-            for (key in defaultKeys) {
-                scheme.setColor(ColorKey.find(key), defaultColor)
-            }
+        for (key in hoverKeys) {
+            AyuEditorSchemeScope.writeColor(schemeOwner, ColorKey.find(key), hoverColor)
+        }
+        for (key in defaultKeys) {
+            AyuEditorSchemeScope.writeColor(schemeOwner, ColorKey.find(key), defaultColor)
         }
     }
 
@@ -71,10 +70,6 @@ class ScrollbarElement : AccentElement {
         for (key in hoverKeys + defaultKeys) {
             UIManager.put(key, null)
         }
-        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
-            for (key in hoverKeys + defaultKeys) {
-                scheme.setColor(ColorKey.find(key), null)
-            }
-        }
+        AyuEditorSchemeScope.restore(schemeOwner)
     }
 }

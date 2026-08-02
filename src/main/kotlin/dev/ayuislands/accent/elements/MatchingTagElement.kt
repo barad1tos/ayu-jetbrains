@@ -1,6 +1,5 @@
 package dev.ayuislands.accent.elements
 
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
@@ -10,11 +9,13 @@ import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.syntax.RgbBlend
 import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
 
 class MatchingTagElement : AccentElement {
     override val id = AccentElementId.MATCHING_TAG
     override val displayName = "Matching Tag"
+    private val schemeOwner = EditorSchemeOwner.Element(id)
 
     private val tagAttrKey = TextAttributesKey.find("MATCHED_TAG_NAME")
 
@@ -24,7 +25,7 @@ class MatchingTagElement : AccentElement {
         val updated = existing?.clone() ?: TextAttributes()
         updated.backgroundColor = blendWithEditorBackground(color, editorBackgroundFor(scheme))
         updated.foregroundColor = null
-        scheme.setAttributes(tagAttrKey, updated)
+        AyuEditorSchemeScope.writeAttributes(schemeOwner, tagAttrKey, updated)
     }
 
     private fun editorBackgroundFor(scheme: EditorColorsScheme): Color {
@@ -67,18 +68,11 @@ class MatchingTagElement : AccentElement {
         ).toInt().coerceIn(0, MAX_CHANNEL_VALUE)
 
     override fun applyNeutral(variant: AyuVariant) {
-        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
-        val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-        val parentAttrs = parentScheme?.getAttributes(tagAttrKey)
-        scheme.setAttributes(tagAttrKey, parentAttrs ?: TextAttributes())
+        AyuEditorSchemeScope.restore(schemeOwner)
     }
 
     override fun revert() {
-        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
-            val fallback = tagAttrKey.fallbackAttributeKey
-            val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
-            scheme.setAttributes(tagAttrKey, defaultAttrs ?: TextAttributes())
-        }
+        AyuEditorSchemeScope.restore(schemeOwner)
     }
 
     companion object {

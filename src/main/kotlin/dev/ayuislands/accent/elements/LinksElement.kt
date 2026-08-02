@@ -1,19 +1,20 @@
 package dev.ayuislands.accent.elements
 
 import com.intellij.openapi.editor.colors.ColorKey
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
 import javax.swing.UIManager
 
 class LinksElement : AccentElement {
     override val id = AccentElementId.LINKS
     override val displayName = "Links"
+    private val schemeOwner = EditorSchemeOwner.Element(id)
 
     private val uiKeys =
         listOf(
@@ -44,14 +45,14 @@ class LinksElement : AccentElement {
         }
         val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
         for (key in editorColorKeys) {
-            scheme.setColor(key, color)
+            AyuEditorSchemeScope.writeColor(schemeOwner, key, color)
         }
         for (attrKey in editorAttrKeys) {
             val existing = scheme.getAttributes(attrKey)
             val updated = existing?.clone() ?: TextAttributes()
             updated.foregroundColor = color
             updated.effectColor = color
-            scheme.setAttributes(attrKey, updated)
+            AyuEditorSchemeScope.writeAttributes(schemeOwner, attrKey, updated)
         }
     }
 
@@ -59,28 +60,13 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
-        val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-        for (colorKey in editorColorKeys) {
-            scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
-        }
-        for (attrKey in editorAttrKeys) {
-            val parentAttrs = parentScheme?.getAttributes(attrKey)
-            scheme.setAttributes(attrKey, parentAttrs)
-        }
+        AyuEditorSchemeScope.restore(schemeOwner)
     }
 
     override fun revert() {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
-            for (key in editorColorKeys) {
-                scheme.setColor(key, null)
-            }
-            for (attrKey in editorAttrKeys) {
-                scheme.setAttributes(attrKey, null)
-            }
-        }
+        AyuEditorSchemeScope.restore(schemeOwner)
     }
 }
