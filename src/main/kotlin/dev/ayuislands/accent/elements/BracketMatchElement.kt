@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import java.awt.Color
 import java.awt.Font
 
@@ -16,7 +17,7 @@ class BracketMatchElement : AccentElement {
     private val braceAttrKey = TextAttributesKey.find("MATCHED_BRACE_ATTRIBUTES")
 
     override fun apply(color: Color) {
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val existing = scheme.getAttributes(braceAttrKey)
         val updated = existing?.clone() ?: TextAttributes()
         updated.foregroundColor = color
@@ -26,18 +27,22 @@ class BracketMatchElement : AccentElement {
     }
 
     override fun applyNeutral(variant: AyuVariant) {
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-        val parentAttrs = parentScheme?.getAttributes(braceAttrKey)
-        scheme.setAttributes(braceAttrKey, parentAttrs ?: TextAttributes())
+        val scheme = AyuEditorSchemeScope.activeScheme()
+        if (scheme != null) {
+            val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
+            val parentAttrs = parentScheme?.getAttributes(braceAttrKey)
+            scheme.setAttributes(braceAttrKey, parentAttrs ?: TextAttributes())
+        }
         BracketFadeManager.deactivate()
     }
 
     override fun revert() {
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        val fallback = braceAttrKey.fallbackAttributeKey
-        val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
-        scheme.setAttributes(braceAttrKey, defaultAttrs ?: TextAttributes())
+        val scheme = AyuEditorSchemeScope.activeScheme()
+        if (scheme != null) {
+            val fallback = braceAttrKey.fallbackAttributeKey
+            val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
+            scheme.setAttributes(braceAttrKey, defaultAttrs ?: TextAttributes())
+        }
         BracketFadeManager.deactivate()
     }
 }

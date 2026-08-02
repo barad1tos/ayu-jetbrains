@@ -8,6 +8,7 @@ import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import java.awt.Color
 
 private const val MUTED_ALPHA = 140
@@ -20,7 +21,7 @@ class InlayHintsElement : AccentElement {
     override fun apply(color: Color) {
         val mutedAccent = ColorUtil.toAlpha(color, MUTED_ALPHA)
         val muted = JBColor(mutedAccent, mutedAccent)
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val existing = scheme.getAttributes(INLAY_KEY)
         val updated = existing?.clone() ?: TextAttributes()
         updated.foregroundColor = muted
@@ -28,8 +29,8 @@ class InlayHintsElement : AccentElement {
     }
 
     override fun applyNeutral(variant: AyuVariant) {
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-        val scheme = EditorColorsManager.getInstance().globalScheme
         scheme.setAttributes(
             INLAY_KEY,
             parentScheme?.getAttributes(INLAY_KEY),
@@ -37,7 +38,7 @@ class InlayHintsElement : AccentElement {
     }
 
     override fun revert() {
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         scheme.setAttributes(INLAY_KEY, null)
     }
 }

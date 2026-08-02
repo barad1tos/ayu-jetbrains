@@ -7,6 +7,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import java.awt.Color
 import javax.swing.UIManager
 
@@ -41,7 +42,7 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, color)
         }
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         for (key in editorColorKeys) {
             scheme.setColor(key, color)
         }
@@ -58,8 +59,8 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-        val scheme = EditorColorsManager.getInstance().globalScheme
         for (colorKey in editorColorKeys) {
             scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
         }
@@ -73,7 +74,7 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         for (key in editorColorKeys) {
             scheme.setColor(key, null)
         }

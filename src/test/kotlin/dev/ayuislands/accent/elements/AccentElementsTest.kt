@@ -59,6 +59,9 @@ class AccentElementsTest {
         mockkStatic(TextAttributesKey::class)
         every { TextAttributesKey.find(any<String>()) } answers { mockk(relaxed = true) }
 
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+
         mockkObject(BracketFadeManager)
         every { BracketFadeManager.activate(any()) } returns Unit
         every { BracketFadeManager.deactivate() } returns Unit
@@ -131,6 +134,47 @@ class AccentElementsTest {
             element.revert()
             verify(atLeast = 1) { UIManager.put(any<String>(), null) }
         }
+    }
+
+    @Test
+    fun `scheme-backed elements preserve a foreign editor scheme`() {
+        every { mockScheme.name } returns "Solarized Dark"
+        val elements =
+            listOf(
+                LinksElement(),
+                ScrollbarElement(),
+                ProgressBarElement(),
+                InlayHintsElement(),
+                CaretRowElement(),
+                BracketMatchElement(),
+                MatchingTagElement(),
+            )
+
+        elements.forEach { element ->
+            element.apply(testColor)
+            element.applyNeutral(AyuVariant.MIRAGE)
+            element.revert()
+        }
+
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any<Color>()) }
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any<TextAttributes>()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+        verify(exactly = 2) { BracketFadeManager.deactivate() }
+    }
+
+    @Test
+    fun `mixed elements still update UI keys for a foreign editor scheme`() {
+        every { mockScheme.name } returns "Solarized Dark"
+        val elements = listOf(LinksElement(), ScrollbarElement(), ProgressBarElement())
+
+        elements.forEach { element ->
+            element.apply(testColor)
+            element.revert()
+        }
+
+        verify(atLeast = 1) { UIManager.put(any<String>(), any<Color>()) }
+        verify(atLeast = 1) { UIManager.put(any<String>(), null) }
     }
 
     @Test
@@ -234,6 +278,7 @@ class AccentElementsTest {
     @Test
     fun `MatchingTagElement apply keeps light background when light scheme is unresolved`() {
         val attributesSlot = slot<TextAttributes>()
+        every { AyuVariant.detect() } returns AyuVariant.LIGHT
         every { mockScheme.defaultBackground } returns Color.WHITE
         every { mockScheme.name } returns "Ayu Islands Light"
         every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null

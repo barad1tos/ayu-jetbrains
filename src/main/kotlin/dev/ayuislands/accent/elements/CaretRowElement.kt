@@ -6,6 +6,7 @@ import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import java.awt.Color
 
 class CaretRowElement : AccentElement {
@@ -18,15 +19,15 @@ class CaretRowElement : AccentElement {
 
     override fun apply(color: Color) {
         val caretRowColor = ColorUtil.toAlpha(color, CARET_ROW_ALPHA)
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         scheme.setColor(caretRowKey, caretRowColor)
         scheme.setColor(caretKey, color)
         scheme.setColor(lineNumberKey, color)
     }
 
     override fun applyNeutral(variant: AyuVariant) {
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-        val scheme = EditorColorsManager.getInstance().globalScheme
         for (colorKey in listOf(caretRowKey, caretKey, lineNumberKey)) {
             scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
         }
@@ -37,7 +38,7 @@ class CaretRowElement : AccentElement {
     }
 
     override fun revert() {
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         scheme.setColor(caretRowKey, null)
         scheme.setColor(caretKey, null)
         scheme.setColor(lineNumberKey, null)

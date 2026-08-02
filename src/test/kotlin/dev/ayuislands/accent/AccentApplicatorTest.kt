@@ -70,6 +70,7 @@ class AccentApplicatorTest {
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockColorsManager
         every { mockColorsManager.globalScheme } returns mockScheme
+        every { mockScheme.name } returns "Ayu Islands Mirage"
         every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns TextAttributes()
 
         // ApplicationManager must be mocked BEFORE AyuIslandsSettings.Companion,
@@ -239,6 +240,19 @@ class AccentApplicatorTest {
         revertWithoutExtensions()
 
         verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
+    }
+
+    @Test
+    fun `accent editor writes preserve a foreign scheme`() {
+        every { mockScheme.name } returns "Solarized Dark"
+
+        applyWithoutExtensions("#FFCC66")
+        revertWithoutExtensions()
+
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any<Color>()) }
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any<TextAttributes>()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
     }
 
     @Test

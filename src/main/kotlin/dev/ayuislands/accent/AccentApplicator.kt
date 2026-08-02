@@ -26,6 +26,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
@@ -704,7 +705,7 @@ object AccentApplicator {
     }
 
     private fun applyAlwaysOnEditorKeys(accent: Color) {
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
 
         // ColorKey entries
         for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
@@ -756,8 +757,10 @@ object AccentApplicator {
             ExternalChromeOwnership.releaseTabUnderline()
         }
         if (tabMode == GlowTabMode.OFF && variant != null) {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
+            AyuEditorSchemeScope.activeScheme()?.setColor(
+                ColorKey.find("TAB_UNDERLINE"),
+                Color.decode(variant.neutralGray),
+            )
         }
 
         val height =
@@ -778,7 +781,7 @@ object AccentApplicator {
     }
 
     private fun revertAlwaysOnEditorKeys() {
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
 
         for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
             scheme.setColor(colorKey, null)
