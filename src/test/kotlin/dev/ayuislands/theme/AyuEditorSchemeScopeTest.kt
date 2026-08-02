@@ -58,6 +58,22 @@ class AyuEditorSchemeScopeTest {
         verify(exactly = 0) { EditorColorsManager.getInstance() }
     }
 
+    @Test
+    fun `ownedScheme returns Ayu scheme when Ayu is inactive`() {
+        val scheme = scheme("_@user_Ayu Islands Mirage")
+        every { AyuVariant.detect() } returns null
+        every { editorColorsManager.globalScheme } returns scheme
+
+        assertSame(scheme, AyuEditorSchemeScope.ownedScheme())
+    }
+
+    @Test
+    fun `ownedScheme rejects foreign scheme`() {
+        every { editorColorsManager.globalScheme } returns scheme("Solarized Dark")
+
+        assertNull(AyuEditorSchemeScope.ownedScheme())
+    }
+
     private fun scheme(name: String): EditorColorsScheme =
         mockk {
             every { this@mockk.name } returns name

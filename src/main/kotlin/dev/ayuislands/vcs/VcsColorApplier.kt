@@ -3,7 +3,6 @@ package dev.ayuislands.vcs
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
@@ -11,6 +10,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import java.awt.Color
 import java.awt.Window
 
@@ -55,7 +55,9 @@ internal object VcsColorApplier {
             return
         }
         ApplicationManager.getApplication().invokeLater {
-            writeAll(state, variant)
+            val currentVariant = AyuVariant.detect() ?: return@invokeLater
+            val scheme = AyuEditorSchemeScope.activeScheme() ?: return@invokeLater
+            writeAll(scheme, state, currentVariant)
             repaintAllWindows()
         }
     }
@@ -64,16 +66,12 @@ internal object VcsColorApplier {
      * Reverts every VCS color entry to stock — null-writes via
      * `scheme.setColor` (for ColorKey entries) and `scheme.setAttributes`
      * (for TextAttributesKey entries) so the scheme falls back to the XML
-     * baseline. Used when the master kill-switch flips ON → OFF, and skipped
-     * after the active LAF is no longer an Ayu variant.
+     * baseline. Used when the master kill-switch flips ON → OFF and after an
+     * Ayu LAF is deactivated. Only a current Ayu-owned scheme is cleaned.
      */
     fun revertAll() {
-        if (AyuVariant.detect() == null) {
-            LOG.debug("VcsColorApplier.revertAll: no Ayu variant active; skipping")
-            return
-        }
         ApplicationManager.getApplication().invokeLater {
-            val scheme = EditorColorsManager.getInstance().globalScheme
+            val scheme = AyuEditorSchemeScope.ownedScheme() ?: return@invokeLater
             val failed = revertEveryEntry(scheme)
             if (failed > 0) LOG.warn("VcsColorApplier.revertAll: $failed entries failed to revert; see prior warnings")
             repaintAllWindows()
@@ -81,10 +79,10 @@ internal object VcsColorApplier {
     }
 
     private fun writeAll(
+        scheme: EditorColorsScheme,
         state: AyuIslandsState,
         variant: AyuVariant,
     ) {
-        val scheme = EditorColorsManager.getInstance().globalScheme
         val failed =
             if (VcsColorContext.isEnabled(state)) {
                 writeEveryEntry(scheme, state, variant)

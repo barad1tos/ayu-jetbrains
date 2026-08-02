@@ -60,7 +60,7 @@ class AyuEditorSchemeBinderTest {
     }
 
     @Test
-    fun `isSchemeForVariant identifies only matching canonical and editable schemes`() {
+    fun `matchesVariant identifies only matching canonical and editable schemes`() {
         val cases =
             listOf(
                 Triple("Ayu Islands Mirage", AyuVariant.MIRAGE, true),
@@ -73,7 +73,7 @@ class AyuEditorSchemeBinderTest {
         cases.forEach { (schemeName, variant, expected) ->
             assertEquals(
                 expected,
-                AyuEditorSchemeBinder.isSchemeForVariant(schemeName, variant),
+                AyuEditorSchemeBinder.matchesVariant(schemeName, variant),
                 "Unexpected scheme match for '$schemeName' and $variant",
             )
         }
@@ -104,6 +104,19 @@ class AyuEditorSchemeBinderTest {
         val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.DARK)
 
         assertTrue(switched, "Ayu Mirage → Ayu Dark transition must swap schemes")
+        verify(exactly = 1) { globalSchemeSetter(mockEcm, targetScheme) }
+    }
+
+    @Test
+    fun `bindForVariant switches when current is editable copy of another Ayu scheme`() {
+        val targetScheme = mockScheme("Ayu Islands Light")
+        every { mockEcm.globalScheme } returns mockScheme("_@user_Ayu Islands Mirage")
+        every { mockEcm.allSchemes } returns arrayOf(targetScheme)
+        every { globalSchemeSetter(mockEcm, any()) } just Runs
+
+        val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.LIGHT)
+
+        assertTrue(switched, "Editable Ayu Mirage copy must follow the Ayu Light transition")
         verify(exactly = 1) { globalSchemeSetter(mockEcm, targetScheme) }
     }
 

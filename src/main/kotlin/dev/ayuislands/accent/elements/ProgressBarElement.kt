@@ -49,7 +49,7 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, null)
         }
         runOnEdt {
-            AyuEditorSchemeScope.activeScheme()?.setColor(editorKey, null)
+            AyuEditorSchemeScope.ownedScheme()?.setColor(editorKey, null)
         }
     }
 

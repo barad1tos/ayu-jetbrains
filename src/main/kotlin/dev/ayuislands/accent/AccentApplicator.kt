@@ -781,7 +781,7 @@ object AccentApplicator {
     }
 
     private fun revertAlwaysOnEditorKeys() {
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.ownedScheme() ?: return
 
         for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
             scheme.setColor(colorKey, null)

@@ -38,7 +38,7 @@ class CaretRowElement : AccentElement {
     }
 
     override fun revert() {
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.ownedScheme() ?: return
         scheme.setColor(caretRowKey, null)
         scheme.setColor(caretKey, null)
         scheme.setColor(lineNumberKey, null)

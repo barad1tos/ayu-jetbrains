@@ -53,6 +53,7 @@ class VcsColorApplierTest {
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockColorsManager
         every { mockColorsManager.globalScheme } returns mockScheme
+        every { mockScheme.name } returns "Ayu Islands Mirage"
         // Default: empty TextAttributes — overridden per test for the
         // clone-preserve check.
         every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns TextAttributes()
@@ -98,14 +99,48 @@ class VcsColorApplierTest {
     }
 
     @Test
-    fun `revertAll - variant null is a no-op (no scheme writes)`() {
+    fun `revertAll - inactive Ayu with foreign scheme is a no-op`() {
         every { AyuVariant.detect() } returns null
+        every { mockScheme.name } returns "Solarized Dark"
 
         VcsColorApplier.revertAll()
 
         verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
         verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
-        verify(exactly = 0) { mockApplication.invokeLater(any()) }
+    }
+
+    @Test
+    fun `revertAll - inactive Ayu cleans current owned scheme`() {
+        every { AyuVariant.detect() } returns null
+
+        VcsColorApplier.revertAll()
+
+        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
+        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(exactly = textAttrEntries.size) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+    }
+
+    @Test
+    fun `applyAll - foreign scheme is a no-op`() {
+        every { mockScheme.name } returns "Solarized Dark"
+
+        VcsColorApplier.applyAll()
+
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    @Test
+    fun `applyAll - queued callback rechecks current scheme ownership`() {
+        val callback = slot<Runnable>()
+        every { mockApplication.invokeLater(capture(callback)) } returns Unit
+
+        VcsColorApplier.applyAll()
+        every { mockScheme.name } returns "Solarized Dark"
+        callback.captured.run()
+
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     @Test

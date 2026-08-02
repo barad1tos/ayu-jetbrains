@@ -178,6 +178,26 @@ class AccentElementsTest {
     }
 
     @Test
+    fun `scheme-backed reverts clean owned Ayu scheme after leaving Ayu`() {
+        every { AyuVariant.detect() } returns null
+        val elements =
+            listOf(
+                LinksElement(),
+                ScrollbarElement(),
+                ProgressBarElement(),
+                InlayHintsElement(),
+                CaretRowElement(),
+                BracketMatchElement(),
+                MatchingTagElement(),
+            )
+
+        elements.forEach { it.revert() }
+
+        verify(atLeast = 1) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    @Test
     fun `editor-only elements call setAttributes on apply`() {
         val editorElements: List<AccentElement> =
             listOf(

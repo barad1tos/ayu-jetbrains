@@ -10,7 +10,13 @@ internal object AyuEditorSchemeScope {
         val scheme = EditorColorsManager.getInstance().globalScheme
 
         return scheme.takeIf {
-            AyuEditorSchemeBinder.isSchemeForVariant(it.name, variant)
+            AyuEditorSchemeBinder.matchesVariant(it.name, variant)
         }
     }
+
+    fun ownedScheme(): EditorColorsScheme? =
+        EditorColorsManager
+            .getInstance()
+            .globalScheme
+            .takeIf { AyuEditorSchemeBinder.isAyuScheme(it.name) }
 }
