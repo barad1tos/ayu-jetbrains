@@ -160,7 +160,7 @@ class AyuIslandsLafListenerTest {
 
         verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
         verify(exactly = 1) { AccentApplicator.revertAll() }
-        verify(exactly = 1) { FontPresetApplicator.revert() }
+        verify(exactly = 0) { FontPresetApplicator.revert() }
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
     }
 
@@ -179,9 +179,9 @@ class AyuIslandsLafListenerTest {
         verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
         verifyOrder {
             AccentApplicator.revertAll()
-            FontPresetApplicator.revert()
             AccentApplicator.applyForFocusedProject(AccentContext.External)
         }
+        verify(exactly = 0) { FontPresetApplicator.revert() }
         verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
         verify(exactly = 0) { mockSyntaxService.reapplyForActiveLaf() }

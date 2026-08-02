@@ -1,11 +1,12 @@
 package dev.ayuislands.accent.elements
 
 import com.intellij.openapi.editor.colors.ColorKey
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
 
 class CaretRowElement : AccentElement {
@@ -15,21 +16,18 @@ class CaretRowElement : AccentElement {
     private val caretRowKey = ColorKey.find("CARET_ROW_COLOR")
     private val caretKey = ColorKey.find("CARET_COLOR")
     private val lineNumberKey = ColorKey.find("LINE_NUMBER_ON_CARET_ROW_COLOR")
+    private val schemeOwner = EditorSchemeOwner.Element(id)
 
     override fun apply(color: Color) {
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val caretRowColor = ColorUtil.toAlpha(color, CARET_ROW_ALPHA)
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        scheme.setColor(caretRowKey, caretRowColor)
-        scheme.setColor(caretKey, color)
-        scheme.setColor(lineNumberKey, color)
+        AyuEditorSchemeScope.writeColor(scheme, schemeOwner, caretRowKey, caretRowColor)
+        AyuEditorSchemeScope.writeColor(scheme, schemeOwner, caretKey, color)
+        AyuEditorSchemeScope.writeColor(scheme, schemeOwner, lineNumberKey, color)
     }
 
     override fun applyNeutral(variant: AyuVariant) {
-        val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        for (colorKey in listOf(caretRowKey, caretKey, lineNumberKey)) {
-            scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
-        }
+        AyuEditorSchemeScope.restore(schemeOwner)
     }
 
     companion object {
@@ -37,9 +35,6 @@ class CaretRowElement : AccentElement {
     }
 
     override fun revert() {
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        scheme.setColor(caretRowKey, null)
-        scheme.setColor(caretKey, null)
-        scheme.setColor(lineNumberKey, null)
+        AyuEditorSchemeScope.restore(schemeOwner)
     }
 }

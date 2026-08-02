@@ -7,10 +7,15 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOverrides
+import dev.ayuislands.theme.EditorSchemeOwner
+import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Window
 
@@ -25,9 +30,9 @@ import java.awt.Window
  *    blended background, preserve foreground / effect / error stripe / font
  *    type, write back via `scheme.setAttributes`.
  *
- * When master is OFF or the snapshot says "disabled", the applier issues
- * null-writes so the scheme falls back to the stock XML values — no leftover
- * tinted state when a user disables the feature.
+ * Writes are restricted to the exact Ayu scheme matching the active variant.
+ * Disabling restores each value captured before the first write, unless an
+ * external editor or plugin changed that entry while Ayu owned it.
  */
 internal object VcsColorApplier {
     private val LOG = logger<VcsColorApplier>()
@@ -55,37 +60,80 @@ internal object VcsColorApplier {
             return
         }
         ApplicationManager.getApplication().invokeLater {
-            writeAll(state, variant)
-            repaintAllWindows()
+            val currentVariant = AyuVariant.detect() ?: return@invokeLater
+            if (VcsColorContext.isEnabled(state)) {
+                val scheme = AyuEditorSchemeScope.activeScheme() ?: return@invokeLater
+                writeAll(scheme, state, currentVariant)
+                repaintAllWindows()
+            } else {
+                restoreWithRetry(rearm = true)
+            }
         }
+    }
+
+    /** Apply pending Settings values to the exact scheme selected by the user. */
+    @RequiresEdt
+    fun applyCurrentScheme() {
+        val state = AyuIslandsSettings.getInstance().state
+        if (!VcsColorContext.isEnabled(state)) {
+            restoreWithRetry(rearm = true)
+            return
+        }
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            revertAll()
+            return
+        }
+        val variant = AyuVariant.detect() ?: return
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+
+        writeAll(scheme, state, variant)
+        repaintAllWindows()
     }
 
     /**
-     * Reverts every VCS color entry to stock — null-writes via
-     * `scheme.setColor` (for ColorKey entries) and `scheme.setAttributes`
-     * (for TextAttributesKey entries) so the scheme falls back to the XML
-     * baseline. Used when the master kill-switch flips ON → OFF.
+     * Restores every VCS entry still owned by Ayu. Exact scheme identity and
+     * pre-write values are retained by the shared editor-scheme ledger.
      */
     fun revertAll() {
         ApplicationManager.getApplication().invokeLater {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            val failed = revertEveryEntry(scheme)
-            if (failed > 0) LOG.warn("VcsColorApplier.revertAll: $failed entries failed to revert; see prior warnings")
-            repaintAllWindows()
+            restoreWithRetry()
         }
     }
 
+    private fun restoreWithRetry(rearm: Boolean = false) {
+        val failure =
+            try {
+                AyuEditorSchemeScope.restore(EditorSchemeOwner.Vcs)
+                null
+            } catch (_: RuntimeException) {
+                try {
+                    AyuEditorSchemeScope.restore(EditorSchemeOwner.Vcs)
+                    null
+                } catch (retryFailure: RuntimeException) {
+                    retryFailure
+                }
+            }
+        if (failure != null) LOG.warn("VcsColorApplier: VCS scheme restore failed after retry", failure)
+        if (rearm) {
+            EditorSchemeOverrides.rearm(
+                EditorSchemeOwner.Vcs,
+                EditorColorsManager.getInstance().allSchemes.asIterable(),
+            )
+        }
+        repaintAllWindows()
+    }
+
+    @TestOnly
+    fun resetClaims() {
+        AyuEditorSchemeScope.resetClaims()
+    }
+
     private fun writeAll(
+        scheme: EditorColorsScheme,
         state: AyuIslandsState,
         variant: AyuVariant,
     ) {
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        val failed =
-            if (VcsColorContext.isEnabled(state)) {
-                writeEveryEntry(scheme, state, variant)
-            } else {
-                revertEveryEntry(scheme)
-            }
+        val failed = writeEveryEntry(scheme, state, variant)
         if (failed > 0) LOG.warn("VcsColorApplier.writeAll: $failed entries failed; see prior warnings")
     }
 
@@ -98,17 +146,9 @@ internal object VcsColorApplier {
         for ((category, entries) in VcsColorPalette.allCategoriesAndEntries()) {
             val intensity = VcsColorContext.currentIntensity(category, state)
             for (entry in entries) {
-                if (!safeWriteEntry(scheme, entry, blendFor(entry, variant, intensity))) failed++
-            }
-        }
-        return failed
-    }
-
-    private fun revertEveryEntry(scheme: EditorColorsScheme): Int {
-        var failed = 0
-        for ((_, entries) in VcsColorPalette.allCategoriesAndEntries()) {
-            for (entry in entries) {
-                if (!safeRevertEntry(scheme, entry)) failed++
+                if (!safeWriteEntry(scheme, entry, blendFor(entry, variant, intensity))) {
+                    failed++
+                }
             }
         }
         return failed
@@ -127,18 +167,6 @@ internal object VcsColorApplier {
             false
         }
 
-    private fun safeRevertEntry(
-        scheme: EditorColorsScheme,
-        entry: VcsPaletteEntry,
-    ): Boolean =
-        try {
-            revertEntry(scheme, entry)
-            true
-        } catch (exception: RuntimeException) {
-            LOG.warn("VcsColorApplier: reverting ${entry.keyName} (${entry.mode}) failed", exception)
-            false
-        }
-
     private fun blendFor(
         entry: VcsPaletteEntry,
         variant: AyuVariant,
@@ -154,18 +182,9 @@ internal object VcsColorApplier {
         tinted: Color,
     ) {
         when (entry.mode) {
-            VcsWriteMode.COLOR_KEY -> scheme.setColor(ColorKey.find(entry.keyName), tinted)
+            VcsWriteMode.COLOR_KEY ->
+                AyuEditorSchemeScope.writeColor(scheme, EditorSchemeOwner.Vcs, ColorKey.find(entry.keyName), tinted)
             VcsWriteMode.TEXT_ATTR_BG -> writeTextAttrBackground(scheme, entry.keyName, tinted)
-        }
-    }
-
-    private fun revertEntry(
-        scheme: EditorColorsScheme,
-        entry: VcsPaletteEntry,
-    ) {
-        when (entry.mode) {
-            VcsWriteMode.COLOR_KEY -> scheme.setColor(ColorKey.find(entry.keyName), null)
-            VcsWriteMode.TEXT_ATTR_BG -> scheme.setAttributes(TextAttributesKey.find(entry.keyName), null)
         }
     }
 
@@ -192,7 +211,7 @@ internal object VcsColorApplier {
                 existing?.fontType ?: 0,
             )
         updated.errorStripeColor = existing?.errorStripeColor
-        scheme.setAttributes(key, updated)
+        AyuEditorSchemeScope.writeAttributes(scheme, EditorSchemeOwner.Vcs, key, updated)
     }
 
     /**

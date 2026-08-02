@@ -26,6 +26,8 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
@@ -66,6 +68,16 @@ object AccentApplicator {
     private const val KEY_TAB_UNDERLINE_HEIGHT = "EditorTabs.underlineHeight"
     private const val KEY_TAB_UNDERLINE_ARC = "EditorTabs.underlineArc"
     private const val DEFAULT_UNDERLINE_ARC = 8
+    private val EDITOR_SCHEME_ELEMENTS =
+        setOf(
+            AccentElementId.INLAY_HINTS,
+            AccentElementId.CARET_ROW,
+            AccentElementId.PROGRESS_BAR,
+            AccentElementId.SCROLLBAR,
+            AccentElementId.LINKS,
+            AccentElementId.BRACKET_MATCH,
+            AccentElementId.MATCHING_TAG,
+        )
     private val TRANSPARENT_TAB_BACKGROUND =
         JBColor(
             ColorUtil.toAlpha(JBColor.BLACK, 0),
@@ -77,7 +89,7 @@ object AccentApplicator {
     // [CodeGlanceProIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
     // re-verification recipe.
 
-    private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
+    private val alwaysOnOwner = EditorSchemeOwner.AlwaysOn
 
     // CodeGlance Pro reflection state and apply/revert workers live in
     // [CodeGlanceProIntegration] to keep this object below the TooManyFunctions threshold.
@@ -496,8 +508,29 @@ object AccentApplicator {
         // everything after the theme switch.
         val workers: Map<AccentApplyStep, () -> Unit> =
             buildMap {
-                put(AccentApplyStep.ClearUiAndExtensions) { clearReverseUiAndExtensions() }
-                put(AccentApplyStep.RevertAlwaysOnEditorKeys) { revertAlwaysOnEditorKeys() }
+                put(AccentApplyStep.ClearUiAndExtensions) {
+                    AyuEditorSchemeScope.beginAccentCleanup()
+                    val clearResult = runCatchingPreservingCancellation { clearReverseUiAndExtensions() }
+                    clearResult.exceptionOrNull()?.let { error ->
+                        AyuEditorSchemeScope.retainAllAccentClaims()
+                        throw error
+                    }
+                    val failure = clearResult.getOrThrow() ?: return@put
+                    val hasUnattributedEditorFailure =
+                        failure.elementIds.any { it in EDITOR_SCHEME_ELEMENTS } &&
+                            !AyuEditorSchemeScope.hasAccentCleanupFailures()
+                    if (hasUnattributedEditorFailure) {
+                        AyuEditorSchemeScope.retainAllAccentClaims()
+                    }
+                    throw failure
+                }
+                put(AccentApplyStep.RevertAlwaysOnEditorKeys) {
+                    try {
+                        revertAlwaysOnEditorKeys()
+                    } finally {
+                        AyuEditorSchemeScope.releaseCleanAccentClaims()
+                    }
+                }
                 put(AccentApplyStep.RevertIndentRainbow) {
                     IndentRainbowSync.revert().propagateFailure()
                 }
@@ -515,10 +548,11 @@ object AccentApplicator {
                     // that path would crash here because LAF refresh is still
                     // mid-flight. Publishing a topic lets subscribers decide when to
                     // repaint.
-                    for (project in ProjectManager.getInstance().openProjects) {
-                        if (!project.isUsable()) continue
-                        ComponentTreeRefresher.notifyOnly(project)
-                    }
+                    ProjectManager
+                        .getInstance()
+                        .openProjects
+                        .filter { it.isUsable() }
+                        .forEach(ComponentTreeRefresher::notifyOnly)
                 }
             }
 
@@ -535,7 +569,7 @@ object AccentApplicator {
         }
     }
 
-    private fun clearReverseUiAndExtensions() {
+    private fun clearReverseUiAndExtensions(): ElementRevertFailure? {
         for (key in ALWAYS_ON_UI_KEYS) {
             UIManager.put(key, null)
         }
@@ -551,18 +585,18 @@ object AccentApplicator {
         ExternalChromeOwnership.releaseTabUnderline()
 
         val failedExternalReverts = mutableSetOf<AccentElementId>()
+        var firstFailure: Throwable? = null
         for (element in EP_NAME.extensionList) {
-            try {
-                element.revert()
-            } catch (exception: RuntimeException) {
-                failedExternalReverts.add(element.id)
-                log.warn(
-                    "Failed to revert ${element.displayName}",
-                    exception,
-                )
-            }
+            val failure = runCatchingPreservingCancellation { element.revert() }.exceptionOrNull() ?: continue
+            failedExternalReverts.add(element.id)
+            if (firstFailure == null) firstFailure = failure
+            log.warn(
+                "Failed to revert ${element.displayName}",
+                failure,
+            )
         }
         ExternalChromeOwnership.finishRevert(failedExternalReverts)
+        return firstFailure?.let { ElementRevertFailure(failedExternalReverts, it) }
     }
 
     private fun neutralizeOrRevert(
@@ -587,6 +621,14 @@ object AccentApplicator {
         isPremiumAllowed: Boolean,
     ) {
         if (context == AccentContext.External) {
+            EP_NAME.extensionList
+                .filter { it.id in EDITOR_SCHEME_ELEMENTS }
+                .forEach { element ->
+                    AyuEditorSchemeScope.observeElementEnabled(
+                        element.id,
+                        ChromeTintContext.isToggleEnabled(state, element.id),
+                    )
+                }
             ExternalChromeOwnership.apply(
                 elements = EP_NAME.extensionList,
                 state = state,
@@ -610,6 +652,10 @@ object AccentApplicator {
         variant: AyuVariant?,
         isPremiumAllowed: Boolean,
     ) {
+        AyuEditorSchemeScope.observeElementEnabled(
+            element.id,
+            ChromeTintContext.isToggleEnabled(state, element.id),
+        )
         if (element.id.group == AccentGroup.CHROME && !isPremiumAllowed) {
             neutralizeOrRevert(element, variant)
             return
@@ -704,11 +750,11 @@ object AccentApplicator {
     }
 
     private fun applyAlwaysOnEditorKeys(accent: Color) {
-        val scheme = EditorColorsManager.getInstance().globalScheme
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
 
         // ColorKey entries
         for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
-            scheme.setColor(colorKey, accent)
+            AyuEditorSchemeScope.writeColor(scheme, alwaysOnOwner, colorKey, accent)
         }
 
         // TextAttributesKey entries -- clone existing, override only accent properties
@@ -719,7 +765,7 @@ object AccentApplicator {
             if (AttributeTarget.FOREGROUND in targets) updated.foregroundColor = accent
             if (AttributeTarget.EFFECT_COLOR in targets) updated.effectColor = accent
             if (AttributeTarget.ERROR_STRIPE in targets) updated.errorStripeColor = accent
-            scheme.setAttributes(attrKey, updated)
+            AyuEditorSchemeScope.writeAttributes(scheme, alwaysOnOwner, attrKey, updated)
         }
 
         // Notify editors to repaint with an updated scheme
@@ -756,8 +802,15 @@ object AccentApplicator {
             ExternalChromeOwnership.releaseTabUnderline()
         }
         if (tabMode == GlowTabMode.OFF && variant != null) {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            scheme.setColor(ColorKey.find("TAB_UNDERLINE"), Color.decode(variant.neutralGray))
+            val scheme = AyuEditorSchemeScope.activeScheme()
+            if (scheme != null) {
+                AyuEditorSchemeScope.writeColor(
+                    scheme,
+                    alwaysOnOwner,
+                    ColorKey.find("TAB_UNDERLINE"),
+                    Color.decode(variant.neutralGray),
+                )
+            }
         }
 
         val height =
@@ -778,19 +831,7 @@ object AccentApplicator {
     }
 
     private fun revertAlwaysOnEditorKeys() {
-        val scheme = EditorColorsManager.getInstance().globalScheme
-
-        for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
-            scheme.setColor(colorKey, null)
-        }
-
-        for ((key) in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
-            val attrKey = TextAttributesKey.find(key)
-            val fallback = attrKey.fallbackAttributeKey
-            val defaultAttrs =
-                if (fallback != null) scheme.getAttributes(fallback) else null
-            scheme.setAttributes(attrKey, defaultAttrs ?: EMPTY_TEXT_ATTRIBUTES)
-        }
+        AyuEditorSchemeScope.restore(alwaysOnOwner)
 
         val application = ApplicationManager.getApplication()
         application.runReadAction {
@@ -800,6 +841,11 @@ object AccentApplicator {
                 .globalSchemeChange(null)
         }
     }
+
+    private class ElementRevertFailure(
+        val elementIds: Set<AccentElementId>,
+        cause: Throwable,
+    ) : RuntimeException(cause)
 
     /**
      * Write-side repaint pass over the JVM's window list. Filters by

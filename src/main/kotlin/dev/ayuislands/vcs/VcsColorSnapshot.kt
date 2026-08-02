@@ -65,7 +65,7 @@ internal data class VcsColorSnapshot(
  * ThreadLocal scoped-override channel for the pending [VcsColorSnapshot].
  *
  * Settings apply path wraps the applier call in
- * `VcsColorContext.withSnapshot(pendingSnapshot) { applier.applyAll() }` so
+ * `VcsColorContext.withSnapshot(pendingSnapshot) { applier.applyCurrentScheme() }` so
  * every category read during that apply sees the panel's pending values, not
  * whatever the persisted state currently holds. If apply throws, the snapshot
  * is rolled back and the persisted state is never touched — same "state

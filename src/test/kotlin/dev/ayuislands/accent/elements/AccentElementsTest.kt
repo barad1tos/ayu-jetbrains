@@ -4,12 +4,14 @@ import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -33,11 +35,16 @@ import kotlin.test.assertTrue
 class AccentElementsTest {
     private lateinit var mockScheme: EditorColorsScheme
     private lateinit var mockColorsManager: EditorColorsManager
+    private val colorKeys = mutableMapOf<String, ColorKey>()
+    private val attributeKeys = mutableMapOf<String, TextAttributesKey>()
 
     private val testColor = Color(255, 204, 102)
 
     @BeforeTest
     fun setUp() {
+        AyuEditorSchemeScope.resetClaims()
+        colorKeys.clear()
+        attributeKeys.clear()
         mockScheme = mockk(relaxed = true)
         mockColorsManager = mockk(relaxed = true)
         every { mockColorsManager.globalScheme } returns mockScheme
@@ -54,10 +61,17 @@ class AccentElementsTest {
         every { SwingUtilities.invokeLater(any()) } answers { firstArg<Runnable>().run() }
 
         mockkStatic(ColorKey::class)
-        every { ColorKey.find(any<String>()) } answers { mockk(relaxed = true) }
+        every { ColorKey.find(any<String>()) } answers {
+            colorKeys.getOrPut(firstArg()) { mockk(relaxed = true) }
+        }
 
         mockkStatic(TextAttributesKey::class)
-        every { TextAttributesKey.find(any<String>()) } answers { mockk(relaxed = true) }
+        every { TextAttributesKey.find(any<String>()) } answers {
+            attributeKeys.getOrPut(firstArg()) { mockk(relaxed = true) }
+        }
+
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
         mockkObject(BracketFadeManager)
         every { BracketFadeManager.activate(any()) } returns Unit
@@ -66,6 +80,7 @@ class AccentElementsTest {
 
     @AfterTest
     fun tearDown() {
+        AyuEditorSchemeScope.resetClaims()
         unmockkAll()
     }
 
@@ -77,6 +92,17 @@ class AccentElementsTest {
             SearchResultsElement(),
             InlayHintsElement(),
             CaretRowElement(),
+            BracketMatchElement(),
+            MatchingTagElement(),
+        )
+
+    private fun editorElements(): List<AccentElement> =
+        listOf(
+            InlayHintsElement(),
+            CaretRowElement(),
+            ProgressBarElement(),
+            ScrollbarElement(),
+            LinksElement(),
             BracketMatchElement(),
             MatchingTagElement(),
         )
@@ -134,6 +160,149 @@ class AccentElementsTest {
     }
 
     @Test
+    fun `scheme-backed elements preserve a foreign editor scheme`() {
+        every { mockScheme.name } returns "Solarized Dark"
+        val elements =
+            listOf(
+                LinksElement(),
+                ScrollbarElement(),
+                ProgressBarElement(),
+                InlayHintsElement(),
+                CaretRowElement(),
+                BracketMatchElement(),
+                MatchingTagElement(),
+            )
+
+        elements.forEach { element ->
+            element.apply(testColor)
+            element.applyNeutral(AyuVariant.MIRAGE)
+            element.revert()
+        }
+
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any<Color>()) }
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any<TextAttributes>()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+        verify(exactly = 2) { BracketFadeManager.deactivate() }
+    }
+
+    @Test
+    fun `disabled editor elements restore exact user values`() {
+        for (element in editorElements()) {
+            AyuEditorSchemeScope.resetClaims()
+            try {
+                val store = EditorSchemeStore()
+                every { mockColorsManager.globalScheme } returns store.scheme
+
+                element.apply(testColor)
+                store.assertWasChanged(element)
+                element.applyNeutral(AyuVariant.MIRAGE)
+
+                store.assertOriginalValues(element)
+            } finally {
+                AyuEditorSchemeScope.resetClaims()
+            }
+        }
+    }
+
+    @Test
+    fun `editor element revert restores exact user values`() {
+        for (element in editorElements()) {
+            AyuEditorSchemeScope.resetClaims()
+            try {
+                val store = EditorSchemeStore()
+                every { mockColorsManager.globalScheme } returns store.scheme
+
+                element.apply(testColor)
+                store.assertWasChanged(element)
+                element.revert()
+
+                store.assertOriginalValues(element)
+            } finally {
+                AyuEditorSchemeScope.resetClaims()
+            }
+        }
+    }
+
+    @Test
+    fun `external editor changes survive every later element action`() {
+        for (element in editorElements()) {
+            AyuEditorSchemeScope.resetClaims()
+            try {
+                val store = EditorSchemeStore()
+                every { mockColorsManager.globalScheme } returns store.scheme
+
+                element.apply(testColor)
+                store.assertWasChanged(element)
+                store.replaceTouchedValues()
+                element.apply(Color.YELLOW)
+                element.applyNeutral(AyuVariant.MIRAGE)
+                element.revert()
+
+                store.assertExternalValues(element)
+            } finally {
+                AyuEditorSchemeScope.resetClaims()
+            }
+        }
+    }
+
+    @Test
+    fun `mixed elements still update UI keys for a foreign editor scheme`() {
+        every { mockScheme.name } returns "Solarized Dark"
+        val elements = listOf(LinksElement(), ScrollbarElement(), ProgressBarElement())
+
+        elements.forEach { element ->
+            element.apply(testColor)
+            element.revert()
+        }
+
+        verify(atLeast = 1) { UIManager.put(any<String>(), any<Color>()) }
+        verify(atLeast = 1) { UIManager.put(any<String>(), null) }
+    }
+
+    @Test
+    fun `scheme-backed reverts clean owned Ayu scheme after leaving Ayu`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
+        val elements =
+            listOf(
+                LinksElement(),
+                ScrollbarElement(),
+                ProgressBarElement(),
+                InlayHintsElement(),
+                CaretRowElement(),
+                BracketMatchElement(),
+                MatchingTagElement(),
+            )
+
+        elements.forEach { it.apply(testColor) }
+        every { AyuVariant.detect() } returns null
+        elements.forEach { it.revert() }
+
+        elements.forEach(store::assertOriginalValues)
+    }
+
+    @Test
+    fun `revert cleans every exact scheme claimed across Ayu variants`() {
+        val firstStore = EditorSchemeStore()
+        val secondStore = EditorSchemeStore("Ayu Islands Dark")
+        var currentScheme = firstStore.scheme
+        every { mockColorsManager.globalScheme } answers { currentScheme }
+        val element = CaretRowElement()
+
+        element.apply(testColor)
+        currentScheme = secondStore.scheme
+        every { AyuVariant.detect() } returns AyuVariant.DARK
+        element.apply(testColor)
+        every { AyuVariant.detect() } returns null
+
+        element.revert()
+
+        firstStore.assertOriginalValues(element)
+        secondStore.assertOriginalValues(element)
+    }
+
+    @Test
     fun `editor-only elements call setAttributes on apply`() {
         val editorElements: List<AccentElement> =
             listOf(
@@ -148,24 +317,6 @@ class AccentElementsTest {
         // InlayHintsElement and BracketMatchElement use setAttributes, CaretRowElement uses setColor
         verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
         verify(atLeast = 1) { mockScheme.setColor(any<ColorKey>(), any()) }
-    }
-
-    @Test
-    fun `editor-only elements call setAttributes null on revert`() {
-        val editorElements: List<AccentElement> =
-            listOf(
-                InlayHintsElement(),
-                CaretRowElement(),
-                BracketMatchElement(),
-                MatchingTagElement(),
-            )
-        for (element in editorElements) {
-            element.revert()
-        }
-        // InlayHintsElement reverts with setAttributes(key, null), BracketMatchElement uses setAttributes too
-        verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
-        // CaretRowElement reverts with setColor(key, null)
-        verify(atLeast = 1) { mockScheme.setColor(any<ColorKey>(), null) }
     }
 
     @Test
@@ -234,6 +385,7 @@ class AccentElementsTest {
     @Test
     fun `MatchingTagElement apply keeps light background when light scheme is unresolved`() {
         val attributesSlot = slot<TextAttributes>()
+        every { AyuVariant.detect() } returns AyuVariant.LIGHT
         every { mockScheme.defaultBackground } returns Color.WHITE
         every { mockScheme.name } returns "Ayu Islands Light"
         every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns null
@@ -264,16 +416,6 @@ class AccentElementsTest {
         verify(atLeast = 1) { UIManager.put(any<String>(), null) }
     }
 
-    @Test
-    fun `MatchingTagElement applyNeutral restores from parent scheme`() {
-        every { mockScheme.setAttributes(any<TextAttributesKey>(), any()) } just Runs
-
-        val element = MatchingTagElement()
-        element.applyNeutral(AyuVariant.DARK)
-
-        verify { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
-    }
-
     // ProgressBarElement coverage
 
     @Test
@@ -293,37 +435,11 @@ class AccentElementsTest {
     }
 
     @Test
-    fun `ProgressBarElement revert nulls UI keys and editor color key`() {
+    fun `ProgressBarElement revert clears UI keys`() {
         val element = ProgressBarElement()
         element.revert()
         verify { UIManager.put("ProgressBar.foreground", null) }
         verify { UIManager.put("ProgressBar.progressCounterBackground", null) }
-        verify { mockScheme.setColor(any(), null) }
-    }
-
-    @Test
-    fun `ProgressBarElement applyNeutral restores from parent scheme`() {
-        val parentScheme: EditorColorsScheme = mockk(relaxed = true)
-        every { mockColorsManager.getScheme("Darcula") } returns parentScheme
-        every { parentScheme.getColor(any()) } returns Color(100, 100, 100)
-
-        val element = ProgressBarElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify { UIManager.put("ProgressBar.foreground", null) }
-        verify { UIManager.put("ProgressBar.progressCounterBackground", null) }
-        verify { mockScheme.setColor(any(), Color(100, 100, 100)) }
-    }
-
-    @Test
-    fun `ProgressBarElement applyNeutral handles null parent scheme`() {
-        every { mockColorsManager.getScheme("Darcula") } returns null
-
-        val element = ProgressBarElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify { UIManager.put("ProgressBar.foreground", null) }
-        verify { mockScheme.setColor(any(), null) }
     }
 
     @Test
@@ -339,13 +455,16 @@ class AccentElementsTest {
 
     @Test
     fun `ProgressBarElement revert off EDT uses invokeLater`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
+        val element = ProgressBarElement()
+        element.apply(testColor)
         every { SwingUtilities.isEventDispatchThread() } returns false
 
-        val element = ProgressBarElement()
         element.revert()
 
         verify { SwingUtilities.invokeLater(any()) }
-        verify { mockScheme.setColor(any(), null) }
+        store.assertOriginalValues(element)
     }
 
     // LinksElement coverage
@@ -395,48 +514,11 @@ class AccentElementsTest {
     }
 
     @Test
-    fun `LinksElement revert nulls all editor color keys and text attributes`() {
+    fun `LinksElement revert clears all UI keys`() {
         val element = LinksElement()
         element.revert()
 
-        // 6 UI keys nulled
         verify(exactly = 6) { UIManager.put(any<String>(), null) }
-        // 2 editor color keys nulled
-        verify(exactly = 2) { mockScheme.setColor(any(), null) }
-        // 3 text attribute keys nulled
-        verify(exactly = 3) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
-    }
-
-    @Test
-    fun `LinksElement applyNeutral restores from parent scheme`() {
-        val parentScheme: EditorColorsScheme = mockk(relaxed = true)
-        val parentAttrs = TextAttributes()
-        parentAttrs.foregroundColor = Color.CYAN
-        every { mockColorsManager.getScheme("Darcula") } returns parentScheme
-        every { parentScheme.getColor(any()) } returns Color(80, 80, 80)
-        every { parentScheme.getAttributes(any<TextAttributesKey>()) } returns parentAttrs
-
-        val element = LinksElement()
-        element.applyNeutral(AyuVariant.DARK)
-
-        // UI keys nulled
-        verify(exactly = 6) { UIManager.put(any<String>(), null) }
-        // Editor color keys restored from parent
-        verify(exactly = 2) { mockScheme.setColor(any(), Color(80, 80, 80)) }
-        // Text attributes restored from parent
-        verify(exactly = 3) { mockScheme.setAttributes(any<TextAttributesKey>(), parentAttrs) }
-    }
-
-    @Test
-    fun `LinksElement applyNeutral handles null parent scheme`() {
-        every { mockColorsManager.getScheme("Darcula") } returns null
-
-        val element = LinksElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify(exactly = 6) { UIManager.put(any<String>(), null) }
-        verify(exactly = 2) { mockScheme.setColor(any(), null) }
-        verify(exactly = 3) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
     }
 
     // InlayHintsElement coverage
@@ -469,38 +551,6 @@ class AccentElementsTest {
         assertEquals(testColor.blue, captured.foregroundColor!!.blue)
     }
 
-    @Test
-    fun `InlayHintsElement revert sets attributes to null`() {
-        val element = InlayHintsElement()
-        element.revert()
-
-        verify(exactly = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
-    }
-
-    @Test
-    fun `InlayHintsElement applyNeutral restores from parent scheme`() {
-        val parentScheme: EditorColorsScheme = mockk(relaxed = true)
-        val parentAttrs = TextAttributes()
-        parentAttrs.foregroundColor = Color.GRAY
-        every { mockColorsManager.getScheme("Darcula") } returns parentScheme
-        every { parentScheme.getAttributes(any<TextAttributesKey>()) } returns parentAttrs
-
-        val element = InlayHintsElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify { mockScheme.setAttributes(any<TextAttributesKey>(), parentAttrs) }
-    }
-
-    @Test
-    fun `InlayHintsElement applyNeutral handles null parent scheme`() {
-        every { mockColorsManager.getScheme("Darcula") } returns null
-
-        val element = InlayHintsElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
-    }
-
     // CaretRowElement coverage
 
     @Test
@@ -530,37 +580,6 @@ class AccentElementsTest {
         assertEquals(testColor, colorSlots[2])
     }
 
-    @Test
-    fun `CaretRowElement revert nulls all three color keys`() {
-        val element = CaretRowElement()
-        element.revert()
-
-        verify(exactly = 3) { mockScheme.setColor(any(), null) }
-    }
-
-    @Test
-    fun `CaretRowElement applyNeutral restores from parent scheme`() {
-        val parentScheme: EditorColorsScheme = mockk(relaxed = true)
-        val parentColor = Color(50, 60, 70)
-        every { mockColorsManager.getScheme("Darcula") } returns parentScheme
-        every { parentScheme.getColor(any()) } returns parentColor
-
-        val element = CaretRowElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify(exactly = 3) { mockScheme.setColor(any(), parentColor) }
-    }
-
-    @Test
-    fun `CaretRowElement applyNeutral handles null parent scheme`() {
-        every { mockColorsManager.getScheme("Darcula") } returns null
-
-        val element = CaretRowElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify(exactly = 3) { mockScheme.setColor(any(), null) }
-    }
-
     // BracketMatchElement coverage
 
     @Test
@@ -586,36 +605,10 @@ class AccentElementsTest {
     }
 
     @Test
-    fun `BracketMatchElement revert restores fallback attributes`() {
+    fun `BracketMatchElement revert deactivates bracket fade`() {
         val element = BracketMatchElement()
         element.revert()
 
-        verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
-        verify { BracketFadeManager.deactivate() }
-    }
-
-    @Test
-    fun `BracketMatchElement applyNeutral restores from parent scheme`() {
-        val parentScheme: EditorColorsScheme = mockk(relaxed = true)
-        val parentAttrs = TextAttributes()
-        every { mockColorsManager.getScheme("Darcula") } returns parentScheme
-        every { parentScheme.getAttributes(any<TextAttributesKey>()) } returns parentAttrs
-
-        val element = BracketMatchElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify { mockScheme.setAttributes(any<TextAttributesKey>(), parentAttrs) }
-        verify { BracketFadeManager.deactivate() }
-    }
-
-    @Test
-    fun `BracketMatchElement applyNeutral handles null parent scheme`() {
-        every { mockColorsManager.getScheme("Darcula") } returns null
-
-        val element = BracketMatchElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        verify { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
         verify { BracketFadeManager.deactivate() }
     }
 
@@ -634,38 +627,6 @@ class AccentElementsTest {
         assertEquals(testColor, attributesSlot.captured.foregroundColor)
         assertEquals(java.awt.Font.BOLD, attributesSlot.captured.fontType)
         verify { BracketFadeManager.activate(testColor) }
-    }
-
-    @Test
-    fun `BracketMatchElement applyNeutral with non-null parent but null attrs`() {
-        val parentScheme: EditorColorsScheme = mockk(relaxed = true)
-        every { mockColorsManager.getScheme("Darcula") } returns parentScheme
-        every { parentScheme.getAttributes(any<TextAttributesKey>()) } returns null
-        val attributesSlot = slot<TextAttributes>()
-        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
-
-        val element = BracketMatchElement()
-        element.applyNeutral(AyuVariant.MIRAGE)
-
-        assertTrue(attributesSlot.isCaptured, "setAttributes should have been called")
-        assertNotNull(attributesSlot.captured, "Should use fallback TextAttributes when parent attrs are null")
-        verify { BracketFadeManager.deactivate() }
-    }
-
-    @Test
-    fun `BracketMatchElement revert with null fallback attribute key`() {
-        val braceKey = mockk<TextAttributesKey>(relaxed = true)
-        every { braceKey.fallbackAttributeKey } returns null
-        every { TextAttributesKey.find("MATCHED_BRACE_ATTRIBUTES") } returns braceKey
-        val attributesSlot = slot<TextAttributes>()
-        every { mockScheme.setAttributes(any<TextAttributesKey>(), capture(attributesSlot)) } just Runs
-
-        val element = BracketMatchElement()
-        element.revert()
-
-        assertTrue(attributesSlot.isCaptured, "setAttributes should have been called")
-        assertNotNull(attributesSlot.captured, "Should use fallback TextAttributes when fallback key is null")
-        verify { BracketFadeManager.deactivate() }
     }
 
     // SearchResultsElement blend coverage
@@ -745,18 +706,92 @@ class AccentElementsTest {
         assertEquals(AccentGroup.INTERACTIVE, AccentElementId.MATCHING_TAG.group)
     }
 
-    // AyuVariant coverage for applyNeutral with different variants
+    private class EditorSchemeStore(
+        schemeName: String = "_@user_Ayu Islands Mirage",
+    ) {
+        private val originalColor = Color(0x12, 0x34, 0x56)
+        private val externalColor = Color(0x65, 0x43, 0x21)
+        private val originalAttributes = attributes(Color(0x21, 0x43, 0x65))
+        private val externalAttributes = attributes(Color(0x56, 0x34, 0x12))
+        private val colors = mutableMapOf<ColorKey, Color?>()
+        private val textAttributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
+        private val touchedColors = linkedSetOf<ColorKey>()
+        private val touchedAttributes = linkedSetOf<TextAttributesKey>()
 
-    @Test
-    fun `applyNeutral works with Light variant using Default parent scheme`() {
-        val parentScheme: EditorColorsScheme = mockk(relaxed = true)
-        val parentAttrs = TextAttributes()
-        every { mockColorsManager.getScheme("Default") } returns parentScheme
-        every { parentScheme.getAttributes(any<TextAttributesKey>()) } returns parentAttrs
+        val scheme: EditorColorsScheme =
+            mockk(relaxed = true) {
+                every { name } returns schemeName
+                every { defaultBackground } returns Color(0x1F, 0x24, 0x30)
+                every { getColor(any()) } answers {
+                    val key = firstArg<ColorKey>()
+                    if (!colors.containsKey(key)) colors[key] = originalColor
+                    colors[key]
+                }
+                every { setColor(any(), any()) } answers {
+                    val key = firstArg<ColorKey>()
+                    touchedColors.add(key)
+                    colors[key] = secondArg()
+                }
+                every { getAttributes(any<TextAttributesKey>()) } answers {
+                    val key = firstArg<TextAttributesKey>()
+                    if (!textAttributes.containsKey(key)) textAttributes[key] = originalAttributes.clone()
+                    textAttributes[key]
+                }
+                every { setAttributes(any(), any()) } answers {
+                    val key = firstArg<TextAttributesKey>()
+                    touchedAttributes.add(key)
+                    textAttributes[key] = secondArg<TextAttributes?>()?.clone()
+                }
+            }
 
-        val element = BracketMatchElement()
-        element.applyNeutral(AyuVariant.LIGHT)
+        fun replaceTouchedValues() {
+            touchedColors.forEach { key -> colors[key] = externalColor }
+            touchedAttributes.forEach { key -> textAttributes[key] = externalAttributes.clone() }
+        }
 
-        verify { mockScheme.setAttributes(any<TextAttributesKey>(), parentAttrs) }
+        fun assertWasChanged(element: AccentElement) {
+            assertTrue(
+                touchedColors.isNotEmpty() || touchedAttributes.isNotEmpty(),
+                "${element.displayName} must exercise at least one editor scheme key",
+            )
+        }
+
+        fun assertOriginalValues(element: AccentElement) {
+            touchedColors.forEach { key ->
+                assertEquals(originalColor, colors[key], "${element.displayName} must restore its original color")
+            }
+            touchedAttributes.forEach { key ->
+                assertEquals(
+                    originalAttributes,
+                    textAttributes[key],
+                    "${element.displayName} must restore its original attributes",
+                )
+            }
+        }
+
+        fun assertExternalValues(element: AccentElement) {
+            touchedColors.forEach { key ->
+                assertEquals(externalColor, colors[key], "${element.displayName} must preserve an external color")
+            }
+            touchedAttributes.forEach { key ->
+                assertEquals(
+                    externalAttributes,
+                    textAttributes[key],
+                    "${element.displayName} must preserve external attributes",
+                )
+            }
+        }
+
+        companion object {
+            private fun attributes(foreground: Color): TextAttributes =
+                TextAttributes().apply {
+                    foregroundColor = foreground
+                    backgroundColor = Color.BLACK
+                    effectColor = Color.CYAN
+                    errorStripeColor = Color.MAGENTA
+                    effectType = EffectType.BOLD_DOTTED_LINE
+                    fontType = 3
+                }
+        }
     }
 }

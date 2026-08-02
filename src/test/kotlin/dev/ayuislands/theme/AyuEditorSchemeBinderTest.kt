@@ -29,6 +29,7 @@ import kotlin.test.assertTrue
  */
 class AyuEditorSchemeBinderTest {
     private val mockEcm = mockk<EditorColorsManager>(relaxed = true)
+    private val globalSchemeSetter = EditorColorsManager::setGlobalScheme
 
     @BeforeTest
     fun setUp() {
@@ -58,6 +59,26 @@ class AyuEditorSchemeBinderTest {
         assertEquals("Ayu Islands Light", AyuEditorSchemeBinder.targetSchemeName(AyuVariant.LIGHT))
     }
 
+    @Test
+    fun `matchesVariant identifies only matching canonical and editable schemes`() {
+        val cases =
+            listOf(
+                Triple("Ayu Islands Mirage", AyuVariant.MIRAGE, true),
+                Triple("_@user_Ayu Islands Mirage", AyuVariant.MIRAGE, true),
+                Triple("Ayu Islands Dark", AyuVariant.MIRAGE, false),
+                Triple("Solarized Dark", AyuVariant.MIRAGE, false),
+                Triple("_@user_Solarized Dark", AyuVariant.MIRAGE, false),
+            )
+
+        cases.forEach { (schemeName, variant, expected) ->
+            assertEquals(
+                expected,
+                AyuEditorSchemeBinder.matchesVariant(schemeName, variant),
+                "Unexpected scheme match for '$schemeName' and $variant",
+            )
+        }
+    }
+
     // ── bindForVariant: happy paths ───────────────────────────────────────
 
     @Test
@@ -65,12 +86,12 @@ class AyuEditorSchemeBinderTest {
         val targetScheme = mockScheme("Ayu Islands Mirage")
         every { mockEcm.globalScheme } returns mockScheme("Default")
         every { mockEcm.allSchemes } returns arrayOf(targetScheme)
-        every { mockEcm.setGlobalScheme(any()) } just Runs
+        every { globalSchemeSetter(mockEcm, any()) } just Runs
 
         val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.MIRAGE)
 
         assertTrue(switched, "Default → Ayu Mirage transition must apply scheme")
-        verify(exactly = 1) { mockEcm.setGlobalScheme(targetScheme) }
+        verify(exactly = 1) { globalSchemeSetter(mockEcm, targetScheme) }
     }
 
     @Test
@@ -78,12 +99,25 @@ class AyuEditorSchemeBinderTest {
         val targetScheme = mockScheme("Ayu Islands Dark")
         every { mockEcm.globalScheme } returns mockScheme("Ayu Islands Mirage")
         every { mockEcm.allSchemes } returns arrayOf(mockScheme("Ayu Islands Mirage"), targetScheme)
-        every { mockEcm.setGlobalScheme(any()) } just Runs
+        every { globalSchemeSetter(mockEcm, any()) } just Runs
 
         val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.DARK)
 
         assertTrue(switched, "Ayu Mirage → Ayu Dark transition must swap schemes")
-        verify(exactly = 1) { mockEcm.setGlobalScheme(targetScheme) }
+        verify(exactly = 1) { globalSchemeSetter(mockEcm, targetScheme) }
+    }
+
+    @Test
+    fun `bindForVariant switches when current is editable copy of another Ayu scheme`() {
+        val targetScheme = mockScheme("Ayu Islands Light")
+        every { mockEcm.globalScheme } returns mockScheme("_@user_Ayu Islands Mirage")
+        every { mockEcm.allSchemes } returns arrayOf(targetScheme)
+        every { globalSchemeSetter(mockEcm, any()) } just Runs
+
+        val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.LIGHT)
+
+        assertTrue(switched, "Editable Ayu Mirage copy must follow the Ayu Light transition")
+        verify(exactly = 1) { globalSchemeSetter(mockEcm, targetScheme) }
     }
 
     // ── bindForVariant: gate paths ────────────────────────────────────────
@@ -95,7 +129,7 @@ class AyuEditorSchemeBinderTest {
         val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.LIGHT)
 
         assertFalse(switched, "Already-correct scheme must not be reapplied")
-        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
+        verify(exactly = 0) { globalSchemeSetter(mockEcm, any()) }
     }
 
     @Test
@@ -108,7 +142,7 @@ class AyuEditorSchemeBinderTest {
             switched,
             "User intent is sacred — custom non-Ayu, non-platform scheme MUST NOT be overwritten",
         )
-        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
+        verify(exactly = 0) { globalSchemeSetter(mockEcm, any()) }
     }
 
     @Test
@@ -122,7 +156,7 @@ class AyuEditorSchemeBinderTest {
             switched,
             "Plugin install incomplete (target scheme missing) must not throw — graceful no-op",
         )
-        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
+        verify(exactly = 0) { globalSchemeSetter(mockEcm, any()) }
     }
 
     // ── NEUTRAL_SCHEMES allowlist contract ────────────────────────────────
@@ -157,7 +191,7 @@ class AyuEditorSchemeBinderTest {
                 "Foreign scheme '$custom' must NOT be overwritten by binder",
             )
         }
-        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
+        verify(exactly = 0) { globalSchemeSetter(mockEcm, any()) }
     }
 
     @Test
@@ -170,7 +204,7 @@ class AyuEditorSchemeBinderTest {
         val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.MIRAGE)
 
         assertFalse(switched, "Our own editable copy must be left in place, not swapped")
-        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
+        verify(exactly = 0) { globalSchemeSetter(mockEcm, any()) }
     }
 
     @Test
@@ -183,7 +217,7 @@ class AyuEditorSchemeBinderTest {
         val switched = AyuEditorSchemeBinder.bindForVariant(AyuVariant.MIRAGE)
 
         assertFalse(switched, "Foreign editable copy is still user-custom — must skip")
-        verify(exactly = 0) { mockEcm.setGlobalScheme(any()) }
+        verify(exactly = 0) { globalSchemeSetter(mockEcm, any()) }
     }
 
     private fun mockScheme(name: String): EditorColorsScheme {

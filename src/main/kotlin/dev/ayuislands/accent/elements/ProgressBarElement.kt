@@ -1,10 +1,11 @@
 package dev.ayuislands.accent.elements
 
 import com.intellij.openapi.editor.colors.ColorKey
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -12,6 +13,7 @@ import javax.swing.UIManager
 class ProgressBarElement : AccentElement {
     override val id = AccentElementId.PROGRESS_BAR
     override val displayName = "Progress Bar"
+    private val schemeOwner = EditorSchemeOwner.Element(id)
 
     private val uiKeys =
         listOf(
@@ -22,12 +24,13 @@ class ProgressBarElement : AccentElement {
     private val editorKey = ColorKey.find("PROGRESS_BAR_TRACK")
 
     override fun apply(color: Color) {
+        val scheme = AyuEditorSchemeScope.activeScheme()
         for (key in uiKeys) {
             UIManager.put(key, color)
         }
+        if (scheme == null) return
         runOnEdt {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            scheme.setColor(editorKey, color)
+            AyuEditorSchemeScope.writeColor(scheme, schemeOwner, editorKey, color)
         }
     }
 
@@ -36,9 +39,7 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, null)
         }
         runOnEdt {
-            val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            scheme.setColor(editorKey, parentScheme?.getColor(editorKey))
+            AyuEditorSchemeScope.restore(schemeOwner)
         }
     }
 
@@ -47,8 +48,7 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, null)
         }
         runOnEdt {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-            scheme.setColor(editorKey, null)
+            AyuEditorSchemeScope.restore(schemeOwner)
         }
     }
 

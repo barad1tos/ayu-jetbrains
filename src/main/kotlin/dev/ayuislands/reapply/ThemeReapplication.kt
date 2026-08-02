@@ -17,8 +17,8 @@ import dev.ayuislands.reapply.ReapplyStep.Font
 import dev.ayuislands.reapply.ReapplyStep.Glow
 import dev.ayuislands.reapply.ReapplyStep.Notify
 import dev.ayuislands.reapply.ReapplyStep.RevertAccent
-import dev.ayuislands.reapply.ReapplyStep.RevertFont
 import dev.ayuislands.reapply.ReapplyStep.Syntax
+import dev.ayuislands.reapply.ReapplyStep.VcsApply
 import dev.ayuislands.reapply.ReapplyStep.VcsRevert
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.syntax.SyntaxIntensityService
@@ -45,15 +45,15 @@ object ThemeReapplication {
             is ReapplyReason.ThemeSwitched -> {
                 when (reason.context) {
                     is AccentContext.Ayu -> {
-                        listOf(BindScheme, ApplyResolvedAccent, Font, Notify, Glow, Syntax)
+                        listOf(BindScheme, ApplyResolvedAccent, Font, Notify, Glow, Syntax, VcsApply)
                     }
 
                     AccentContext.External -> {
-                        listOf(RevertAccent, RevertFont, ApplyResolvedAccent, Glow)
+                        listOf(RevertAccent, VcsRevert, ApplyResolvedAccent, Glow)
                     }
 
                     null -> {
-                        listOf(RevertAccent, RevertFont, Glow)
+                        listOf(RevertAccent, VcsRevert, Glow)
                     }
                 }
             }
@@ -102,7 +102,7 @@ object ThemeReapplication {
     ) {
         when (step) {
             BindScheme, ApplyResolvedAccent, ApplyExplicitHex, RevertAccent -> runAccentStep(step, reason)
-            Font, RevertFont, Notify, Glow, Syntax, VcsRevert -> runSurfaceStep(step)
+            Font, Notify, Glow, Syntax, VcsApply, VcsRevert -> runSurfaceStep(step)
         }
     }
 
@@ -145,7 +145,7 @@ object ThemeReapplication {
             }
 
             // Surface steps are dispatched by runStep; unreachable here.
-            Font, RevertFont, Notify, Glow, Syntax, VcsRevert -> {
+            Font, Notify, Glow, Syntax, VcsApply, VcsRevert -> {
                 return
             }
         }
@@ -156,10 +156,6 @@ object ThemeReapplication {
         when (step) {
             Font -> {
                 FontPresetApplicator.applyFromState()
-            }
-
-            RevertFont -> {
-                FontPresetApplicator.revert()
             }
 
             Notify -> {
@@ -174,6 +170,10 @@ object ThemeReapplication {
                 if (AyuVariant.isAyuActive()) {
                     SyntaxIntensityService.getInstance().reapplyForActiveLaf()
                 }
+            }
+
+            VcsApply -> {
+                VcsColorApplier.applyAll()
             }
 
             VcsRevert -> {
