@@ -69,7 +69,7 @@ def extract_tier_bullets(section: str) -> list[tuple[str, str]]:
 
 
 def check_changelog_cross_ref(data: dict[str, Any], report: Report) -> None:
-    """Invariant 2: tier-tagged bullets in latest changelog map to features with matching `introduced`."""
+    """Invariant 2: tier-tagged bullets map to features introduced or updated in the release."""
     version, bullets = extract_latest_changelog_section()
     if not bullets:
         # No tier-tagged bullets — could be a fix-only patch release. OK.
@@ -77,14 +77,14 @@ def check_changelog_cross_ref(data: dict[str, Any], report: Report) -> None:
     matching_features = [
         feature
         for feature in iter_features(data)
-        if feature.get("introduced") == version
+        if feature.get("introduced") == version or feature.get("updated") == version
     ]
     if not matching_features:
         report.error(
             "_changelog_xref_",
             f"CHANGELOG [{version}] has {len(bullets)} tagged bullet(s) but "
-            f"no features.yml entry with introduced: {version}. Add one feature "
-            f"per new bullet or mark the bullets as bug-fixes (drop [Paid]/[Free]).",
+            f"no features.yml entry introduced or updated in {version}. Add one "
+            f"feature per paid/free bullet or mark the bullets as bug-fixes.",
         )
 
 

@@ -27,9 +27,9 @@
 #      last published Marketplace version unless the plugin version changes.
 #
 #   7. Semantic release policy: a latest release with `features.yml` entries
-#      introduced in that version must be a minor bump; a release with no new
-#      feature entries must be a patch bump. `gradle.properties.pluginVersion`
-#      and plugin.xml change-notes must point at the same latest version.
+#      introduced in that version must be a minor bump; updates to existing
+#      features and fix-only releases use a patch bump. `pluginVersion` and
+#      plugin.xml change-notes must point at the same latest version.
 #
 # When adding a feature: pick a distinctive keyword (short phrase that will
 # always appear verbatim in the marketing copy). When the UI changes: either
@@ -344,7 +344,8 @@ categories:
       - id: glow-chaotic-routing
         title: "Chaotic waveform routing"
         keyword: "Glow"
-        introduced: "2.8.1"
+        introduced: "2.8.0"
+        updated: "2.8.1"
         tier: paid
         description: >
           Let the ECG waveform leave one island after a full loop and continue

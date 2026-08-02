@@ -70,6 +70,12 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.1" to
+                releaseNotes(
+                    "[Paid] Chaotic ECG routes across connected editor, tool-window, and IDE-window islands",
+                    "[Fix] License and trial changes preserve premium preferences while reverting active effects",
+                    "[Fix] Ayu preserves manual and foreign editor color-scheme values across transitions",
+                ),
             "2.8.0" to
                 releaseNotes(
                     "[Paid] External chrome tint and project-icon accents extend automatic color across more projects",
