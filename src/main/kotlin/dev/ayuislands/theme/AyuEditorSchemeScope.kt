@@ -1,10 +1,15 @@
 package dev.ayuislands.theme
 
+import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.markup.TextAttributes
+import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import org.jetbrains.annotations.TestOnly
+import java.awt.Color
 import java.util.Collections
 import java.util.IdentityHashMap
 
@@ -29,6 +34,37 @@ internal object AyuEditorSchemeScope {
                 accentClaims.add(scheme)
             }
         }
+
+    fun writeColor(
+        owner: EditorSchemeOwner,
+        key: ColorKey,
+        value: Color?,
+    ) {
+        val scheme = claimActiveScheme() ?: return
+        EditorSchemeOverrides.writeColor(scheme, owner, key, value)
+    }
+
+    fun writeAttributes(
+        owner: EditorSchemeOwner,
+        key: TextAttributesKey,
+        value: TextAttributes?,
+    ) {
+        val scheme = claimActiveScheme() ?: return
+        EditorSchemeOverrides.writeAttributes(scheme, owner, key, value)
+    }
+
+    fun restore(owner: EditorSchemeOwner) {
+        cleanClaimedAccentSchemes { scheme ->
+            EditorSchemeOverrides.restore(scheme, owner)
+        }
+    }
+
+    fun observeElementEnabled(
+        id: AccentElementId,
+        isEnabled: Boolean,
+    ) {
+        EditorSchemeOverrides.observeElementEnabled(id, isEnabled)
+    }
 
     fun currentAyuScheme(): EditorColorsScheme? =
         EditorColorsManager
@@ -95,5 +131,6 @@ internal object AyuEditorSchemeScope {
     @TestOnly
     fun resetClaims() {
         releaseAccentClaims()
+        EditorSchemeOverrides.reset()
     }
 }
