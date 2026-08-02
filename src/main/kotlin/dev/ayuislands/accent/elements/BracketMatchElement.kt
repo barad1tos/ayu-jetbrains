@@ -17,7 +17,7 @@ class BracketMatchElement : AccentElement {
     private val braceAttrKey = TextAttributesKey.find("MATCHED_BRACE_ATTRIBUTES")
 
     override fun apply(color: Color) {
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
         val existing = scheme.getAttributes(braceAttrKey)
         val updated = existing?.clone() ?: TextAttributes()
         updated.foregroundColor = color
@@ -27,7 +27,7 @@ class BracketMatchElement : AccentElement {
     }
 
     override fun applyNeutral(variant: AyuVariant) {
-        val scheme = AyuEditorSchemeScope.activeScheme()
+        val scheme = AyuEditorSchemeScope.claimActiveScheme()
         if (scheme != null) {
             val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
             val parentAttrs = parentScheme?.getAttributes(braceAttrKey)
@@ -37,8 +37,7 @@ class BracketMatchElement : AccentElement {
     }
 
     override fun revert() {
-        val scheme = AyuEditorSchemeScope.ownedScheme()
-        if (scheme != null) {
+        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
             val fallback = braceAttrKey.fallbackAttributeKey
             val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
             scheme.setAttributes(braceAttrKey, defaultAttrs ?: TextAttributes())

@@ -10,7 +10,9 @@ import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import io.mockk.Runs
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -38,6 +40,7 @@ class AccentElementsTest {
 
     @BeforeTest
     fun setUp() {
+        AyuEditorSchemeScope.resetClaims()
         mockScheme = mockk(relaxed = true)
         mockColorsManager = mockk(relaxed = true)
         every { mockColorsManager.globalScheme } returns mockScheme
@@ -69,6 +72,7 @@ class AccentElementsTest {
 
     @AfterTest
     fun tearDown() {
+        AyuEditorSchemeScope.resetClaims()
         unmockkAll()
     }
 
@@ -179,7 +183,6 @@ class AccentElementsTest {
 
     @Test
     fun `scheme-backed reverts clean owned Ayu scheme after leaving Ayu`() {
-        every { AyuVariant.detect() } returns null
         val elements =
             listOf(
                 LinksElement(),
@@ -191,10 +194,34 @@ class AccentElementsTest {
                 MatchingTagElement(),
             )
 
+        elements.forEach { it.apply(testColor) }
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
+        every { AyuVariant.detect() } returns null
         elements.forEach { it.revert() }
 
         verify(atLeast = 1) { mockScheme.setColor(any<ColorKey>(), null) }
         verify(atLeast = 1) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    @Test
+    fun `revert cleans every exact scheme claimed across Ayu variants`() {
+        val secondScheme = mockk<EditorColorsScheme>(relaxed = true)
+        every { secondScheme.name } returns "Ayu Islands Dark"
+        var currentScheme = mockScheme
+        every { mockColorsManager.globalScheme } answers { currentScheme }
+        val element = CaretRowElement()
+
+        element.apply(testColor)
+        currentScheme = secondScheme
+        every { AyuVariant.detect() } returns AyuVariant.DARK
+        element.apply(testColor)
+        clearMocks(mockScheme, secondScheme, answers = false, recordedCalls = true)
+        every { AyuVariant.detect() } returns null
+
+        element.revert()
+
+        verify(exactly = 3) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(exactly = 3) { secondScheme.setColor(any<ColorKey>(), null) }
     }
 
     @Test
@@ -216,6 +243,7 @@ class AccentElementsTest {
 
     @Test
     fun `editor-only elements call setAttributes null on revert`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         val editorElements: List<AccentElement> =
             listOf(
                 InlayHintsElement(),
@@ -359,6 +387,7 @@ class AccentElementsTest {
 
     @Test
     fun `ProgressBarElement revert nulls UI keys and editor color key`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         val element = ProgressBarElement()
         element.revert()
         verify { UIManager.put("ProgressBar.foreground", null) }
@@ -404,6 +433,7 @@ class AccentElementsTest {
 
     @Test
     fun `ProgressBarElement revert off EDT uses invokeLater`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         every { SwingUtilities.isEventDispatchThread() } returns false
 
         val element = ProgressBarElement()
@@ -461,6 +491,7 @@ class AccentElementsTest {
 
     @Test
     fun `LinksElement revert nulls all editor color keys and text attributes`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         val element = LinksElement()
         element.revert()
 
@@ -536,6 +567,7 @@ class AccentElementsTest {
 
     @Test
     fun `InlayHintsElement revert sets attributes to null`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         val element = InlayHintsElement()
         element.revert()
 
@@ -597,6 +629,7 @@ class AccentElementsTest {
 
     @Test
     fun `CaretRowElement revert nulls all three color keys`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         val element = CaretRowElement()
         element.revert()
 
@@ -652,6 +685,7 @@ class AccentElementsTest {
 
     @Test
     fun `BracketMatchElement revert restores fallback attributes`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         val element = BracketMatchElement()
         element.revert()
 
@@ -719,6 +753,7 @@ class AccentElementsTest {
 
     @Test
     fun `BracketMatchElement revert with null fallback attribute key`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         val braceKey = mockk<TextAttributesKey>(relaxed = true)
         every { braceKey.fallbackAttributeKey } returns null
         every { TextAttributesKey.find("MATCHED_BRACE_ATTRIBUTES") } returns braceKey

@@ -534,6 +534,7 @@ object AccentApplicator {
                 log.warn("Accent revert step $step failed; remaining steps still ran", error)
             }
         }
+        AyuEditorSchemeScope.releaseAccentClaims()
     }
 
     private fun clearReverseUiAndExtensions() {
@@ -705,7 +706,7 @@ object AccentApplicator {
     }
 
     private fun applyAlwaysOnEditorKeys(accent: Color) {
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
 
         // ColorKey entries
         for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
@@ -757,7 +758,7 @@ object AccentApplicator {
             ExternalChromeOwnership.releaseTabUnderline()
         }
         if (tabMode == GlowTabMode.OFF && variant != null) {
-            AyuEditorSchemeScope.activeScheme()?.setColor(
+            AyuEditorSchemeScope.claimActiveScheme()?.setColor(
                 ColorKey.find("TAB_UNDERLINE"),
                 Color.decode(variant.neutralGray),
             )
@@ -781,18 +782,21 @@ object AccentApplicator {
     }
 
     private fun revertAlwaysOnEditorKeys() {
-        val scheme = AyuEditorSchemeScope.ownedScheme() ?: return
+        val schemes = AyuEditorSchemeScope.claimedAccentSchemes()
+        if (schemes.isEmpty()) return
 
-        for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
-            scheme.setColor(colorKey, null)
-        }
+        for (scheme in schemes) {
+            for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
+                scheme.setColor(colorKey, null)
+            }
 
-        for ((key) in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
-            val attrKey = TextAttributesKey.find(key)
-            val fallback = attrKey.fallbackAttributeKey
-            val defaultAttrs =
-                if (fallback != null) scheme.getAttributes(fallback) else null
-            scheme.setAttributes(attrKey, defaultAttrs ?: EMPTY_TEXT_ATTRIBUTES)
+            for ((key) in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
+                val attrKey = TextAttributesKey.find(key)
+                val fallback = attrKey.fallbackAttributeKey
+                val defaultAttrs =
+                    if (fallback != null) scheme.getAttributes(fallback) else null
+                scheme.setAttributes(attrKey, defaultAttrs ?: EMPTY_TEXT_ATTRIBUTES)
+            }
         }
 
         val application = ApplicationManager.getApplication()

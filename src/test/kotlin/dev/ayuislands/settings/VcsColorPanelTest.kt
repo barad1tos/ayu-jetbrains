@@ -67,7 +67,7 @@ class VcsColorPanelTest {
         every { LicenseChecker.isLicensedOrGrace() } returns true
 
         mockkObject(VcsColorApplier)
-        every { VcsColorApplier.applyAll() } returns Unit
+        every { VcsColorApplier.applyCurrentScheme() } returns Unit
         every { VcsColorApplier.revertAll() } returns Unit
 
         // UI DSL plumbing — collapsibleGroup builders resolve ActionManager through
@@ -367,7 +367,7 @@ class VcsColorPanelTest {
         assertEquals(VcsColorPreset.NEON.name, state.vcsDiffPreset)
         assertEquals(VcsColorPreset.CYBERPUNK.name, state.vcsMergePreset)
         assertEquals(VcsColorPreset.WHISPER.name, state.vcsBlamePreset)
-        verify(exactly = 1) { VcsColorApplier.applyAll() }
+        verify(exactly = 1) { VcsColorApplier.applyCurrentScheme() }
     }
 
     @Test
@@ -383,7 +383,7 @@ class VcsColorPanelTest {
         every {
             VcsColorContext.withSnapshot(capture(capturedSnapshot), any<() -> Any?>())
         } answers {
-            // Run the block so the inner VcsColorApplier.applyAll mock still
+            // Run the block so the inner explicit applier mock still
             // fires once — keeps the existing apply-fires-applier assertion
             // semantics intact.
             @Suppress("UNCHECKED_CAST")
@@ -418,14 +418,14 @@ class VcsColorPanelTest {
         // BLAME section → WHISPER → BLAME_GUTTER lands on WHISPER_SLIDER.
         assertEquals(VcsColorPreset.WHISPER_SLIDER, intensities[VcsColorCategory.BLAME_GUTTER])
 
-        verify(exactly = 1) { VcsColorApplier.applyAll() }
+        verify(exactly = 1) { VcsColorApplier.applyCurrentScheme() }
     }
 
     @Test
     fun `apply without modifications does not call the applier`() {
         val panel = newBuiltPanel()
         panel.apply()
-        verify(exactly = 0) { VcsColorApplier.applyAll() }
+        verify(exactly = 0) { VcsColorApplier.applyCurrentScheme() }
     }
 
     @Test
@@ -437,12 +437,12 @@ class VcsColorPanelTest {
         panel.apply()
 
         assertFalse(state.vcsColorEnabled, "License revoke must abort persistence")
-        verify(exactly = 0) { VcsColorApplier.applyAll() }
+        verify(exactly = 0) { VcsColorApplier.applyCurrentScheme() }
     }
 
     @Test
     fun `apply leaves state untouched when applier throws`() {
-        every { VcsColorApplier.applyAll() } throws RuntimeException("simulated apply failure")
+        every { VcsColorApplier.applyCurrentScheme() } throws RuntimeException("simulated apply failure")
         val panel = newBuiltPanel()
         panel.setPendingEnabledForTest(true)
         panel.setPendingPresetForTest(VcsSection.DIFF, VcsColorPreset.NEON)
@@ -478,7 +478,7 @@ class VcsColorPanelTest {
         assertFalse(diffSlider(panel).isEnabled, "Unlicensed VCS gate must lock sliders")
         panel.setPendingEnabledForTest(true)
         panel.apply()
-        verify(exactly = 0) { VcsColorApplier.applyAll() }
+        verify(exactly = 0) { VcsColorApplier.applyCurrentScheme() }
     }
 
     @Test

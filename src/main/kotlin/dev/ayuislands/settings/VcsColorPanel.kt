@@ -470,7 +470,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
                 // Run the applier FIRST so a throw leaves persisted state untouched
                 // and the user can retry after fixing the cause.
                 VcsColorContext.withSnapshot(snapshot) {
-                    VcsColorApplier.applyAll()
+                    VcsColorApplier.applyCurrentScheme()
                 }
                 val state = AyuIslandsSettings.getInstance().state
                 state.vcsColorEnabled = pending.enabled

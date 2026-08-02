@@ -19,14 +19,14 @@ class CaretRowElement : AccentElement {
 
     override fun apply(color: Color) {
         val caretRowColor = ColorUtil.toAlpha(color, CARET_ROW_ALPHA)
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
         scheme.setColor(caretRowKey, caretRowColor)
         scheme.setColor(caretKey, color)
         scheme.setColor(lineNumberKey, color)
     }
 
     override fun applyNeutral(variant: AyuVariant) {
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
         val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
         for (colorKey in listOf(caretRowKey, caretKey, lineNumberKey)) {
             scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
@@ -38,9 +38,10 @@ class CaretRowElement : AccentElement {
     }
 
     override fun revert() {
-        val scheme = AyuEditorSchemeScope.ownedScheme() ?: return
-        scheme.setColor(caretRowKey, null)
-        scheme.setColor(caretKey, null)
-        scheme.setColor(lineNumberKey, null)
+        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+            scheme.setColor(caretRowKey, null)
+            scheme.setColor(caretKey, null)
+            scheme.setColor(lineNumberKey, null)
+        }
     }
 }

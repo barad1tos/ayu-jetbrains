@@ -42,7 +42,7 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, color)
         }
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
         for (key in editorColorKeys) {
             scheme.setColor(key, color)
         }
@@ -59,7 +59,7 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
         val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
         for (colorKey in editorColorKeys) {
             scheme.setColor(colorKey, parentScheme?.getColor(colorKey))
@@ -74,12 +74,13 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, null)
         }
-        val scheme = AyuEditorSchemeScope.ownedScheme() ?: return
-        for (key in editorColorKeys) {
-            scheme.setColor(key, null)
-        }
-        for (attrKey in editorAttrKeys) {
-            scheme.setAttributes(attrKey, null)
+        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+            for (key in editorColorKeys) {
+                scheme.setColor(key, null)
+            }
+            for (attrKey in editorAttrKeys) {
+                scheme.setAttributes(attrKey, null)
+            }
         }
     }
 }

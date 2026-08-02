@@ -10,6 +10,7 @@ import dev.ayuislands.reapply.ReapplyStep.Glow
 import dev.ayuislands.reapply.ReapplyStep.Notify
 import dev.ayuislands.reapply.ReapplyStep.RevertAccent
 import dev.ayuislands.reapply.ReapplyStep.Syntax
+import dev.ayuislands.reapply.ReapplyStep.VcsApply
 import dev.ayuislands.reapply.ReapplyStep.VcsRevert
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -21,19 +22,19 @@ class ThemeReapplicationPlanTest {
             ThemeReapplication.planFor(
                 ReapplyReason.ThemeSwitched(AccentContext.Ayu(AyuVariant.DARK)),
             )
-        assertEquals(listOf(BindScheme, ApplyResolvedAccent, Font, Notify, Glow, Syntax), plan)
+        assertEquals(listOf(BindScheme, ApplyResolvedAccent, Font, Notify, Glow, Syntax, VcsApply), plan)
     }
 
     @Test
     fun `theme switch to External cleans accent then applies external accent and glow`() {
         val plan = ThemeReapplication.planFor(ReapplyReason.ThemeSwitched(AccentContext.External))
-        assertEquals(listOf(RevertAccent, ApplyResolvedAccent, Glow), plan)
+        assertEquals(listOf(RevertAccent, VcsRevert, ApplyResolvedAccent, Glow), plan)
     }
 
     @Test
     fun `theme switch away cleans accent then syncs glow`() {
         val plan = ThemeReapplication.planFor(ReapplyReason.ThemeSwitched(null))
-        assertEquals(listOf(RevertAccent, Glow), plan)
+        assertEquals(listOf(RevertAccent, VcsRevert, Glow), plan)
     }
 
     @Test

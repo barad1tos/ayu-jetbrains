@@ -27,7 +27,7 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, color)
         }
         runOnEdt {
-            AyuEditorSchemeScope.activeScheme()?.setColor(editorKey, color)
+            AyuEditorSchemeScope.claimActiveScheme()?.setColor(editorKey, color)
         }
     }
 
@@ -36,7 +36,7 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, null)
         }
         runOnEdt {
-            val scheme = AyuEditorSchemeScope.activeScheme()
+            val scheme = AyuEditorSchemeScope.claimActiveScheme()
             if (scheme != null) {
                 val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
                 scheme.setColor(editorKey, parentScheme?.getColor(editorKey))
@@ -49,7 +49,9 @@ class ProgressBarElement : AccentElement {
             UIManager.put(key, null)
         }
         runOnEdt {
-            AyuEditorSchemeScope.ownedScheme()?.setColor(editorKey, null)
+            for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+                scheme.setColor(editorKey, null)
+            }
         }
     }
 

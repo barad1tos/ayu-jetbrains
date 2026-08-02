@@ -56,7 +56,7 @@ class ScrollbarElement : AccentElement {
         // EditorColorsScheme keys (editor scrollbars via OpaqueAwareScrollBar).
         // Editor scrollbars bypass UIManager entirely — OpaqueAwareScrollBar installs
         // a ColorKey.FUNCTION_KEY that resolves colors from EditorColorsScheme.getColor().
-        val scheme = AyuEditorSchemeScope.activeScheme()
+        val scheme = AyuEditorSchemeScope.claimActiveScheme()
         if (scheme != null) {
             for (key in hoverKeys) {
                 scheme.setColor(ColorKey.find(key), hoverColor)
@@ -71,8 +71,7 @@ class ScrollbarElement : AccentElement {
         for (key in hoverKeys + defaultKeys) {
             UIManager.put(key, null)
         }
-        val scheme = AyuEditorSchemeScope.ownedScheme()
-        if (scheme != null) {
+        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
             for (key in hoverKeys + defaultKeys) {
                 scheme.setColor(ColorKey.find(key), null)
             }

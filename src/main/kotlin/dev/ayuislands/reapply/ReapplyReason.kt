@@ -34,6 +34,7 @@ enum class ReapplyStep {
     Glow,
     Syntax,
     RevertAccent,
+    VcsApply,
     VcsRevert,
 }
 

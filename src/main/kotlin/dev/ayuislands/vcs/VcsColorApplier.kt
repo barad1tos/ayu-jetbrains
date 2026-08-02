@@ -3,16 +3,21 @@ package dev.ayuislands.vcs
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.theme.AyuEditorSchemeScope
+import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Window
+import java.util.Collections
+import java.util.IdentityHashMap
 
 /**
  * Applier — writes blended VCS colors into the live [EditorColorsScheme]
@@ -31,6 +36,8 @@ import java.awt.Window
  */
 internal object VcsColorApplier {
     private val LOG = logger<VcsColorApplier>()
+    private val claimedSchemes: MutableSet<EditorColorsScheme> =
+        Collections.newSetFromMap(IdentityHashMap())
 
     /**
      * Apply VCS colors for the currently active variant.
@@ -56,9 +63,34 @@ internal object VcsColorApplier {
         }
         ApplicationManager.getApplication().invokeLater {
             val currentVariant = AyuVariant.detect() ?: return@invokeLater
-            val scheme = AyuEditorSchemeScope.activeScheme() ?: return@invokeLater
-            writeAll(scheme, state, currentVariant)
+            if (VcsColorContext.isEnabled(state)) {
+                val scheme = AyuEditorSchemeScope.activeScheme() ?: return@invokeLater
+                claim(scheme)
+                writeAll(scheme, state, currentVariant)
+                repaintAllWindows()
+            } else {
+                revertClaims()
+            }
+        }
+    }
+
+    /** Apply pending Settings values to the exact scheme selected by the user. */
+    @RequiresEdt
+    fun applyCurrentScheme() {
+        if (!LicenseChecker.isLicensedOrGrace()) {
+            revertAll()
+            return
+        }
+        val variant = AyuVariant.detect() ?: return
+        val state = AyuIslandsSettings.getInstance().state
+        val scheme = EditorColorsManager.getInstance().globalScheme
+
+        if (VcsColorContext.isEnabled(state)) {
+            claim(scheme)
+            writeAll(scheme, state, variant)
             repaintAllWindows()
+        } else {
+            revertClaims(scheme)
         }
     }
 
@@ -67,14 +99,40 @@ internal object VcsColorApplier {
      * `scheme.setColor` (for ColorKey entries) and `scheme.setAttributes`
      * (for TextAttributesKey entries) so the scheme falls back to the XML
      * baseline. Used when the master kill-switch flips ON → OFF and after an
-     * Ayu LAF is deactivated. Only a current Ayu-owned scheme is cleaned.
+     * Ayu LAF is deactivated. Runtime claims preserve exact scheme identity;
+     * the current Ayu scheme is only a restart fallback when persisted state
+     * says the feature was enabled.
      */
     fun revertAll() {
         ApplicationManager.getApplication().invokeLater {
-            val scheme = AyuEditorSchemeScope.ownedScheme() ?: return@invokeLater
-            val failed = revertEveryEntry(scheme)
-            if (failed > 0) LOG.warn("VcsColorApplier.revertAll: $failed entries failed to revert; see prior warnings")
-            repaintAllWindows()
+            val state = AyuIslandsSettings.getInstance().state
+            val fallback = AyuEditorSchemeScope.currentAyuScheme().takeIf { state.vcsColorEnabled }
+            revertClaims(fallback)
+        }
+    }
+
+    private fun claim(scheme: EditorColorsScheme) {
+        synchronized(claimedSchemes) {
+            claimedSchemes.add(scheme)
+        }
+    }
+
+    private fun revertClaims(fallback: EditorColorsScheme? = null) {
+        val schemes =
+            synchronized(claimedSchemes) {
+                claimedSchemes.toList().also { claimedSchemes.clear() }
+            }.ifEmpty { listOfNotNull(fallback) }
+        if (schemes.isEmpty()) return
+
+        val failed = schemes.sumOf(::revertEveryEntry)
+        if (failed > 0) LOG.warn("VcsColorApplier.revertAll: $failed entries failed to revert; see prior warnings")
+        repaintAllWindows()
+    }
+
+    @TestOnly
+    fun resetClaims() {
+        synchronized(claimedSchemes) {
+            claimedSchemes.clear()
         }
     }
 

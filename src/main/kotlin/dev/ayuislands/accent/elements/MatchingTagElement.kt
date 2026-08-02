@@ -19,7 +19,7 @@ class MatchingTagElement : AccentElement {
     private val tagAttrKey = TextAttributesKey.find("MATCHED_TAG_NAME")
 
     override fun apply(color: Color) {
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
         val existing = scheme.getAttributes(tagAttrKey)
         val updated = existing?.clone() ?: TextAttributes()
         updated.backgroundColor = blendWithEditorBackground(color, editorBackgroundFor(scheme))
@@ -67,17 +67,18 @@ class MatchingTagElement : AccentElement {
         ).toInt().coerceIn(0, MAX_CHANNEL_VALUE)
 
     override fun applyNeutral(variant: AyuVariant) {
-        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
         val parentScheme = EditorColorsManager.getInstance().getScheme(variant.parentSchemeName)
         val parentAttrs = parentScheme?.getAttributes(tagAttrKey)
         scheme.setAttributes(tagAttrKey, parentAttrs ?: TextAttributes())
     }
 
     override fun revert() {
-        val scheme = AyuEditorSchemeScope.ownedScheme() ?: return
-        val fallback = tagAttrKey.fallbackAttributeKey
-        val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
-        scheme.setAttributes(tagAttrKey, defaultAttrs ?: TextAttributes())
+        for (scheme in AyuEditorSchemeScope.claimedAccentSchemes()) {
+            val fallback = tagAttrKey.fallbackAttributeKey
+            val defaultAttrs = if (fallback != null) scheme.getAttributes(fallback) else null
+            scheme.setAttributes(tagAttrKey, defaultAttrs ?: TextAttributes())
+        }
     }
 
     companion object {

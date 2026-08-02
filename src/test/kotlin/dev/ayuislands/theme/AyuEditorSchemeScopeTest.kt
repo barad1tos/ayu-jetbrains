@@ -20,6 +20,7 @@ class AyuEditorSchemeScopeTest {
 
     @BeforeTest
     fun setUp() {
+        AyuEditorSchemeScope.resetClaims()
         mockkObject(AyuVariant.Companion)
         mockkStatic(EditorColorsManager::class)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
@@ -28,6 +29,7 @@ class AyuEditorSchemeScopeTest {
 
     @AfterTest
     fun tearDown() {
+        AyuEditorSchemeScope.resetClaims()
         unmockkAll()
     }
 
@@ -59,19 +61,30 @@ class AyuEditorSchemeScopeTest {
     }
 
     @Test
-    fun `ownedScheme returns Ayu scheme when Ayu is inactive`() {
+    fun `currentAyuScheme returns Ayu scheme when Ayu is inactive`() {
         val scheme = scheme("_@user_Ayu Islands Mirage")
         every { AyuVariant.detect() } returns null
         every { editorColorsManager.globalScheme } returns scheme
 
-        assertSame(scheme, AyuEditorSchemeScope.ownedScheme())
+        assertSame(scheme, AyuEditorSchemeScope.currentAyuScheme())
     }
 
     @Test
-    fun `ownedScheme rejects foreign scheme`() {
+    fun `currentAyuScheme rejects foreign scheme`() {
         every { editorColorsManager.globalScheme } returns scheme("Solarized Dark")
 
-        assertNull(AyuEditorSchemeScope.ownedScheme())
+        assertNull(AyuEditorSchemeScope.currentAyuScheme())
+    }
+
+    @Test
+    fun `accent claim retains exact scheme after global scheme changes`() {
+        val claimed = scheme("Ayu Islands Mirage")
+        every { editorColorsManager.globalScheme } returns claimed
+        assertSame(claimed, AyuEditorSchemeScope.claimActiveScheme())
+
+        every { editorColorsManager.globalScheme } returns scheme("Ayu Islands Dark")
+
+        assertSame(claimed, AyuEditorSchemeScope.claimedAccentSchemes().single())
     }
 
     private fun scheme(name: String): EditorColorsScheme =

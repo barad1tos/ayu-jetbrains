@@ -13,6 +13,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.clearAllMocks
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -50,6 +51,7 @@ class VcsColorApplierTest {
 
     @BeforeEach
     fun setUp() {
+        VcsColorApplier.resetClaims()
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockColorsManager
         every { mockColorsManager.globalScheme } returns mockScheme
@@ -78,6 +80,7 @@ class VcsColorApplierTest {
 
     @AfterEach
     fun tearDown() {
+        VcsColorApplier.resetClaims()
         unmockkAll()
         clearAllMocks()
     }
@@ -111,6 +114,9 @@ class VcsColorApplierTest {
 
     @Test
     fun `revertAll - inactive Ayu cleans current owned scheme`() {
+        state.vcsColorEnabled = true
+        VcsColorApplier.applyAll()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
         every { AyuVariant.detect() } returns null
 
         VcsColorApplier.revertAll()
@@ -131,6 +137,18 @@ class VcsColorApplierTest {
     }
 
     @Test
+    fun `applyCurrentScheme - explicit apply writes foreign scheme`() {
+        state.vcsColorEnabled = true
+        every { mockScheme.name } returns "Solarized Dark"
+
+        VcsColorApplier.applyCurrentScheme()
+
+        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
+        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), any()) }
+        verify(exactly = textAttrEntries.size) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    @Test
     fun `applyAll - queued callback rechecks current scheme ownership`() {
         val callback = slot<Runnable>()
         every { mockApplication.invokeLater(capture(callback)) } returns Unit
@@ -144,10 +162,30 @@ class VcsColorApplierTest {
     }
 
     @Test
+    fun `revertAll cleans exact claimed scheme after current scheme changes`() {
+        state.vcsColorEnabled = true
+        VcsColorApplier.applyAll()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
+
+        val replacement = mockk<EditorColorsScheme>(relaxed = true)
+        every { replacement.name } returns "Ayu Islands Dark"
+        every { mockColorsManager.globalScheme } returns replacement
+        every { AyuVariant.detect() } returns null
+
+        VcsColorApplier.revertAll()
+
+        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
+        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(exactly = textAttrEntries.size) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+        verify(exactly = 0) { replacement.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { replacement.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    @Test
     fun `applyAll - master disabled writes null to every palette entry (revert fan-out)`() {
         state.vcsColorEnabled = false
 
-        VcsColorApplier.applyAll()
+        VcsColorApplier.applyCurrentScheme()
 
         // Iterate the same source the applier iterates so counts adapt as the
         // palette evolves — explicit literal counts would rot the moment a new
@@ -209,7 +247,7 @@ class VcsColorApplierTest {
             mockScheme.setAttributes(any<TextAttributesKey>(), capture(capturedSlot))
         } returns Unit
 
-        VcsColorApplier.applyAll()
+        VcsColorApplier.applyCurrentScheme()
 
         // At least one TEXT_ATTR_BG entry must exist for the slot to be filled —
         // sanity-check the palette shape before asserting the clone-preserve
@@ -274,7 +312,7 @@ class VcsColorApplierTest {
         every { mockScheme.setColor(poisonKey, null) } throws RuntimeException("revert-boom on $poisonKeyName")
 
         // No throw expected — safeRevertEntry swallows.
-        VcsColorApplier.applyAll()
+        VcsColorApplier.applyCurrentScheme()
 
         val textAttrEntries = partitionPaletteByMode().second
         // Same total-invocation invariant as the safeWriteEntry test: MockK
@@ -290,6 +328,10 @@ class VcsColorApplierTest {
 
     @Test
     fun `revertAll - iterates every palette entry with null`() {
+        state.vcsColorEnabled = true
+        VcsColorApplier.applyAll()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
+
         VcsColorApplier.revertAll()
 
         val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
