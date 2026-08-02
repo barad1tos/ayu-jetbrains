@@ -117,7 +117,7 @@ class VerifyReleasePolicyTest(unittest.TestCase):
             report = run_release_policy(
                 root,
                 features_data(
-                    feature_id="glow-chaotic-routing",
+                    feature_id="glow-waveform",
                     introduced="2.8.0",
                     updated="2.8.1",
                 ),

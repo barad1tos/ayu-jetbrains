@@ -332,6 +332,7 @@ categories:
         title: "ECG waveform glow"
         keyword: "Glow"
         introduced: "2.8.0"
+        updated: "2.8.1"
         tier: paid
         description: >
           Trace the focused island with a continuous perimeter loop rendered as
@@ -339,18 +340,10 @@ categories:
           typing tempo, so sustained typing accelerates the waveform. Configure
           direction, loop duration, trace length, spike density from 1x to 4x,
           trace position outside or centered on the border, amplitude, and
-          signal intensity without changing saved solid-glow preferences.
-
-      - id: glow-chaotic-routing
-        title: "Chaotic waveform routing"
-        keyword: "Glow"
-        introduced: "2.8.0"
-        updated: "2.8.1"
-        tier: paid
-        description: >
-          Let the ECG waveform leave one island after a full loop and continue
-          across adjacent editor, tool-window, and neighboring IDE-window
-          perimeters through their closest shared transition points.
+          signal intensity without changing saved solid-glow preferences. In
+          Chaotic mode, the waveform can leave one island after a full loop and
+          continue across adjacent editor, tool-window, and neighboring
+          IDE-window perimeters through their closest shared transition points.
 
       - id: glow-external-themes
         title: "Glow on external themes"
