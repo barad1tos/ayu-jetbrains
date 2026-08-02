@@ -18,12 +18,12 @@ class BracketMatchElement : AccentElement {
     private val braceAttrKey = TextAttributesKey.find("MATCHED_BRACE_ATTRIBUTES")
 
     override fun apply(color: Color) {
-        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val existing = scheme.getAttributes(braceAttrKey)
         val updated = existing?.clone() ?: TextAttributes()
         updated.foregroundColor = color
         updated.fontType = Font.BOLD
-        AyuEditorSchemeScope.writeAttributes(schemeOwner, braceAttrKey, updated)
+        AyuEditorSchemeScope.writeAttributes(scheme, schemeOwner, braceAttrKey, updated)
         BracketFadeManager.activate(color)
     }
 

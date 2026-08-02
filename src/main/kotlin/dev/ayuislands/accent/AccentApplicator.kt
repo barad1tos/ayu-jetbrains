@@ -743,11 +743,11 @@ object AccentApplicator {
     }
 
     private fun applyAlwaysOnEditorKeys(accent: Color) {
-        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
 
         // ColorKey entries
         for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
-            AyuEditorSchemeScope.writeColor(alwaysOnOwner, colorKey, accent)
+            AyuEditorSchemeScope.writeColor(scheme, alwaysOnOwner, colorKey, accent)
         }
 
         // TextAttributesKey entries -- clone existing, override only accent properties
@@ -758,7 +758,7 @@ object AccentApplicator {
             if (AttributeTarget.FOREGROUND in targets) updated.foregroundColor = accent
             if (AttributeTarget.EFFECT_COLOR in targets) updated.effectColor = accent
             if (AttributeTarget.ERROR_STRIPE in targets) updated.errorStripeColor = accent
-            AyuEditorSchemeScope.writeAttributes(alwaysOnOwner, attrKey, updated)
+            AyuEditorSchemeScope.writeAttributes(scheme, alwaysOnOwner, attrKey, updated)
         }
 
         // Notify editors to repaint with an updated scheme
@@ -795,11 +795,15 @@ object AccentApplicator {
             ExternalChromeOwnership.releaseTabUnderline()
         }
         if (tabMode == GlowTabMode.OFF && variant != null) {
-            AyuEditorSchemeScope.writeColor(
-                alwaysOnOwner,
-                ColorKey.find("TAB_UNDERLINE"),
-                Color.decode(variant.neutralGray),
-            )
+            val scheme = AyuEditorSchemeScope.activeScheme()
+            if (scheme != null) {
+                AyuEditorSchemeScope.writeColor(
+                    scheme,
+                    alwaysOnOwner,
+                    ColorKey.find("TAB_UNDERLINE"),
+                    Color.decode(variant.neutralGray),
+                )
+            }
         }
 
         val height =

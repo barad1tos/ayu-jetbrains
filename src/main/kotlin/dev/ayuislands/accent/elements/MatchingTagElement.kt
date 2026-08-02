@@ -20,12 +20,12 @@ class MatchingTagElement : AccentElement {
     private val tagAttrKey = TextAttributesKey.find("MATCHED_TAG_NAME")
 
     override fun apply(color: Color) {
-        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val existing = scheme.getAttributes(tagAttrKey)
         val updated = existing?.clone() ?: TextAttributes()
         updated.backgroundColor = blendWithEditorBackground(color, editorBackgroundFor(scheme))
         updated.foregroundColor = null
-        AyuEditorSchemeScope.writeAttributes(schemeOwner, tagAttrKey, updated)
+        AyuEditorSchemeScope.writeAttributes(scheme, schemeOwner, tagAttrKey, updated)
     }
 
     private fun editorBackgroundFor(scheme: EditorColorsScheme): Color {

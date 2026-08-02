@@ -43,16 +43,16 @@ class LinksElement : AccentElement {
         for (key in uiKeys) {
             UIManager.put(key, color)
         }
-        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         for (key in editorColorKeys) {
-            AyuEditorSchemeScope.writeColor(schemeOwner, key, color)
+            AyuEditorSchemeScope.writeColor(scheme, schemeOwner, key, color)
         }
         for (attrKey in editorAttrKeys) {
             val existing = scheme.getAttributes(attrKey)
             val updated = existing?.clone() ?: TextAttributes()
             updated.foregroundColor = color
             updated.effectColor = color
-            AyuEditorSchemeScope.writeAttributes(schemeOwner, attrKey, updated)
+            AyuEditorSchemeScope.writeAttributes(scheme, schemeOwner, attrKey, updated)
         }
     }
 

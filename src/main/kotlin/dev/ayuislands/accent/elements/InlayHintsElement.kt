@@ -22,11 +22,11 @@ class InlayHintsElement : AccentElement {
     override fun apply(color: Color) {
         val mutedAccent = ColorUtil.toAlpha(color, MUTED_ALPHA)
         val muted = JBColor(mutedAccent, mutedAccent)
-        val scheme = AyuEditorSchemeScope.claimActiveScheme() ?: return
+        val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         val existing = scheme.getAttributes(INLAY_KEY)
         val updated = existing?.clone() ?: TextAttributes()
         updated.foregroundColor = muted
-        AyuEditorSchemeScope.writeAttributes(schemeOwner, INLAY_KEY, updated)
+        AyuEditorSchemeScope.writeAttributes(scheme, schemeOwner, INLAY_KEY, updated)
     }
 
     override fun applyNeutral(variant: AyuVariant) {

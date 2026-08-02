@@ -24,11 +24,13 @@ class ProgressBarElement : AccentElement {
     private val editorKey = ColorKey.find("PROGRESS_BAR_TRACK")
 
     override fun apply(color: Color) {
+        val scheme = AyuEditorSchemeScope.activeScheme()
         for (key in uiKeys) {
             UIManager.put(key, color)
         }
+        if (scheme == null) return
         runOnEdt {
-            AyuEditorSchemeScope.writeColor(schemeOwner, editorKey, color)
+            AyuEditorSchemeScope.writeColor(scheme, schemeOwner, editorKey, color)
         }
     }
 

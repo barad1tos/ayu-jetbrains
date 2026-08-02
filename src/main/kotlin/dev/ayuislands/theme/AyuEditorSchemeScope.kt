@@ -30,9 +30,7 @@ internal object AyuEditorSchemeScope {
 
     fun claimActiveScheme(): EditorColorsScheme? =
         activeScheme()?.also { scheme ->
-            synchronized(accentClaims) {
-                accentClaims.add(scheme)
-            }
+            claim(scheme)
         }
 
     fun writeColor(
@@ -40,7 +38,18 @@ internal object AyuEditorSchemeScope {
         key: ColorKey,
         value: Color?,
     ) {
-        val scheme = claimActiveScheme() ?: return
+        val scheme = activeScheme() ?: return
+        writeColor(scheme, owner, key, value)
+    }
+
+    fun writeColor(
+        scheme: EditorColorsScheme,
+        owner: EditorSchemeOwner,
+        key: ColorKey,
+        value: Color?,
+    ) {
+        if (activeScheme() !== scheme) return
+        claim(scheme)
         EditorSchemeOverrides.writeColor(scheme, owner, key, value)
     }
 
@@ -49,7 +58,18 @@ internal object AyuEditorSchemeScope {
         key: TextAttributesKey,
         value: TextAttributes?,
     ) {
-        val scheme = claimActiveScheme() ?: return
+        val scheme = activeScheme() ?: return
+        writeAttributes(scheme, owner, key, value)
+    }
+
+    fun writeAttributes(
+        scheme: EditorColorsScheme,
+        owner: EditorSchemeOwner,
+        key: TextAttributesKey,
+        value: TextAttributes?,
+    ) {
+        if (activeScheme() !== scheme) return
+        claim(scheme)
         EditorSchemeOverrides.writeAttributes(scheme, owner, key, value)
     }
 
@@ -125,6 +145,12 @@ internal object AyuEditorSchemeScope {
         }
         synchronized(accentCleanupFailures) {
             accentCleanupFailures.clear()
+        }
+    }
+
+    private fun claim(scheme: EditorColorsScheme) {
+        synchronized(accentClaims) {
+            accentClaims.add(scheme)
         }
     }
 
