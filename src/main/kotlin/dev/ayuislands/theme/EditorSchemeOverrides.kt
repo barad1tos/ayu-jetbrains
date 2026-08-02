@@ -61,29 +61,9 @@ internal object EditorSchemeOverrides {
             hydrate(scheme)
             val schemeStates = states[scheme] ?: return
 
-            fun restoreEntry(
-                entry: SchemeEntry,
-                state: OverrideState,
-            ): RuntimeException? {
-                if (state.owner != owner || state !is OverrideState.Owned) return null
-                if (read(scheme, entry) != state.lastWritten) {
-                    schemeStates[entry] = OverrideState.Relinquished(owner)
-                    scheme.metaProperties.setProperty(entry.metadataKey, encodeState(schemeStates.getValue(entry)))
-                    return null
-                }
-                return try {
-                    writeValue(scheme, entry, state.original)
-                    schemeStates.remove(entry)
-                    scheme.metaProperties.remove(entry.metadataKey)
-                    null
-                } catch (exception: RuntimeException) {
-                    exception
-                }
-            }
-
             var firstFailure: RuntimeException? = null
             for ((entry, state) in schemeStates.toList()) {
-                val failure = restoreEntry(entry, state) ?: continue
+                val failure = restoreEntry(scheme, owner, schemeStates, entry, state) ?: continue
                 if (firstFailure == null) firstFailure = failure
             }
             if (schemeStates.isEmpty()) states.remove(scheme)
@@ -266,6 +246,29 @@ internal object EditorSchemeOverrides {
         }
     }
 
+    private fun restoreEntry(
+        scheme: EditorColorsScheme,
+        owner: EditorSchemeOwner,
+        schemeStates: MutableMap<SchemeEntry, OverrideState>,
+        entry: SchemeEntry,
+        state: OverrideState,
+    ): RuntimeException? {
+        if (state.owner != owner || state !is OverrideState.Owned) return null
+        if (read(scheme, entry) != state.lastWritten) {
+            schemeStates[entry] = OverrideState.Relinquished(owner)
+            scheme.metaProperties.setProperty(entry.metadataKey, encodeState(schemeStates.getValue(entry)))
+            return null
+        }
+        return try {
+            writeValue(scheme, entry, state.original)
+            schemeStates.remove(entry)
+            scheme.metaProperties.remove(entry.metadataKey)
+            null
+        } catch (exception: RuntimeException) {
+            exception
+        }
+    }
+
     private fun hydrate(scheme: EditorColorsScheme) {
         scheme.metaProperties
             .stringPropertyNames()
@@ -374,7 +377,12 @@ internal object EditorSchemeOverrides {
 
     private fun decodeState(encoded: String): OverrideState {
         val parts = encoded.split(';')
-        val owner = decodeOwner(parts[1])
+        val owner =
+            when (val encodedOwner = parts[1]) {
+                "A" -> EditorSchemeOwner.AlwaysOn
+                "V" -> EditorSchemeOwner.Vcs
+                else -> EditorSchemeOwner.Element(AccentElementId.valueOf(encodedOwner.removePrefix("E:")))
+            }
         return if (parts[0] == "R") {
             OverrideState.Relinquished(owner)
         } else {
@@ -385,13 +393,6 @@ internal object EditorSchemeOverrides {
             )
         }
     }
-
-    private fun decodeOwner(encoded: String): EditorSchemeOwner =
-        when (encoded) {
-            "A" -> EditorSchemeOwner.AlwaysOn
-            "V" -> EditorSchemeOwner.Vcs
-            else -> EditorSchemeOwner.Element(AccentElementId.valueOf(encoded.removePrefix("E:")))
-        }
 
     private fun encodeValue(value: SchemeValue): String =
         when (value) {
