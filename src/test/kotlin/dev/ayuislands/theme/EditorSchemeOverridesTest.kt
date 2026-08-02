@@ -14,6 +14,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.awt.Color
+import java.util.Properties
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -33,6 +34,9 @@ class EditorSchemeOverridesTest {
         mockkStatic(EditorColorsManager::class)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { EditorColorsManager.getInstance() } returns editorColorsManager
+        every { editorColorsManager.allSchemes } answers { arrayOf(editorColorsManager.globalScheme) }
+        every { colorKey.externalName } returns "TEST_COLOR"
+        every { attributesKey.externalName } returns "TEST_ATTRIBUTES"
     }
 
     @AfterTest
@@ -149,13 +153,47 @@ class EditorSchemeOverridesTest {
         assertEquals(Color.GREEN, colors[colorKey])
     }
 
+    @Test
+    fun `persisted ownership restores the user value after runtime state is lost`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val scheme = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns scheme
+
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        AyuEditorSchemeScope.resetClaims()
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+        AyuEditorSchemeScope.restore(elementOwner)
+
+        assertEquals(Color.RED, colors[colorKey])
+    }
+
+    @Test
+    fun `editable copy inherits the canonical restoration ledger`() {
+        val canonicalColors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val canonical = scheme(name = "Ayu Islands Mirage", colors = canonicalColors)
+        var current = canonical
+        every { editorColorsManager.globalScheme } answers { current }
+
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val editableColors = canonicalColors.toMutableMap()
+        val editable = scheme(colors = editableColors)
+        every { editorColorsManager.allSchemes } returns arrayOf(canonical, editable)
+        current = editable
+
+        AyuEditorSchemeScope.restore(elementOwner)
+
+        assertEquals(Color.RED, editableColors[colorKey])
+    }
+
     private fun scheme(
         name: String = "_@user_Ayu Islands Mirage",
         colors: MutableMap<ColorKey, Color?> = mutableMapOf(),
         attributes: MutableMap<TextAttributesKey, TextAttributes?> = mutableMapOf(),
     ): EditorColorsScheme =
         mockk(relaxed = true) {
+            val metadata = Properties()
             every { this@mockk.name } returns name
+            every { metaProperties } returns metadata
             every { getColor(any()) } answers { colors[firstArg()] }
             every { setColor(any(), any()) } answers {
                 colors[firstArg()] = secondArg()

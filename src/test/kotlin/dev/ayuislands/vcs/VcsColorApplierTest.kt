@@ -29,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.awt.Font
+import java.util.Properties
 
 /**
  * Behavioral coverage for [VcsColorApplier]. The applier reads the persisted
@@ -48,17 +49,27 @@ class VcsColorApplierTest {
     private val mockApplication = mockk<Application>(relaxed = true)
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private val state = AyuIslandsState()
+    private val metadata = Properties()
+    private val colors = mutableMapOf<ColorKey, Color?>()
+    private val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
 
     @BeforeEach
     fun setUp() {
         VcsColorApplier.resetClaims()
+        metadata.clear()
+        colors.clear()
+        attributes.clear()
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockColorsManager
         every { mockColorsManager.globalScheme } returns mockScheme
         every { mockScheme.name } returns "Ayu Islands Mirage"
-        // Default: empty TextAttributes — overridden per test for the
-        // clone-preserve check.
-        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns TextAttributes()
+        every { mockScheme.metaProperties } returns metadata
+        every { mockScheme.getColor(any<ColorKey>()) } answers { colors[firstArg()] }
+        every { mockScheme.setColor(any<ColorKey>(), any()) } answers { colors[firstArg()] = secondArg() }
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } answers { attributes[firstArg()] }
+        every { mockScheme.setAttributes(any<TextAttributesKey>(), any()) } answers {
+            attributes[firstArg()] = secondArg()
+        }
 
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
@@ -113,8 +124,19 @@ class VcsColorApplierTest {
     }
 
     @Test
-    fun `revertAll - inactive Ayu cleans current owned scheme`() {
+    fun `revertAll - inactive Ayu restores exact values on the owned scheme`() {
+        val originalColor = Color.RED
+        val originalAttributes =
+            TextAttributes(Color.BLUE, Color.BLACK, Color.GREEN, EffectType.LINE_UNDERSCORE, Font.BOLD).apply {
+                errorStripeColor = Color.YELLOW
+            }
+        val (colorEntries, attributeEntries) = partitionPaletteByMode()
+        colorEntries.forEach { colors[ColorKey.find(it.keyName)] = originalColor }
+        attributeEntries.forEach { attributes[TextAttributesKey.find(it.keyName)] = originalAttributes.clone() }
         state.vcsColorEnabled = true
+        VcsColorApplier.applyAll()
+        val colorKey = ColorKey.find(partitionPaletteByMode().first.first().keyName)
+        colors[colorKey] = Color.GREEN
         VcsColorApplier.applyAll()
         clearMocks(mockScheme, answers = false, recordedCalls = true)
         every { AyuVariant.detect() } returns null
@@ -122,13 +144,16 @@ class VcsColorApplierTest {
         VcsColorApplier.revertAll()
 
         val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
-        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), null) }
-        verify(exactly = textAttrEntries.size) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+        verify(exactly = colorKeyEntries.size - 1) { mockScheme.setColor(any<ColorKey>(), originalColor) }
+        verify(exactly = textAttrEntries.size) {
+            mockScheme.setAttributes(any<TextAttributesKey>(), originalAttributes)
+        }
+        assertEquals(Color.GREEN, colors[colorKey])
     }
 
     @Test
     fun `applyAll - foreign scheme is a no-op`() {
-        every { mockScheme.name } returns "Solarized Dark"
+        every { mockScheme.name } returns "Ayu Islands Dark"
 
         VcsColorApplier.applyAll()
 
@@ -137,19 +162,18 @@ class VcsColorApplierTest {
     }
 
     @Test
-    fun `applyCurrentScheme - explicit apply writes foreign scheme`() {
+    fun `applyCurrentScheme - explicit apply rejects a foreign scheme`() {
         state.vcsColorEnabled = true
         every { mockScheme.name } returns "Solarized Dark"
 
         VcsColorApplier.applyCurrentScheme()
 
-        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
-        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), any()) }
-        verify(exactly = textAttrEntries.size) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     @Test
-    fun `explicit foreign scheme enrollment survives Ayu exit and reapplies on return`() {
+    fun `foreign scheme never becomes eligible for later automatic reapply`() {
         state.vcsColorEnabled = true
         every { mockScheme.name } returns "Solarized Dark"
 
@@ -163,11 +187,8 @@ class VcsColorApplierTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         VcsColorApplier.applyAll()
 
-        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
-        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), any<Color>()) }
-        verify(exactly = textAttrEntries.size) {
-            mockScheme.setAttributes(any<TextAttributesKey>(), any<TextAttributes>())
-        }
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     @Test
@@ -184,7 +205,7 @@ class VcsColorApplierTest {
     }
 
     @Test
-    fun `revertAll cleans exact claimed scheme after current scheme changes`() {
+    fun `revertAll restores exact claimed scheme after current scheme changes`() {
         state.vcsColorEnabled = true
         VcsColorApplier.applyAll()
         clearMocks(mockScheme, answers = false, recordedCalls = true)

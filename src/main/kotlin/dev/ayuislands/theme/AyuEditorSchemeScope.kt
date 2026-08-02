@@ -74,16 +74,32 @@ internal object AyuEditorSchemeScope {
     }
 
     fun restore(owner: EditorSchemeOwner) {
+        val schemes = allSchemes()
+        val current = currentAyuScheme()
+        val variant =
+            current?.let { scheme ->
+                AyuVariant.entries.firstOrNull { AyuEditorSchemeBinder.matchesVariant(scheme.name, it) }
+            }
+        val canonicalName = variant?.let(AyuEditorSchemeBinder::targetSchemeName)
+        if (current != null && canonicalName != null && current.name != canonicalName) {
+            schemes.firstOrNull { it.name == canonicalName }?.let { canonical ->
+                EditorSchemeOverrides.inherit(current, canonical)
+            }
+        }
         cleanClaimedAccentSchemes { scheme ->
             EditorSchemeOverrides.restore(scheme, owner)
         }
+        val claimed = claimedAccentSchemes()
+        schemes
+            .filter { scheme -> claimed.none { it === scheme } && EditorSchemeOverrides.hasState(scheme, owner) }
+            .forEach { scheme -> EditorSchemeOverrides.restore(scheme, owner) }
     }
 
     fun observeElementEnabled(
         id: AccentElementId,
         isEnabled: Boolean,
     ) {
-        EditorSchemeOverrides.observeElementEnabled(id, isEnabled)
+        EditorSchemeOverrides.observeElementEnabled(id, isEnabled, ::allSchemes)
     }
 
     fun currentAyuScheme(): EditorColorsScheme? =
@@ -118,6 +134,8 @@ internal object AyuEditorSchemeScope {
         firstFailure?.let { throw it }
     }
 
+    private fun allSchemes(): List<EditorColorsScheme> = EditorColorsManager.getInstance().allSchemes.toList()
+
     fun retainAllAccentClaims() {
         synchronized(accentCleanupFailures) {
             accentCleanupFailures.addAll(claimedAccentSchemes())
@@ -149,8 +167,13 @@ internal object AyuEditorSchemeScope {
     }
 
     private fun claim(scheme: EditorColorsScheme) {
-        synchronized(accentClaims) {
-            accentClaims.add(scheme)
+        val isNew = synchronized(accentClaims) { accentClaims.add(scheme) }
+        if (!isNew) return
+        val variant = AyuVariant.detect() ?: return
+        val canonicalName = AyuEditorSchemeBinder.targetSchemeName(variant)
+        if (scheme.name == canonicalName) return
+        allSchemes().firstOrNull { it.name == canonicalName }?.let { canonical ->
+            EditorSchemeOverrides.inherit(scheme, canonical)
         }
     }
 

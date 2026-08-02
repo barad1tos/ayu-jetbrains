@@ -38,6 +38,7 @@ class EditorSchemeLifecycleTest {
         mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns manager
         every { manager.globalScheme } answers { currentScheme }
+        every { manager.allSchemes } answers { arrayOf(currentScheme) }
 
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } answers { variant }
