@@ -27,6 +27,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
@@ -88,7 +89,7 @@ object AccentApplicator {
     // [CodeGlanceProIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
     // re-verification recipe.
 
-    private val EMPTY_TEXT_ATTRIBUTES = TextAttributes()
+    private val alwaysOnOwner = EditorSchemeOwner.AlwaysOn
 
     // CodeGlance Pro reflection state and apply/revert workers live in
     // [CodeGlanceProIntegration] to keep this object below the TooManyFunctions threshold.
@@ -644,6 +645,10 @@ object AccentApplicator {
         variant: AyuVariant?,
         isPremiumAllowed: Boolean,
     ) {
+        AyuEditorSchemeScope.observeElementEnabled(
+            element.id,
+            ChromeTintContext.isToggleEnabled(state, element.id),
+        )
         if (element.id.group == AccentGroup.CHROME && !isPremiumAllowed) {
             neutralizeOrRevert(element, variant)
             return
@@ -742,7 +747,7 @@ object AccentApplicator {
 
         // ColorKey entries
         for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
-            scheme.setColor(colorKey, accent)
+            AyuEditorSchemeScope.writeColor(alwaysOnOwner, colorKey, accent)
         }
 
         // TextAttributesKey entries -- clone existing, override only accent properties
@@ -753,7 +758,7 @@ object AccentApplicator {
             if (AttributeTarget.FOREGROUND in targets) updated.foregroundColor = accent
             if (AttributeTarget.EFFECT_COLOR in targets) updated.effectColor = accent
             if (AttributeTarget.ERROR_STRIPE in targets) updated.errorStripeColor = accent
-            scheme.setAttributes(attrKey, updated)
+            AyuEditorSchemeScope.writeAttributes(alwaysOnOwner, attrKey, updated)
         }
 
         // Notify editors to repaint with an updated scheme
@@ -790,7 +795,8 @@ object AccentApplicator {
             ExternalChromeOwnership.releaseTabUnderline()
         }
         if (tabMode == GlowTabMode.OFF && variant != null) {
-            AyuEditorSchemeScope.claimActiveScheme()?.setColor(
+            AyuEditorSchemeScope.writeColor(
+                alwaysOnOwner,
                 ColorKey.find("TAB_UNDERLINE"),
                 Color.decode(variant.neutralGray),
             )
@@ -816,19 +822,7 @@ object AccentApplicator {
     private fun revertAlwaysOnEditorKeys() {
         if (AyuEditorSchemeScope.claimedAccentSchemes().isEmpty()) return
 
-        AyuEditorSchemeScope.cleanClaimedAccentSchemes { scheme ->
-            for (colorKey in ALWAYS_ON_EDITOR_COLOR_KEYS) {
-                scheme.setColor(colorKey, null)
-            }
-
-            for ((key) in ALWAYS_ON_EDITOR_ATTR_OVERRIDES) {
-                val attrKey = TextAttributesKey.find(key)
-                val fallback = attrKey.fallbackAttributeKey
-                val defaultAttrs =
-                    if (fallback != null) scheme.getAttributes(fallback) else null
-                scheme.setAttributes(attrKey, defaultAttrs ?: EMPTY_TEXT_ATTRIBUTES)
-            }
-        }
+        AyuEditorSchemeScope.restore(alwaysOnOwner)
 
         val application = ApplicationManager.getApplication()
         application.runReadAction {

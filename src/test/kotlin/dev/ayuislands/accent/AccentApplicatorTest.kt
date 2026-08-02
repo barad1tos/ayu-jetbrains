@@ -16,7 +16,7 @@ import dev.ayuislands.accent.conflict.ConflictEntry
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.conflict.ConflictType
 import dev.ayuislands.accent.elements.AbstractChromeElement
-import dev.ayuislands.accent.elements.InlayHintsElement
+import dev.ayuislands.accent.elements.CaretRowElement
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.integration.IntegrationOutcome
@@ -243,13 +243,6 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `revertAll clears editor color keys`() {
-        revertWithoutExtensions()
-
-        verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
-    }
-
-    @Test
     fun `accent editor writes preserve a foreign scheme`() {
         every { mockScheme.name } returns "Solarized Dark"
 
@@ -260,6 +253,80 @@ class AccentApplicatorTest {
         verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), null) }
         verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any<TextAttributes>()) }
         verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
+    }
+
+    @Test
+    fun `always-on editor values restore their first explicit baseline`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
+
+        invokePrivate("applyAlwaysOnEditorKeys", Color.RED)
+        invokePrivate("applyAlwaysOnEditorKeys", Color.BLUE)
+        invokePrivate("revertAlwaysOnEditorKeys")
+
+        store.assertOriginalValues()
+    }
+
+    @Test
+    fun `always-on editor values restore a null baseline`() {
+        val store = EditorSchemeStore(null, null)
+        every { mockColorsManager.globalScheme } returns store.scheme
+
+        invokePrivate("applyAlwaysOnEditorKeys", Color.RED)
+        invokePrivate("revertAlwaysOnEditorKeys")
+
+        store.assertOriginalValues()
+    }
+
+    @Test
+    fun `external changes permanently relinquish always-on editor keys`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
+
+        invokePrivate("applyAlwaysOnEditorKeys", Color.RED)
+        store.replaceTouchedValues()
+        invokePrivate("applyAlwaysOnEditorKeys", Color.BLUE)
+        invokePrivate("revertAlwaysOnEditorKeys")
+
+        store.assertExternalValues()
+    }
+
+    @Test
+    fun `tab underline shares the always-on baseline`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
+        state.glowTabMode = "OFF"
+
+        invokePrivate("applyAlwaysOnEditorKeys", Color.RED)
+        invokeApplyTabUnderline(state, AccentContext.Ayu(AyuVariant.MIRAGE))
+        invokePrivate("revertAlwaysOnEditorKeys")
+
+        store.assertOriginalValue(ColorKey.find("TAB_UNDERLINE"))
+    }
+
+    @Test
+    fun `element disable and re-enable explicitly re-arms editor ownership`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
+        val element = CaretRowElement()
+        val accent = Color.RED
+
+        state.setToggle(element.id, true)
+        invokeApplyElement(state, element, accent)
+        store.replaceTouchedValues()
+        invokeApplyElement(state, element, Color.BLUE)
+
+        state.setToggle(element.id, false)
+        invokeApplyElement(state, element, accent)
+        store.assertExternalValues()
+
+        state.setToggle(element.id, true)
+        invokeApplyElement(state, element, accent)
+        store.assertWasChangedTo(accent)
+
+        state.setToggle(element.id, false)
+        invokeApplyElement(state, element, accent)
+        store.assertExternalValues()
     }
 
     @Test
@@ -584,24 +651,6 @@ class AccentApplicatorTest {
         verify(exactly = 1) { AyuPlugin.findLoadedPlugin(any()) }
     }
 
-    // revertAlwaysOnEditorKeys
-
-    @Test
-    fun `revertAlwaysOnEditorKeys clears all editor color keys`() {
-        AyuEditorSchemeScope.claimActiveScheme()
-        invokePrivate("revertAlwaysOnEditorKeys")
-
-        verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
-    }
-
-    @Test
-    fun `revertAlwaysOnEditorKeys resets all attribute overrides`() {
-        AyuEditorSchemeScope.claimActiveScheme()
-        invokePrivate("revertAlwaysOnEditorKeys")
-
-        verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
-    }
-
     // applyAlwaysOnEditorKeys detailed checks
 
     @Test
@@ -866,15 +915,6 @@ class AccentApplicatorTest {
         for (key in alwaysOnUiKeys) {
             verify { UIManager.put(key, null) }
         }
-    }
-
-    @Test
-    fun `apply then revert clears editor keys`() {
-        applyWithoutExtensions("#FFCC66")
-        revertWithoutExtensions()
-
-        verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
-        verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     // Tests for public apply() method
@@ -1419,21 +1459,20 @@ class AccentApplicatorTest {
 
     @Test
     fun `revertAll releases cleaned scheme and retains only failed scheme identity`() {
-        val inlayKey = TextAttributesKey.find("INLAY_TEXT_WITHOUT_BACKGROUND")
-        val cleanedScheme = mockk<EditorColorsScheme>(relaxed = true)
-        every { cleanedScheme.name } returns "Ayu Islands Mirage"
-        every { cleanedScheme.getAttributes(any<TextAttributesKey>()) } returns TextAttributes()
-        every { mockColorsManager.globalScheme } returns mockScheme
-        AyuEditorSchemeScope.claimActiveScheme()
-        every { mockColorsManager.globalScheme } returns cleanedScheme
-        AyuEditorSchemeScope.claimActiveScheme()
-        every { mockScheme.setAttributes(inlayKey, null) } throws IllegalStateException("cleanup failed")
-        mockEpExtensionList(listOf(InlayHintsElement()))
+        val failedStore = EditorSchemeStore()
+        val cleanedStore = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns failedStore.scheme
+        invokePrivate("applyAlwaysOnEditorKeys", Color.RED)
+        every { mockColorsManager.globalScheme } returns cleanedStore.scheme
+        invokePrivate("applyAlwaysOnEditorKeys", Color.RED)
+        failedStore.failRestores()
+        mockEpExtensionList(emptyList())
 
         AccentApplicator.revertAll()
 
         assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
-        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().single() === mockScheme)
+        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().single() === failedStore.scheme)
+        cleanedStore.assertOriginalValues()
     }
 
     @Test
@@ -1466,14 +1505,15 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `revertAll clears editor keys via revertAlwaysOnEditorKeys`() {
+    fun `revertAll restores editor keys via revertAlwaysOnEditorKeys`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
         mockEpExtensionList(emptyList())
-        AyuEditorSchemeScope.claimActiveScheme()
+        invokePrivate("applyAlwaysOnEditorKeys", Color.RED)
 
         AccentApplicator.revertAll()
 
-        verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
-        verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+        store.assertOriginalValues()
     }
 
     @Test
@@ -2249,6 +2289,108 @@ class AccentApplicatorTest {
             context,
             LicenseChecker.isLicensedOrGrace(),
         )
+    }
+
+    private fun invokeApplyElement(
+        state: AyuIslandsState,
+        element: AccentElement,
+        accent: Color,
+    ) {
+        invokePrivate(
+            "applyElement",
+            state,
+            element,
+            accent,
+            AyuVariant.MIRAGE,
+            true,
+        )
+    }
+
+    private class EditorSchemeStore(
+        private val originalColor: Color? = Color(0x12, 0x34, 0x56),
+        originalAttributes: TextAttributes? = originalAttributes(),
+    ) {
+        private val originalAttributes = originalAttributes?.clone()
+        private val externalColor = Color(0x65, 0x43, 0x21)
+        private val externalAttributes = originalAttributes(Color(0x56, 0x34, 0x12))
+        private val colors = mutableMapOf<ColorKey, Color?>()
+        private val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
+        private val touchedColors = linkedSetOf<ColorKey>()
+        private val touchedAttributes = linkedSetOf<TextAttributesKey>()
+        private var shouldFailRestore = false
+
+        val scheme: EditorColorsScheme =
+            mockk(relaxed = true) {
+                every { name } returns "_@user_Ayu Islands Mirage"
+                every { getColor(any()) } answers {
+                    val key = firstArg<ColorKey>()
+                    if (!colors.containsKey(key)) colors[key] = originalColor
+                    colors[key]
+                }
+                every { setColor(any(), any()) } answers {
+                    val key = firstArg<ColorKey>()
+                    val value = secondArg<Color?>()
+                    check(!shouldFailRestore || value != originalColor) { "cleanup failed" }
+                    touchedColors.add(key)
+                    colors[key] = value
+                }
+                every { getAttributes(any<TextAttributesKey>()) } answers {
+                    val key = firstArg<TextAttributesKey>()
+                    if (!attributes.containsKey(key)) {
+                        attributes[key] = this@EditorSchemeStore.originalAttributes?.clone()
+                    }
+                    attributes[key]
+                }
+                every { setAttributes(any(), any()) } answers {
+                    val key = firstArg<TextAttributesKey>()
+                    val value = secondArg<TextAttributes?>()?.clone()
+                    check(
+                        !shouldFailRestore || value != this@EditorSchemeStore.originalAttributes,
+                    ) { "cleanup failed" }
+                    touchedAttributes.add(key)
+                    attributes[key] = value
+                }
+            }
+
+        fun replaceTouchedValues() {
+            touchedColors.forEach { key -> colors[key] = externalColor }
+            touchedAttributes.forEach { key -> attributes[key] = externalAttributes.clone() }
+        }
+
+        fun failRestores() {
+            shouldFailRestore = true
+        }
+
+        fun assertOriginalValues() {
+            touchedColors.forEach { key -> assertEquals(originalColor, colors[key]) }
+            touchedAttributes.forEach { key -> assertEquals(originalAttributes, attributes[key]) }
+        }
+
+        fun assertOriginalValue(key: ColorKey) {
+            assertEquals(originalColor, colors[key])
+        }
+
+        fun assertExternalValues() {
+            touchedColors.forEach { key -> assertEquals(externalColor, colors[key]) }
+            touchedAttributes.forEach { key -> assertEquals(externalAttributes, attributes[key]) }
+        }
+
+        fun assertWasChangedTo(accent: Color) {
+            assertTrue(touchedColors.isNotEmpty())
+            assertTrue(colors.values.none { value -> value == externalColor })
+            assertTrue(colors.values.any { value -> value == accent })
+        }
+
+        companion object {
+            private fun originalAttributes(foreground: Color = Color(0x21, 0x43, 0x65)): TextAttributes =
+                TextAttributes().apply {
+                    foregroundColor = foreground
+                    backgroundColor = Color.BLACK
+                    effectColor = Color.CYAN
+                    errorStripeColor = Color.MAGENTA
+                    fontType = 3
+                }
+        }
     }
 
     private fun resetCodeGlanceProState() {
