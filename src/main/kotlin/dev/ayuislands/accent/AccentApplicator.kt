@@ -497,7 +497,9 @@ object AccentApplicator {
         // everything after the theme switch.
         val workers: Map<AccentApplyStep, () -> Unit> =
             buildMap {
-                put(AccentApplyStep.ClearUiAndExtensions) { clearReverseUiAndExtensions() }
+                put(AccentApplyStep.ClearUiAndExtensions) {
+                    clearReverseUiAndExtensions()?.let { throw it }
+                }
                 put(AccentApplyStep.RevertAlwaysOnEditorKeys) { revertAlwaysOnEditorKeys() }
                 put(AccentApplyStep.RevertIndentRainbow) {
                     IndentRainbowSync.revert().propagateFailure()
@@ -533,11 +535,18 @@ object AccentApplicator {
             for ((step, error) in failures) {
                 log.warn("Accent revert step $step failed; remaining steps still ran", error)
             }
+            val editorCleanupFailed =
+                failures.any { failure ->
+                    failure.step == AccentApplyStep.ClearUiAndExtensions ||
+                        failure.step == AccentApplyStep.RevertAlwaysOnEditorKeys
+                }
+            if (!editorCleanupFailed) {
+                AyuEditorSchemeScope.releaseAccentClaims()
+            }
         }
-        AyuEditorSchemeScope.releaseAccentClaims()
     }
 
-    private fun clearReverseUiAndExtensions() {
+    private fun clearReverseUiAndExtensions(): RuntimeException? {
         for (key in ALWAYS_ON_UI_KEYS) {
             UIManager.put(key, null)
         }
@@ -553,11 +562,13 @@ object AccentApplicator {
         ExternalChromeOwnership.releaseTabUnderline()
 
         val failedExternalReverts = mutableSetOf<AccentElementId>()
+        var firstFailure: RuntimeException? = null
         for (element in EP_NAME.extensionList) {
             try {
                 element.revert()
             } catch (exception: RuntimeException) {
                 failedExternalReverts.add(element.id)
+                if (firstFailure == null) firstFailure = exception
                 log.warn(
                     "Failed to revert ${element.displayName}",
                     exception,
@@ -565,6 +576,7 @@ object AccentApplicator {
             }
         }
         ExternalChromeOwnership.finishRevert(failedExternalReverts)
+        return firstFailure
     }
 
     private fun neutralizeOrRevert(

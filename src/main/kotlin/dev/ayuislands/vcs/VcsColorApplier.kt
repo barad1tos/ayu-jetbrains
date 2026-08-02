@@ -38,6 +38,8 @@ internal object VcsColorApplier {
     private val LOG = logger<VcsColorApplier>()
     private val claimedSchemes: MutableSet<EditorColorsScheme> =
         Collections.newSetFromMap(IdentityHashMap())
+    private val enrolledSchemes: MutableSet<EditorColorsScheme> =
+        Collections.newSetFromMap(IdentityHashMap())
 
     /**
      * Apply VCS colors for the currently active variant.
@@ -52,6 +54,7 @@ internal object VcsColorApplier {
      */
     fun applyAll() {
         if (!LicenseChecker.isLicensedOrGrace()) {
+            AyuEditorSchemeScope.activeScheme()?.let(::claim)
             revertAll()
             return
         }
@@ -64,12 +67,16 @@ internal object VcsColorApplier {
         ApplicationManager.getApplication().invokeLater {
             val currentVariant = AyuVariant.detect() ?: return@invokeLater
             if (VcsColorContext.isEnabled(state)) {
-                val scheme = AyuEditorSchemeScope.activeScheme() ?: return@invokeLater
+                val currentScheme = EditorColorsManager.getInstance().globalScheme
+                val scheme =
+                    currentScheme.takeIf(::isEnrolled)
+                        ?: AyuEditorSchemeScope.activeScheme()
+                        ?: return@invokeLater
                 claim(scheme)
                 writeAll(scheme, state, currentVariant)
                 repaintAllWindows()
             } else {
-                revertClaims()
+                revertClaims(removeEnrollments = true)
             }
         }
     }
@@ -77,21 +84,23 @@ internal object VcsColorApplier {
     /** Apply pending Settings values to the exact scheme selected by the user. */
     @RequiresEdt
     fun applyCurrentScheme() {
+        val state = AyuIslandsSettings.getInstance().state
+        if (!VcsColorContext.isEnabled(state)) {
+            claim(EditorColorsManager.getInstance().globalScheme)
+            revertClaims(removeEnrollments = true)
+            return
+        }
         if (!LicenseChecker.isLicensedOrGrace()) {
             revertAll()
             return
         }
         val variant = AyuVariant.detect() ?: return
-        val state = AyuIslandsSettings.getInstance().state
         val scheme = EditorColorsManager.getInstance().globalScheme
 
-        if (VcsColorContext.isEnabled(state)) {
-            claim(scheme)
-            writeAll(scheme, state, variant)
-            repaintAllWindows()
-        } else {
-            revertClaims(scheme)
-        }
+        enroll(scheme)
+        claim(scheme)
+        writeAll(scheme, state, variant)
+        repaintAllWindows()
     }
 
     /**
@@ -100,16 +109,24 @@ internal object VcsColorApplier {
      * (for TextAttributesKey entries) so the scheme falls back to the XML
      * baseline. Used when the master kill-switch flips ON → OFF and after an
      * Ayu LAF is deactivated. Runtime claims preserve exact scheme identity;
-     * the current Ayu scheme is only a restart fallback when persisted state
-     * says the feature was enabled.
+     * no current-scheme fallback may expand cleanup to an unclaimed scheme.
      */
     fun revertAll() {
         ApplicationManager.getApplication().invokeLater {
-            val state = AyuIslandsSettings.getInstance().state
-            val fallback = AyuEditorSchemeScope.currentAyuScheme().takeIf { state.vcsColorEnabled }
-            revertClaims(fallback)
+            revertClaims()
         }
     }
+
+    private fun enroll(scheme: EditorColorsScheme) {
+        synchronized(enrolledSchemes) {
+            enrolledSchemes.add(scheme)
+        }
+    }
+
+    private fun isEnrolled(scheme: EditorColorsScheme): Boolean =
+        synchronized(enrolledSchemes) {
+            enrolledSchemes.contains(scheme)
+        }
 
     private fun claim(scheme: EditorColorsScheme) {
         synchronized(claimedSchemes) {
@@ -117,22 +134,41 @@ internal object VcsColorApplier {
         }
     }
 
-    private fun revertClaims(fallback: EditorColorsScheme? = null) {
-        val schemes =
-            synchronized(claimedSchemes) {
-                claimedSchemes.toList().also { claimedSchemes.clear() }
-            }.ifEmpty { listOfNotNull(fallback) }
-        if (schemes.isEmpty()) return
+    private fun revertClaims(removeEnrollments: Boolean = false) {
+        val schemes = synchronized(claimedSchemes) { claimedSchemes.toList() }
+        val failedSchemes: MutableSet<EditorColorsScheme> =
+            Collections.newSetFromMap(IdentityHashMap())
+        var failedEntries = 0
 
-        val failed = schemes.sumOf(::revertEveryEntry)
-        if (failed > 0) LOG.warn("VcsColorApplier.revertAll: $failed entries failed to revert; see prior warnings")
-        repaintAllWindows()
+        for (scheme in schemes) {
+            val failures = revertEveryEntry(scheme)
+            failedEntries += failures
+            if (failures == 0) {
+                synchronized(claimedSchemes) {
+                    claimedSchemes.remove(scheme)
+                }
+            } else {
+                failedSchemes.add(scheme)
+            }
+        }
+        if (removeEnrollments) {
+            synchronized(enrolledSchemes) {
+                enrolledSchemes.retainAll(failedSchemes)
+            }
+        }
+        if (failedEntries > 0) {
+            LOG.warn("VcsColorApplier.revertAll: $failedEntries entries failed to revert; see prior warnings")
+        }
+        if (schemes.isNotEmpty()) repaintAllWindows()
     }
 
     @TestOnly
     fun resetClaims() {
         synchronized(claimedSchemes) {
             claimedSchemes.clear()
+        }
+        synchronized(enrolledSchemes) {
+            enrolledSchemes.clear()
         }
     }
 

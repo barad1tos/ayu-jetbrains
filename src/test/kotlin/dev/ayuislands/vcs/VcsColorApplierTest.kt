@@ -149,6 +149,28 @@ class VcsColorApplierTest {
     }
 
     @Test
+    fun `explicit foreign scheme enrollment survives Ayu exit and reapplies on return`() {
+        state.vcsColorEnabled = true
+        every { mockScheme.name } returns "Solarized Dark"
+
+        VcsColorApplier.applyCurrentScheme()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
+
+        every { AyuVariant.detect() } returns null
+        VcsColorApplier.revertAll()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
+
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        VcsColorApplier.applyAll()
+
+        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
+        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), any<Color>()) }
+        verify(exactly = textAttrEntries.size) {
+            mockScheme.setAttributes(any<TextAttributesKey>(), any<TextAttributes>())
+        }
+    }
+
+    @Test
     fun `applyAll - queued callback rechecks current scheme ownership`() {
         val callback = slot<Runnable>()
         every { mockApplication.invokeLater(capture(callback)) } returns Unit
@@ -179,6 +201,16 @@ class VcsColorApplierTest {
         verify(exactly = textAttrEntries.size) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
         verify(exactly = 0) { replacement.setColor(any<ColorKey>(), any()) }
         verify(exactly = 0) { replacement.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    @Test
+    fun `revertAll does not clean an unclaimed Ayu scheme`() {
+        state.vcsColorEnabled = true
+
+        VcsColorApplier.revertAll()
+
+        verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
+        verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
     }
 
     @Test
@@ -347,6 +379,25 @@ class VcsColorApplierTest {
         verify(exactly = textAttrEntries.size) {
             mockScheme.setAttributes(any<TextAttributesKey>(), null)
         }
+    }
+
+    @Test
+    fun `revertAll retains a claim when cleanup fails so the next call retries`() {
+        state.vcsColorEnabled = true
+        VcsColorApplier.applyAll()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
+
+        val poisonKey = ColorKey.find(partitionPaletteByMode().first.first().keyName)
+        every { mockScheme.setColor(poisonKey, null) } throws RuntimeException("transient revert failure")
+        VcsColorApplier.revertAll()
+        clearMocks(mockScheme, answers = false, recordedCalls = true)
+
+        every { mockScheme.setColor(poisonKey, null) } returns Unit
+        VcsColorApplier.revertAll()
+
+        val (colorKeyEntries, textAttrEntries) = partitionPaletteByMode()
+        verify(exactly = colorKeyEntries.size) { mockScheme.setColor(any<ColorKey>(), null) }
+        verify(exactly = textAttrEntries.size) { mockScheme.setAttributes(any<TextAttributesKey>(), null) }
     }
 
     @Test

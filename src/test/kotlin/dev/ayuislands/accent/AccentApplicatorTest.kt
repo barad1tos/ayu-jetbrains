@@ -22,6 +22,7 @@ import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.theme.AyuEditorSchemeScope
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -60,6 +61,7 @@ class AccentApplicatorTest {
 
     @BeforeTest
     fun setUp() {
+        AyuEditorSchemeScope.resetClaims()
         saveOriginalEpName()
 
         mockkStatic(SwingUtilities::class)
@@ -129,6 +131,7 @@ class AccentApplicatorTest {
 
     @AfterTest
     fun tearDown() {
+        AyuEditorSchemeScope.resetClaims()
         ExternalChromeOwnership.resetForTests()
         restoreOriginalEpName()
         unmockkAll()
@@ -173,6 +176,7 @@ class AccentApplicatorTest {
         UIManager.put("Button.default.endBorderColor", null)
         UIManager.put("EditorTabs.underlinedTabBackground", null)
 
+        AyuEditorSchemeScope.claimActiveScheme()
         invokePrivate("revertAlwaysOnEditorKeys")
 
         val windows = Window.getWindows()
@@ -581,6 +585,7 @@ class AccentApplicatorTest {
 
     @Test
     fun `revertAlwaysOnEditorKeys clears all editor color keys`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         invokePrivate("revertAlwaysOnEditorKeys")
 
         verify(atLeast = 2) { mockScheme.setColor(any<ColorKey>(), null) }
@@ -588,6 +593,7 @@ class AccentApplicatorTest {
 
     @Test
     fun `revertAlwaysOnEditorKeys resets all attribute overrides`() {
+        AyuEditorSchemeScope.claimActiveScheme()
         invokePrivate("revertAlwaysOnEditorKeys")
 
         verify(atLeast = 9) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
@@ -1381,8 +1387,38 @@ class AccentApplicatorTest {
     }
 
     @Test
+    fun `revertAll retains editor claims when an element cleanup fails`() {
+        val failingElement = mockk<AccentElement>(relaxed = true)
+        every { failingElement.id } returns AccentElementId.CARET_ROW
+        every { failingElement.displayName } returns "FailingElement"
+        every { failingElement.revert() } throws RuntimeException("revert failed")
+        mockEpExtensionList(listOf(failingElement))
+        AyuEditorSchemeScope.claimActiveScheme()
+
+        AccentApplicator.revertAll()
+
+        assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
+    }
+
+    @Test
+    fun `revertAll releases editor claims only after queued cleanup completes`() {
+        mockEpExtensionList(emptyList())
+        AyuEditorSchemeScope.claimActiveScheme()
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        val callback = io.mockk.slot<Runnable>()
+        every { mockApplication.invokeLater(capture(callback), any<ModalityState>()) } returns Unit
+
+        AccentApplicator.revertAll()
+
+        assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
+        callback.captured.run()
+        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().isEmpty())
+    }
+
+    @Test
     fun `revertAll clears editor keys via revertAlwaysOnEditorKeys`() {
         mockEpExtensionList(emptyList())
+        AyuEditorSchemeScope.claimActiveScheme()
 
         AccentApplicator.revertAll()
 
