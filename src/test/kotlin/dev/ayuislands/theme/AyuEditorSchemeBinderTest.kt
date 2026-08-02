@@ -58,6 +58,26 @@ class AyuEditorSchemeBinderTest {
         assertEquals("Ayu Islands Light", AyuEditorSchemeBinder.targetSchemeName(AyuVariant.LIGHT))
     }
 
+    @Test
+    fun `isSchemeForVariant identifies only matching canonical and editable schemes`() {
+        val cases =
+            listOf(
+                Triple("Ayu Islands Mirage", AyuVariant.MIRAGE, true),
+                Triple("_@user_Ayu Islands Mirage", AyuVariant.MIRAGE, true),
+                Triple("Ayu Islands Dark", AyuVariant.MIRAGE, false),
+                Triple("Solarized Dark", AyuVariant.MIRAGE, false),
+                Triple("_@user_Solarized Dark", AyuVariant.MIRAGE, false),
+            )
+
+        cases.forEach { (schemeName, variant, expected) ->
+            assertEquals(
+                expected,
+                AyuEditorSchemeBinder.isSchemeForVariant(schemeName, variant),
+                "Unexpected scheme match for '$schemeName' and $variant",
+            )
+        }
+    }
+
     // ── bindForVariant: happy paths ───────────────────────────────────────
 
     @Test

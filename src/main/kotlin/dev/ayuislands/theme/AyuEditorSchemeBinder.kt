@@ -83,7 +83,7 @@ internal object AyuEditorSchemeBinder {
         // binder has nothing to swap. Recognize it and stay quiet (debug, not
         // info) so it isn't misread as a user-custom skip in idea.log. A foreign
         // editable copy ("_@user_Solarized") falls through to the user-custom path.
-        if (current.removePrefix(EDITABLE_COPY_PREFIX) == target) {
+        if (isSchemeForVariant(current, variant)) {
             log.debug("Editor scheme '$current' is our editable copy for $variant; leaving in place")
             return false
         }
@@ -116,4 +116,9 @@ internal object AyuEditorSchemeBinder {
             AyuVariant.DARK -> "Ayu Islands Dark"
             AyuVariant.LIGHT -> "Ayu Islands Light"
         }
+
+    internal fun isSchemeForVariant(
+        schemeName: String,
+        variant: AyuVariant,
+    ): Boolean = schemeName.removePrefix(EDITABLE_COPY_PREFIX) == targetSchemeName(variant)
 }
