@@ -2,8 +2,8 @@ package dev.ayuislands.theme
 
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AccentElementId
@@ -19,6 +19,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
 class EditorSchemeOverridesTest {
@@ -83,6 +84,21 @@ class EditorSchemeOverridesTest {
     }
 
     @Test
+    fun `inherited color remains inherited after restore`() {
+        val colors = mutableMapOf<ColorKey, Color?>()
+        val inheritedColors = mutableMapOf(colorKey to Color.RED)
+        val scheme = scheme(colors = colors, inheritedColors = inheritedColors)
+        every { editorColorsManager.globalScheme } returns scheme
+
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        AyuEditorSchemeScope.restore(elementOwner)
+        inheritedColors[colorKey] = Color.GREEN
+
+        assertFalse(colors.containsKey(colorKey))
+        assertEquals(Color.GREEN, scheme.getColor(colorKey))
+    }
+
+    @Test
     fun `attribute snapshot is isolated from later mutation of the source object`() {
         val original = fullAttributes(Color.RED)
         val expected = original.clone()
@@ -112,6 +128,21 @@ class EditorSchemeOverridesTest {
         AyuEditorSchemeScope.restore(elementOwner)
 
         assertEquals(external, attributes[attributesKey])
+    }
+
+    @Test
+    fun `inherited attributes remain inherited after restore`() {
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
+        val inheritedAttributes = mutableMapOf(attributesKey to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes, inheritedAttributes = inheritedAttributes)
+        every { editorColorsManager.globalScheme } returns scheme
+
+        AyuEditorSchemeScope.writeAttributes(elementOwner, attributesKey, fullAttributes(Color.ORANGE))
+        AyuEditorSchemeScope.restore(elementOwner)
+        inheritedAttributes[attributesKey] = fullAttributes(Color.GREEN)
+
+        assertFalse(attributes.containsKey(attributesKey))
+        assertEquals(inheritedAttributes[attributesKey], scheme.getAttributes(attributesKey))
     }
 
     @Test
@@ -189,18 +220,47 @@ class EditorSchemeOverridesTest {
         name: String = "_@user_Ayu Islands Mirage",
         colors: MutableMap<ColorKey, Color?> = mutableMapOf(),
         attributes: MutableMap<TextAttributesKey, TextAttributes?> = mutableMapOf(),
-    ): EditorColorsScheme =
-        mockk(relaxed = true) {
+        inheritedColors: MutableMap<ColorKey, Color> = mutableMapOf(),
+        inheritedAttributes: MutableMap<TextAttributesKey, TextAttributes> = mutableMapOf(),
+    ): AbstractColorsScheme =
+        mockk<AbstractColorsScheme>(relaxed = true) {
             val metadata = Properties()
             every { this@mockk.name } returns name
             every { metaProperties } returns metadata
-            every { getColor(any()) } answers { colors[firstArg()] }
-            every { setColor(any(), any()) } answers {
-                colors[firstArg()] = secondArg()
+            every { directlyDefinedColors } answers {
+                colors.mapValues { (_, value) -> value ?: AbstractColorsScheme.NULL_COLOR_MARKER }
             }
-            every { getAttributes(any<TextAttributesKey>()) } answers { attributes[firstArg()] }
+            every { directlyDefinedAttributes } answers {
+                attributes
+                    .mapNotNull { (key, value) ->
+                        value?.let { key.externalName to it }
+                    }.toMap()
+            }
+            every { getColor(any()) } answers {
+                val key = firstArg<ColorKey>()
+                if (colors.containsKey(key)) colors[key] else inheritedColors[key]
+            }
+            every { setColor(any(), any()) } answers {
+                val key = firstArg<ColorKey>()
+                val value = secondArg<Color?>()
+                if (value === AbstractColorsScheme.INHERITED_COLOR_MARKER) {
+                    colors.remove(key)
+                } else {
+                    colors[key] = value
+                }
+            }
+            every { getAttributes(any<TextAttributesKey>()) } answers {
+                val key = firstArg<TextAttributesKey>()
+                if (attributes.containsKey(key)) attributes[key] else inheritedAttributes[key]
+            }
             every { setAttributes(any(), any()) } answers {
-                attributes[firstArg()] = secondArg()
+                val key = firstArg<TextAttributesKey>()
+                val value = secondArg<TextAttributes?>()
+                if (value === AbstractColorsScheme.INHERITED_ATTRS_MARKER) {
+                    attributes.remove(key)
+                } else {
+                    attributes[key] = value
+                }
             }
         }
 

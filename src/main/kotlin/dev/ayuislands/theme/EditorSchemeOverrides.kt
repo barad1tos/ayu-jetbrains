@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.JDOMUtil
 import dev.ayuislands.accent.AccentElementId
@@ -59,21 +60,31 @@ internal object EditorSchemeOverrides {
         synchronized(lock) {
             hydrate(scheme)
             val schemeStates = states[scheme] ?: return
-            var firstFailure: RuntimeException? = null
-            for ((entry, state) in schemeStates.toList()) {
-                if (state.owner != owner || state !is OverrideState.Owned) continue
+
+            fun restoreEntry(
+                entry: SchemeEntry,
+                state: OverrideState,
+            ): RuntimeException? {
+                if (state.owner != owner || state !is OverrideState.Owned) return null
                 if (read(scheme, entry) != state.lastWritten) {
                     schemeStates[entry] = OverrideState.Relinquished(owner)
                     scheme.metaProperties.setProperty(entry.metadataKey, encodeState(schemeStates.getValue(entry)))
-                    continue
+                    return null
                 }
-                try {
+                return try {
                     writeValue(scheme, entry, state.original)
                     schemeStates.remove(entry)
                     scheme.metaProperties.remove(entry.metadataKey)
+                    null
                 } catch (exception: RuntimeException) {
-                    if (firstFailure == null) firstFailure = exception
+                    exception
                 }
+            }
+
+            var firstFailure: RuntimeException? = null
+            for ((entry, state) in schemeStates.toList()) {
+                val failure = restoreEntry(entry, state) ?: continue
+                if (firstFailure == null) firstFailure = failure
             }
             if (schemeStates.isEmpty()) states.remove(scheme)
             firstFailure?.let { throw it }
@@ -111,7 +122,7 @@ internal object EditorSchemeOverrides {
             hydrate(scheme, entry)
             when (val state = schemeStates[entry]) {
                 null -> {
-                    val original = read(scheme, entry)
+                    val original = read(scheme, entry, isBaseline = true)
                     writeValue(scheme, entry, value)
                     schemeStates[entry] = OverrideState.Owned(owner, original, value.snapshot())
                     scheme.metaProperties.setProperty(entry.metadataKey, encodeState(schemeStates.getValue(entry)))
@@ -148,14 +159,38 @@ internal object EditorSchemeOverrides {
     private fun read(
         scheme: EditorColorsScheme,
         entry: SchemeEntry,
-    ): SchemeValue =
-        when (entry) {
+        isBaseline: Boolean = false,
+    ): SchemeValue {
+        if (isBaseline && scheme is AbstractColorsScheme) {
+            return when (entry) {
+                is SchemeEntry.ColorEntry -> {
+                    val direct = scheme.directlyDefinedColors[entry.key]
+                    when {
+                        direct == null || direct === AbstractColorsScheme.INHERITED_COLOR_MARKER ->
+                            SchemeValue.InheritedColor
+                        direct === AbstractColorsScheme.NULL_COLOR_MARKER -> SchemeValue.ColorValue(null)
+                        else -> SchemeValue.ColorValue(direct)
+                    }
+                }
+
+                is SchemeEntry.AttributesEntry -> {
+                    val direct = scheme.directlyDefinedAttributes[entry.key.externalName]
+                    if (direct == null || direct === AbstractColorsScheme.INHERITED_ATTRS_MARKER) {
+                        SchemeValue.InheritedAttributes
+                    } else {
+                        SchemeValue.AttributesValue(direct.clone())
+                    }
+                }
+            }
+        }
+        return when (entry) {
             is SchemeEntry.ColorEntry -> SchemeValue.ColorValue(scheme.getColor(entry.key))
             is SchemeEntry.AttributesEntry ->
                 SchemeValue.AttributesValue(
                     scheme.getAttributes(entry.key)?.clone(),
                 )
         }
+    }
 
     private fun writeValue(
         scheme: EditorColorsScheme,
@@ -169,6 +204,14 @@ internal object EditorSchemeOverrides {
 
             entry is SchemeEntry.AttributesEntry && value is SchemeValue.AttributesValue -> {
                 scheme.setAttributes(entry.key, value.value?.clone())
+            }
+
+            entry is SchemeEntry.ColorEntry && value is SchemeValue.InheritedColor -> {
+                scheme.setColor(entry.key, AbstractColorsScheme.INHERITED_COLOR_MARKER)
+            }
+
+            entry is SchemeEntry.AttributesEntry && value is SchemeValue.InheritedAttributes -> {
+                scheme.setAttributes(entry.key, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
             }
 
             else -> error("Editor scheme entry and value types must match")
@@ -208,15 +251,16 @@ internal object EditorSchemeOverrides {
         val targetStates = states.getOrPut(target) { mutableMapOf() }
         for ((entry, state) in states[canonical].orEmpty()) {
             if (entry in targetStates) continue
+            if (state is OverrideState.Owned && read(target, entry) != state.lastWritten) continue
             val inherited =
                 when (state) {
                     is OverrideState.Owned ->
-                        state.takeIf { read(target, entry) == it.lastWritten }?.copy(
+                        state.copy(
                             original = state.original.snapshot(),
                             lastWritten = state.lastWritten.snapshot(),
                         )
                     is OverrideState.Relinquished -> state
-                } ?: continue
+                }
             targetStates[entry] = inherited
             target.metaProperties.setProperty(entry.metadataKey, encodeState(inherited))
         }
@@ -288,6 +332,14 @@ internal object EditorSchemeOverrides {
         ) : SchemeValue {
             override fun snapshot(): SchemeValue = AttributesValue(value?.clone())
         }
+
+        data object InheritedColor : SchemeValue {
+            override fun snapshot(): SchemeValue = this
+        }
+
+        data object InheritedAttributes : SchemeValue {
+            override fun snapshot(): SchemeValue = this
+        }
     }
 
     private sealed interface OverrideState {
@@ -350,22 +402,30 @@ internal object EditorSchemeOverrides {
                     attributes.writeExternal(element)
                     "A,${Base64.getEncoder().encodeToString(JDOMUtil.writeElement(element).encodeToByteArray())}"
                 } ?: "N"
+            SchemeValue.InheritedColor -> "IC"
+            SchemeValue.InheritedAttributes -> "IA"
         }
 
     private fun decodeValue(encoded: String): SchemeValue =
-        when (encoded.first()) {
-            'C' ->
-                SchemeValue.ColorValue(
-                    encoded
-                        .substringAfter(',')
-                        .takeIf(String::isNotEmpty)
-                        ?.toInt()
-                        ?.let { Color(it, true) },
-                )
-            'N' -> SchemeValue.AttributesValue(null)
+        when (encoded) {
+            "IC" -> SchemeValue.InheritedColor
+            "IA" -> SchemeValue.InheritedAttributes
             else -> {
-                val xml = Base64.getDecoder().decode(encoded.substringAfter(',')).decodeToString()
-                SchemeValue.AttributesValue(TextAttributes(JDOMUtil.load(xml)))
+                when (encoded.first()) {
+                    'C' ->
+                        SchemeValue.ColorValue(
+                            encoded
+                                .substringAfter(',')
+                                .takeIf(String::isNotEmpty)
+                                ?.toInt()
+                                ?.let { Color(it, true) },
+                        )
+                    'N' -> SchemeValue.AttributesValue(null)
+                    else -> {
+                        val xml = Base64.getDecoder().decode(encoded.substringAfter(',')).decodeToString()
+                        SchemeValue.AttributesValue(TextAttributes(JDOMUtil.load(xml)))
+                    }
+                }
             }
         }
 

@@ -515,16 +515,14 @@ object AccentApplicator {
                         AyuEditorSchemeScope.retainAllAccentClaims()
                         throw error
                     }
-                    val failure = clearResult.getOrThrow()
-                    if (failure != null) {
-                        val hasUnattributedEditorFailure =
-                            failure.elementIds.any { it in EDITOR_SCHEME_ELEMENTS } &&
-                                !AyuEditorSchemeScope.hasAccentCleanupFailures()
-                        if (hasUnattributedEditorFailure) {
-                            AyuEditorSchemeScope.retainAllAccentClaims()
-                        }
-                        throw failure
+                    val failure = clearResult.getOrThrow() ?: return@put
+                    val hasUnattributedEditorFailure =
+                        failure.elementIds.any { it in EDITOR_SCHEME_ELEMENTS } &&
+                            !AyuEditorSchemeScope.hasAccentCleanupFailures()
+                    if (hasUnattributedEditorFailure) {
+                        AyuEditorSchemeScope.retainAllAccentClaims()
                     }
+                    throw failure
                 }
                 put(AccentApplyStep.RevertAlwaysOnEditorKeys) {
                     try {
@@ -550,10 +548,11 @@ object AccentApplicator {
                     // that path would crash here because LAF refresh is still
                     // mid-flight. Publishing a topic lets subscribers decide when to
                     // repaint.
-                    for (project in ProjectManager.getInstance().openProjects) {
-                        if (!project.isUsable()) continue
-                        ComponentTreeRefresher.notifyOnly(project)
-                    }
+                    ProjectManager
+                        .getInstance()
+                        .openProjects
+                        .filter { it.isUsable() }
+                        .forEach(ComponentTreeRefresher::notifyOnly)
                 }
             }
 
@@ -622,6 +621,14 @@ object AccentApplicator {
         isPremiumAllowed: Boolean,
     ) {
         if (context == AccentContext.External) {
+            EP_NAME.extensionList
+                .filter { it.id in EDITOR_SCHEME_ELEMENTS }
+                .forEach { element ->
+                    AyuEditorSchemeScope.observeElementEnabled(
+                        element.id,
+                        ChromeTintContext.isToggleEnabled(state, element.id),
+                    )
+                }
             ExternalChromeOwnership.apply(
                 elements = EP_NAME.extensionList,
                 state = state,
@@ -824,8 +831,6 @@ object AccentApplicator {
     }
 
     private fun revertAlwaysOnEditorKeys() {
-        if (AyuEditorSchemeScope.claimedAccentSchemes().isEmpty()) return
-
         AyuEditorSchemeScope.restore(alwaysOnOwner)
 
         val application = ApplicationManager.getApplication()

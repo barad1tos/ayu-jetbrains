@@ -101,18 +101,18 @@ internal object VcsColorApplier {
     }
 
     private fun restoreWithRetry(rearm: Boolean = false) {
-        var failure: RuntimeException? = null
-        try {
-            AyuEditorSchemeScope.restore(EditorSchemeOwner.Vcs)
-        } catch (firstFailure: RuntimeException) {
-            failure = firstFailure
+        val failure =
             try {
                 AyuEditorSchemeScope.restore(EditorSchemeOwner.Vcs)
-                failure = null
-            } catch (retryFailure: RuntimeException) {
-                failure = retryFailure
+                null
+            } catch (_: RuntimeException) {
+                try {
+                    AyuEditorSchemeScope.restore(EditorSchemeOwner.Vcs)
+                    null
+                } catch (retryFailure: RuntimeException) {
+                    retryFailure
+                }
             }
-        }
         if (failure != null) LOG.warn("VcsColorApplier: VCS scheme restore failed after retry", failure)
         if (rearm) {
             EditorSchemeOverrides.rearm(

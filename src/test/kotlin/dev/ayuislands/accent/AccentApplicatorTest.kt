@@ -35,6 +35,7 @@ import io.mockk.verify
 import java.awt.Color
 import java.awt.Window
 import java.lang.reflect.Method
+import java.util.Properties
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.test.AfterTest
@@ -1517,6 +1518,20 @@ class AccentApplicatorTest {
     }
 
     @Test
+    fun `revertAll restores persisted always-on keys after runtime reset`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
+        every { mockColorsManager.allSchemes } returns arrayOf(store.scheme)
+        mockEpExtensionList(emptyList())
+        invokePrivate("applyAlwaysOnEditorKeys", Color.RED)
+        AyuEditorSchemeScope.resetClaims()
+
+        AccentApplicator.revertAll()
+
+        store.assertOriginalValues()
+    }
+
+    @Test
     fun `revertAll posts to invokeLater when not on EDT`() {
         mockEpExtensionList(emptyList())
         every { SwingUtilities.isEventDispatchThread() } returns false
@@ -1576,6 +1591,27 @@ class AccentApplicatorTest {
 
         verify(exactly = 0) { mockElement.revert() }
         verify(exactly = 0) { mockElement.apply(any()) }
+    }
+
+    @Test
+    fun `external toggle cycle rearms relinquished editor ownership`() {
+        val store = EditorSchemeStore()
+        every { mockColorsManager.globalScheme } returns store.scheme
+        val element = CaretRowElement()
+        val accent = Color.RED
+        mockEpExtensionList(listOf(element))
+
+        state.setToggle(element.id, true)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
+        store.replaceTouchedValues()
+        invokeApplyElements(state, Color.BLUE, AccentContext.Ayu(AyuVariant.MIRAGE))
+        state.setToggle(element.id, false)
+        invokeApplyElements(state, accent, AccentContext.External)
+        state.setToggle(element.id, true)
+        invokeApplyElements(state, accent, AccentContext.External)
+        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
+
+        store.assertWasChangedTo(accent)
     }
 
     @Test
@@ -2318,10 +2354,12 @@ class AccentApplicatorTest {
         private val touchedColors = linkedSetOf<ColorKey>()
         private val touchedAttributes = linkedSetOf<TextAttributesKey>()
         private var shouldFailRestore = false
+        private val metadata = Properties()
 
         val scheme: EditorColorsScheme =
             mockk(relaxed = true) {
                 every { name } returns "_@user_Ayu Islands Mirage"
+                every { metaProperties } returns metadata
                 every { getColor(any()) } answers {
                     val key = firstArg<ColorKey>()
                     if (!colors.containsKey(key)) colors[key] = originalColor
