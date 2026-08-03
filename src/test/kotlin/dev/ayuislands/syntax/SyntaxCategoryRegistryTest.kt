@@ -378,6 +378,24 @@ class SyntaxCategoryRegistryTest {
     }
 
     @Test
+    fun `Java visibility modifiers remain outside syntax categories`() {
+        val visibilityKeys =
+            listOf(
+                "PUBLIC_REFERENCE",
+                "PROTECTED_REFERENCE",
+                "PACKAGE_PRIVATE_REFERENCE",
+                "PRIVATE_REFERENCE",
+            )
+
+        for (keyName in visibilityKeys) {
+            assertNull(
+                SyntaxCategoryRegistry.classify(keyName),
+                "$keyName is a visibility modifier, not a syntax primitive",
+            )
+        }
+    }
+
+    @Test
     fun `repeated unknown-suffix calls are idempotent and safe (Pattern A latch)`() {
         // Use a unique suffix so the persistent ConcurrentHashMap latch
         // (object state survives across tests) does not collide with prior

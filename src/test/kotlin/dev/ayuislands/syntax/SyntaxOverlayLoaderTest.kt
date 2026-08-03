@@ -11,6 +11,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -127,6 +128,84 @@ class SyntaxOverlayLoaderTest {
         val overlay = loader().loadOverlayForVariant("Mirage")
         val names = overlay.keys.map { it.externalName }
         assertTrue("FAKE_KEY_WITH_BASE_REF" in names)
+    }
+
+    @Test
+    fun `production overlays leave Java visibility attributes inherited`() {
+        val visibilityKeys =
+            setOf(
+                "PUBLIC_REFERENCE",
+                "PROTECTED_REFERENCE",
+                "PACKAGE_PRIVATE_REFERENCE",
+                "PRIVATE_REFERENCE",
+            )
+        val productionLoader = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val overlayNames =
+                productionLoader
+                    .loadOverlayForVariant(variant)
+                    .keys
+                    .mapTo(mutableSetOf()) { it.externalName }
+
+            assertFalse(
+                overlayNames.any(visibilityKeys::contains),
+                "$variant overlay must leave Java visibility attributes inherited",
+            )
+        }
+    }
+
+    @Test
+    fun `production baselines preserve Java semantic role colors`() {
+        val expectedForegrounds =
+            mapOf(
+                "Mirage" to
+                    mapOf(
+                        "JAVA_CLASS_REFERENCE" to "73D0FF",
+                        "JAVA_INSTANCE_FIELD" to "F28779",
+                        "JAVA_STATIC_FIELD" to "F28779",
+                        "JAVA_STATIC_FINAL_FIELD" to "DFBFFF",
+                        "JAVA_ANNOTATION_NAME" to "FFDFB3",
+                        "JAVA_ANNOTATION_ATTRIBUTE_NAME" to "FFDFB3",
+                    ),
+                "Dark" to
+                    mapOf(
+                        "JAVA_CLASS_REFERENCE" to "59C2FF",
+                        "JAVA_INSTANCE_FIELD" to "F07178",
+                        "JAVA_STATIC_FIELD" to "F07178",
+                        "JAVA_STATIC_FINAL_FIELD" to "D2A6FF",
+                        "JAVA_ANNOTATION_NAME" to "E6C08A",
+                        "JAVA_ANNOTATION_ATTRIBUTE_NAME" to "E6C08A",
+                    ),
+                "Light" to
+                    mapOf(
+                        "JAVA_CLASS_REFERENCE" to "22A4E6",
+                        "JAVA_INSTANCE_FIELD" to "F07171",
+                        "JAVA_STATIC_FIELD" to "F07171",
+                        "JAVA_STATIC_FINAL_FIELD" to "A37ACC",
+                        "JAVA_ANNOTATION_NAME" to "E59645",
+                        "JAVA_ANNOTATION_ATTRIBUTE_NAME" to "E59645",
+                    ),
+            )
+        val productionLoader = SyntaxOverlayLoader()
+
+        for ((variant, expected) in expectedForegrounds) {
+            val baselineByName =
+                productionLoader
+                    .loadBaselineForVariant(variant)
+                    .entries
+                    .associate { it.key.externalName to it.value }
+
+            for ((keyName, expectedHex) in expected) {
+                assertEquals(
+                    expectedHex,
+                    baselineByName.foregroundHex(keyName),
+                    "$variant must preserve the semantic color for $keyName",
+                )
+            }
+            assertEquals(2, baselineByName.fontType("JAVA_CLASS_REFERENCE"))
+            assertEquals(2, baselineByName.fontType("JAVA_STATIC_FIELD"))
+        }
     }
 
     @Test
