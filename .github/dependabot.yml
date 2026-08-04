@@ -12,6 +12,12 @@ updates:
       # applies uniformly to every action update.
       default-days: 7
     open-pull-requests-limit: 3
+    groups:
+      # init/analyze/upload-sarif must move in lockstep — a solo bump makes
+      # CodeQL fail with a config/runner version mismatch.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
     labels:
       - "dependencies"
       - "github-actions"
