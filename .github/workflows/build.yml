@@ -201,7 +201,7 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
       - name: Compile and build plugin
-        run: ./gradlew buildPlugin
+        run: scripts/gradle-retry.sh buildPlugin
 
   # ── Tier 3: Parallel analysis (after build, PRs only) ──
   analyze:
@@ -221,7 +221,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
       - name: Ktlint + Detekt + Kotlin warnings
         run: >
-          ./gradlew ktlintCheck detekt compileKotlin
+          scripts/gradle-retry.sh ktlintCheck detekt compileKotlin
           -Pkotlin.compiler.option.allWarningsAsErrors=true
 
   test:
@@ -240,7 +240,7 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
       - name: Run tests with coverage
-        run: ./gradlew test integrationTest koverXmlReport koverVerify
+        run: scripts/gradle-retry.sh test integrationTest koverXmlReport koverVerify
       - name: Upload coverage to Codecov
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -267,7 +267,7 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
       - name: Build plugin JAR
-        run: ./gradlew buildPlugin
+        run: scripts/gradle-retry.sh buildPlugin
       - name: Verify bytecode freshness
         run: python3 scripts/verify-bytecode.py
       - name: Verify ProGuard keep rules
@@ -298,7 +298,7 @@ jobs:
           java-version: 21
       - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
       - name: Verify plugin (group ${{ matrix.group }})
-        run: ./gradlew verifyPlugin -DverifyGroup=${{ matrix.group }}
+        run: scripts/gradle-retry.sh verifyPlugin -DverifyGroup=${{ matrix.group }}
       - name: Fail on internal API verifier findings
         run: python3 scripts/verify-plugin-verifier.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
