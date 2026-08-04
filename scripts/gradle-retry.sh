@@ -7,7 +7,7 @@
 # state); every other failure keeps its original exit code untouched.
 set -uo pipefail
 
-FLAKE_SIGNATURE="Cannot access 'com.intellij"
+FLAKE_SIGNATURE="Cannot access 'com.intellij.psi"
 
 LOG_FILE=$(mktemp)
 trap 'rm -f "$LOG_FILE"' EXIT
@@ -26,4 +26,6 @@ fi
 echo "::warning::layoutIndex flake detected (com.intellij.java dropped from platform layout) — wiping project Gradle state and retrying once"
 ./gradlew --stop >/dev/null 2>&1 || true
 rm -rf build .gradle
-exec ./gradlew "$@"
+# No exec: let the EXIT trap clean up the temp log; the retry output still
+# streams straight to stdout and nothing needs to inspect it.
+./gradlew "$@"
