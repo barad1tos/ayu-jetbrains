@@ -1,5 +1,6 @@
 package dev.ayuislands.syntax
 
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
@@ -99,6 +100,7 @@ class SyntaxIntensityService {
             )
         val manager = EditorColorsManager.getInstance()
         val touched = mutableSetOf<EditorColorsScheme>()
+        val retirement = RetirementPass(retirementPending())
         for ((schemeName, overlayVariant) in AYU_SCHEMES) {
             val scheme = manager.getScheme(schemeName)
             if (scheme == null) {
@@ -117,10 +119,12 @@ class SyntaxIntensityService {
                 scheme,
                 applyIgnorePluginPreference(computed, context, overlayVariant),
                 schemeName,
+                retirement,
             )
             touched.add(scheme)
         }
-        writeActiveSchemeIfNotTouched(context, touched)
+        writeActiveSchemeIfNotTouched(context, touched, retirement)
+        retirement.commitIfClean()
         publishSchemeChange()
     }
 
@@ -230,6 +234,7 @@ class SyntaxIntensityService {
     private fun writeActiveSchemeIfNotTouched(
         context: ApplyContext,
         touched: Set<EditorColorsScheme>,
+        retirement: RetirementPass,
     ) {
         val active = EditorColorsManager.getInstance().globalScheme
         if (active in touched) return
@@ -254,6 +259,7 @@ class SyntaxIntensityService {
             active,
             applyIgnorePluginPreference(computed, context, variant),
             active.name,
+            retirement,
         )
     }
 
@@ -323,8 +329,9 @@ class SyntaxIntensityService {
         scheme: EditorColorsScheme,
         computed: Map<TextAttributesKey, TextAttributes>,
         schemeLabel: String,
+        retirement: RetirementPass,
     ) {
-        retireKeys(scheme, schemeLabel)
+        retireKeys(scheme, schemeLabel, retirement)
         for ((key, attrs) in computed) {
             try {
                 scheme.setAttributes(key, attrs)
@@ -337,18 +344,23 @@ class SyntaxIntensityService {
     }
 
     /**
-     * Hands keys the plugin used to write back to the platform.
+     * Hands keys the plugin used to write back to the platform, once per install.
      *
      * Dropping a key from the overlay stops future writes but cannot undo a value an
      * earlier version already persisted into a derived `_@user_` scheme, and that file
      * outlives plugin upgrades. Writing the inherited marker is the only way to clear
-     * one. Runs on every apply because the poisoned scheme belongs to the user, not to
-     * a version we can detect.
+     * one.
+     *
+     * Strictly one-shot: past the first successful pass these keys belong to the user
+     * again. Someone who sets Java visibility colours by hand in Settings must keep
+     * them, so a repeating pass would trade this bug for the mirror-image one.
      */
     private fun retireKeys(
         scheme: EditorColorsScheme,
         schemeLabel: String,
+        retirement: RetirementPass,
     ) {
+        if (!retirement.pending) return
         for (keyName in RETIRED_KEY_NAMES) {
             try {
                 scheme.setAttributes(
@@ -358,10 +370,39 @@ class SyntaxIntensityService {
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
             } catch (runtime: RuntimeException) {
-                log.warn("[SyntaxIntensity] failed to retire $keyName on $schemeLabel", runtime)
+                retirement.recordFailure()
+                log.warn(
+                    "Failed to retire $keyName on $schemeLabel — Java references may stay flattened " +
+                        "there; re-apply from Settings -> Ayu Islands -> Syntax",
+                    runtime,
+                )
             }
         }
     }
+
+    /**
+     * Tracks the one-shot retirement across every scheme a single apply touches.
+     *
+     * The flag is only persisted when every key on every scheme succeeded, so a partial
+     * failure retries on the next apply instead of being sealed in.
+     */
+    private class RetirementPass(
+        val pending: Boolean,
+    ) {
+        private var failed = false
+
+        fun recordFailure() {
+            failed = true
+        }
+
+        fun commitIfClean() {
+            if (pending && !failed) {
+                PropertiesComponent.getInstance().setValue(RETIREMENT_FLAG_KEY, true)
+            }
+        }
+    }
+
+    private fun retirementPending(): Boolean = !PropertiesComponent.getInstance().getBoolean(RETIREMENT_FLAG_KEY, false)
 
     private fun publishSchemeChange() {
         val application = ApplicationManager.getApplication()
@@ -387,6 +428,11 @@ class SyntaxIntensityService {
         // when defaultBackground == Color.WHITE. The Light variant's
         // Color.WHITE IS correct and must flow through unchanged.
         private val DARK_OVERLAY_VARIANTS = setOf("Mirage", "Dark")
+
+        // Install-scoped flag for the one-shot retirement below. PropertiesComponent
+        // matches SyntaxIntensityMigrationNotifier — a single boolean does not warrant
+        // its own @State file.
+        private const val RETIREMENT_FLAG_KEY = "ayu.syntax.visibility.retired"
 
         // Keys the overlay used to define and must now leave to the platform.
         // Versions 2.7.0-2.8.1 gave these a foreground, which Java merges over the

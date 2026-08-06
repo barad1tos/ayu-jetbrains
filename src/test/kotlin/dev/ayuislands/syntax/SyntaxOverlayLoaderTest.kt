@@ -161,15 +161,17 @@ class SyntaxOverlayLoaderTest {
                 overlayNames intersect JAVA_VISIBILITY_KEYS,
                 "$variant overlay must leave these keys undefined. Java merges visibility attributes " +
                     "over the role colour of a reference, so defining one flattens every referenced " +
-                    "class, field, constant and annotation to a single colour (issue #290)",
+                    "class, field and constant to a single colour (issue #290)",
             )
         }
     }
 
     @Test
-    fun `production overlays keep Java role colors distinct from the visibility greys`() {
-        // The keys below are the ones the IDE actually paints Java identifiers with.
-        // The greys are what the visibility layer used to overwrite them with, per variant.
+    fun `production overlays keep the Java role colors the IDE actually paints`() {
+        // These are the keys the IDE paints Java identifiers with. The old assertions here
+        // named JAVA_CLASS_REFERENCE and friends, which no platform component registers —
+        // green regardless of what the overlay did. Annotation roles are deliberately
+        // absent: they live in the baseline schemes, not in these overlays.
         val expectedForegrounds =
             mapOf(
                 "Mirage" to
@@ -197,12 +199,6 @@ class SyntaxOverlayLoaderTest {
                         "METHOD_CALL_ATTRIBUTES" to "EBA400",
                     ),
             )
-        val visibilityGreys =
-            mapOf(
-                "Mirage" to setOf("CCCAC2", "B8CFE6"),
-                "Dark" to setOf("BFBDB6", "ACB6BF"),
-                "Light" to setOf("5C6166", "787B80"),
-            )
         val productionLoader = SyntaxOverlayLoader()
 
         for ((variant, expected) in expectedForegrounds) {
@@ -220,13 +216,6 @@ class SyntaxOverlayLoaderTest {
                 )
             }
 
-            val greys = visibilityGreys.getValue(variant)
-            val flattened = expected.keys.filter { overlayByName.foregroundHex(it) in greys }
-            assertEquals(
-                emptyList(),
-                flattened,
-                "$variant painted these Java roles with a visibility grey, which is the issue #290 symptom",
-            )
             assertEquals(
                 Font.ITALIC,
                 overlayByName.fontType("CLASS_NAME_ATTRIBUTES"),

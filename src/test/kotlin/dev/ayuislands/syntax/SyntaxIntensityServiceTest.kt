@@ -1,5 +1,6 @@
 package dev.ayuislands.syntax
 
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.EditorColorsListener
@@ -43,6 +44,7 @@ class SyntaxIntensityServiceTest {
          * pass that also calls `setAttributes`.
          */
         private const val PAYLOAD_KEY_NAME = "K1"
+        private const val RETIREMENT_FLAG_KEY = "ayu.syntax.visibility.retired"
 
         private val RETIRED_KEY_NAMES =
             listOf(
@@ -64,11 +66,19 @@ class SyntaxIntensityServiceTest {
     private lateinit var stateInstance: SyntaxIntensityState
     private lateinit var ayuSettings: AyuIslandsSettings
     private lateinit var ayuState: AyuIslandsState
+    private lateinit var props: PropertiesComponent
     private val keyCache = mutableMapOf<String, TextAttributesKey>()
 
     @BeforeTest
     fun setUp() {
         keyCache.clear()
+
+        // Default: retirement has not run yet on this install, so the one-shot pass
+        // fires. Tests that assert the "already retired" branch override this.
+        props = mockk(relaxed = true)
+        mockkStatic(PropertiesComponent::class)
+        every { PropertiesComponent.getInstance() } returns props
+        every { props.getBoolean(RETIREMENT_FLAG_KEY, false) } returns false
         mockkStatic(TextAttributesKey::class)
         every { TextAttributesKey.find(any<String>()) } answers {
             val name = firstArg<String>()
@@ -189,8 +199,9 @@ class SyntaxIntensityServiceTest {
         val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
         verify(exactly = 2) { mockMirage.setAttributes(payloadKey, any<TextAttributes>()) }
         verify(exactly = 2) { mockDark.setAttributes(payloadKey, any<TextAttributes>()) }
-        // Light was never written because its scheme was null.
-        verify(exactly = 0) { mockLight.setAttributes(payloadKey, any<TextAttributes>()) }
+        // Light was never written at all because its scheme was null — not even the
+        // retirement pass, which only runs on schemes the service actually resolved.
+        verify(exactly = 0) { mockLight.setAttributes(any(), any<TextAttributes>()) }
     }
 
     // ---------- Test 3: R-7 single publish per apply ----------
@@ -426,7 +437,7 @@ class SyntaxIntensityServiceTest {
     fun `apply retires the Java visibility keys on a derived active scheme too`() {
         val derived =
             mockk<EditorColorsScheme>(relaxed = true) {
-                every { name } returns "Ayu Islands Dark (copy)"
+                every { name } returns "_@user_Ayu Islands Dark"
                 every { defaultBackground } returns Color(0x0D, 0x10, 0x17)
             }
         every { mockManager.globalScheme } returns derived
@@ -446,11 +457,65 @@ class SyntaxIntensityServiceTest {
         }
     }
 
+    @Test
+    fun `apply leaves the Java visibility keys alone once retirement has run`() {
+        // Past the one-shot pass these keys belong to the user again: someone who sets
+        // Java visibility colours by hand in Settings must keep them.
+        every { props.getBoolean(RETIREMENT_FLAG_KEY, false) } returns true
+
+        SyntaxIntensityService().apply(
+            preset = SyntaxPreset.AMBIENT,
+            customOverrides = emptyMap(),
+            subordinatePreset = SyntaxPreset.AMBIENT,
+            customStyles = emptyMap(),
+        )
+
+        for (scheme in listOf(mockMirage, mockDark, mockLight)) {
+            for (keyName in RETIRED_KEY_NAMES) {
+                val key = TextAttributesKey.find(keyName)
+                verify(exactly = 0) {
+                    scheme.setAttributes(key, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+                }
+            }
+        }
+        verify(exactly = 0) { props.setValue(RETIREMENT_FLAG_KEY, true) }
+    }
+
+    @Test
+    fun `apply records the retirement so it never repeats`() {
+        SyntaxIntensityService().apply(
+            preset = SyntaxPreset.AMBIENT,
+            customOverrides = emptyMap(),
+            subordinatePreset = SyntaxPreset.AMBIENT,
+            customStyles = emptyMap(),
+        )
+
+        verify(exactly = 1) { props.setValue(RETIREMENT_FLAG_KEY, true) }
+    }
+
+    @Test
+    fun `a failed retirement is not recorded so the next apply retries it`() {
+        val publicReference = TextAttributesKey.find("PUBLIC_REFERENCE")
+        every {
+            mockDark.setAttributes(publicReference, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+        } throws RuntimeException("simulated")
+
+        SyntaxIntensityService().apply(
+            preset = SyntaxPreset.AMBIENT,
+            customOverrides = emptyMap(),
+            subordinatePreset = SyntaxPreset.AMBIENT,
+            customStyles = emptyMap(),
+        )
+
+        // Sealing the flag on a partial pass would leave that scheme flattened forever.
+        verify(exactly = 0) { props.setValue(RETIREMENT_FLAG_KEY, true) }
+    }
+
     // ---------- Test 13b: customStyles threaded through to compute ----------
 
     @Test
     fun `apply threads customStyles through to the applicator compute call`() {
-        val styles = mapOf("Java" to mapOf("KEYWORD" to (java.awt.Font.BOLD or java.awt.Font.ITALIC)))
+        val styles = mapOf("Java" to mapOf("KEYWORD" to (Font.BOLD or Font.ITALIC)))
         SyntaxIntensityService().apply(
             preset = SyntaxPreset.CUSTOM,
             customOverrides = mapOf("Java" to mapOf("KEYWORD" to 75)),
@@ -468,7 +533,7 @@ class SyntaxIntensityServiceTest {
 
     @Test
     fun `reapplyForActiveLaf forwards config customStyles to compute`() {
-        val styles = mapOf("Kotlin" to mapOf("COMMENT" to java.awt.Font.ITALIC))
+        val styles = mapOf("Kotlin" to mapOf("COMMENT" to Font.ITALIC))
         every { stateInstance.toPresetConfig() } returns
             SyntaxPresetConfig(
                 selectedPreset = "CUSTOM",
