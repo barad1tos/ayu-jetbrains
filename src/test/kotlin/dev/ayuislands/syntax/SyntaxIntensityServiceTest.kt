@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
 import com.intellij.util.messages.MessageBus
@@ -35,6 +36,23 @@ import kotlin.test.assertFailsWith
  * `RgbBlend` / `LicenseChecker` / `SyntaxIntensityApplicator`.
  */
 class SyntaxIntensityServiceTest {
+    companion object {
+        /**
+         * The single key the stubbed loader payload carries. Write assertions match on
+         * it so they count real payload writes and stay indifferent to the retired-key
+         * pass that also calls `setAttributes`.
+         */
+        private const val PAYLOAD_KEY_NAME = "K1"
+
+        private val RETIRED_KEY_NAMES =
+            listOf(
+                "PUBLIC_REFERENCE",
+                "PROTECTED_REFERENCE",
+                "PACKAGE_PRIVATE_REFERENCE",
+                "PRIVATE_REFERENCE",
+            )
+    }
+
     private lateinit var mockMirage: EditorColorsScheme
     private lateinit var mockDark: EditorColorsScheme
     private lateinit var mockLight: EditorColorsScheme
@@ -94,7 +112,7 @@ class SyntaxIntensityServiceTest {
         loader = mockk(relaxed = true)
         val payload =
             mapOf(
-                TextAttributesKey.find("K1") to
+                TextAttributesKey.find(PAYLOAD_KEY_NAME) to
                     TextAttributes().apply {
                         foregroundColor = Color(0xFF, 0xCC, 0x66)
                     },
@@ -148,10 +166,12 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 1) { mockManager.getScheme("Ayu Islands Light") }
         verify(atLeast = 1) { mockManager.globalScheme }
         // H5 dedup: active globalScheme === mockMirage in the default setup,
-        // so Mirage is written exactly once (not twice).
-        verify(exactly = 1) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
-        verify(exactly = 1) { mockDark.setAttributes(any(), any<TextAttributes>()) }
-        verify(exactly = 1) { mockLight.setAttributes(any(), any<TextAttributes>()) }
+        // so Mirage is written exactly once (not twice). Counted on the payload key
+        // so the retired-key writes don't inflate the total.
+        val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
+        verify(exactly = 1) { mockMirage.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 1) { mockDark.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 1) { mockLight.setAttributes(payloadKey, any<TextAttributes>()) }
     }
 
     // ---------- Test 2: Pattern A missing-scheme log-once ----------
@@ -166,10 +186,11 @@ class SyntaxIntensityServiceTest {
         // null Light didn't block them) - Pattern A latch lives inside the
         // service, not asserted directly via the logger; the contract is that
         // the apply call continues after the missing scheme.
-        verify(exactly = 2) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
-        verify(exactly = 2) { mockDark.setAttributes(any(), any<TextAttributes>()) }
+        val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
+        verify(exactly = 2) { mockMirage.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 2) { mockDark.setAttributes(payloadKey, any<TextAttributes>()) }
         // Light was never written because its scheme was null.
-        verify(exactly = 0) { mockLight.setAttributes(any(), any<TextAttributes>()) }
+        verify(exactly = 0) { mockLight.setAttributes(payloadKey, any<TextAttributes>()) }
     }
 
     // ---------- Test 3: R-7 single publish per apply ----------
@@ -287,7 +308,8 @@ class SyntaxIntensityServiceTest {
 
         SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
 
-        verify(exactly = 1) { userDerivedScheme.setAttributes(any(), any<TextAttributes>()) }
+        val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
+        verify(exactly = 1) { userDerivedScheme.setAttributes(payloadKey, any<TextAttributes>()) }
     }
 
     // ---------- Test 8: H5 identity dedup (active === named) ----------
@@ -297,7 +319,8 @@ class SyntaxIntensityServiceTest {
         // Default setUp already wires globalScheme to mockMirage; this test
         // is the explicit assertion of the dedup contract.
         SyntaxIntensityService().apply(SyntaxPreset.AMBIENT, emptyMap())
-        verify(exactly = 1) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
+        val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
+        verify(exactly = 1) { mockMirage.setAttributes(payloadKey, any<TextAttributes>()) }
     }
 
     // ---------- Test 9: Pattern B per-key write isolation ----------
@@ -372,6 +395,54 @@ class SyntaxIntensityServiceTest {
             SyntaxIntensityApplicator.compute(
                 match { it.preset == SyntaxPreset.AMBIENT },
             )
+        }
+    }
+
+    // ---------- Retiring keys the overlay no longer owns ----------
+
+    @Test
+    fun `apply hands the Java visibility keys back to the platform on every scheme`() {
+        SyntaxIntensityService().apply(
+            preset = SyntaxPreset.AMBIENT,
+            customOverrides = emptyMap(),
+            subordinatePreset = SyntaxPreset.AMBIENT,
+            customStyles = emptyMap(),
+        )
+
+        // A version before the issue #290 fix could bake a foreground for these into a
+        // persisted _@user_ scheme. Dropping them from the overlay stops new writes but
+        // leaves that value; only the inherited marker clears it.
+        for (scheme in listOf(mockMirage, mockDark, mockLight)) {
+            for (keyName in RETIRED_KEY_NAMES) {
+                val key = TextAttributesKey.find(keyName)
+                verify(atLeast = 1) {
+                    scheme.setAttributes(key, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `apply retires the Java visibility keys on a derived active scheme too`() {
+        val derived =
+            mockk<EditorColorsScheme>(relaxed = true) {
+                every { name } returns "Ayu Islands Dark (copy)"
+                every { defaultBackground } returns Color(0x0D, 0x10, 0x17)
+            }
+        every { mockManager.globalScheme } returns derived
+
+        SyntaxIntensityService().apply(
+            preset = SyntaxPreset.AMBIENT,
+            customOverrides = emptyMap(),
+            subordinatePreset = SyntaxPreset.AMBIENT,
+            customStyles = emptyMap(),
+        )
+
+        // The derived _@user_ copy is the one that survives on disk across upgrades,
+        // so it is the scheme that most needs clearing.
+        val publicReference = TextAttributesKey.find("PUBLIC_REFERENCE")
+        verify(atLeast = 1) {
+            derived.setAttributes(publicReference, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
         }
     }
 

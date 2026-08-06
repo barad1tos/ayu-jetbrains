@@ -6,6 +6,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -323,6 +324,7 @@ class SyntaxIntensityService {
         computed: Map<TextAttributesKey, TextAttributes>,
         schemeLabel: String,
     ) {
+        retireKeys(scheme, schemeLabel)
         for ((key, attrs) in computed) {
             try {
                 scheme.setAttributes(key, attrs)
@@ -330,6 +332,33 @@ class SyntaxIntensityService {
                 throw cancellation
             } catch (runtime: RuntimeException) {
                 log.warn("setAttributes failed on $schemeLabel for key ${key.externalName}", runtime)
+            }
+        }
+    }
+
+    /**
+     * Hands keys the plugin used to write back to the platform.
+     *
+     * Dropping a key from the overlay stops future writes but cannot undo a value an
+     * earlier version already persisted into a derived `_@user_` scheme, and that file
+     * outlives plugin upgrades. Writing the inherited marker is the only way to clear
+     * one. Runs on every apply because the poisoned scheme belongs to the user, not to
+     * a version we can detect.
+     */
+    private fun retireKeys(
+        scheme: EditorColorsScheme,
+        schemeLabel: String,
+    ) {
+        for (keyName in RETIRED_KEY_NAMES) {
+            try {
+                scheme.setAttributes(
+                    TextAttributesKey.find(keyName),
+                    AbstractColorsScheme.INHERITED_ATTRS_MARKER,
+                )
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (runtime: RuntimeException) {
+                log.warn("[SyntaxIntensity] failed to retire $keyName on $schemeLabel", runtime)
             }
         }
     }
@@ -358,6 +387,18 @@ class SyntaxIntensityService {
         // when defaultBackground == Color.WHITE. The Light variant's
         // Color.WHITE IS correct and must flow through unchanged.
         private val DARK_OVERLAY_VARIANTS = setOf("Mirage", "Dark")
+
+        // Keys the overlay used to define and must now leave to the platform.
+        // Versions 2.7.0-2.8.1 gave these a foreground, which Java merges over the
+        // role colour of a reference and flattens Java highlighting (issue #290).
+        // Never add a key here without also removing it from the theme XMLs.
+        private val RETIRED_KEY_NAMES =
+            listOf(
+                "PUBLIC_REFERENCE",
+                "PROTECTED_REFERENCE",
+                "PACKAGE_PRIVATE_REFERENCE",
+                "PRIVATE_REFERENCE",
+            )
 
         private const val IGNORE_COMMENT_KEY = "IGNORE.COMMENT"
         private const val IGNORE_SECTION_KEY = "IGNORE.SECTION"

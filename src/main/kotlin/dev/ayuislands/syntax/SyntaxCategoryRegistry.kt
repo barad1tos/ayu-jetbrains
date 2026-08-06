@@ -245,6 +245,10 @@ object SyntaxCategoryRegistry {
                 "WILDCARD",
             )
             // --- Type references / aliases ---------------------------------
+            // PUBLIC_/PROTECTED_/PACKAGE_PRIVATE_/PRIVATE_REFERENCE are deliberately
+            // absent: Java merges them over the role colour of a reference rather than
+            // painting one itself, so classifying them lets the applicator write a
+            // foreground and flatten Java highlighting. See the theme overlay XMLs.
             addRules(
                 PrimitiveCategory.TYPE_REF,
                 "TYPE_REFERENCE$|TYPE_NAME$|TYPE_ALIAS$|TYPE$|TYPEALIAS$|TYPEALIAS_REFERENCE",

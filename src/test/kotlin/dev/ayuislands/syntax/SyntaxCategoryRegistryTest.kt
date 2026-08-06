@@ -377,8 +377,10 @@ class SyntaxCategoryRegistryTest {
         )
     }
 
+    // --- Java visibility attributes stay unclassified -------------------
+
     @Test
-    fun `Java visibility modifiers remain outside syntax categories`() {
+    fun `Java visibility attributes stay unclassified`() {
         val visibilityKeys =
             listOf(
                 "PUBLIC_REFERENCE",
@@ -390,7 +392,9 @@ class SyntaxCategoryRegistryTest {
         for (keyName in visibilityKeys) {
             assertNull(
                 SyntaxCategoryRegistry.classify(keyName),
-                "$keyName is a visibility modifier, not a syntax primitive",
+                "$keyName must stay unclassified: Java merges visibility attributes over the role " +
+                    "colour of a reference, so classifying it lets the intensity applicator write a " +
+                    "foreground and flatten Java class, field and annotation colours (issue #290)",
             )
         }
     }
