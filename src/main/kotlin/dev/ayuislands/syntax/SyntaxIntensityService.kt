@@ -9,6 +9,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.ui.JBColor
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
@@ -100,7 +101,7 @@ class SyntaxIntensityService {
             )
         val manager = EditorColorsManager.getInstance()
         val touched = mutableSetOf<EditorColorsScheme>()
-        val retirement = RetirementPass(retirementPending())
+        val retirement = RetirementPass(retiredSchemeNames())
         for ((schemeName, overlayVariant) in AYU_SCHEMES) {
             val scheme = manager.getScheme(schemeName)
             if (scheme == null) {
@@ -124,7 +125,7 @@ class SyntaxIntensityService {
             touched.add(scheme)
         }
         writeActiveSchemeIfNotTouched(context, touched, retirement)
-        retirement.commitIfClean()
+        retirement.commitRepaired()
         publishSchemeChange()
     }
 
@@ -351,16 +352,22 @@ class SyntaxIntensityService {
      * outlives plugin upgrades. Writing the inherited marker is the only way to clear
      * one.
      *
-     * Strictly one-shot: past the first successful pass these keys belong to the user
-     * again. Someone who sets Java visibility colours by hand in Settings must keep
-     * them, so a repeating pass would trade this bug for the mirror-image one.
+     * One-shot per scheme name, not per install. `EditorColorsManager.getScheme(name)`
+     * resolves the bundled instance by bare name; the editable `_@user_` copy that
+     * actually persists carries the prefix and only arrives here as the active scheme.
+     * The two therefore key separately and each gets its own pass, which also covers
+     * users who alternate light and dark and so carry a flattened copy of each. An
+     * install-wide flag would instead be spent on whichever copy happened to be active
+     * and seal the rest away. Past its own pass a scheme's visibility keys belong to the
+     * user again, so hand-set colours survive.
      */
     private fun retireKeys(
         scheme: EditorColorsScheme,
         schemeLabel: String,
         retirement: RetirementPass,
     ) {
-        if (!retirement.pending) return
+        if (!retirement.isPending(schemeLabel)) return
+        var clean = true
         for (keyName in RETIRED_KEY_NAMES) {
             try {
                 scheme.setAttributes(
@@ -370,7 +377,7 @@ class SyntaxIntensityService {
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
             } catch (runtime: RuntimeException) {
-                retirement.recordFailure()
+                clean = false
                 log.warn(
                     "Failed to retire $keyName on $schemeLabel — Java references may stay flattened " +
                         "there; re-apply from Settings -> Ayu Islands -> Syntax",
@@ -378,31 +385,34 @@ class SyntaxIntensityService {
                 )
             }
         }
+        if (clean) retirement.recordRepaired(schemeLabel)
     }
 
     /**
-     * Tracks the one-shot retirement across every scheme a single apply touches.
+     * Tracks which schemes the one-shot retirement has already repaired.
      *
-     * The flag is only persisted when every key on every scheme succeeded, so a partial
-     * failure retries on the next apply instead of being sealed in.
+     * A scheme is only recorded once all four keys landed on it, so a partial failure
+     * retries on the next apply instead of being sealed in.
      */
     private class RetirementPass(
-        val pending: Boolean,
+        private val alreadyRetired: Set<String>,
     ) {
-        private var failed = false
+        private val repaired = mutableSetOf<String>()
 
-        fun recordFailure() {
-            failed = true
+        fun isPending(schemeLabel: String): Boolean = schemeLabel !in alreadyRetired
+
+        fun recordRepaired(schemeLabel: String) {
+            repaired.add(schemeLabel)
         }
 
-        fun commitIfClean() {
-            if (pending && !failed) {
-                PropertiesComponent.getInstance().setValue(RETIREMENT_FLAG_KEY, true)
-            }
+        fun commitRepaired() {
+            if (repaired.isEmpty()) return
+            PropertiesComponent.getInstance().setList(RETIREMENT_FLAG_KEY, (alreadyRetired + repaired).toList())
         }
     }
 
-    private fun retirementPending(): Boolean = !PropertiesComponent.getInstance().getBoolean(RETIREMENT_FLAG_KEY, false)
+    private fun retiredSchemeNames(): Set<String> =
+        PropertiesComponent.getInstance().getList(RETIREMENT_FLAG_KEY)?.toSet() ?: emptySet()
 
     private fun publishSchemeChange() {
         val application = ApplicationManager.getApplication()
@@ -429,10 +439,12 @@ class SyntaxIntensityService {
         // Color.WHITE IS correct and must flow through unchanged.
         private val DARK_OVERLAY_VARIANTS = setOf("Mirage", "Dark")
 
-        // Install-scoped flag for the one-shot retirement below. PropertiesComponent
-        // matches SyntaxIntensityMigrationNotifier — a single boolean does not warrant
-        // its own @State file.
-        private const val RETIREMENT_FLAG_KEY = "ayu.syntax.visibility.retired"
+        // Names of the schemes whose visibility keys have already been retired.
+        // PropertiesComponent matches SyntaxIntensityMigrationNotifier — this does not
+        // warrant its own @State file. Per scheme rather than one install-wide flag:
+        // only the active scheme arrives here writable, so each poisoned copy needs its
+        // own pass the first time it becomes active.
+        private const val RETIREMENT_FLAG_KEY = "ayu.syntax.visibility.retired.schemes"
 
         // Keys the overlay used to define and must now leave to the platform.
         // Versions 2.7.0-2.8.1 gave these a foreground, which Java merges over the
@@ -520,10 +532,12 @@ class SyntaxIntensityService {
             val backgroundRgb: Int? = null,
             val fontType: Int = Font.PLAIN,
         ) {
+            // Same value in both themes on purpose: these replicate the .ignore plugin's
+            // own stock colours, which do not vary with the IDE theme.
             fun toTextAttributes(): TextAttributes =
                 TextAttributes().also { attributes ->
-                    attributes.foregroundColor = Color(foregroundRgb)
-                    attributes.backgroundColor = backgroundRgb?.let(::Color)
+                    attributes.foregroundColor = JBColor(foregroundRgb, foregroundRgb)
+                    attributes.backgroundColor = backgroundRgb?.let { JBColor(it, it) }
                     attributes.fontType = fontType
                 }
         }
