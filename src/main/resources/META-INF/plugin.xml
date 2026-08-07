@@ -121,6 +121,11 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.8.2</h3>
+    <ul>
+      <li>[Fix] <b>Java syntax colors</b> — classes, fields, constants, and annotations keep their colors wherever they are referenced, not only where they are declared. Java code no longer flattens to a single gray tone, and editor schemes that already lost these colors are repaired automatically the first time each one is used.</li>
+    </ul>
+
     <h3>2.8.1</h3>
     <ul>
       <li>[Paid] <b>Connected-island ECG routing</b> — Chaotic waveform mode can finish its current loop and continue across adjacent editor, tool-window, and neighboring IDE-window islands. Routes stay continuous through focus changes, empty editors, touching perimeters, and window lifecycle transitions without rewriting existing Glow preferences.</li>

@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.8.2] - 2026-08-07
+
+- [Fix] **Java syntax colors** — classes, fields, constants, and annotations
+  keep their colors wherever they are referenced, not only where they are
+  declared. Java code no longer flattens to a single gray tone, and editor
+  schemes that already lost these colors are repaired automatically the first
+  time each one is used.
+
 ## [2.8.1] - 2026-08-03
 
 - [Paid] **Connected-island ECG routing** — Chaotic waveform mode can finish
