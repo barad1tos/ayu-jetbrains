@@ -7,6 +7,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import java.awt.Font
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -30,6 +31,21 @@ import kotlin.test.assertTrue
 class SyntaxOverlayLoaderTest {
     companion object {
         private const val TEST_BASE = "/themes/extended-test"
+
+        /**
+         * Java layers these four over the role colour of a *reference*
+         * (`HighlightNamesUtil.mergeWithVisibilityAttributes`): an undefined
+         * attribute short-circuits the merge and the role colour survives, a
+         * defined foreground overwrites it. They have no fallback key, so
+         * leaving them out is the only way to keep Java colours intact.
+         */
+        private val JAVA_VISIBILITY_KEYS =
+            setOf(
+                "PUBLIC_REFERENCE",
+                "PROTECTED_REFERENCE",
+                "PACKAGE_PRIVATE_REFERENCE",
+                "PRIVATE_REFERENCE",
+            )
     }
 
     @BeforeTest
@@ -127,6 +143,90 @@ class SyntaxOverlayLoaderTest {
         val overlay = loader().loadOverlayForVariant("Mirage")
         val names = overlay.keys.map { it.externalName }
         assertTrue("FAKE_KEY_WITH_BASE_REF" in names)
+    }
+
+    @Test
+    fun `production overlays leave Java visibility attributes undefined`() {
+        val productionLoader = SyntaxOverlayLoader()
+
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val overlayNames =
+                productionLoader
+                    .loadOverlayForVariant(variant)
+                    .keys
+                    .mapTo(mutableSetOf()) { it.externalName }
+
+            assertEquals(
+                emptySet(),
+                overlayNames intersect JAVA_VISIBILITY_KEYS,
+                "$variant overlay must leave these keys undefined. Java merges visibility attributes " +
+                    "over the role colour of a reference, so defining one flattens every referenced " +
+                    "class, field and constant to a single colour (issue #290)",
+            )
+        }
+    }
+
+    @Test
+    fun `production overlays keep the Java role colors the IDE actually paints`() {
+        // These are the keys the IDE paints Java identifiers with. The old assertions here
+        // named JAVA_CLASS_REFERENCE and friends, which no platform component registers —
+        // green regardless of what the overlay did. Annotation roles are deliberately
+        // absent: they live in the baseline schemes, not in these overlays.
+        val expectedForegrounds =
+            mapOf(
+                "Mirage" to
+                    mapOf(
+                        "CLASS_NAME_ATTRIBUTES" to "73D0FF",
+                        "INSTANCE_FIELD_ATTRIBUTES" to "F28779",
+                        "STATIC_FIELD_ATTRIBUTES" to "F28779",
+                        "STATIC_FINAL_FIELD_ATTRIBUTES" to "DFBFFF",
+                        "METHOD_CALL_ATTRIBUTES" to "FFD173",
+                    ),
+                "Dark" to
+                    mapOf(
+                        "CLASS_NAME_ATTRIBUTES" to "59C2FF",
+                        "INSTANCE_FIELD_ATTRIBUTES" to "F07178",
+                        "STATIC_FIELD_ATTRIBUTES" to "F07178",
+                        "STATIC_FINAL_FIELD_ATTRIBUTES" to "D2A6FF",
+                        "METHOD_CALL_ATTRIBUTES" to "FFB454",
+                    ),
+                "Light" to
+                    mapOf(
+                        "CLASS_NAME_ATTRIBUTES" to "22A4E6",
+                        "INSTANCE_FIELD_ATTRIBUTES" to "F07171",
+                        "STATIC_FIELD_ATTRIBUTES" to "F07171",
+                        "STATIC_FINAL_FIELD_ATTRIBUTES" to "A37ACC",
+                        "METHOD_CALL_ATTRIBUTES" to "EBA400",
+                    ),
+            )
+        val productionLoader = SyntaxOverlayLoader()
+
+        for ((variant, expected) in expectedForegrounds) {
+            val overlayByName =
+                productionLoader
+                    .loadOverlayForVariant(variant)
+                    .entries
+                    .associate { it.key.externalName to it.value }
+
+            for ((keyName, expectedHex) in expected) {
+                assertEquals(
+                    expectedHex,
+                    overlayByName.foregroundHex(keyName),
+                    "$variant lost the Java role color for $keyName — Java code renders monochrome without it",
+                )
+            }
+
+            assertEquals(
+                Font.ITALIC,
+                overlayByName.fontType("CLASS_NAME_ATTRIBUTES"),
+                "$variant must keep Java class references italic",
+            )
+            assertEquals(
+                Font.ITALIC,
+                overlayByName.fontType("STATIC_FIELD_ATTRIBUTES"),
+                "$variant must keep Java static fields italic",
+            )
+        }
     }
 
     @Test

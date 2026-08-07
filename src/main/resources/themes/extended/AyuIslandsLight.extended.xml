@@ -1191,26 +1191,13 @@
         <option name="EFFECT_TYPE" value="1" />
       </value>
     </option>
-    <option name="PUBLIC_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="5C6166" />
-      </value>
-    </option>
-    <option name="PROTECTED_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="787B80" />
-      </value>
-    </option>
-    <option name="PACKAGE_PRIVATE_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="787B80" />
-      </value>
-    </option>
-    <option name="PRIVATE_REFERENCE">
-      <value>
-        <option name="FOREGROUND" value="787B80" />
-      </value>
-    </option>
+    <!-- PUBLIC_REFERENCE / PROTECTED_REFERENCE / PACKAGE_PRIVATE_REFERENCE /
+         PRIVATE_REFERENCE must stay undefined here. Java merges them ON TOP of
+         the role colour of a reference: an undefined attribute short-circuits
+         the merge and the role colour survives, any defined FOREGROUND wins and
+         flattens every referenced class, field, constant and annotation to one
+         colour. They have no fallback key, so there is nothing to inherit and
+         nothing to "restore" — defining them is what caused issue #290. -->
     <option name="KOTLIN_STRING_ESCAPE">
       <value>
         <option name="FOREGROUND" value="4CBF99" />

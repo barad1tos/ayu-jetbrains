@@ -377,6 +377,28 @@ class SyntaxCategoryRegistryTest {
         )
     }
 
+    // --- Java visibility attributes stay unclassified -------------------
+
+    @Test
+    fun `Java visibility attributes stay unclassified`() {
+        val visibilityKeys =
+            listOf(
+                "PUBLIC_REFERENCE",
+                "PROTECTED_REFERENCE",
+                "PACKAGE_PRIVATE_REFERENCE",
+                "PRIVATE_REFERENCE",
+            )
+
+        for (keyName in visibilityKeys) {
+            assertNull(
+                SyntaxCategoryRegistry.classify(keyName),
+                "$keyName must stay unclassified: Java merges visibility attributes over the role " +
+                    "colour of a reference, so classifying it lets the intensity applicator write a " +
+                    "foreground and flatten Java class, field and annotation colours (issue #290)",
+            )
+        }
+    }
+
     @Test
     fun `repeated unknown-suffix calls are idempotent and safe (Pattern A latch)`() {
         // Use a unique suffix so the persistent ConcurrentHashMap latch
