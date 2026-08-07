@@ -70,6 +70,11 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.2" to
+                releaseNotes(
+                    "[Fix] Java classes, fields, constants and annotations keep their colors on references",
+                    "[Fix] Editor schemes that lost those colors are repaired the first time each is used",
+                ),
             "2.8.1" to
                 releaseNotes(
                     "[Paid] Chaotic ECG routes across connected editor, tool-window, and IDE-window islands",
