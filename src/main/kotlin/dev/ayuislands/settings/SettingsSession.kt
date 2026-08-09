@@ -55,11 +55,9 @@ internal class SettingsSession(
         val result = runBuildStep(cleanup = ::close) { content() }
         result
             .onSuccess {
-                check(phase == Phase.BUILDING) { "Settings session closed while building" }
+                requireBuilding()
                 phase = Phase.OPEN
-            }.onFailure { failure ->
-                close().forEach { failure.addSuppressed(it.cause) }
-            }
+            }.onFailure { failure -> cleanupAfterFailure(failure, ::close) }
         result.getOrThrow()
     }
 
@@ -69,9 +67,14 @@ internal class SettingsSession(
     ) {
         check(phase == Phase.BUILDING) { "Settings participants can only be included while building" }
 
-        val result = runBuildStep(cleanup = { dispose(candidates.asList()) }) { build() }
+        val cleanup = { dispose(candidates.asList()) }
+        val result =
+            runBuildStep(cleanup) {
+                build()
+                requireBuilding()
+            }
         result.onFailure { failure ->
-            dispose(candidates.asList()).forEach { failure.addSuppressed(it.cause) }
+            cleanupAfterFailure(failure, cleanup)
         }
         result.getOrThrow()
 
@@ -169,6 +172,21 @@ internal class SettingsSession(
         }
     }
 
+    private fun cleanupAfterFailure(
+        failure: Throwable,
+        cleanup: () -> List<SettingsCleanupFailure>,
+    ) {
+        try {
+            cleanup().forEach { failure.addSuppressed(it.cause) }
+        } catch (cleanupCancellation: ProcessCanceledException) {
+            cleanupCancellation.addSuppressed(failure)
+            throw cleanupCancellation
+        } catch (cleanupCancellation: CancellationException) {
+            cleanupCancellation.addSuppressed(failure)
+            throw cleanupCancellation
+        }
+    }
+
     private fun recordCancellation(
         recorded: Throwable?,
         next: Throwable,
@@ -176,5 +194,9 @@ internal class SettingsSession(
 
     private fun requireOpen() {
         check(phase == Phase.OPEN) { "Settings session is not open" }
+    }
+
+    private fun requireBuilding() {
+        check(phase == Phase.BUILDING) { "Settings session closed while building" }
     }
 }

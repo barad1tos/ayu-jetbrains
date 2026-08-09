@@ -2,7 +2,11 @@ package dev.ayuislands.integration
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.ayuislands.settings.AyuIslandsConfigurable
+import dev.ayuislands.settings.AyuIslandsEffectsPanel
 import dev.ayuislands.settings.AyuIslandsSettings
+import io.mockk.mockkConstructor
+import io.mockk.unmockkConstructor
+import io.mockk.verify
 import java.awt.Container
 import javax.swing.JCheckBox
 import javax.swing.JTabbedPane
@@ -75,6 +79,24 @@ class SettingsConfigurableIntegrationTest : BasePlatformTestCase() {
         } finally {
             settings.state.ignorePluginSyntaxColorsEnabled = storedIgnoreSetting
             configurable.disposeUIResources()
+        }
+    }
+
+    fun testConfigurableClosesReplacedAndDisposedSessions() {
+        mockkConstructor(AyuIslandsEffectsPanel::class)
+        val configurable = AyuIslandsConfigurable()
+        try {
+            configurable.createPanel()
+            configurable.createPanel()
+
+            verify(exactly = 1) { anyConstructed<AyuIslandsEffectsPanel>().dispose() }
+
+            configurable.disposeUIResources()
+
+            verify(exactly = 2) { anyConstructed<AyuIslandsEffectsPanel>().dispose() }
+        } finally {
+            configurable.disposeUIResources()
+            unmockkConstructor(AyuIslandsEffectsPanel::class)
         }
     }
 

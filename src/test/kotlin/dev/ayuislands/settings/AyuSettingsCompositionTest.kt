@@ -13,7 +13,8 @@ class AyuSettingsCompositionTest {
     @Test
     fun `Ayu theme builds every tab and participant in lifecycle order`() {
         val session = SettingsSession()
-        val composition = AyuSettingsComposition(AyuVariant.MIRAGE, session, settingsPanels())
+        val panels = settingsPanels()
+        val composition = AyuSettingsComposition(AyuVariant.MIRAGE, session, panels)
 
         val tabs = composition.buildContentTabs()
 
@@ -25,12 +26,21 @@ class AyuSettingsCompositionTest {
             listOf("System", "Accent", "Chrome", "Elements", "Font", "Glow", "Syntax", "VCS", "Workspace", "Plugins"),
             session.participantNames,
         )
+        verify(exactly = 1) {
+            panels.font.buildPanel(any())
+            panels.effects.buildPanel(any())
+            panels.syntax.buildPanel(any(), AyuVariant.MIRAGE)
+            panels.vcs.buildPanel(any(), AyuVariant.MIRAGE)
+            panels.workspace.buildPanel(any())
+            panels.plugins.buildPanel(any())
+        }
     }
 
     @Test
     fun `external theme keeps tabs but excludes Ayu-only participants`() {
         val session = SettingsSession()
-        val composition = AyuSettingsComposition(null, session, settingsPanels())
+        val panels = settingsPanels()
+        val composition = AyuSettingsComposition(null, session, panels)
 
         val tabs = composition.buildContentTabs()
 
@@ -42,6 +52,17 @@ class AyuSettingsCompositionTest {
             listOf("Font", "Glow", "Workspace", "Plugins"),
             session.participantNames,
         )
+        verify(exactly = 1) {
+            panels.font.buildPanel(any())
+            panels.effects.buildPanel(any())
+            panels.workspace.buildPanel(any())
+            panels.plugins.buildPanel(any())
+        }
+        verify(exactly = 0) {
+            panels.accentGroup.accent.buildPanel(any(), any(), any(), any())
+            panels.syntax.buildPanel(any(), any())
+            panels.vcs.buildPanel(any(), any())
+        }
     }
 
     @Test
