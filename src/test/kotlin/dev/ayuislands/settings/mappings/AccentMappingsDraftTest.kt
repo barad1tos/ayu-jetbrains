@@ -1,39 +1,94 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.openapi.progress.ProcessCanceledException
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AccentMappingsDraftTest {
     @Test
-    fun `load normalizes valid rows and drops malformed resolution entries`() {
+    fun `load preserves platform and coroutine cancellation from language display lookup`() {
+        val state =
+            AccentMappingsState().apply {
+                languageAccents["kotlin"] = "#112233"
+            }
+        val platformCancellation = ProcessCanceledException()
+        val coroutineCancellation = CancellationException("settings closed")
+
+        assertSame(
+            platformCancellation,
+            assertFailsWith<ProcessCanceledException> {
+                AccentMappingsDraft().load(state, languageDisplayName = { throw platformCancellation })
+            },
+        )
+        assertSame(
+            coroutineCancellation,
+            assertFailsWith<CancellationException> {
+                AccentMappingsDraft().load(state, languageDisplayName = { throw coroutineCancellation })
+            },
+        )
+    }
+
+    @Test
+    fun `load keeps valid sibling rows while reporting malformed rows and lookup failure`() {
         val state =
             AccentMappingsState().apply {
                 projectAccents["/tmp/project"] = "#AABBCC"
                 projectDisplayNames["/tmp/project"] = "Project"
+                projectAccents["/tmp/broken-project"] = "not-a-color"
                 languageAccents["kotlin"] = "#112233"
+                languageAccents["groovy"] = "#334455"
+                languageAccents["TypeScript"] = "#556677"
+                languageAccents["python"] = "not-a-color"
                 projectFallbackAccents["/tmp/project"] = " #5CCFE6 "
                 projectFallbackAccents[" "] = "#FFB454"
                 forcedProjectLanguages["/tmp/project"] = " TypeScript "
                 languageFallbackAccent = " #73D0FF "
             }
+        val lookupFailure = IllegalStateException("language registry unavailable")
+        val warnings = mutableListOf<String>()
+        val reportedFailures = mutableListOf<Pair<String, Throwable>>()
 
         val draft = AccentMappingsDraft()
         draft.load(
             state,
-            languageDisplayName = { languageId -> if (languageId == "kotlin") "Kotlin" else null },
+            languageDisplayName = { languageId ->
+                when (languageId) {
+                    "kotlin" -> "Kotlin"
+                    "groovy" -> throw lookupFailure
+                    else -> null
+                }
+            },
+            warn = warnings::add,
+            reportLookupFailure = { message, failure ->
+                reportedFailures += message to failure
+            },
         )
 
         assertEquals("#AABBCC", draft.projectAccent("/tmp/project"))
+        assertNull(draft.projectAccent("/tmp/broken-project"))
         assertEquals("#112233", draft.languageAccent("kotlin"))
+        assertEquals("#334455", draft.languageAccent("groovy"))
+        assertEquals("groovy", draft.languageMappings.single { it.languageId == "groovy" }.displayName)
+        assertNull(draft.languageAccent("TypeScript"))
+        assertNull(draft.languageAccent("python"))
         assertEquals("#5CCFE6", draft.projectFallbackAccent("/tmp/project"))
         assertFalse(draft.hasProjectFallbackCandidate(" "))
         assertEquals("typescript", draft.forcedLanguageId("/tmp/project"))
         assertTrue(draft.hasForcedLanguageEntry("/tmp/project"))
         assertEquals("#73D0FF", draft.languageFallbackAccent)
         assertFalse(draft.isModified)
+        assertTrue(warnings.any { "path='/tmp/broken-project'" in it && "not-a-color" in it })
+        assertTrue(warnings.any { "id='TypeScript'" in it && "#556677" in it })
+        assertTrue(warnings.any { "id='python'" in it && "not-a-color" in it })
+        assertEquals(1, reportedFailures.size)
+        assertTrue("id='groovy'" in reportedFailures.single().first)
+        assertSame(lookupFailure, reportedFailures.single().second)
     }
 
     @Test

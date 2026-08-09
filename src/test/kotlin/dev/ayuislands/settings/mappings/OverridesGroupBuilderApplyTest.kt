@@ -74,27 +74,47 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
-    fun `apply invokes resolver applicator and swap once`() {
+    fun `apply persists complete pending state before resolver applicator and swap`() {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentResolver.resolve(any(), AyuVariant.MIRAGE) } returns "#AABBCC"
         every { AccentApplicator.applyFromHexString("#AABBCC") } returns true
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
         val project = mockk<Project>(relaxed = true)
         val state = AccentMappingsState()
-        val draft =
-            AccentMappingsDraft().apply {
-                addProject(ProjectMapping("/tmp/project", "Project", "#AABBCC"))
-            }
-        draft.writeTo(state)
+        val draft = AccentMappingsDraft()
         val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        var stateWasWritten = false
+        var draftWasModified = false
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } answers {
+            stateWasWritten =
+                state.projectAccents == mapOf("/tmp/project" to "#AABBCC") &&
+                state.projectDisplayNames == mapOf("/tmp/project" to "Project") &&
+                state.languageAccents == mapOf("kotlin" to "#112233") &&
+                state.projectFallbackAccents == mapOf("/tmp/project" to "#5CCFE6") &&
+                state.forcedProjectLanguages == mapOf("/tmp/project" to "kotlin") &&
+                state.languageFallbackAccent == "#73D0FF"
+            draftWasModified = builder.isModified()
+            assertTrue(stateWasWritten)
+            assertTrue(draftWasModified)
+            "#AABBCC"
+        }
         try {
             buildGroup(builder, project)
+            var changeCount = 0
+            builder.addPendingChangeListener { changeCount += 1 }
+            draft.addProject(ProjectMapping("/tmp/project", "Project", "#AABBCC"))
+            draft.addLanguage(LanguageMapping("kotlin", "Kotlin", "#112233"))
+            draft.setProjectFallbackAccent("/tmp/project", "#5CCFE6")
+            draft.setForcedLanguage("/tmp/project", "kotlin")
+            draft.setLanguageFallbackAccent("#73D0FF")
 
             builder.apply()
 
             assertEquals(mapOf("/tmp/project" to "#AABBCC"), state.projectAccents)
             assertFalse(builder.isModified())
+            assertEquals(1, changeCount)
+            assertTrue(stateWasWritten)
+            assertTrue(draftWasModified)
             verify(exactly = 1) {
                 AccentResolver.resolve(project, AyuVariant.MIRAGE)
                 AccentApplicator.applyFromHexString("#AABBCC")
@@ -131,8 +151,7 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
-    fun `unlicensed override remove actions cannot delete visible rows`() {
-        every { LicenseChecker.isLicensedOrGrace() } returns false
+    fun `license loss disables and guards project and language table actions`() {
         val projectMapping = ProjectMapping("/tmp/locked-preview", "Locked preview", "#AABBCC")
         val languageMapping = LanguageMapping("kotlin", "Kotlin", "#BBCCDD")
         val draft =
@@ -147,20 +166,24 @@ class OverridesGroupBuilderApplyTest {
             val tables = descendants(root, JTable::class.java)
             tables.single { it.columnCount == 3 }.selectionModel.setSelectionInterval(0, 0)
             tables.single { it.columnCount == 2 }.selectionModel.setSelectionInterval(0, 0)
-            val removeActions =
-                descendants(root, CommonActionsPanel::class.java)
-                    .mapNotNull { actionsPanel ->
-                        actionsPanel.getAnAction(CommonActionsPanel.Buttons.REMOVE)
-                    }
+            val actionsPanels = descendants(root, CommonActionsPanel::class.java)
+            every { LicenseChecker.isLicensedOrGrace() } returns false
 
-            assertEquals(2, removeActions.size)
-            removeActions.forEach { action ->
-                val presentation = Presentation()
-                val event = mockk<AnActionEvent>(relaxed = true)
-                every { event.presentation } returns presentation
-                action.update(event)
-                assertFalse(presentation.isEnabled)
-                action.actionPerformed(event)
+            listOf(
+                CommonActionsPanel.Buttons.ADD,
+                CommonActionsPanel.Buttons.EDIT,
+                CommonActionsPanel.Buttons.REMOVE,
+            ).forEach { button ->
+                val actions = actionsPanels.mapNotNull { it.getAnAction(button) }
+                assertEquals(2, actions.size)
+                actions.forEach { action ->
+                    val presentation = Presentation()
+                    val event = mockk<AnActionEvent>(relaxed = true)
+                    every { event.presentation } returns presentation
+                    action.update(event)
+                    assertFalse(presentation.isEnabled, "$button must disable after license loss")
+                    action.actionPerformed(event)
+                }
             }
             assertEquals(listOf(projectMapping), draft.projectMappings)
             assertEquals(1, draft.languageMappings.size)

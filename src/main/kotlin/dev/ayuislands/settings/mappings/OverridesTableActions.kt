@@ -30,11 +30,13 @@ internal class OverridesTableActions(
     private val projectTable: JBTable,
     private val languageTable: JBTable,
     private val parentProjectProvider: () -> Project?,
+    private val isLicensed: () -> Boolean,
     private val onChanged: () -> Unit,
 ) {
-    fun decorateProjectTable(licensed: Boolean): JComponent = decorateTable(projectTable, projectActions(licensed))
+    fun decorateProjectTable(showPinAction: Boolean): JComponent =
+        decorateTable(projectTable, projectActions(showPinAction))
 
-    fun decorateLanguageTable(licensed: Boolean): JComponent = decorateTable(languageTable, languageActions(licensed))
+    fun decorateLanguageTable(): JComponent = decorateTable(languageTable, languageActions())
 
     private fun decorateTable(
         table: JBTable,
@@ -60,9 +62,9 @@ internal class OverridesTableActions(
         return wrapper
     }
 
-    private fun projectActions(licensed: Boolean): TableActions {
+    private fun projectActions(showPinAction: Boolean): TableActions {
         val extras: List<AnAction> =
-            if (licensed) {
+            if (showPinAction) {
                 listOf(
                     object : AnAction(
                         "Pin Current Project",
@@ -72,6 +74,7 @@ internal class OverridesTableActions(
                         override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
 
                         override fun actionPerformed(event: AnActionEvent) {
+                            if (!isLicensed()) return
                             val project = parentProjectProvider() ?: return
                             if (project.isDefault || project.isDisposed) return
                             val key = AccentResolver.projectKey(project) ?: return
@@ -87,6 +90,7 @@ internal class OverridesTableActions(
                         override fun update(event: AnActionEvent) {
                             val project = parentProjectProvider()
                             event.presentation.isEnabled =
+                                isLicensed() &&
                                 project != null &&
                                 !project.isDefault &&
                                 !project.isDisposed &&
@@ -101,50 +105,60 @@ internal class OverridesTableActions(
             }
 
         return TableActions(
-            add = { showAddProjectDialog() },
+            add = { mutateIfLicensed(::showAddProjectDialog) },
             edit = {
-                editSelectedColor(
-                    table = projectTable,
-                    rowAt = projectModel::rowAt,
-                    hex = ProjectMapping::hex,
-                    displayName = ProjectMapping::displayName,
-                    updateHex = projectModel::updateHex,
-                )
+                mutateIfLicensed {
+                    editSelectedColor(
+                        table = projectTable,
+                        rowAt = projectModel::rowAt,
+                        hex = ProjectMapping::hex,
+                        displayName = ProjectMapping::displayName,
+                        updateHex = projectModel::updateHex,
+                    )
+                }
             },
             remove = {
-                if (licensed) {
+                mutateIfLicensed {
                     removeSelectedRow(projectTable, projectModel::remove)
                 }
             },
-            addEnabled = { licensed },
-            editEnabled = { licensed && projectTable.selectedRow >= 0 },
-            removeEnabled = { licensed && projectTable.selectedRow >= 0 },
+            addEnabled = isLicensed,
+            editEnabled = { isLicensed() && projectTable.selectedRow >= 0 },
+            removeEnabled = { isLicensed() && projectTable.selectedRow >= 0 },
             extraActions = extras,
         )
     }
 
-    private fun languageActions(licensed: Boolean): TableActions =
+    private fun languageActions(): TableActions =
         TableActions(
-            add = { showAddLanguageDialog() },
+            add = { mutateIfLicensed(::showAddLanguageDialog) },
             edit = {
-                editSelectedColor(
-                    table = languageTable,
-                    rowAt = languageModel::rowAt,
-                    hex = LanguageMapping::hex,
-                    displayName = LanguageMapping::displayName,
-                    updateHex = languageModel::updateHex,
-                )
+                mutateIfLicensed {
+                    editSelectedColor(
+                        table = languageTable,
+                        rowAt = languageModel::rowAt,
+                        hex = LanguageMapping::hex,
+                        displayName = LanguageMapping::displayName,
+                        updateHex = languageModel::updateHex,
+                    )
+                }
             },
             remove = {
-                if (licensed) {
+                mutateIfLicensed {
                     removeSelectedRow(languageTable, languageModel::remove)
                 }
             },
-            addEnabled = { licensed },
-            editEnabled = { licensed && languageTable.selectedRow >= 0 },
-            removeEnabled = { licensed && languageTable.selectedRow >= 0 },
+            addEnabled = isLicensed,
+            editEnabled = { isLicensed() && languageTable.selectedRow >= 0 },
+            removeEnabled = { isLicensed() && languageTable.selectedRow >= 0 },
             extraActions = emptyList(),
         )
+
+    private fun mutateIfLicensed(mutation: () -> Unit) {
+        if (isLicensed()) {
+            mutation()
+        }
+    }
 
     private fun showAddProjectDialog() {
         val excluded = projectModel.snapshot().map { it.canonicalPath }.toSet()

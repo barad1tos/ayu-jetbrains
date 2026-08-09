@@ -46,8 +46,10 @@ internal sealed interface AccentDetectorLookup {
     class SnapshotLookup(
         private val shouldReadFallbackEarly: Boolean,
     ) : AccentDetectorLookup {
-        var verdict: ProjectLanguageVerdict? = null
+        var consultedVerdict: ProjectLanguageVerdict? = null
             private set
+
+        fun snapshotVerdict(project: Project): ProjectLanguageVerdict = readVerdict(project)
 
         override fun languageRungVerdict(
             project: Project,
@@ -66,10 +68,10 @@ internal sealed interface AccentDetectorLookup {
         ): ProjectLanguageVerdict = languageRungVerdict ?: readVerdict(project)
 
         private fun readVerdict(project: Project): ProjectLanguageVerdict {
-            verdict?.let { return it }
+            consultedVerdict?.let { return it }
             return ProjectLanguageDetector
                 .verdict(project)
-                .also { verdict = it }
+                .also { consultedVerdict = it }
         }
     }
 

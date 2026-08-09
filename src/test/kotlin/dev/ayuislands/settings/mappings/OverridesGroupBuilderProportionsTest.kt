@@ -100,13 +100,19 @@ class OverridesGroupBuilderProportionsTest {
             events += "disconnect"
         }
         val project = stubProject(tmpKey("reentry-subscription"), messageBus)
-        val builder = OverridesGroupBuilder(stateProvider = { AccentMappingsState() })
+        val state = AccentMappingsState()
+        val draft = AccentMappingsDraft()
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
 
         try {
             buildGroup(builder, project)
+            val pending = ProjectMapping(tmpKey("pending-reentry"), "Pending re-entry", "#AABBCC")
+            draft.addProject(pending)
             buildGroup(builder, project)
 
             assertEquals(listOf("connect", "disconnect", "connect"), events)
+            assertEquals(listOf(pending), draft.projectMappings)
+            assertTrue(builder.isModified())
             verify(exactly = 2) { messageBus.connect(any<Disposable>()) }
             verify(exactly = 1) { firstConnection.disconnect() }
         } finally {
@@ -156,6 +162,37 @@ class OverridesGroupBuilderProportionsTest {
             verify(exactly = 0) { ProjectLanguageDetector.verdict(project, warmCache = true) }
             verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
             verify(exactly = 0) { ProjectLanguageScanner.scan(any()) }
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
+    fun `diagnostics render uses one detector verdict for source status and actions`() {
+        val project = stubProject(tmpKey("consistent-diagnostics"))
+        every { ProjectLanguageDetector.verdict(project) } returnsMany
+            listOf(
+                ProjectLanguageVerdict.Detected("kotlin", mapOf("kotlin" to 1_000L)),
+                ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 700L, "javascript" to 300L)),
+            )
+        val draft =
+            AccentMappingsDraft().apply {
+                addLanguage(LanguageMapping("kotlin", "Kotlin", "#FFCC66"))
+            }
+        val builder = preparedBuilder(draft)
+
+        try {
+            val root = buildGroup(builder, project)
+            val resolutionPanel = resolutionPanel(root)
+
+            assertEquals(
+                "Accent source: Language override (Kotlin, 100%)\n" +
+                    "Detected in this project: Kotlin (100%)",
+                resolutionPanel.currentSummaryForTest(),
+            )
+            assertTrue("Force Kotlin" in actionTexts(root))
+            assertFalse(ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL in actionTexts(root))
+            verify(exactly = 1) { ProjectLanguageDetector.verdict(project) }
         } finally {
             builder.dispose()
         }

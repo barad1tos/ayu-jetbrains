@@ -82,6 +82,7 @@ internal class OverridesGroupBuilder(
             projectTable = projectTable,
             languageTable = languageTable,
             parentProjectProvider = { parentProject },
+            isLicensed = LicenseChecker::isLicensedOrGrace,
             onChanged = { fireChanged() },
         )
 
@@ -106,6 +107,7 @@ internal class OverridesGroupBuilder(
      */
     private var detectionConnection: MessageBusConnection? = null
     private var detectionConnectionParent: Disposable? = null
+    private var hasLoadedState = false
 
     /**
      * Derived rescan-eligibility: non-null iff a focused project is present and
@@ -199,7 +201,7 @@ internal class OverridesGroupBuilder(
         trailingContent: (Panel.() -> Unit)? = null,
     ) {
         parentProject = contextProject
-        loadFromState()
+        loadStateOnce()
 
         val licensed = LicenseChecker.isLicensedOrGrace()
         val gate =
@@ -228,8 +230,8 @@ internal class OverridesGroupBuilder(
                 // Retain strong reference so actions survive focus changes.
                 putClientProperty("ayu.overrides.group", segmentedButtonGroup)
             }
-        cardPanel.add(tableActions.decorateProjectTable(licensed), CARD_PROJECTS)
-        cardPanel.add(tableActions.decorateLanguageTable(licensed), CARD_LANGUAGES)
+        cardPanel.add(tableActions.decorateProjectTable(showPinAction = licensed), CARD_PROJECTS)
+        cardPanel.add(tableActions.decorateLanguageTable(), CARD_LANGUAGES)
         // No fixed preferredSize: the AutoSizingTable drives height via
         // getPreferredScrollableViewportSize (row count × row height) and every column
         // auto-packs to the wider of header/content on every model change. AUTO_RESIZE_LAST_COLUMN
@@ -358,8 +360,18 @@ internal class OverridesGroupBuilder(
         project: Project?,
         fallbackGlobalHex: String,
         cacheOnly: Boolean = false,
+    ): PendingAccentPreview =
+        preview(
+            project = project,
+            fallbackGlobalHex = fallbackGlobalHex,
+            detectorLookup = AccentDetectorLookup.SnapshotLookup(shouldReadFallbackEarly = cacheOnly),
+        )
+
+    private fun preview(
+        project: Project?,
+        fallbackGlobalHex: String,
+        detectorLookup: AccentDetectorLookup.SnapshotLookup,
     ): PendingAccentPreview {
-        val detectorLookup = AccentDetectorLookup.SnapshotLookup(shouldReadFallbackEarly = cacheOnly)
         val winner =
             AccentResolutionChainBuilder.overrideWinner(
                 project,
@@ -373,7 +385,7 @@ internal class OverridesGroupBuilder(
         return PendingAccentPreview(
             hex = winner?.hex ?: fallbackGlobalHex,
             source = source,
-            detail = activeSourceDetail(project, source, detectorLookup.verdict),
+            detail = activeSourceDetail(project, source, detectorLookup.consultedVerdict),
         )
     }
 
@@ -423,14 +435,16 @@ internal class OverridesGroupBuilder(
         val project = parentProject
         val projectKey = focusedProjectKey()
         val licensed = LicenseChecker.isLicensedOrGrace()
-        val verdict = project?.let(ProjectLanguageDetector::verdict) ?: ProjectLanguageVerdict.Unavailable
+        val detectorLookup = AccentDetectorLookup.SnapshotLookup(shouldReadFallbackEarly = true)
+        val preview = preview(project, fallbackGlobalHex = "", detectorLookup = detectorLookup)
+        val verdict = project?.let(detectorLookup::snapshotVerdict) ?: ProjectLanguageVerdict.Unavailable
         return ProjectLanguageResolutionPanel.State(
             verdict = verdict,
             forcedLanguageId = projectKey?.let(draft::forcedLanguageId),
             fallbackHex = projectKey?.let(draft::projectFallbackAccent),
             // Same cache-only engine walk as the "Currently active" label — the
             // diagnostics row and the label can never disagree on the source.
-            activeSource = preview(parentProject, fallbackGlobalHex = "", cacheOnly = true).source,
+            activeSource = preview.source,
             canMutate = licensed && projectKey != null,
             canRescan = licensed && projectKey != null,
             canSetFallbackToCurrentAccent = licensed && currentPendingAccentHex() != null,
@@ -509,9 +523,17 @@ internal class OverridesGroupBuilder(
                     ?.displayName
             },
             warn = LOG::warn,
+            reportLookupFailure = LOG::warn,
         )
+        hasLoadedState = true
         projectModel.refreshAll()
         languageModel.refreshAll()
+    }
+
+    private fun loadStateOnce() {
+        if (!hasLoadedState) {
+            loadFromState()
+        }
     }
 
     private val fireChanged: () -> Unit = { listeners.forEach { it.run() } }

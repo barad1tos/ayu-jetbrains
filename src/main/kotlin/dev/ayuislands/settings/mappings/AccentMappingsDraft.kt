@@ -2,6 +2,7 @@ package dev.ayuislands.settings.mappings
 
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentMappingsView
+import dev.ayuislands.accent.runCatchingPreservingCancellation
 import java.io.File
 import java.util.Locale
 
@@ -62,11 +63,18 @@ internal class AccentMappingsDraft : AccentMappingsView {
         state: AccentMappingsState,
         languageDisplayName: (String) -> String?,
         warn: (String) -> Unit = {},
+        reportLookupFailure: (String, Throwable) -> Unit = { message, _ -> warn(message) },
     ) {
         val loaded =
             AccentMappingsSnapshot(
                 projectMappings = normalizedProjects(state, warn),
-                languageMappings = normalizedLanguages(state, languageDisplayName, warn),
+                languageMappings =
+                    normalizedLanguages(
+                        state,
+                        languageDisplayName,
+                        warn,
+                        reportLookupFailure,
+                    ),
                 projectFallbackAccents = normalizedFallbackAccents(state.projectFallbackAccents, warn),
                 forcedLanguages = normalizedForcedLanguages(state.forcedProjectLanguages, warn),
                 languageFallbackAccent = normalizedLanguageFallbackAccent(state.languageFallbackAccent, warn),
@@ -229,16 +237,20 @@ private fun normalizedLanguages(
     state: AccentMappingsState,
     languageDisplayName: (String) -> String?,
     warn: (String) -> Unit,
+    reportLookupFailure: (String, Throwable) -> Unit,
 ): List<LanguageMapping> =
     state.languageAccents.mapNotNull { (languageId, hex) ->
         try {
             val displayName =
-                try {
-                    languageDisplayName(languageId)
-                } catch (exception: RuntimeException) {
-                    warn("Language display-name lookup failed for id='$languageId': ${exception.message}")
-                    null
-                }?.takeIf { it.isNotBlank() } ?: languageId
+                runCatchingPreservingCancellation { languageDisplayName(languageId) }
+                    .onFailure { exception ->
+                        reportLookupFailure(
+                            "Language display-name lookup failed for id='$languageId'",
+                            exception,
+                        )
+                    }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: languageId
             LanguageMapping(
                 languageId = languageId,
                 displayName = displayName,
