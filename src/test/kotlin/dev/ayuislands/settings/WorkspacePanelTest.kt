@@ -4,7 +4,6 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import io.mockk.every
 import io.mockk.mockk
@@ -76,7 +75,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val spinners = components(dialogPanel, JSpinner::class.java)
         val pathDisplayCombo = pathDisplayCombo(dialogPanel)
@@ -115,7 +114,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val spinners = components(dialogPanel, JSpinner::class.java)
 
@@ -141,7 +140,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val labels = components(dialogPanel, JLabel::class.java).map { it.text.orEmpty() }
         val spinners = components(dialogPanel, JSpinner::class.java)
@@ -171,7 +170,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val comments = components(dialogPanel, JEditorPane::class.java).map { it.text.orEmpty() }
 
@@ -194,7 +193,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val spinners = components(dialogPanel, JSpinner::class.java)
         val pathMinSpinner =
@@ -217,7 +216,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val pathDisplayCombo = pathDisplayCombo(dialogPanel)
         val pathSpinners =
@@ -240,7 +239,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         pathDisplayCombo(dialogPanel).selectedItem = CommitPathDisplayMode.TOOLTIP
 
@@ -260,7 +259,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val (pathMinSpinner, pathMaxSpinner) = pathLevelSpinners(dialogPanel)
 
@@ -298,7 +297,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val spinners = components(dialogPanel, JSpinner::class.java)
         val pathMinSpinner =
@@ -328,7 +327,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val labels = components(dialogPanel, JLabel::class.java).map { it.text.orEmpty() }
 
@@ -353,7 +352,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         val modeComboWidths =
             components(dialogPanel, JComboBox::class.java)
@@ -374,7 +373,7 @@ class WorkspacePanelTest {
         val dialogPanel =
             com.intellij.ui.dsl.builder
                 .panel {
-                    workspacePanel.buildPanel(this@panel, AyuVariant.MIRAGE)
+                    workspacePanel.buildPanel(this@panel)
                 }
         dialogPanel.size = dialogPanel.preferredSize
         dialogPanel.doLayoutRecursively()

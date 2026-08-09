@@ -837,7 +837,7 @@ class AyuIslandsEffectsPanelTest {
     private fun buildDialogPanel(panel: AyuIslandsEffectsPanel) =
         com.intellij.ui.dsl.builder
             .panel {
-                panel.buildGlowPanel(this@panel)
+                panel.buildPanel(this@panel)
             }
 
     @Suppress("UNCHECKED_CAST")

@@ -156,8 +156,8 @@ class OverridesGroupBuilder(
      * Tear down the detection-Topic subscription. Called from
      * [dev.ayuislands.settings.AyuIslandsConfigurable.disposeUIResources]
      * via the `dispose()` override on
-     * [dev.ayuislands.settings.AyuIslandsAccentPanel] (through the
-     * `AyuIslandsSettingsPanel.dispose()` interface method). Without this
+     * [dev.ayuislands.settings.AyuIslandsAccentPanel] through its
+     * `SettingsParticipant.dispose()` method. Without this
      * call the live subscriber count grows by one per Settings open. Safe
      * to call multiple times; no-op when the builder was never wired up.
      */

@@ -24,7 +24,7 @@ import javax.swing.JPanel
 import javax.swing.UIManager
 
 /** Visual preview mockup of all 8 accent elements, reacts to color/toggle/glow/highlight changes. */
-class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
+class AyuIslandsPreviewPanel {
     var previewAccentHex: String = "#FFCC66"
     var previewToggles: Map<AccentElementId, Boolean> = emptyMap()
     var previewGlowEnabled: Boolean = true
@@ -38,7 +38,7 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
 
     private var mockupComponent: AccentPreviewComponent? = null
 
-    override fun buildPanel(
+    fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
     ) {
@@ -69,12 +69,6 @@ class AyuIslandsPreviewPanel : AyuIslandsSettingsPanel {
     fun updatePreview() {
         mockupComponent?.repaint()
     }
-
-    override fun isModified(): Boolean = false
-
-    override fun apply() { /* Read-only preview — no settings to apply */ }
-
-    override fun reset() { /* Read-only preview — no settings to reset */ }
 
     private data class EditorLayout(
         val width: Int,

@@ -8,7 +8,6 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.util.ui.JBUI
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
 import dev.ayuislands.gitpanel.GitPanelAutoFitManager
@@ -34,7 +33,7 @@ private const val TOOL_WINDOW_WIDTH_TITLE = "Tool Window Width"
 private const val PATH_DISPLAY_TITLE = "Path Display"
 
 /** Workspace tab: tool window layout tweaks (Project View, Commit Panel, Git Panel). */
-class WorkspacePanel : AyuIslandsSettingsPanel {
+class WorkspacePanel : SettingsParticipant {
     private var pendingHideEditorVScrollbar = false
     private var storedHideEditorVScrollbar = false
     private var pendingHideEditorHScrollbar = false
@@ -58,10 +57,7 @@ class WorkspacePanel : AyuIslandsSettingsPanel {
 
     private var suppressListeners = false
 
-    override fun buildPanel(
-        panel: Panel,
-        variant: AyuVariant,
-    ) {
+    fun buildPanel(panel: Panel) {
         val state = AyuIslandsSettings.getInstance().state
         val gate =
             PremiumFeatureGate(

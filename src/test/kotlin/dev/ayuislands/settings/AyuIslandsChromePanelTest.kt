@@ -316,11 +316,13 @@ class AyuIslandsChromePanelTest {
     }
 
     @Test
-    fun `Settings configurable observes Chrome Tinting tab changes through built panels`() {
-        val configurable = AyuIslandsConfigurable()
+    fun `Settings session observes Chrome Tinting changes through its participant`() {
         val chromePanel = AyuIslandsChromePanel()
         val chromeTabPanel = buildPanel(chromePanel, AyuVariant.DARK)
-        replaceBuiltPanels(configurable, listOf(chromePanel))
+        val session = SettingsSession()
+        session.build {
+            include(namedParticipant("Chrome", chromePanel)) {}
+        }
         val statusBarCheckbox = statusBarCheckboxIn(chromeTabPanel)
 
         statusBarCheckbox.doClick()
@@ -334,8 +336,8 @@ class AyuIslandsChromePanelTest {
             "Chrome tab DialogPanel must observe Chrome Tinting changes",
         )
         assertTrue(
-            configurable.isModified(),
-            "Settings Configurable must observe Chrome Tinting changes so the Apply button enables",
+            session.isModified(),
+            "Settings session must observe Chrome Tinting changes so the Apply button enables",
         )
     }
 
@@ -911,15 +913,6 @@ class AyuIslandsChromePanelTest {
                 "Panel source must not contain '$forbidden' after the merged-menu offer was retired",
             )
         }
-    }
-
-    private fun replaceBuiltPanels(
-        configurable: AyuIslandsConfigurable,
-        panels: List<AyuIslandsSettingsPanel>,
-    ) {
-        val field = AyuIslandsConfigurable::class.java.getDeclaredField("builtPanels")
-        field.isAccessible = true
-        field.set(configurable, panels)
     }
 
     private fun statusBarCheckboxIn(root: Container): JCheckBox =

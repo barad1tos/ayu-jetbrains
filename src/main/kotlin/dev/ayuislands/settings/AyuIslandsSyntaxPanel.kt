@@ -61,7 +61,7 @@ import javax.swing.Timer
  * controls are intentionally not part of this compact grid.
  */
 @Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
-class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
+class AyuIslandsSyntaxPanel : SettingsParticipant {
     private var pendingPreset: SyntaxPreset = SyntaxPreset.AMBIENT
     private var storedPreset: SyntaxPreset = SyntaxPreset.AMBIENT
     private var suppressListeners: Boolean = false
@@ -123,7 +123,7 @@ class AyuIslandsSyntaxPanel : AyuIslandsSettingsPanel {
         applyTimer.stop()
     }
 
-    override fun buildPanel(
+    fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
     ) {

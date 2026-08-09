@@ -43,7 +43,7 @@ import javax.swing.JSlider
  *    [AccentApplicator.applyForFocusedProject] so the 5 chrome AccentElement impls repaint
  *    immediately without requiring a second settings open.
  */
-class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
+class AyuIslandsChromePanel : SettingsParticipant {
     // ── Pending / stored state ────────────────────────────────────────────────
 
     private data class ChromeTintSettings(
@@ -91,7 +91,7 @@ class AyuIslandsChromePanel : AyuIslandsSettingsPanel {
 
     // ── Panel lifecycle ───────────────────────────────────────────────────────
 
-    override fun buildPanel(
+    fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
     ) {
