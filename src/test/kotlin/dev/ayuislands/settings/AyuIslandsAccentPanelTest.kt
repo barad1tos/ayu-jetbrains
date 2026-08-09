@@ -255,6 +255,40 @@ class AyuIslandsAccentPanelTest {
     }
 
     @Test
+    fun `reset default overrides system accent`() {
+        state.followSystemAccent = true
+        every { AccentApplicator.revertAll() } just Runs
+        val accentPanel = AyuIslandsAccentPanel()
+        wireUiDslServices()
+        val dialogPanel =
+            panel {
+                accentPanel.buildPanel(
+                    panel = this,
+                    variant = AyuVariant.MIRAGE,
+                    buildSystemSection = {
+                        accentPanel.installSystemAccentCheckbox(this, isSupportedPlatform = true)
+                    },
+                )
+            }
+        val colorPanel = descendants(dialogPanel, AccentColorPanel::class.java).single()
+        val followSystemCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .single { it.text == "Follow system accent color" }
+        kotlin.test.assertTrue(colorPanel.componentCount > 0)
+        kotlin.test.assertTrue(colorPanel.components.all { !it.isEnabled })
+        kotlin.test.assertTrue(followSystemCheckbox.isSelected)
+
+        accentPanel.resetToDefault()
+
+        kotlin.test.assertTrue(accentPanel.isModified())
+        kotlin.test.assertTrue(colorPanel.components.all { it.isEnabled })
+        kotlin.test.assertFalse(followSystemCheckbox.isSelected)
+        accentPanel.apply()
+        kotlin.test.assertFalse(state.followSystemAccent)
+        verify(exactly = 1) { AccentApplicator.revertAll() }
+    }
+
+    @Test
     fun `unlicensed accent rotation keeps mode and interval controls visible`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         state.accentRotationEnabled = false

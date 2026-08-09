@@ -186,8 +186,12 @@ class AyuIslandsAccentPanel : SettingsParticipant {
      * Must only be invoked AFTER [buildPanel] has called [createAccentColorPanel]
      * so [accentPanel] is non-null.
      */
-    fun installSystemAccentCheckbox(panel: Panel) {
-        if (!SystemInfo.isMac) return
+    @JvmOverloads
+    fun installSystemAccentCheckbox(
+        panel: Panel,
+        isSupportedPlatform: Boolean = SystemInfo.isMac,
+    ) {
+        if (!isSupportedPlatform) return
         panel.row {
             val checkbox = checkBox("Follow system accent color").component
             checkbox.isSelected = pendingFollowSystem
@@ -460,6 +464,9 @@ class AyuIslandsAccentPanel : SettingsParticipant {
     }
 
     fun resetToDefault() {
+        pendingFollowSystem = false
+        followSystemCheckbox?.isSelected = false
+        updatePanelEnabled()
         pendingAccent = ""
         pendingCustomColor = null
         accentPanel?.selectedPreset = null
