@@ -3,6 +3,7 @@ package dev.ayuislands.settings.mappings
 import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ActionToolbar
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.Presentation
@@ -199,30 +200,66 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
-    fun `licensed remove actions clear both mappings and notify`() {
+    fun `licensed project remove leaves language mapping unchanged`() {
+        val projectMapping = ProjectMapping("/tmp/removable", "Removable", "#AABBCC")
+        val languageMapping = LanguageMapping("kotlin", "Kotlin", "#BBCCDD")
         val draft =
             AccentMappingsDraft().apply {
-                addProject(ProjectMapping("/tmp/removable", "Removable", "#AABBCC"))
-                addLanguage(LanguageMapping("kotlin", "Kotlin", "#BBCCDD"))
+                addProject(projectMapping)
+                addLanguage(languageMapping)
             }
         val state = AccentMappingsState().also(draft::writeTo)
         val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        val actionGroups = mutableListOf<ActionGroup>()
         try {
-            val root = buildGroup(builder, mockk(relaxed = true))
-            descendants(root, JTable::class.java).forEach {
-                it.selectionModel.setSelectionInterval(0, 0)
-            }
+            val root = buildGroup(builder, mockk(relaxed = true), actionGroups)
+            descendants(root, JTable::class.java)
+                .single { it.columnCount == 3 }
+                .selectionModel
+                .setSelectionInterval(0, 0)
             var changeCount = 0
             builder.addPendingChangeListener { changeCount += 1 }
-            val event = mockk<AnActionEvent>(relaxed = true)
 
-            descendants(root, CommonActionsPanel::class.java)
-                .mapNotNull { it.getAnAction(CommonActionsPanel.Buttons.REMOVE) }
-                .forEach { it.actionPerformed(event) }
+            actionGroups.removeAction(isProject = true).actionPerformed(mockk(relaxed = true))
 
             assertTrue(draft.projectMappings.isEmpty())
+            assertEquals(1, draft.languageMappings.size)
+            assertEquals(languageMapping.languageId, draft.languageMappings.single().languageId)
+            assertEquals(languageMapping.hex, draft.languageMappings.single().hex)
+            assertEquals(1, changeCount)
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
+    fun `licensed language remove leaves project mapping unchanged`() {
+        val projectMapping = ProjectMapping("/tmp/removable", "Removable", "#AABBCC")
+        val languageMapping = LanguageMapping("kotlin", "Kotlin", "#BBCCDD")
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(projectMapping)
+                addLanguage(languageMapping)
+            }
+        val state = AccentMappingsState().also(draft::writeTo)
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        val actionGroups = mutableListOf<ActionGroup>()
+        try {
+            val root = buildGroup(builder, mockk(relaxed = true), actionGroups)
+            descendants(root, JTable::class.java)
+                .single { it.columnCount == 2 }
+                .selectionModel
+                .setSelectionInterval(0, 0)
+            var changeCount = 0
+            builder.addPendingChangeListener { changeCount += 1 }
+
+            actionGroups.removeAction(isProject = false).actionPerformed(mockk(relaxed = true))
+
+            assertEquals(1, draft.projectMappings.size)
+            assertEquals(projectMapping.canonicalPath, draft.projectMappings.single().canonicalPath)
+            assertEquals(projectMapping.hex, draft.projectMappings.single().hex)
             assertTrue(draft.languageMappings.isEmpty())
-            assertEquals(2, changeCount)
+            assertEquals(1, changeCount)
         } finally {
             builder.dispose()
         }
@@ -379,6 +416,17 @@ class OverridesGroupBuilderApplyTest {
                 mockkClass(serviceClass.kotlin, relaxed = true)
             }
         }
+    }
+
+    private fun List<ActionGroup>.removeAction(isProject: Boolean): AnAction {
+        val groups = map { it as DefaultActionGroup }
+        val group =
+            groups.single { candidate ->
+                candidate.childActionsOrStubs.any {
+                    it.templatePresentation.text == "Pin Current Project"
+                } == isProject
+            }
+        return group.childActionsOrStubs.single { it.templatePresentation.text == "Remove" }
     }
 
     private fun <T : Component> descendants(
