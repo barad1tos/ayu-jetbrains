@@ -359,7 +359,7 @@ internal class OverridesGroupBuilder(
         fallbackGlobalHex: String,
         cacheOnly: Boolean = false,
     ): PendingAccentPreview {
-        val detectorLookup = AccentDetectorLookup.SnapshotLookup(readFallbackEarly = cacheOnly)
+        val detectorLookup = AccentDetectorLookup.SnapshotLookup(shouldReadFallbackEarly = cacheOnly)
         val winner =
             AccentResolutionChainBuilder.overrideWinner(
                 project,

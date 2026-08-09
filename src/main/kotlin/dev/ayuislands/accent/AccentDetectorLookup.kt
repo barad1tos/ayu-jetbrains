@@ -44,7 +44,7 @@ internal sealed interface AccentDetectorLookup {
      * detector read.
      */
     class SnapshotLookup(
-        private val readFallbackEarly: Boolean,
+        private val shouldReadFallbackEarly: Boolean,
     ) : AccentDetectorLookup {
         var verdict: ProjectLanguageVerdict? = null
             private set
@@ -54,7 +54,7 @@ internal sealed interface AccentDetectorLookup {
             hasLanguageCandidate: Boolean,
             hasFallbackCandidate: Boolean,
         ): ProjectLanguageVerdict? =
-            if (hasLanguageCandidate || (readFallbackEarly && hasFallbackCandidate)) {
+            if (hasLanguageCandidate || (shouldReadFallbackEarly && hasFallbackCandidate)) {
                 readVerdict(project)
             } else {
                 null
