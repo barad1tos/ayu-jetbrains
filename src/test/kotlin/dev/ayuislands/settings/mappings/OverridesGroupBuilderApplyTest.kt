@@ -199,6 +199,36 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
+    fun `licensed remove actions clear both mappings and notify`() {
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(ProjectMapping("/tmp/removable", "Removable", "#AABBCC"))
+                addLanguage(LanguageMapping("kotlin", "Kotlin", "#BBCCDD"))
+            }
+        val state = AccentMappingsState().also(draft::writeTo)
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        try {
+            val root = buildGroup(builder, mockk(relaxed = true))
+            descendants(root, JTable::class.java).forEach {
+                it.selectionModel.setSelectionInterval(0, 0)
+            }
+            var changeCount = 0
+            builder.addPendingChangeListener { changeCount += 1 }
+            val event = mockk<AnActionEvent>(relaxed = true)
+
+            descendants(root, CommonActionsPanel::class.java)
+                .mapNotNull { it.getAnAction(CommonActionsPanel.Buttons.REMOVE) }
+                .forEach { it.actionPerformed(event) }
+
+            assertTrue(draft.projectMappings.isEmpty())
+            assertTrue(draft.languageMappings.isEmpty())
+            assertEquals(2, changeCount)
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
     fun `license loss disables and guards pin current project action`() {
         val projectDirectory = File(System.getProperty("java.io.tmpdir"), "pin-after-license-loss")
         val project =
