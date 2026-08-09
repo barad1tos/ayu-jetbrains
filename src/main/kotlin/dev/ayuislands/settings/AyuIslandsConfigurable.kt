@@ -40,13 +40,21 @@ private fun resolvePluginVersion(): String =
         ?.version ?: "unknown"
 
 internal fun SettingsApplyResult.Failed.toConfigurationException(): ConfigurationException {
+    val causeSuffix =
+        cause.localizedMessage
+            ?.takeIf { it.isNotBlank() }
+            ?.let { " Cause: $it." }
+            .orEmpty()
     val skippedSuffix =
         if (skipped.isEmpty()) {
             ""
         } else {
             " Skipped: ${skipped.joinToString()}."
         }
-    return ConfigurationException("Failed to apply $failed settings.$skippedSuffix").also {
+    val message =
+        "Failed to apply $failed settings.$causeSuffix$skippedSuffix " +
+            "Review the IDE log and retry Apply."
+    return ConfigurationException(message).also {
         it.initCause(cause)
     }
 }

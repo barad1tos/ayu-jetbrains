@@ -1,5 +1,7 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.progress.ProcessCanceledException
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -53,6 +55,40 @@ class SettingsSessionTest {
             listOf("dispose:Second", "dispose:First", "dispose:Prior"),
             calls,
         )
+        assertTrue(session.isClosed)
+    }
+
+    @Test
+    fun `canceled build disposes candidates and prior participants before propagating cancellation`() {
+        val calls = mutableListOf<String>()
+        val prior = RecordingParticipant("Prior", calls)
+        val candidate = RecordingParticipant("Candidate", calls)
+        val cancellation = ProcessCanceledException()
+        val session = SettingsSession()
+
+        val thrown =
+            assertFailsWith<ProcessCanceledException> {
+                session.build {
+                    include(namedParticipant("Prior", prior)) {}
+                    include(namedParticipant("Candidate", candidate)) { throw cancellation }
+                }
+            }
+
+        assertSame(cancellation, thrown)
+        assertEquals(listOf("dispose:Candidate", "dispose:Prior"), calls)
+        assertTrue(session.isClosed)
+    }
+
+    @Test
+    fun `build cannot reopen a session closed by its content`() {
+        val session = SettingsSession()
+
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                session.build { close() }
+            }
+
+        assertEquals("Settings session closed while building", thrown.message)
         assertTrue(session.isClosed)
     }
 
@@ -139,6 +175,24 @@ class SettingsSessionTest {
 
         assertEquals(emptyList(), session.close())
         assertEquals(listOf("dispose:Third", "dispose:Second", "dispose:First"), calls)
+    }
+
+    @Test
+    fun `close finishes reverse cleanup before propagating cancellation`() {
+        val calls = mutableListOf<String>()
+        val first = RecordingParticipant("First", calls)
+        val second = RecordingParticipant("Second", calls)
+        val third = RecordingParticipant("Third", calls)
+        val cancellation = CancellationException("cleanup cancelled")
+        second.disposeFailure = cancellation
+        val session = openSession(first, second, third)
+
+        val thrown = assertFailsWith<CancellationException> { session.close() }
+
+        assertSame(cancellation, thrown)
+        assertEquals(listOf("dispose:Third", "dispose:Second", "dispose:First"), calls)
+        assertTrue(session.isClosed)
+        assertEquals(emptyList(), session.close())
     }
 
     @Test

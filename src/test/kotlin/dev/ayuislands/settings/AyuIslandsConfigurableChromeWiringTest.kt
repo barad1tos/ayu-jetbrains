@@ -29,7 +29,8 @@ class AyuIslandsConfigurableChromeWiringTest {
         val exception = failure.toConfigurationException()
 
         assertEquals(
-            "Failed to apply Accent settings. Skipped: Chrome, Elements.",
+            "Failed to apply Accent settings. Cause: accent failed. " +
+                "Skipped: Chrome, Elements. Review the IDE log and retry Apply.",
             exception.localizedMessage,
         )
         assertSame(cause, exception.cause)

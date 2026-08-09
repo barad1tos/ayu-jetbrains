@@ -2,7 +2,9 @@ package dev.ayuislands.integration
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.ayuislands.settings.AyuIslandsConfigurable
+import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Container
+import javax.swing.JCheckBox
 import javax.swing.JTabbedPane
 
 class SettingsConfigurableIntegrationTest : BasePlatformTestCase() {
@@ -48,6 +50,34 @@ class SettingsConfigurableIntegrationTest : BasePlatformTestCase() {
         }
     }
 
+    fun testConfigurableDelegatesModifiedResetAndApplyToItsSession() {
+        val settings = AyuIslandsSettings.getInstance()
+        val storedIgnoreSetting = settings.state.ignorePluginSyntaxColorsEnabled
+        val configurable = AyuIslandsConfigurable()
+        try {
+            val component = configurable.createComponent()
+            val checkbox =
+                descendants(component, JCheckBox::class.java)
+                    .single { it.text == ".ignore syntax colors" }
+
+            assertEquals(storedIgnoreSetting, checkbox.isSelected)
+            checkbox.doClick()
+            assertTrue(configurable.isModified)
+
+            configurable.reset()
+            assertEquals(storedIgnoreSetting, checkbox.isSelected)
+            assertFalse(configurable.isModified)
+
+            checkbox.doClick()
+            configurable.apply()
+            assertEquals(!storedIgnoreSetting, settings.state.ignorePluginSyntaxColorsEnabled)
+            assertFalse(configurable.isModified)
+        } finally {
+            settings.state.ignorePluginSyntaxColorsEnabled = storedIgnoreSetting
+            configurable.disposeUIResources()
+        }
+    }
+
     private fun collectTabbedPanes(
         root: java.awt.Component,
         found: MutableList<JTabbedPane> = mutableListOf(),
@@ -57,6 +87,20 @@ class SettingsConfigurableIntegrationTest : BasePlatformTestCase() {
         }
         if (root is Container) {
             root.components.forEach { collectTabbedPanes(it, found) }
+        }
+        return found
+    }
+
+    private fun <T : java.awt.Component> descendants(
+        root: java.awt.Component,
+        type: Class<T>,
+        found: MutableList<T> = mutableListOf(),
+    ): List<T> {
+        if (type.isInstance(root)) {
+            found += type.cast(root)
+        }
+        if (root is Container) {
+            root.components.forEach { descendants(it, type, found) }
         }
         return found
     }

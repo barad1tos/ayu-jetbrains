@@ -1,6 +1,8 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.progress.ProcessCanceledException
 import dev.ayuislands.accent.runCatchingPreservingCancellation
+import kotlin.coroutines.cancellation.CancellationException
 
 internal data class NamedSettingsParticipant(
     val name: String,
@@ -50,9 +52,10 @@ internal class SettingsSession(
         check(phase == Phase.NEW) { "Settings session can only be built once" }
         phase = Phase.BUILDING
 
-        val result = runCatchingPreservingCancellation { content() }
+        val result = runBuildStep(cleanup = ::close) { content() }
         result
             .onSuccess {
+                check(phase == Phase.BUILDING) { "Settings session closed while building" }
                 phase = Phase.OPEN
             }.onFailure { failure ->
                 close().forEach { failure.addSuppressed(it.cause) }
@@ -66,7 +69,7 @@ internal class SettingsSession(
     ) {
         check(phase == Phase.BUILDING) { "Settings participants can only be included while building" }
 
-        val result = runCatchingPreservingCancellation { build() }
+        val result = runBuildStep(cleanup = { dispose(candidates.asList()) }) { build() }
         result.onFailure { failure ->
             dispose(candidates.asList()).forEach { failure.addSuppressed(it.cause) }
         }
@@ -109,19 +112,67 @@ internal class SettingsSession(
         if (phase == Phase.CLOSED) return emptyList()
 
         phase = Phase.CLOSED
-        val failures = dispose(participants)
-        participants.clear()
+        return try {
+            dispose(participants)
+        } finally {
+            participants.clear()
+        }
+    }
+
+    private fun dispose(entries: List<NamedSettingsParticipant>): List<SettingsCleanupFailure> {
+        val failures = mutableListOf<SettingsCleanupFailure>()
+        var cancellation: Throwable? = null
+
+        for (entry in entries.asReversed()) {
+            try {
+                runCatchingPreservingCancellation { entry.participant.dispose() }
+                    .exceptionOrNull()
+                    ?.let { failures += SettingsCleanupFailure(entry.name, it) }
+            } catch (failure: ProcessCanceledException) {
+                cancellation = recordCancellation(cancellation, failure)
+            } catch (failure: CancellationException) {
+                cancellation = recordCancellation(cancellation, failure)
+            }
+        }
+
+        cancellation?.let { failure ->
+            failures.forEach { failure.addSuppressed(it.cause) }
+            throw failure
+        }
         return failures
     }
 
-    private fun dispose(entries: List<NamedSettingsParticipant>): List<SettingsCleanupFailure> =
-        entries
-            .asReversed()
-            .mapNotNull { entry ->
-                runCatchingPreservingCancellation { entry.participant.dispose() }
-                    .exceptionOrNull()
-                    ?.let { SettingsCleanupFailure(entry.name, it) }
-            }
+    private fun runBuildStep(
+        cleanup: () -> List<SettingsCleanupFailure>,
+        block: () -> Unit,
+    ): Result<Unit> =
+        try {
+            runCatchingPreservingCancellation(block)
+        } catch (failure: ProcessCanceledException) {
+            cleanupAfterCancellation(failure, cleanup)
+            throw failure
+        } catch (failure: CancellationException) {
+            cleanupAfterCancellation(failure, cleanup)
+            throw failure
+        }
+
+    private fun cleanupAfterCancellation(
+        failure: Throwable,
+        cleanup: () -> List<SettingsCleanupFailure>,
+    ) {
+        try {
+            cleanup().forEach { failure.addSuppressed(it.cause) }
+        } catch (cleanupCancellation: ProcessCanceledException) {
+            failure.addSuppressed(cleanupCancellation)
+        } catch (cleanupCancellation: CancellationException) {
+            failure.addSuppressed(cleanupCancellation)
+        }
+    }
+
+    private fun recordCancellation(
+        recorded: Throwable?,
+        next: Throwable,
+    ): Throwable = recorded?.also { it.addSuppressed(next) } ?: next
 
     private fun requireOpen() {
         check(phase == Phase.OPEN) { "Settings session is not open" }

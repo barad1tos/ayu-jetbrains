@@ -13,10 +13,13 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
+import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.OverridesGroupBuilder
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkClass
 import io.mockk.mockkObject
@@ -25,6 +28,7 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Component
 import java.awt.Container
+import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -224,6 +228,30 @@ class AyuIslandsAccentPanelTest {
             expectedOrder,
             titles.filter(expectedOrder::contains),
         )
+    }
+
+    @Test
+    fun `reset accent default preserves a pending rotation change`() {
+        val storedAccent = "#F28779"
+        state.mirageAccent = storedAccent
+        state.accentRotationEnabled = true
+        every { settings.getAccentForVariant(AyuVariant.MIRAGE) } returns storedAccent
+        every { AccentApplicator.revertAll() } just Runs
+        val rotationService = mockk<AccentRotationService>(relaxed = true)
+        mockkObject(AccentRotationService.Companion)
+        every { AccentRotationService.getInstance() } returns rotationService
+        val accentPanel = AyuIslandsAccentPanel()
+        val dialogPanel = buildDialogPanel(accentPanel)
+        val rotationCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .single { it.text == "Enable accent rotation" }
+
+        rotationCheckbox.doClick()
+        accentPanel.resetToDefault()
+        accentPanel.apply()
+
+        kotlin.test.assertFalse(state.accentRotationEnabled)
+        verify(exactly = 1) { rotationService.stopRotation() }
     }
 
     @Test
