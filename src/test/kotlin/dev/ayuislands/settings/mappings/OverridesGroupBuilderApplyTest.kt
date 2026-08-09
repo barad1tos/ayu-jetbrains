@@ -239,6 +239,52 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
+    fun `pin current project stores global accent once and disables after pin`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val projectDirectory = File(System.getProperty("java.io.tmpdir"), "licensed-pin-project")
+        val project =
+            mockk<Project>(relaxed = true) {
+                every { isDefault } returns false
+                every { isDisposed } returns false
+                every { basePath } returns projectDirectory.path
+                every { name } returns "Licensed project"
+            }
+        val draft = AccentMappingsDraft()
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { AccentMappingsState() })
+        val actionGroups = mutableListOf<ActionGroup>()
+        try {
+            buildGroup(builder, project, actionGroups)
+
+            assertEquals(2, actionGroups.size)
+            val pinAction =
+                actionGroups
+                    .map { it as DefaultActionGroup }
+                    .flatMap { it.childActionsOrStubs.toList() }
+                    .single { it.templatePresentation.text == "Pin Current Project" }
+            val presentation = Presentation()
+            val event = mockk<AnActionEvent>(relaxed = true)
+            every { event.presentation } returns presentation
+            val expectedMapping =
+                ProjectMapping(
+                    canonicalPath = projectDirectory.canonicalPath,
+                    displayName = "Licensed project",
+                    hex = "#5CCFE6",
+                )
+
+            pinAction.actionPerformed(event)
+
+            assertEquals(listOf(expectedMapping), draft.projectMappings)
+            pinAction.update(event)
+            assertFalse(presentation.isEnabled)
+
+            pinAction.actionPerformed(event)
+            assertEquals(listOf(expectedMapping), draft.projectMappings)
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
     fun `apply uses focused project fallback when no parent is bound`() {
         val focusedProject =
             mockk<Project>(relaxed = true) {
