@@ -119,6 +119,39 @@ class AccentMappingsDraftTest {
     }
 
     @Test
+    fun `reset restores every loaded mapping domain and project display name`() {
+        val state =
+            AccentMappingsState().apply {
+                projectAccents["/tmp/project"] = "#AABBCC"
+                projectDisplayNames["/tmp/project"] = "Custom project name"
+                languageAccents["kotlin"] = "#112233"
+                projectFallbackAccents["/tmp/project"] = "#5CCFE6"
+                forcedProjectLanguages["/tmp/project"] = "kotlin"
+                languageFallbackAccent = "#73D0FF"
+            }
+        val draft = AccentMappingsDraft()
+        draft.load(state, languageDisplayName = { "Kotlin" })
+
+        draft.removeProject(0)
+        draft.removeLanguage(0)
+        draft.setProjectFallbackAccent("/tmp/project", null)
+        draft.setForcedLanguage("/tmp/project", null)
+        draft.setLanguageFallbackAccent(null)
+
+        draft.reset()
+        val restored = AccentMappingsState()
+        draft.writeTo(restored)
+
+        assertEquals(mapOf("/tmp/project" to "#AABBCC"), restored.projectAccents)
+        assertEquals(mapOf("/tmp/project" to "Custom project name"), restored.projectDisplayNames)
+        assertEquals(mapOf("kotlin" to "#112233"), restored.languageAccents)
+        assertEquals(mapOf("/tmp/project" to "#5CCFE6"), restored.projectFallbackAccents)
+        assertEquals(mapOf("/tmp/project" to "kotlin"), restored.forcedProjectLanguages)
+        assertEquals("#73D0FF", restored.languageFallbackAccent)
+        assertFalse(draft.isModified)
+    }
+
+    @Test
     fun `mutations replace snapshots without changing previously exposed rows`() {
         val draft = AccentMappingsDraft()
         val firstProject = ProjectMapping("/tmp/project", "Project", "#AABBCC")

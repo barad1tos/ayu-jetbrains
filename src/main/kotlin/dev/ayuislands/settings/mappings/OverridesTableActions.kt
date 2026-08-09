@@ -32,6 +32,7 @@ internal class OverridesTableActions(
     private val parentProjectProvider: () -> Project?,
     private val isLicensed: () -> Boolean,
     private val onChanged: () -> Unit,
+    private val prompts: MappingPrompts = MappingPrompts(),
 ) {
     fun decorateProjectTable(showPinAction: Boolean): JComponent =
         decorateTable(projectTable, projectActions(showPinAction))
@@ -105,7 +106,7 @@ internal class OverridesTableActions(
             }
 
         return TableActions(
-            add = { mutateIfLicensed(::showAddProjectDialog) },
+            add = { mutateIfLicensed(::addProjectMapping) },
             edit = {
                 mutateIfLicensed {
                     editSelectedColor(
@@ -131,7 +132,7 @@ internal class OverridesTableActions(
 
     private fun languageActions(): TableActions =
         TableActions(
-            add = { mutateIfLicensed(::showAddLanguageDialog) },
+            add = { mutateIfLicensed(::addLanguageMapping) },
             edit = {
                 mutateIfLicensed {
                     editSelectedColor(
@@ -160,26 +161,18 @@ internal class OverridesTableActions(
         }
     }
 
-    private fun showAddProjectDialog() {
+    private fun addProjectMapping() {
         val excluded = projectModel.snapshot().map { it.canonicalPath }.toSet()
-        val dialog = AddProjectMappingDialog(parentProjectProvider(), excluded)
-        if (!dialog.showAndGet()) return
-        val path = dialog.resultCanonicalPath ?: return
-        val hex = dialog.resultHex ?: return
-        val name = dialog.resultDisplayName ?: File(path).name
-        val index = projectModel.add(ProjectMapping(path, name, hex))
+        val mapping = prompts.projectMapping(parentProjectProvider(), excluded) ?: return
+        val index = projectModel.add(mapping)
         projectTable.selectionModel.setSelectionInterval(index, index)
         onChanged()
     }
 
-    private fun showAddLanguageDialog() {
+    private fun addLanguageMapping() {
         val excluded = languageModel.snapshot().map { it.languageId }.toSet()
-        val dialog = AddLanguageMappingDialog(parentProjectProvider(), excluded)
-        if (!dialog.showAndGet()) return
-        val id = dialog.resultLanguageId ?: return
-        val hex = dialog.resultHex ?: return
-        val name = dialog.resultDisplayName ?: id
-        val index = languageModel.add(LanguageMapping(id, name, hex))
+        val mapping = prompts.languageMapping(parentProjectProvider(), excluded) ?: return
+        val index = languageModel.add(mapping)
         languageTable.selectionModel.setSelectionInterval(index, index)
         onChanged()
     }
@@ -193,9 +186,8 @@ internal class OverridesTableActions(
     ) {
         val row = table.selectedRow.takeIf { it >= 0 } ?: return
         val mapping = rowAt(row) ?: return
-        val dialog = EditAccentColorDialog(parentProjectProvider(), hex(mapping), displayName(mapping))
-        if (!dialog.showAndGet()) return
-        updateHex(row, dialog.resultHex)
+        val updatedHex = prompts.accentHex(parentProjectProvider(), hex(mapping), displayName(mapping)) ?: return
+        updateHex(row, updatedHex)
         onChanged()
     }
 
@@ -217,4 +209,44 @@ internal class OverridesTableActions(
         val removeEnabled: () -> Boolean,
         val extraActions: List<AnAction>,
     )
+}
+
+internal class MappingPrompts(
+    val projectMapping: (Project?, Set<String>) -> ProjectMapping? = ::promptProjectMapping,
+    val languageMapping: (Project?, Set<String>) -> LanguageMapping? = ::promptLanguageMapping,
+    val accentHex: (Project?, String, String) -> String? = ::promptAccentHex,
+)
+
+private fun promptProjectMapping(
+    parent: Project?,
+    excludedPaths: Set<String>,
+): ProjectMapping? {
+    val dialog = AddProjectMappingDialog(parent, excludedPaths)
+    if (!dialog.showAndGet()) return null
+    val path = dialog.resultCanonicalPath ?: return null
+    val hex = dialog.resultHex ?: return null
+    val name = dialog.resultDisplayName ?: File(path).name
+    return ProjectMapping(path, name, hex)
+}
+
+private fun promptLanguageMapping(
+    parent: Project?,
+    excludedLanguageIds: Set<String>,
+): LanguageMapping? {
+    val dialog = AddLanguageMappingDialog(parent, excludedLanguageIds)
+    if (!dialog.showAndGet()) return null
+    val languageId = dialog.resultLanguageId ?: return null
+    val hex = dialog.resultHex ?: return null
+    val name = dialog.resultDisplayName ?: languageId
+    return LanguageMapping(languageId, name, hex)
+}
+
+private fun promptAccentHex(
+    parent: Project?,
+    initialHex: String,
+    displayName: String,
+): String? {
+    val dialog = EditAccentColorDialog(parent, initialHex, displayName)
+    if (!dialog.showAndGet()) return null
+    return dialog.resultHex
 }

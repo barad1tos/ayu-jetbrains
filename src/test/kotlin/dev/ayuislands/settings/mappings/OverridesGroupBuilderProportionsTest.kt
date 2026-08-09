@@ -14,6 +14,7 @@ import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageScanner
 import dev.ayuislands.accent.ProjectLanguageVerdict
+import dev.ayuislands.accent.ScanOutcome
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -25,14 +26,20 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.CardLayout
 import java.awt.Component
 import java.awt.Container
 import java.io.File
+import javax.swing.JPanel
+import javax.swing.JRadioButton
+import javax.swing.JTable
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OverridesGroupBuilderProportionsTest {
@@ -86,6 +93,38 @@ class OverridesGroupBuilderProportionsTest {
     }
 
     @Test
+    fun `scan completion refreshes the displayable diagnostics panel from the latest verdict`() {
+        val messageBus = mockk<MessageBus>()
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        val listener = slot<ProjectLanguageDetectionListener>()
+        every { messageBus.connect(any<Disposable>()) } returns connection
+        every {
+            connection.subscribe(ProjectLanguageDetectionListener.TOPIC, capture(listener))
+        } returns Unit
+        val project = stubProject(tmpKey("scan-refresh"), messageBus)
+        var verdict: ProjectLanguageVerdict = ProjectLanguageVerdict.Cold
+        every { ProjectLanguageDetector.verdict(project) } answers { verdict }
+        val builder = OverridesGroupBuilder(stateProvider = { AccentMappingsState() })
+
+        try {
+            val root = buildGroup(builder, project)
+            val diagnostics = resolutionPanel(root)
+            diagnostics.addNotify()
+            assertTrue("Detection pending" in diagnostics.currentSummaryForTest())
+
+            verdict = ProjectLanguageVerdict.Detected("kotlin", mapOf("kotlin" to 1_000L))
+            listener.captured.scanCompleted(ScanOutcome.Detected("kotlin"))
+            SwingUtilities.invokeAndWait {}
+
+            assertTrue("Kotlin (100%)" in diagnostics.currentSummaryForTest())
+            verify(exactly = 2) { ProjectLanguageDetector.verdict(project) }
+            diagnostics.removeNotify()
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
     fun `rebuilding disconnects the previous subscription before reconnecting`() {
         val events = mutableListOf<String>()
         val messageBus = mockk<MessageBus>()
@@ -108,11 +147,27 @@ class OverridesGroupBuilderProportionsTest {
             buildGroup(builder, project)
             val pending = ProjectMapping(tmpKey("pending-reentry"), "Pending re-entry", "#AABBCC")
             draft.addProject(pending)
-            buildGroup(builder, project)
+            val rebuilt = buildGroup(builder, project)
+            val cards =
+                rebuilt
+                    .descendants()
+                    .filterIsInstance<JPanel>()
+                    .single { it.layout is CardLayout }
+            val projectTable = rebuilt.descendants().filterIsInstance<JTable>().single { it.columnCount == 3 }
+            val languageTable = rebuilt.descendants().filterIsInstance<JTable>().single { it.columnCount == 2 }
 
             assertEquals(listOf("connect", "disconnect", "connect"), events)
             assertEquals(listOf(pending), draft.projectMappings)
             assertTrue(builder.isModified())
+            assertEquals(2, cards.componentCount)
+            assertTrue(SwingUtilities.isDescendingFrom(projectTable, cards.components.single { it.isVisible }))
+
+            rebuilt
+                .descendants()
+                .filterIsInstance<JRadioButton>()
+                .single { it.text == "Languages" }
+                .doClick()
+            assertTrue(SwingUtilities.isDescendingFrom(languageTable, cards.components.single { it.isVisible }))
             verify(exactly = 2) { messageBus.connect(any<Disposable>()) }
             verify(exactly = 1) { firstConnection.disconnect() }
         } finally {
@@ -232,6 +287,65 @@ class OverridesGroupBuilderProportionsTest {
 
             assertFalse("Force Kotlin" in actionTexts(root))
             assertFalse(ProjectLanguageResolutionPanel.RESCAN_LABEL in actionTexts(root))
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
+    fun `stale diagnostics links cannot mutate or rescan after license loss`() {
+        val projectKey = tmpKey("stale-license-actions")
+        val project = stubProject(projectKey)
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 700L, "javascript" to 300L))
+        val draft = AccentMappingsDraft()
+        val builder = preparedBuilder(draft)
+
+        try {
+            val root = buildGroup(builder, project)
+            val links = root.descendants().filterIsInstance<ActionLink>().associateBy(ActionLink::getText)
+            val setFallback = requireNotNull(links[ProjectLanguageResolutionPanel.SET_FALLBACK_LABEL])
+            val forceLanguage = requireNotNull(links["Force TypeScript"])
+            val rescan = requireNotNull(links[ProjectLanguageResolutionPanel.RESCAN_LABEL])
+
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+            setFallback.doClick()
+            forceLanguage.doClick()
+            rescan.doClick()
+
+            assertNull(draft.projectFallbackAccent(projectKey))
+            assertNull(draft.forcedLanguageId(projectKey))
+            verify(exactly = 0) { ProjectLanguageDetector.rescan(project) }
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
+    fun `stale clear links preserve pending overrides after license loss`() {
+        val projectKey = tmpKey("stale-clear-actions")
+        val project = stubProject(projectKey)
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.Detected("kotlin", mapOf("kotlin" to 1_000L))
+        val draft =
+            AccentMappingsDraft().apply {
+                setProjectFallbackAccent(projectKey, "#112233")
+                setForcedLanguage(projectKey, "kotlin")
+            }
+        val builder = preparedBuilder(draft)
+
+        try {
+            val root = buildGroup(builder, project)
+            val links = root.descendants().filterIsInstance<ActionLink>().associateBy(ActionLink::getText)
+            val clearFallback = requireNotNull(links[ProjectLanguageResolutionPanel.CLEAR_FALLBACK_LABEL])
+            val clearLanguage = requireNotNull(links[ProjectLanguageResolutionPanel.CLEAR_FORCED_LANGUAGE_LABEL])
+
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+            clearFallback.doClick()
+            clearLanguage.doClick()
+
+            assertEquals("#112233", draft.projectFallbackAccent(projectKey))
+            assertEquals("kotlin", draft.forcedLanguageId(projectKey))
         } finally {
             builder.dispose()
         }

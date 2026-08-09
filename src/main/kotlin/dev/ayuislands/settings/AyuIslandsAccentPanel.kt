@@ -488,8 +488,11 @@ class AyuIslandsAccentPanel : SettingsParticipant {
     override fun apply() {
         val currentVariant = variant ?: return
         if (!isModified()) return
-        val settings = AyuIslandsSettings.getInstance()
         val overridesDirty = overrides.isModified()
+        if (overridesDirty) {
+            overrides.checkApplyAllowed()
+        }
+        val settings = AyuIslandsSettings.getInstance()
 
         if (pendingFollowSystem != storedFollowSystem) {
             settings.state.followSystemAccent = pendingFollowSystem

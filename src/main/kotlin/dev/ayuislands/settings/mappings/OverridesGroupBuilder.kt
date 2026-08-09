@@ -86,11 +86,6 @@ internal class OverridesGroupBuilder(
             onChanged = { fireChanged() },
         )
 
-    /**
-     * Captured diagnostics panel for focused-project language resolution.
-     * Refreshed on every [reset], pending-change event, and
-     * [ProjectLanguageDetectionListener.TOPIC] notification.
-     */
     private var proportionsPanel: ProjectLanguageResolutionPanel? = null
 
     /**
@@ -230,6 +225,7 @@ internal class OverridesGroupBuilder(
                 // Retain strong reference so actions survive focus changes.
                 putClientProperty("ayu.overrides.group", segmentedButtonGroup)
             }
+        cardPanel.removeAll()
         cardPanel.add(tableActions.decorateProjectTable(showPinAction = licensed), CARD_PROJECTS)
         cardPanel.add(tableActions.decorateLanguageTable(), CARD_LANGUAGES)
         // No fixed preferredSize: the AutoSizingTable drives height via
@@ -310,7 +306,7 @@ internal class OverridesGroupBuilder(
     override fun isModified(): Boolean = draft.isModified
 
     override fun apply() {
-        if (!LicenseChecker.isLicensedOrGrace()) return
+        checkApplyAllowed()
         draft.writeTo(stateProvider())
 
         // Re-apply the committed mapping set via resolver → applicator → swap-cache sync.
@@ -318,10 +314,11 @@ internal class OverridesGroupBuilder(
         // against the color actually showing on screen right now.
         //
         // Defense-in-depth: the resolver / applicator / swap-cache chain touches LafManager,
-        // UIManager, and the project-swap service; a transient failure anywhere in that chain
-        // must not short-circuit the draft commit or `fireChanged()` below, or the
-        // settings UI would drift (persisted state saved, but `isModified()` keeps reporting
-        // "modified" because the draft's committed snapshot stayed on the pre-apply state).
+        // UIManager, and the project-swap service; a recoverable failure captured by
+        // `runCatchingPreservingCancellation` must not short-circuit the draft commit or
+        // `fireChanged()` below, or the settings UI would drift (persisted state saved, but
+        // `isModified()` keeps reporting "modified" because the draft's committed snapshot
+        // stayed on the pre-apply state).
         runCatchingPreservingCancellation {
             AyuVariant.detect()?.let { variant ->
                 // Fall through to the OS-active cascade when the builder has no parentProject
@@ -340,6 +337,13 @@ internal class OverridesGroupBuilder(
         }
         draft.markCommitted()
         fireChanged()
+    }
+
+    internal fun checkApplyAllowed() {
+        check(LicenseChecker.isLicensedOrGrace()) {
+            "Accent override edits require an active Pro license. " +
+                "Restore the license and retry Apply, or cancel the edits."
+        }
     }
 
     override fun reset() {

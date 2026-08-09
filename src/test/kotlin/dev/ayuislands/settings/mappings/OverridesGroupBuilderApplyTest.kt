@@ -12,6 +12,7 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import com.intellij.ui.CommonActionsPanel
 import com.intellij.ui.dsl.builder.panel
+import com.intellij.ui.table.JBTable
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -30,10 +31,12 @@ import java.awt.Component
 import java.awt.Container
 import java.io.File
 import javax.swing.JTable
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -136,7 +139,7 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
-    fun `apply is a no-op when license is unavailable`() {
+    fun `apply fails without discarding pending mappings when license is unavailable`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         val state = AccentMappingsState()
         val draft =
@@ -145,11 +148,20 @@ class OverridesGroupBuilderApplyTest {
             }
         val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
         try {
-            builder.apply()
+            val failure = assertFailsWith<IllegalStateException> { builder.apply() }
 
+            assertTrue("active Pro license" in failure.message.orEmpty())
             assertTrue(state.projectAccents.isEmpty())
             assertTrue(builder.isModified())
             verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            every { AyuVariant.detect() } returns null
+
+            builder.apply()
+
+            assertEquals(mapOf("/tmp/locked" to "#AABBCC"), state.projectAccents)
+            assertFalse(builder.isModified())
         } finally {
             builder.dispose()
         }
@@ -220,7 +232,7 @@ class OverridesGroupBuilderApplyTest {
             var changeCount = 0
             builder.addPendingChangeListener { changeCount += 1 }
 
-            actionGroups.removeAction(isProject = true).actionPerformed(mockk(relaxed = true))
+            actionGroups.tableAction(isProject = true, text = "Remove").actionPerformed(mockk(relaxed = true))
 
             assertTrue(draft.projectMappings.isEmpty())
             assertEquals(1, draft.languageMappings.size)
@@ -253,7 +265,7 @@ class OverridesGroupBuilderApplyTest {
             var changeCount = 0
             builder.addPendingChangeListener { changeCount += 1 }
 
-            actionGroups.removeAction(isProject = false).actionPerformed(mockk(relaxed = true))
+            actionGroups.tableAction(isProject = false, text = "Remove").actionPerformed(mockk(relaxed = true))
 
             assertEquals(1, draft.projectMappings.size)
             assertEquals(projectMapping.canonicalPath, draft.projectMappings.single().canonicalPath)
@@ -263,6 +275,102 @@ class OverridesGroupBuilderApplyTest {
         } finally {
             builder.dispose()
         }
+    }
+
+    @Test
+    fun `licensed Add actions append to their matching mapping domains`() {
+        val draft = AccentMappingsDraft()
+        val projectModel = ProjectMappingsTableModel(draft)
+        val languageModel = LanguageMappingsTableModel(draft)
+        val projectTable = JBTable(projectModel)
+        val languageTable = JBTable(languageModel)
+        val actionGroups = mutableListOf<ActionGroup>()
+        installUiServices(actionGroups)
+        val actions =
+            OverridesTableActions(
+                projectModel = projectModel,
+                languageModel = languageModel,
+                projectTable = projectTable,
+                languageTable = languageTable,
+                parentProjectProvider = { null },
+                isLicensed = { true },
+                onChanged = {},
+                prompts =
+                    MappingPrompts(
+                        projectMapping = { _, _ ->
+                            ProjectMapping("/tmp/added-project", "Added project", "#AABBCC")
+                        },
+                        languageMapping = { _, _ ->
+                            LanguageMapping("kotlin", "Kotlin", "#112233")
+                        },
+                    ),
+            )
+        actions.decorateProjectTable(showPinAction = true)
+        actions.decorateLanguageTable()
+
+        SwingUtilities.invokeAndWait {
+            actionGroups.tableAction(isProject = true, text = "Add").actionPerformed(mockk(relaxed = true))
+        }
+        assertEquals(
+            listOf(ProjectMapping("/tmp/added-project", "Added project", "#AABBCC")),
+            draft.projectMappings,
+        )
+        assertTrue(draft.languageMappings.isEmpty())
+
+        SwingUtilities.invokeAndWait {
+            actionGroups.tableAction(isProject = false, text = "Add").actionPerformed(mockk(relaxed = true))
+        }
+        assertEquals(listOf(LanguageMapping("kotlin", "Kotlin", "#112233")), draft.languageMappings)
+    }
+
+    @Test
+    fun `licensed Edit actions update only their matching mapping domains`() {
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(ProjectMapping("/tmp/edit-project", "Edit project", "#AABBCC"))
+                addLanguage(LanguageMapping("kotlin", "Kotlin", "#112233"))
+            }
+        val projectModel = ProjectMappingsTableModel(draft)
+        val languageModel = LanguageMappingsTableModel(draft)
+        val projectTable = JBTable(projectModel).apply { setRowSelectionInterval(0, 0) }
+        val languageTable = JBTable(languageModel).apply { setRowSelectionInterval(0, 0) }
+        val actionGroups = mutableListOf<ActionGroup>()
+        installUiServices(actionGroups)
+        val actions =
+            OverridesTableActions(
+                projectModel = projectModel,
+                languageModel = languageModel,
+                projectTable = projectTable,
+                languageTable = languageTable,
+                parentProjectProvider = { null },
+                isLicensed = { true },
+                onChanged = {},
+                prompts =
+                    MappingPrompts(
+                        projectMapping = { _, _ -> null },
+                        languageMapping = { _, _ -> null },
+                        accentHex = { _, _, displayName ->
+                            when (displayName) {
+                                "Edit project" -> "#334455"
+                                "Kotlin" -> "#667788"
+                                else -> error("Unexpected mapping: $displayName")
+                            }
+                        },
+                    ),
+            )
+        actions.decorateProjectTable(showPinAction = true)
+        actions.decorateLanguageTable()
+
+        SwingUtilities.invokeAndWait {
+            actionGroups.tableAction(isProject = true, text = "Edit Color").actionPerformed(mockk(relaxed = true))
+        }
+        assertEquals("#334455", draft.projectMappings.single().hex)
+        assertEquals("#112233", draft.languageMappings.single().hex)
+
+        SwingUtilities.invokeAndWait {
+            actionGroups.tableAction(isProject = false, text = "Edit Color").actionPerformed(mockk(relaxed = true))
+        }
+        assertEquals("#667788", draft.languageMappings.single().hex)
     }
 
     @Test
@@ -418,7 +526,10 @@ class OverridesGroupBuilderApplyTest {
         }
     }
 
-    private fun List<ActionGroup>.removeAction(isProject: Boolean): AnAction {
+    private fun List<ActionGroup>.tableAction(
+        isProject: Boolean,
+        text: String,
+    ): AnAction {
         val groups = map { it as DefaultActionGroup }
         val group =
             groups.single { candidate ->
@@ -426,7 +537,7 @@ class OverridesGroupBuilderApplyTest {
                     it.templatePresentation.text == "Pin Current Project"
                 } == isProject
             }
-        return group.childActionsOrStubs.single { it.templatePresentation.text == "Remove" }
+        return group.childActionsOrStubs.single { it.templatePresentation.text == text }
     }
 
     private fun <T : Component> descendants(

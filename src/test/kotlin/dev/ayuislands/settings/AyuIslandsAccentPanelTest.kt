@@ -335,6 +335,29 @@ class AyuIslandsAccentPanelTest {
     }
 
     @Test
+    fun `apply rejects dirty overrides before changing the global accent`() {
+        val storedAccent = "#F28779"
+        state.mirageAccent = storedAccent
+        every { settings.getAccentForVariant(AyuVariant.MIRAGE) } returns storedAccent
+        val accentPanel = AyuIslandsAccentPanel()
+        try {
+            buildDialogPanel(accentPanel)
+            accentPanel.resetToDefault()
+            accentPanel.overrides.setPendingFallbackAccent("/tmp/locked", "#AABBCC")
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+
+            kotlin.test.assertFailsWith<IllegalStateException> { accentPanel.apply() }
+
+            kotlin.test.assertEquals(storedAccent, state.mirageAccent)
+            verify(exactly = 0) { settings.setAccentForVariant(any(), any()) }
+            verify(exactly = 0) { AccentApplicator.revertAll() }
+            verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) }
+        } finally {
+            accentPanel.dispose()
+        }
+    }
+
+    @Test
     fun `unlicensed accent rotation keeps mode and interval controls visible`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
         state.accentRotationEnabled = false

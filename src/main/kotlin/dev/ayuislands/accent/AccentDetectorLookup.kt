@@ -37,12 +37,7 @@ internal sealed interface AccentDetectorLookup {
         languageRungVerdict: ProjectLanguageVerdict?,
     ): ProjectLanguageVerdict
 
-    /**
-     * One read-only detector snapshot for a pending Settings preview.
-     * The same verdict backs both language and fallback rungs, and remains
-     * available to the caller for rendering winner detail without a second
-     * detector read.
-     */
+    // One read-only verdict backs the whole pending Settings preview, including winner detail.
     class SnapshotLookup(
         private val shouldReadFallbackEarly: Boolean,
     ) : AccentDetectorLookup {
