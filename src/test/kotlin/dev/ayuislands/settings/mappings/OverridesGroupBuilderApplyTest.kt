@@ -18,6 +18,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import io.mockk.verifyOrder
 import javax.swing.JTable
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -84,9 +85,16 @@ class OverridesGroupBuilderApplyTest {
 
         assertEquals(mapOf("/tmp/project" to "#AABBCC"), state.projectAccents)
         assertFalse(builder.isModified())
-        verify(exactly = 1) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
-        verify(exactly = 1) { swapService.notifyExternalApply("#AABBCC") }
+        verify(exactly = 1) {
+            AccentResolver.resolve(project, AyuVariant.MIRAGE)
+            AccentApplicator.applyFromHexString("#AABBCC")
+            swapService.notifyExternalApply("#AABBCC")
+        }
+        verifyOrder {
+            AccentResolver.resolve(project, AyuVariant.MIRAGE)
+            AccentApplicator.applyFromHexString("#AABBCC")
+            swapService.notifyExternalApply("#AABBCC")
+        }
     }
 
     @Test
@@ -189,15 +197,14 @@ class OverridesGroupBuilderApplyTest {
         every { application.getService(ActionManager::class.java) } returns actionManager
         every { actionManager.getAction(any()) } returns null
 
-        @Suppress("UNCHECKED_CAST")
-        val coroutineSupportClass = Class.forName("com.intellij.openapi.application.CoroutineSupport") as Class<Any>
-        val coroutineSupport = mockkClass(coroutineSupportClass.kotlin, relaxed = true)
-        every { application.getService(coroutineSupportClass) } returns coroutineSupport
-
-        @Suppress("UNCHECKED_CAST")
-        val experimentalUiClass = Class.forName("com.intellij.ui.ExperimentalUI") as Class<Any>
-        val experimentalUi = mockkClass(experimentalUiClass.kotlin, relaxed = true)
-        every { application.getService(experimentalUiClass) } returns experimentalUi
+        every { application.getService(any<Class<*>>()) } answers {
+            val serviceClass = firstArg<Class<*>>()
+            if (serviceClass == ActionManager::class.java) {
+                actionManager
+            } else {
+                mockkClass(serviceClass.kotlin, relaxed = true)
+            }
+        }
     }
 
     private fun unlicensedActions(
