@@ -34,27 +34,30 @@ data class LanguageMapping(
  * Table model for the Language Overrides section. Two columns: Color (hex),
  * Language (display name). Matches the Project model shape for symmetric UI code.
  */
-class LanguageMappingsTableModel : AbstractTableModel() {
-    private val rows: MutableList<LanguageMapping> = mutableListOf()
+internal class LanguageMappingsTableModel(
+    private val draft: AccentMappingsDraft,
+) : AbstractTableModel() {
+    private val rows: List<LanguageMapping>
+        get() = draft.languageMappings
 
     fun replaceAll(mappings: Collection<LanguageMapping>) {
-        rows.clear()
-        rows.addAll(mappings)
-        fireTableDataChanged()
+        val replacements = mappings.toList()
+        rows.indices.reversed().forEach(draft::removeLanguage)
+        replacements.forEach(draft::addLanguage)
+        refreshAll()
     }
 
     fun snapshot(): List<LanguageMapping> = rows.toList()
 
     fun add(mapping: LanguageMapping): Int {
-        rows += mapping
-        val index = rows.size - 1
+        val index = draft.addLanguage(mapping)
         fireTableRowsInserted(index, index)
         return index
     }
 
     fun remove(row: Int) {
         if (row !in rows.indices) return
-        rows.removeAt(row)
+        draft.removeLanguage(row)
         fireTableRowsDeleted(row, row)
     }
 
@@ -63,8 +66,12 @@ class LanguageMappingsTableModel : AbstractTableModel() {
         hex: String,
     ) {
         if (row !in rows.indices) return
-        rows[row] = rows[row].copy(hex = hex)
+        draft.updateLanguageHex(row, hex)
         fireTableRowsUpdated(row, row)
+    }
+
+    internal fun refreshAll() {
+        fireTableDataChanged()
     }
 
     fun rowAt(index: Int): LanguageMapping? = rows.getOrNull(index)

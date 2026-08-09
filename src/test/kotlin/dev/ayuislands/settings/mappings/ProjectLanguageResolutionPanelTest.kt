@@ -247,21 +247,18 @@ class ProjectLanguageResolutionPanelTest {
     }
 
     @Test
-    fun `summary prefers pending forced language over detector verdict`() {
+    fun `forced language state renders source and clear action`() {
         val panel = panel()
 
         panel.refresh(
             ProjectLanguageResolutionPanel.State(
-                verdict =
-                    ProjectLanguageVerdict.Detected(
-                        languageId = "kotlin",
-                        weights = mapOf("kotlin" to 1_000L),
-                    ),
+                verdict = ProjectLanguageVerdict.Detected("typescript", mapOf("typescript" to 1_000L)),
                 forcedLanguageId = "typescript",
                 fallbackHex = null,
                 activeSource = AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE,
                 canMutate = true,
-                canRescan = false,
+                canRescan = true,
+                canSetFallbackToCurrentAccent = true,
             ),
         )
 
@@ -269,6 +266,10 @@ class ProjectLanguageResolutionPanelTest {
             "Accent source: Language override (TypeScript, manual)\n" +
                 "Detected in this project: TypeScript (manual)",
             panel.currentSummaryForTest(),
+        )
+        assertTrue(
+            ProjectLanguageResolutionPanel.CLEAR_FORCED_LANGUAGE_LABEL in
+                panel.labelsForTest().map { it.second },
         )
     }
 

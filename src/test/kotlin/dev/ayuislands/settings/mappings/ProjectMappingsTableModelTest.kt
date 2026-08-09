@@ -9,8 +9,20 @@ import kotlin.test.assertTrue
 
 class ProjectMappingsTableModelTest {
     @Test
+    fun `table mutations update the shared accent mappings draft`() {
+        val draft = AccentMappingsDraft()
+        val model = ProjectMappingsTableModel(draft)
+
+        model.add(ProjectMapping("/tmp/project", "Project", "#AABBCC"))
+        model.updateHex(0, "#112233")
+
+        assertEquals("#112233", draft.projectAccent("/tmp/project"))
+        assertTrue(draft.isModified)
+    }
+
+    @Test
     fun `replaceAll resets rows and fires structural change`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "A", "#111111"))
 
         model.replaceAll(listOf(ProjectMapping("/tmp/b", "B", "#222222")))
@@ -21,7 +33,7 @@ class ProjectMappingsTableModelTest {
 
     @Test
     fun `add returns inserted row index`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
 
         assertEquals(0, model.add(ProjectMapping("/tmp/a", "A", "#111111")))
         assertEquals(1, model.add(ProjectMapping("/tmp/b", "B", "#222222")))
@@ -29,7 +41,7 @@ class ProjectMappingsTableModelTest {
 
     @Test
     fun `remove at valid index drops the row`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "A", "#111111"))
         model.add(ProjectMapping("/tmp/b", "B", "#222222"))
 
@@ -41,7 +53,7 @@ class ProjectMappingsTableModelTest {
 
     @Test
     fun `remove at invalid index is a no-op`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "A", "#111111"))
 
         model.remove(-1)
@@ -52,7 +64,7 @@ class ProjectMappingsTableModelTest {
 
     @Test
     fun `updateHex mutates the target row only`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "A", "#111111"))
         model.add(ProjectMapping("/tmp/b", "B", "#222222"))
 
@@ -64,7 +76,7 @@ class ProjectMappingsTableModelTest {
 
     @Test
     fun `containsPath is a pure lookup`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "A", "#111111"))
 
         assertTrue(model.containsPath("/tmp/a"))
@@ -73,7 +85,7 @@ class ProjectMappingsTableModelTest {
 
     @Test
     fun `snapshot returns a defensive copy`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "A", "#111111"))
 
         val snap = model.snapshot()
@@ -84,7 +96,7 @@ class ProjectMappingsTableModelTest {
 
     @Test
     fun `getValueAt returns column payload by index`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "Alpha", "#ABCDEF"))
 
         assertEquals("#ABCDEF", model.getValueAt(0, ProjectMappingsTableModel.COLUMN_COLOR))
@@ -125,7 +137,7 @@ class ProjectMappingsTableModelTest {
 
     @Test
     fun `cells are not editable`() {
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "A", "#111111"))
 
         assertFalse(model.isCellEditable(0, 0))
@@ -139,7 +151,7 @@ class ProjectMappingsTableModelTest {
         // calls updateHex(selectedRow, ...) and selectedRow can be -1 when nothing is
         // selected; without the bound guard this would throw IndexOutOfBoundsException
         // from the underlying ArrayList.set, killing the Settings dialog.
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/tmp/a", "A", "#111111"))
 
         model.updateHex(-1, "#FFFFFF")
@@ -152,7 +164,7 @@ class ProjectMappingsTableModelTest {
     fun `getValueAt out-of-bounds row returns null`() {
         // Swing JTable can request stale row indices during repaint races; the
         // `rowAt(rowIndex) ?: return null` guard must hand back null instead of NPE'ing.
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         assertNull(model.getValueAt(0, ProjectMappingsTableModel.COLUMN_COLOR))
         assertNull(model.getValueAt(99, ProjectMappingsTableModel.COLUMN_PATH))
     }
@@ -162,7 +174,7 @@ class ProjectMappingsTableModelTest {
         // The renderer's prepareRenderer hook calls isOrphan(viewIndex), which can be stale
         // mid-repaint. Without the `rowAt(...) ?: return false` guard the access would NPE
         // and surface as a SEVERE in idea.log on every repaint.
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         assertFalse(model.isOrphan(0), "no rows yet — out-of-bounds must report false")
         assertFalse(model.isOrphan(-1))
     }
@@ -173,7 +185,7 @@ class ProjectMappingsTableModelTest {
         // canonicalPath stops resolving to a directory and the row should be styled
         // differently. A regression that flipped the !isDirectory check would mark every
         // valid mapping as orphaned.
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping("/this/path/definitely/does/not/exist", "Gone", "#111111"))
 
         assertTrue(model.isOrphan(0))
@@ -183,7 +195,7 @@ class ProjectMappingsTableModelTest {
     fun `isOrphan returns false for path that resolves to a real directory`() {
         // System tempdir always exists on every platform — use it as the canonical "live"
         // directory so the test is portable across CI runners.
-        val model = ProjectMappingsTableModel()
+        val model = ProjectMappingsTableModel(AccentMappingsDraft())
         model.add(ProjectMapping(System.getProperty("java.io.tmpdir"), "Tmp", "#111111"))
 
         assertFalse(model.isOrphan(0))
