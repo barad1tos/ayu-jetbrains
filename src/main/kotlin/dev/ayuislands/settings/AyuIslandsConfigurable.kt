@@ -3,18 +3,16 @@ package dev.ayuislands.settings
 import com.intellij.ide.BrowserUtil
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.options.BoundConfigurable
+import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogPanel
-import com.intellij.openapi.ui.Messages
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.Align
-import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.onboarding.OnboardingUrls
@@ -41,6 +39,26 @@ private fun resolvePluginVersion(): String =
         .findLoadedPlugin(AyuPlugin.ID)
         ?.version ?: "unknown"
 
+internal fun SettingsApplyResult.Failed.toConfigurationException(): ConfigurationException {
+    val causeSuffix =
+        cause.localizedMessage
+            ?.takeIf { it.isNotBlank() }
+            ?.let { " Cause: $it." }
+            .orEmpty()
+    val skippedSuffix =
+        if (skipped.isEmpty()) {
+            ""
+        } else {
+            " Skipped: ${skipped.joinToString()}."
+        }
+    val message =
+        "Failed to apply $failed settings.$causeSuffix$skippedSuffix " +
+            "Review the IDE log and retry Apply."
+    return ConfigurationException(message).also {
+        it.initCause(cause)
+    }
+}
+
 class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private val log = logger<AyuIslandsConfigurable>()
 
@@ -54,44 +72,15 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
 
     private val activeTimers = mutableListOf<Timer>()
 
-    private val appearancePanel = AyuIslandsAppearancePanel()
-    private val accentPanel = AyuIslandsAccentPanel()
-    private val chromePanel = AyuIslandsChromePanel()
-    private val elementsPanel = AyuIslandsElementsPanel()
-    private val workspacePanel = WorkspacePanel()
-    private val pluginsPanel = PluginsPanel()
-    private val fontPresetPanel = FontPresetPanel()
-    private val effectsPanel = AyuIslandsEffectsPanel()
-    private val vcsColorPanel = VcsColorPanel()
-    private val syntaxPanel = AyuIslandsSyntaxPanel()
-    private var builtPanels: List<AyuIslandsSettingsPanel> = emptyList()
-
-    private val panels: List<AyuIslandsSettingsPanel> =
-        listOf(
-            appearancePanel,
-            accentPanel,
-            chromePanel,
-            elementsPanel,
-            fontPresetPanel,
-            effectsPanel,
-            vcsColorPanel,
-            syntaxPanel,
-            workspacePanel,
-            pluginsPanel,
-        )
+    private var session: SettingsSession? = null
 
     override fun createPanel(): DialogPanel {
+        closeSession()
         val pluginVersion = resolvePluginVersion()
         val variant = AyuVariant.detect()
-        val effectiveVariant = variant ?: AyuVariant.MIRAGE
-        val activePanels = mutableListOf<AyuIslandsSettingsPanel>()
-
-        if (variant != null) {
-            configureAyuPanelComposition(variant)
-        }
-
-        val contentTabs = buildContentTabs(variant, effectiveVariant, activePanels)
-        builtPanels = activePanels
+        val nextSession = SettingsSession(::refreshGlow)
+        val contentTabs = AyuSettingsComposition(variant, nextSession).buildContentTabs()
+        session = nextSession
 
         val settings = AyuIslandsSettings.getInstance()
         val state = settings.state
@@ -107,117 +96,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         val badges = installSettingsBadges(tabs, contentTabs.map { it.first }, accentColor)
 
         return buildRootPanel(pluginVersion, variant, tabs, badges)
-    }
-
-    private fun configureAyuPanelComposition(variant: AyuVariant) {
-        // Wire accent color changes to the element preview.
-        accentPanel.onAccentChanged = { hex -> elementsPanel.updatePreviewAccent(hex) }
-
-        // Visual order: Accent Color -> System -> Overrides -> Chrome Tinting -> Rotation -> Elements.
-        // AccentPanel renders Accent Color -> (beforeOverrides) -> Overrides ->
-        // (afterOverrides) -> Rotation. The beforeOverrides hook hosts
-        // AppearancePanel's "System" collapsibleGroup; the afterOverrides hook hosts
-        // the Chrome Tinting collapsible.
-        accentPanel.beforeOverridesInjection = { injectionPanel ->
-            appearancePanel.buildPanel(injectionPanel, variant)
-        }
-        accentPanel.afterOverridesInjection = { injectionPanel ->
-            chromePanel.buildPanel(injectionPanel, variant)
-        }
-        appearancePanel.systemAccentRowInstaller = { rowHostPanel ->
-            accentPanel.installSystemAccentCheckbox(rowHostPanel)
-        }
-    }
-
-    private fun buildContentTabs(
-        variant: AyuVariant?,
-        effectiveVariant: AyuVariant,
-        activePanels: MutableList<AyuIslandsSettingsPanel>,
-    ): List<Pair<String, JComponent>> {
-        fontPresetPanel.initState()
-        return listOf(
-            "Accent" to buildAccentTab(variant, activePanels),
-            "Font" to buildFontTab(activePanels),
-            "Glow" to buildGlowTab(activePanels),
-            // Syntax slots between Glow and VCS so rendering-related tabs cluster
-            // before source-control and workspace tabs.
-            "Syntax" to buildAyuOnlyTab(variant, "syntax intensity", syntaxPanel, activePanels),
-            "VCS" to buildAyuOnlyTab(variant, "VCS colors", vcsColorPanel, activePanels),
-            "Workspace" to buildAlwaysAvailableTab(workspacePanel, effectiveVariant, activePanels),
-            "Plugins" to buildAlwaysAvailableTab(pluginsPanel, effectiveVariant, activePanels),
-        )
-    }
-
-    private fun buildAccentTab(
-        variant: AyuVariant?,
-        activePanels: MutableList<AyuIslandsSettingsPanel>,
-    ): JComponent =
-        panel {
-            if (variant == null) {
-                buildAyuThemeRequiredMessage("accent colors")
-            } else {
-                accentPanel.buildPanel(this@panel, variant)
-                elementsPanel.buildPanel(this@panel, variant)
-                activePanels += appearancePanel
-                activePanels += accentPanel
-                activePanels += chromePanel
-                activePanels += elementsPanel
-                buildResetAllSettingsRow()
-            }
-        }
-
-    private fun buildFontTab(activePanels: MutableList<AyuIslandsSettingsPanel>): JComponent =
-        panel {
-            fontPresetPanel.buildFontTab(this@panel)
-            activePanels += fontPresetPanel
-        }
-
-    private fun buildGlowTab(activePanels: MutableList<AyuIslandsSettingsPanel>): JComponent =
-        panel {
-            effectsPanel.buildGlowPanel(this@panel)
-            activePanels += effectsPanel
-        }
-
-    private fun buildAyuOnlyTab(
-        variant: AyuVariant?,
-        sectionName: String,
-        settingsPanel: AyuIslandsSettingsPanel,
-        activePanels: MutableList<AyuIslandsSettingsPanel>,
-    ): JComponent =
-        panel {
-            if (variant == null) {
-                buildAyuThemeRequiredMessage(sectionName)
-            } else {
-                settingsPanel.buildPanel(this@panel, variant)
-                activePanels += settingsPanel
-            }
-        }
-
-    private fun buildAlwaysAvailableTab(
-        settingsPanel: AyuIslandsSettingsPanel,
-        variant: AyuVariant,
-        activePanels: MutableList<AyuIslandsSettingsPanel>,
-    ): JComponent =
-        panel {
-            settingsPanel.buildPanel(this@panel, variant)
-            activePanels += settingsPanel
-        }
-
-    private fun Panel.buildResetAllSettingsRow() {
-        row {
-            link("Reset all Ayu settings\u2026") {
-                val result =
-                    Messages.showYesNoDialog(
-                        "Reset all Ayu Islands settings to defaults?\n\n" +
-                            "This will reset accent color, element toggles, and all glow settings.",
-                        "Reset All Settings",
-                        Messages.getWarningIcon(),
-                    )
-                if (result == Messages.YES) {
-                    resetAllSettings()
-                }
-            }
-        }
     }
 
     private fun resolveTabAccentColor(
@@ -282,12 +160,6 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
                     .align(Align.FILL)
             }
         }
-
-    private fun Panel.buildAyuThemeRequiredMessage(sectionName: String) {
-        row {
-            comment("Activate an Ayu Islands theme to configure $sectionName.")
-        }
-    }
 
     private fun configureSettingsTabsForResize(tabs: JBTabbedPane) {
         tabs.minimumSize = Dimension(0, 0)
@@ -452,68 +324,39 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         return ImageIcon(scaledImage)
     }
 
-    private fun resetAllSettings() {
-        accentPanel.resetToDefault()
-        chromePanel.reset()
-        elementsPanel.reset()
-        fontPresetPanel.reset()
-        effectsPanel.reset()
-        vcsColorPanel.reset()
-        syntaxPanel.reset()
-        workspacePanel.reset()
-        pluginsPanel.reset()
-    }
-
     override fun disposeUIResources() {
-        activeTimers.forEach { it.stop() }
-        activeTimers.clear()
-        // Drive platform-owned subscriptions shut down through the
-        // AyuIslandsSettingsPanel.dispose() default no-op; panels that
-        // hold platform lifecycle state override it. AyuIslandsAccentPanel
-        // additionally owns OverridesGroupBuilder whose detection-Topic
-        // MessageBus connection needs explicit disconnect — reach it
-        // directly via the `internal val overrides` field rather than
-        // layering a second dispose override, which would bump
-        // AccentPanel past detekt's 25-function class budget.
-        //
-        // Each dispose call is individually wrapped so a throwing panel
-        // (or a future override with a platform-API failure mode) does
-        // not prevent the remaining panels or the mandatory super call
-        // from running. The MessageBus subscription in overrides is the
-        // load-bearing cleanup — a skipped super would leak the
-        // BoundConfigurable binding too.
-        // Cancellation-preserving wrap keeps structured-concurrency
-        // semantics if a future refactor moves this dispose chain into
-        // a coroutine scope; today disposeUIResources is a plain EDT
-        // callback but the sibling disconnect wraps in
-        // OverridesGroupBuilder use the same variant, so we stay
-        // consistent across the module.
-        panels.forEach { panel ->
-            runCatchingPreservingCancellation { panel.dispose() }
-                .onFailure { log.warn("Panel dispose threw for ${panel.javaClass.simpleName}", it) }
+        try {
+            activeTimers.forEach { it.stop() }
+            activeTimers.clear()
+            closeSession()
+        } finally {
+            SettingsBadges.clearSessionWiring()
+            super.disposeUIResources()
         }
-        runCatchingPreservingCancellation { accentPanel.overrides.dispose() }
-            .onFailure { log.warn("OverridesGroupBuilder dispose threw", it) }
-        // Badge wiring holds the refresh closure and group-expanded suppliers,
-        // which reference this dialog's component tree — clear on close so the
-        // singleton does not pin the dead UI until the next Settings open.
-        SettingsBadges.clearSessionWiring()
-        super.disposeUIResources()
     }
 
-    override fun isModified(): Boolean = builtPanels.any { it.isModified() }
+    override fun isModified(): Boolean = session?.isModified() ?: false
 
     override fun apply() {
         super.apply()
-
-        for (section in builtPanels) {
-            section.apply()
+        when (val result = session?.apply()) {
+            null,
+            SettingsApplyResult.Applied,
+            -> Unit
+            is SettingsApplyResult.Failed -> {
+                log.warn("Settings apply failed in ${result.failed}", result.cause)
+                throw result.toConfigurationException()
+            }
         }
+    }
 
-        // Trigger glow overlay update for all open projects
+    override fun reset() {
+        super.reset()
+        session?.reset()
+    }
+
+    private fun refreshGlow() {
         val glowEnabled = AyuIslandsSettings.getInstance().state.glowEnabled
-
-        // Zen Mode: skip glow activation in presentation/distraction-free mode
         val inZenMode =
             com.intellij.ide.ui.UISettings
                 .getInstance()
@@ -537,10 +380,10 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         }
     }
 
-    override fun reset() {
-        super.reset()
-        for (section in builtPanels) {
-            section.reset()
+    private fun closeSession() {
+        session?.close()?.forEach { failure ->
+            log.warn("Settings cleanup failed for ${failure.participant}", failure.cause)
         }
+        session = null
     }
 }

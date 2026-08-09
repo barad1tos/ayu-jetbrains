@@ -13,7 +13,6 @@ import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentDefaults
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.CodeGlanceProIntegration
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.conflict.ConflictRegistry
@@ -30,7 +29,7 @@ import javax.swing.JList
 import javax.swing.JSlider
 
 /** Plugin's tab: third-party plugin integrations (CodeGlance Pro, Indent Rainbow). */
-class PluginsPanel : AyuIslandsSettingsPanel {
+class PluginsPanel : SettingsParticipant {
     private var pendingSettings = PluginSettingsSnapshot()
     private var storedSettings = PluginSettingsSnapshot()
 
@@ -53,10 +52,7 @@ class PluginsPanel : AyuIslandsSettingsPanel {
     private val customModeVisible = AtomicBooleanProperty(false)
     private var suppressListeners = false
 
-    override fun buildPanel(
-        panel: Panel,
-        variant: AyuVariant,
-    ) {
+    fun buildPanel(panel: Panel) {
         val state = AyuIslandsSettings.getInstance().state
         val gate =
             PremiumFeatureGate(

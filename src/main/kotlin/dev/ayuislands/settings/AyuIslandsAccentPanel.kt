@@ -25,7 +25,7 @@ import java.awt.Color
 import javax.swing.JEditorPane
 
 /** Accent color section for the Ayu Islands settings panel. */
-class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
+class AyuIslandsAccentPanel : SettingsParticipant {
     private var variant: AyuVariant? = null
     private var pendingAccent: String = ""
     private var storedAccent: String = ""
@@ -57,27 +57,11 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     private var currentlyActiveLabel: JEditorPane? = null
     private val overridesActiveLabelListener = Runnable { updateCurrentlyActiveLabel() }
 
-    /**
-     * Hook called between the Accent Color group and the Overrides group during [buildPanel].
-     * The configurable uses it to inject [AyuIslandsAppearancePanel]'s "System" collapsible
-     * group so the visual order is Accent Color → System → Overrides → Chrome Tinting →
-     * Rotation (Chrome Tinting is injected separately via [afterOverridesInjection]) while
-     * each panel keeps ownership of its own state.
-     */
-    var beforeOverridesInjection: ((Panel) -> Unit)? = null
-
-    /**
-     * Hook called between the Overrides group and the Accent Rotation group during [buildPanel].
-     * The configurable uses it to inject [AyuIslandsChromePanel]'s "Chrome Tinting" collapsible
-     * group so the visual order is Accent Color → System → Overrides → Chrome Tinting → Rotation,
-     * which mirrors the dependency chain (chrome tinting consumes the *resolved* accent that
-     * override rules produce).
-     */
-    var afterOverridesInjection: ((Panel) -> Unit)? = null
-
-    override fun buildPanel(
+    fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
+        buildSystemSection: Panel.() -> Unit = {},
+        buildChromeSection: Panel.() -> Unit = {},
     ) {
         initializeState(variant)
         // Route through AccentApplicator.resolveFocusedProject so the panel picks the
@@ -90,9 +74,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         applyInitialSelection(colorPanel, storedAccent)
         updateHeroGlow()
         panel.buildAccentColorGroup(colorPanel)
-        beforeOverridesInjection?.invoke(panel)
+        panel.buildSystemSection()
         overrides.buildGroup(panel, contextProject) { projectIconAccent.buildRow(this) }
-        afterOverridesInjection?.invoke(panel)
+        panel.buildChromeSection()
         quickSwitcher.buildGroup(panel)
         panel.buildAccentRotationGroup()
 
@@ -202,8 +186,12 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
      * Must only be invoked AFTER [buildPanel] has called [createAccentColorPanel]
      * so [accentPanel] is non-null.
      */
-    fun installSystemAccentCheckbox(panel: Panel) {
-        if (!SystemInfo.isMac) return
+    @JvmOverloads
+    fun installSystemAccentCheckbox(
+        panel: Panel,
+        isSupportedPlatform: Boolean = SystemInfo.isMac,
+    ) {
+        if (!isSupportedPlatform) return
         panel.row {
             val checkbox = checkBox("Follow system accent color").component
             checkbox.isSelected = pendingFollowSystem
@@ -251,7 +239,7 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 ?: "Custom"
         val source = overrides.sourcePending(contextProject, cacheOnly = true)
         val sourceDetail = overrides.activeSourceDetailPending(contextProject, source, cacheOnly = true)
-        val sourceText = describeActiveSource(source, sourceDetail)
+        val sourceText = describeAccentSource(source, contextProject?.name, sourceDetail)
         label.text = "Currently active: $presetName ($sourceText)"
     }
 
@@ -281,40 +269,6 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         if (pendingAccent.isNotEmpty()) return pendingAccent
         return settings.getAccentForVariant(currentVariant)
     }
-
-    private fun describeActiveSource(
-        source: AccentResolver.Source,
-        languageDetail: String? = overrides.activeSourceDetailPending(contextProject, source, cacheOnly = true),
-    ): String =
-        when (source) {
-            AccentResolver.Source.PROJECT_OVERRIDE -> {
-                "project override for \"${contextProject?.name ?: "?"}\""
-            }
-
-            AccentResolver.Source.LANGUAGE_OVERRIDE -> {
-                sourceWithDetail(AccentResolver.sourceLabel(source), languageDetail)
-            }
-
-            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE -> {
-                sourceWithDetail("Language override", languageDetail)
-            }
-
-            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE -> {
-                sourceWithDetail(AccentResolver.sourceLabel(source), languageDetail)
-            }
-
-            AccentResolver.Source.PROJECT_FALLBACK,
-            AccentResolver.Source.MATERIAL_THEME,
-            AccentResolver.Source.IDE_ACCENT,
-            AccentResolver.Source.EXTERNAL_ACCENT,
-            -> {
-                AccentResolver.sourceLabel(source)
-            }
-
-            AccentResolver.Source.GLOBAL -> {
-                "global"
-            }
-        }
 
     private fun Panel.buildAccentRotationGroup() {
         val settings = AyuIslandsSettings.getInstance()
@@ -510,6 +464,9 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
     }
 
     fun resetToDefault() {
+        pendingFollowSystem = false
+        followSystemCheckbox?.isSelected = false
+        updatePanelEnabled()
         pendingAccent = ""
         pendingCustomColor = null
         accentPanel?.selectedPreset = null
@@ -650,6 +607,10 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
         updateCurrentlyActiveLabel()
     }
 
+    override fun dispose() {
+        overrides.dispose()
+    }
+
     private fun updateHeroGlow() {
         val panel = accentPanel ?: return
         val settings = AyuIslandsSettings.getInstance()
@@ -761,10 +722,30 @@ class AyuIslandsAccentPanel : AyuIslandsSettingsPanel {
                 INTERVAL_12H,
                 INTERVAL_24H,
             )
-
-        private fun colorToHex(color: Color): String = "#%02X%02X%02X".format(color.red, color.green, color.blue)
     }
 }
+
+private fun colorToHex(color: Color): String = "#%02X%02X%02X".format(color.red, color.green, color.blue)
+
+internal fun describeAccentSource(
+    source: AccentResolver.Source,
+    projectName: String?,
+    languageDetail: String?,
+): String =
+    when (source) {
+        AccentResolver.Source.PROJECT_OVERRIDE -> "project override for \"${projectName ?: "?"}\""
+        AccentResolver.Source.LANGUAGE_OVERRIDE ->
+            sourceWithDetail(AccentResolver.sourceLabel(source), languageDetail)
+        AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE -> sourceWithDetail("Language override", languageDetail)
+        AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE ->
+            sourceWithDetail(AccentResolver.sourceLabel(source), languageDetail)
+        AccentResolver.Source.PROJECT_FALLBACK,
+        AccentResolver.Source.MATERIAL_THEME,
+        AccentResolver.Source.IDE_ACCENT,
+        AccentResolver.Source.EXTERNAL_ACCENT,
+        -> AccentResolver.sourceLabel(source)
+        AccentResolver.Source.GLOBAL -> "global"
+    }
 
 private fun sourceWithDetail(
     label: String,

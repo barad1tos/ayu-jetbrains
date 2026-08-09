@@ -11,7 +11,6 @@ import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontDetector
 import dev.ayuislands.font.FontInstallConsent
@@ -31,7 +30,7 @@ import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
 /** Font preset tab — curated Nerd Font presets with one-click apply. */
-class FontPresetPanel : AyuIslandsSettingsPanel {
+class FontPresetPanel : SettingsParticipant {
     private companion object {
         private val LOG = logger<FontPresetPanel>()
         val IS_MAC: Boolean = System.getProperty("os.name").lowercase().contains("mac")
@@ -89,15 +88,12 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         customFontVisible.set(presetEnabled.get() && isCustomSelected.get())
     }
 
-    override fun buildPanel(
-        panel: Panel,
-        variant: AyuVariant,
-    ) {
-        initState()
-        buildFontTab(panel)
+    fun buildPanel(panel: Panel) {
+        loadState()
+        buildContent(panel)
     }
 
-    fun initState() {
+    internal fun loadState() {
         val state = AyuIslandsSettings.getInstance().state
 
         // Migrate legacy preset names before reading
@@ -130,7 +126,7 @@ class FontPresetPanel : AyuIslandsSettingsPanel {
         updateFontMissing()
     }
 
-    fun buildFontTab(panel: Panel) {
+    private fun buildContent(panel: Panel) {
         panel.apply {
             buildEnableRow()
             buildPresetSelectorRow()

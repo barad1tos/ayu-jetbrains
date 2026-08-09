@@ -484,7 +484,7 @@ class PluginsPanelTest {
 
     private fun buildDialogPanel(pluginsPanel: PluginsPanel): DialogPanel =
         panel {
-            pluginsPanel.buildPanel(this, AyuVariant.MIRAGE)
+            pluginsPanel.buildPanel(this)
         }
 
     private fun wireUiDslServices() {

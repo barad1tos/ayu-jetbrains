@@ -18,7 +18,7 @@ import java.awt.event.MouseEvent
 import javax.swing.JCheckBox
 
 /** Per-element accent toggle checkboxes with conflict detection and license-aware dimming. */
-class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
+class AyuIslandsElementsPanel : SettingsParticipant {
     private data class ElementSettings(
         val toggles: Map<AccentElementId, Boolean> = emptyMap(),
         val forceOverrides: Set<String> = emptySet(),
@@ -67,7 +67,7 @@ class AyuIslandsElementsPanel : AyuIslandsSettingsPanel {
         elementPreview?.updatePreview()
     }
 
-    override fun buildPanel(
+    fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
     ) {

@@ -38,7 +38,7 @@ import javax.swing.JSlider
  *    [VcsColorContext.withSnapshot] so a throw leaves persisted state
  *    untouched and the user can retry.
  */
-class VcsColorPanel : AyuIslandsSettingsPanel {
+class VcsColorPanel : SettingsParticipant {
     // ── Pending / stored state ────────────────────────────────────────────────
 
     private data class VcsColorSettings(
@@ -146,7 +146,7 @@ class VcsColorPanel : AyuIslandsSettingsPanel {
 
     // ── Panel lifecycle ───────────────────────────────────────────────────────
 
-    override fun buildPanel(
+    fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
     ) {

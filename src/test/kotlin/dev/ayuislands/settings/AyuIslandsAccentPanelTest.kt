@@ -6,17 +6,20 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.testFramework.LoggedErrorProcessor
+import com.intellij.ui.TitledSeparator
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
+import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.OverridesGroupBuilder
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkClass
 import io.mockk.mockkObject
@@ -25,6 +28,7 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Component
 import java.awt.Container
+import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -41,17 +45,9 @@ import kotlin.test.Test
  *    fires with "also failed" context, no exception escapes — avoids the generic
  *    "Settings can't save" dialog a hand-edited global hex would otherwise trigger
  *
- * **Test-design note (documented compromise):** two `buildPanel*` tests read the
- * compiled `AyuIslandsAccentPanel.class` and assert that both
- * `beforeOverridesInjection` and `afterOverridesInjection` hooks fire around
- * the Overrides builder. A behavioral substitute would require building the
- * UI DSL `panel { ... }` through the IntelliJ platform — the project's
- * `integrationTest` task is currently misconfigured (NO-SOURCE in CI), so
- * bytecode inspection is the cheapest available assertion. The hooks are
- * load-bearing: dropping one silently strands Chrome Tinting (afterOverrides)
- * or the License Status row (beforeOverrides) on the Settings page. Do not
- * delete in future "remove theater" passes without replacing with an
- * equivalent integration test.
+ * The immutable System and Chrome build slots are covered through a real UI
+ * DSL panel and its visible separator order rather than private fields or
+ * compiled bytecode.
  */
 class AyuIslandsAccentPanelTest {
     private lateinit var state: AyuIslandsState
@@ -197,162 +193,99 @@ class AyuIslandsAccentPanelTest {
             ): Set<Action> = java.util.EnumSet.noneOf(Action::class.java)
         }
 
-    // ── Injection-hook wiring ───────────────────────────────────────────────
-    //
-    // Chrome Tinting renders AFTER Overrides — the AccentPanel injection is
-    // split into two parallel hooks: `beforeOverridesInjection` (fed by
-    // AppearancePanel's System group) and `afterOverridesInjection` (fed by
-    // ChromePanel). The hooks are plain nullable `((Panel) -> Unit)` fields,
-    // so wiring correctness has two failure modes worth locking in:
-    //
-    //  1. Both hooks exist on the class as public Kotlin properties — a future
-    //     refactor that accidentally deletes one (or renames it) would silently
-    //     regress the Configurable's composition without a compile error beyond
-    //     Configurable.kt itself.
-    //  2. `buildPanel` bytecode must actually invoke both hooks and the
-    //     Overrides builder between them, so the render order is Accent →
-    //     before-hook → Overrides → after-hook → Rotation.
-    //
-    // Both assertions run directly off reflection + bytecode so no Swing / DSL
-    // runtime is required — mirroring the approach in
-    // AyuIslandsConfigurableChromeWiringTest.
-
-    @Test
-    fun `afterOverridesInjection property exists and defaults to null`() {
-        val panel = AyuIslandsAccentPanel()
-        val field = AyuIslandsAccentPanel::class.java.getDeclaredField("afterOverridesInjection")
-        field.isAccessible = true
-        kotlin.test.assertNull(
-            field.get(panel),
-            "afterOverridesInjection must default to null so unset configurables " +
-                "render without chrome tinting (graceful degradation when the " +
-                "Configurable hasn't wired a callback yet)",
-        )
-    }
-
-    @Test
-    fun `active source description does not warm detector for language override`() {
-        mockkObject(ProjectLanguageDetector)
-        every { ProjectLanguageDetector.dominant(any()) } throws AssertionError("dominant must not be read")
-
-        val method =
-            AyuIslandsAccentPanel::class.java
-                .getDeclaredMethod(
-                    "describeActiveSource",
-                    AccentResolver.Source::class.java,
-                    String::class.java,
-                ).apply { isAccessible = true }
-
-        kotlin.test.assertEquals(
-            "Language override",
-            method.invoke(AyuIslandsAccentPanel(), AccentResolver.Source.LANGUAGE_OVERRIDE, null),
-        )
-        verify(exactly = 0) { ProjectLanguageDetector.dominant(any()) }
-    }
-
     @Test
     fun `active source description includes language detail when available`() {
-        val method =
-            AyuIslandsAccentPanel::class.java
-                .getDeclaredMethod(
-                    "describeActiveSource",
-                    AccentResolver.Source::class.java,
-                    String::class.java,
-                ).apply { isAccessible = true }
-        val panel = AyuIslandsAccentPanel()
-
         kotlin.test.assertEquals(
             "Language override (Kotlin, 82%)",
-            method.invoke(panel, AccentResolver.Source.LANGUAGE_OVERRIDE, "Kotlin, 82%"),
+            describeAccentSource(AccentResolver.Source.LANGUAGE_OVERRIDE, null, "Kotlin, 82%"),
         )
         kotlin.test.assertEquals(
             "Language override (Kotlin, manual)",
-            method.invoke(panel, AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE, "Kotlin, manual"),
+            describeAccentSource(AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE, null, "Kotlin, manual"),
         )
     }
 
     @Test
-    fun `beforeOverridesInjection property still exists alongside afterOverridesInjection`() {
-        // Regression guard: the injection refactor split a single hook into two.
-        // If someone collapses them back or deletes beforeOverridesInjection, the
-        // System collapsible (AppearancePanel) loses its render slot silently.
-        val panel = AyuIslandsAccentPanel()
-        val beforeField =
-            AyuIslandsAccentPanel::class.java.getDeclaredField("beforeOverridesInjection")
-        val afterField =
-            AyuIslandsAccentPanel::class.java.getDeclaredField("afterOverridesInjection")
-        beforeField.isAccessible = true
-        afterField.isAccessible = true
-        kotlin.test.assertNull(beforeField.get(panel))
-        kotlin.test.assertNull(afterField.get(panel))
-    }
+    fun `buildPanel renders immutable System and Chrome sections around Overrides`() {
+        wireUiDslServices()
+        val accentPanel = AyuIslandsAccentPanel()
+        val dialogPanel =
+            panel {
+                accentPanel.buildPanel(
+                    panel = this,
+                    variant = AyuVariant.MIRAGE,
+                    buildSystemSection = { group("System Marker") {} },
+                    buildChromeSection = { group("Chrome Marker") {} },
+                )
+            }
 
-    @Test
-    fun `buildPanel bytecode invokes both injection hooks around Overrides builder`() {
-        // Bytecode inspection: the compiled buildPanel method must reference both
-        // `beforeOverridesInjection` and `afterOverridesInjection` getters AND the
-        // OverridesGroupBuilder.buildGroup call. Without this test, a refactor
-        // that drops one hook (or reorders the three calls) would regress the
-        // visual order without a compile-time failure — the hooks are nullable
-        // so an unused field still compiles cleanly.
-        val classBytes =
-            AyuIslandsAccentPanel::class.java
-                .getResourceAsStream("AyuIslandsAccentPanel.class")
-                ?.readAllBytes()
-                ?: error("AyuIslandsAccentPanel.class must be loadable for bytecode inspection")
-        kotlin.test.assertTrue(
-            classBytes.isNotEmpty(),
-            "AyuIslandsAccentPanel.class must be loadable for bytecode inspection",
-        )
-        val classText = String(classBytes, Charsets.ISO_8859_1)
-        kotlin.test.assertTrue(
-            classText.contains("beforeOverridesInjection"),
-            "buildPanel bytecode must reference beforeOverridesInjection",
-        )
-        kotlin.test.assertTrue(
-            classText.contains("afterOverridesInjection"),
-            "buildPanel bytecode must reference afterOverridesInjection",
-        )
-        kotlin.test.assertTrue(
-            classText.contains("buildGroup"),
-            "buildPanel bytecode must reference OverridesGroupBuilder.buildGroup between the two hooks",
-        )
-    }
-
-    @Test
-    fun `buildPanel invokes hooks in order before overrides then after overrides`() {
-        // Behavior-first order check: build a fake Panel spy via mockk and
-        // capture hook-invocation order through side-channel counters. The
-        // buildPanel method body (including the OverridesGroupBuilder.buildGroup
-        // call) walks an IntelliJ DSL that requires a live Panel — too heavy for
-        // this unit. Instead, assert the two hooks are composed in the right
-        // order by recording the call sequence the Configurable would observe.
-        //
-        // We sidestep the DSL by invoking the hook fields directly in the same
-        // order buildPanel does, then asserting the recorded sequence. If a
-        // future refactor swaps the `beforeOverridesInjection?.invoke` and
-        // `afterOverridesInjection?.invoke` lines in buildPanel, the
-        // AyuIslandsConfigurableChromeWiringTest bytecode check will catch the
-        // missing setter; this test locks in that the two hook fields are
-        // independent callback slots on the Panel-level composition (each fires
-        // exactly when its owner invokes it, no cross-wiring).
-        val callOrder = mutableListOf<String>()
-        val panel = AyuIslandsAccentPanel()
-        panel.beforeOverridesInjection = { callOrder += "before" }
-        panel.afterOverridesInjection = { callOrder += "after" }
-
-        val fakeDslPanel = mockk<com.intellij.ui.dsl.builder.Panel>(relaxed = true)
-        panel.beforeOverridesInjection?.invoke(fakeDslPanel)
-        // Simulate the OverridesGroupBuilder.buildGroup step between hooks.
-        callOrder += "overrides"
-        panel.afterOverridesInjection?.invoke(fakeDslPanel)
+        val titles =
+            descendants(dialogPanel, TitledSeparator::class.java)
+                .mapNotNull { it.text }
+        val expectedOrder = listOf("Accent Color", "System Marker", "Overrides", "Chrome Marker", "Accent Rotation")
 
         kotlin.test.assertEquals(
-            listOf("before", "overrides", "after"),
-            callOrder,
-            "Hook invocation order must be before → overrides → after so the visible " +
-                "render order (Accent → System → Overrides → Chrome Tinting → Rotation) is preserved",
+            expectedOrder,
+            titles.filter(expectedOrder::contains),
         )
+    }
+
+    @Test
+    fun `reset accent default preserves a pending rotation change`() {
+        val storedAccent = "#F28779"
+        state.mirageAccent = storedAccent
+        state.accentRotationEnabled = true
+        every { settings.getAccentForVariant(AyuVariant.MIRAGE) } returns storedAccent
+        every { AccentApplicator.revertAll() } just Runs
+        val rotationService = mockk<AccentRotationService>(relaxed = true)
+        mockkObject(AccentRotationService.Companion)
+        every { AccentRotationService.getInstance() } returns rotationService
+        val accentPanel = AyuIslandsAccentPanel()
+        val dialogPanel = buildDialogPanel(accentPanel)
+        val rotationCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .single { it.text == "Enable accent rotation" }
+
+        rotationCheckbox.doClick()
+        accentPanel.resetToDefault()
+        accentPanel.apply()
+
+        kotlin.test.assertFalse(state.accentRotationEnabled)
+        verify(exactly = 1) { rotationService.stopRotation() }
+    }
+
+    @Test
+    fun `reset default overrides system accent`() {
+        state.followSystemAccent = true
+        every { AccentApplicator.revertAll() } just Runs
+        val accentPanel = AyuIslandsAccentPanel()
+        wireUiDslServices()
+        val dialogPanel =
+            panel {
+                accentPanel.buildPanel(
+                    panel = this,
+                    variant = AyuVariant.MIRAGE,
+                    buildSystemSection = {
+                        accentPanel.installSystemAccentCheckbox(this, isSupportedPlatform = true)
+                    },
+                )
+            }
+        val colorPanel = descendants(dialogPanel, AccentColorPanel::class.java).single()
+        val followSystemCheckbox =
+            descendants(dialogPanel, JCheckBox::class.java)
+                .single { it.text == "Follow system accent color" }
+        kotlin.test.assertTrue(colorPanel.componentCount > 0)
+        kotlin.test.assertTrue(colorPanel.components.all { !it.isEnabled })
+        kotlin.test.assertTrue(followSystemCheckbox.isSelected)
+
+        accentPanel.resetToDefault()
+
+        kotlin.test.assertTrue(accentPanel.isModified())
+        kotlin.test.assertTrue(colorPanel.components.all { it.isEnabled })
+        kotlin.test.assertFalse(followSystemCheckbox.isSelected)
+        accentPanel.apply()
+        kotlin.test.assertFalse(state.followSystemAccent)
+        verify(exactly = 1) { AccentApplicator.revertAll() }
     }
 
     @Test

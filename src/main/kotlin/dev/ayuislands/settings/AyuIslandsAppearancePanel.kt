@@ -6,24 +6,15 @@ import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.selected
 import dev.ayuislands.AppearanceSyncService
-import dev.ayuislands.accent.AyuVariant
 import javax.swing.JComboBox
-
-/**
- * Typealias for injecting a row (e.g. the `Follow system accent color` checkbox owned
- * by [AyuIslandsAccentPanel]) into the shared `System` collapsible group rendered by
- * this panel. The configurable sets the bridge before `buildPanel` runs.
- */
-typealias SystemAccentRowInstaller = (Panel) -> Unit
 
 /**
  * Hosts theme-related settings:
  *   - Editor color scheme auto-bind on theme change (cross-platform).
  *   - macOS "System" collapsible group — appearance (Light/Dark) and accent-color
  *     system integration. The accent-color checkbox is owned by
- *     [AyuIslandsAccentPanel]; [systemAccentRowInstaller] is wired by the
- *     configurable so the checkbox renders inside this group while its state
- *     and side-effects stay with the accent panel.
+ *     [AyuIslandsAccentPanel]. Its build-time callback renders the checkbox
+ *     inside this group while state and side-effects stay with the accent panel.
  *
  * The scheme-bind row is rendered FIRST so it surfaces above the macOS-only
  * group when both apply. On non-macOS platforms only the scheme-bind row is
@@ -35,7 +26,7 @@ typealias SystemAccentRowInstaller = (Panel) -> Unit
  * `AyuIslandsAppearancePanelSyncEditorSchemeTest` (the test writes the fields
  * via `getDeclaredField`), so they deliberately stay hand-rolled.
  */
-class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
+class AyuIslandsAppearancePanel : SettingsParticipant {
     private data class AppearanceSettings(
         val followSystemAppearance: Boolean = false,
         val nightTheme: String = "Mirage",
@@ -58,11 +49,9 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
     private var storedSyncEditorScheme: Boolean = true
     private var syncEditorSchemeCheckbox: JBCheckBox? = null
 
-    var systemAccentRowInstaller: SystemAccentRowInstaller? = null
-
-    override fun buildPanel(
+    fun buildPanel(
         panel: Panel,
-        variant: AyuVariant,
+        buildAccentSection: Panel.() -> Unit = {},
     ) {
         val settings = AyuIslandsSettings.getInstance()
         section.load()
@@ -118,7 +107,7 @@ class AyuIslandsAppearancePanel : AyuIslandsSettingsPanel {
                 // Accent-color system checkbox lives in AyuIslandsAccentPanel (owns the
                 // pending follow-system state and swatch-panel disable logic). We inject
                 // its row here so the UI groups both macOS integrations together.
-                systemAccentRowInstaller?.invoke(this)
+                buildAccentSection()
             }
         collapsible.expanded = settings.state.systemGroupExpanded
         collapsible.addExpandedListener { expanded ->

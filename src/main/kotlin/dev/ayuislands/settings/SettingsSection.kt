@@ -4,7 +4,7 @@ package dev.ayuislands.settings
  * Pending/stored bookkeeping for a settings panel section over an immutable
  * snapshot [T].
  *
- * Every [AyuIslandsSettingsPanel] used to hand-roll the same machine: a
+ * Every [SettingsParticipant] used to hand-roll the same machine: a
  * `pending*`/`stored*` field pair per setting, an OR-chain `isModified`, an
  * apply that copies pending into stored, and a reset that copies stored back
  * into pending. This class owns that machine once, over a whole-object

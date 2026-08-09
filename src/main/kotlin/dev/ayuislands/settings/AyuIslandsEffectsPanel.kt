@@ -35,7 +35,7 @@ private data class SliderConfig(
 /**
  * Glow effects configuration rendered in a single Glow tab.
  *
- * [buildGlowPanel] renders the master toggle, preset selection, style/animation controls,
+ * [buildPanel] renders the master toggle, preset selection, style/animation controls,
  * sliders, and glow targets.
  * Called from [AyuIslandsConfigurable] into a single tab pane.
  *
@@ -43,7 +43,7 @@ private data class SliderConfig(
  * immutable [GlowSettings] snapshot.
  */
 @Suppress("TooManyFunctions") // Settings panel with grouped UI builders
-class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
+class AyuIslandsEffectsPanel : SettingsParticipant {
     private val section =
         SettingsSection(initial = GlowSettings()) {
             val state = AyuIslandsSettings.getInstance().state
@@ -83,12 +83,6 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
     private var stateLoaded = false
     private var controlsLicensed = false
 
-    /** Not used — the Glow panel is built via [buildGlowPanel]. */
-    override fun buildPanel(
-        panel: Panel,
-        variant: AyuVariant,
-    ) { /* Glow panel is built via buildGlowPanel instead */ }
-
     private fun ensureStateLoaded() {
         if (stateLoaded) return
         section.load()
@@ -97,7 +91,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
 
     // Glow tab content
 
-    fun buildGlowPanel(panel: Panel) {
+    fun buildPanel(panel: Panel) {
         ensureStateLoaded()
         val gate =
             PremiumFeatureGate(
@@ -637,7 +631,7 @@ class AyuIslandsEffectsPanel : AyuIslandsSettingsPanel {
         updateGlowGroupPanel()
     }
 
-    // AyuIslandsSettingsPanel contract
+    // SettingsParticipant contract
 
     override fun isModified(): Boolean = section.isModified()
 

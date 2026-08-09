@@ -113,7 +113,7 @@ class FontPresetPanelCustomRegressionTest {
     }
 
     @Test
-    fun `initState is not modified when stored customizations are absent defaults`() {
+    fun `loadState is not modified when stored customizations are absent defaults`() {
         val state = AyuIslandsState()
         val settings = mockk<AyuIslandsSettings>(relaxed = true)
         every { settings.state } returns state
@@ -125,7 +125,7 @@ class FontPresetPanelCustomRegressionTest {
 
         val panel = FontPresetPanel()
 
-        panel.initState()
+        panel.loadState()
 
         assertFalse(panel.isModified(), "Default decoded font customizations must not dirty a fresh panel")
     }
