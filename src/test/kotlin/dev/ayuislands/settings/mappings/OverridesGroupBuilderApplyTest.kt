@@ -1,7 +1,10 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.openapi.actionSystem.ActionGroup
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionToolbar
 import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
@@ -24,6 +27,7 @@ import io.mockk.verify
 import io.mockk.verifyOrder
 import java.awt.Component
 import java.awt.Container
+import java.io.File
 import javax.swing.JTable
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -195,6 +199,46 @@ class OverridesGroupBuilderApplyTest {
     }
 
     @Test
+    fun `license loss disables and guards pin current project action`() {
+        val projectDirectory = File(System.getProperty("java.io.tmpdir"), "pin-after-license-loss")
+        val project =
+            mockk<Project>(relaxed = true) {
+                every { isDefault } returns false
+                every { isDisposed } returns false
+                every { basePath } returns projectDirectory.path
+                every { name } returns "Pinned project"
+            }
+        val draft = AccentMappingsDraft()
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { AccentMappingsState() })
+        val actionGroups = mutableListOf<ActionGroup>()
+        try {
+            buildGroup(builder, project, actionGroups)
+
+            assertEquals(2, actionGroups.size)
+            val pinAction =
+                actionGroups
+                    .map { it as DefaultActionGroup }
+                    .flatMap { it.childActionsOrStubs.toList() }
+                    .single { it.templatePresentation.text == "Pin Current Project" }
+            val presentation = Presentation()
+            val event = mockk<AnActionEvent>(relaxed = true)
+            every { event.presentation } returns presentation
+
+            pinAction.update(event)
+            assertTrue(presentation.isEnabled)
+
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+            pinAction.update(event)
+            assertFalse(presentation.isEnabled)
+
+            pinAction.actionPerformed(event)
+            assertTrue(draft.projectMappings.isEmpty())
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
     fun `apply uses focused project fallback when no parent is bound`() {
         val focusedProject =
             mockk<Project>(relaxed = true) {
@@ -227,8 +271,9 @@ class OverridesGroupBuilderApplyTest {
     private fun buildGroup(
         builder: OverridesGroupBuilder,
         project: Project,
+        actionGroups: MutableList<ActionGroup> = mutableListOf(),
     ): Container {
-        installUiServices()
+        installUiServices(actionGroups)
         val settings = mockk<AyuIslandsSettings>()
         every { settings.state } returns AyuIslandsState()
         every { settings.getAccentForVariant(AyuVariant.MIRAGE) } returns "#5CCFE6"
@@ -239,13 +284,16 @@ class OverridesGroupBuilderApplyTest {
         }
     }
 
-    private fun installUiServices() {
+    private fun installUiServices(actionGroups: MutableList<ActionGroup>) {
         mockkStatic(ApplicationManager::class)
         val application = mockk<Application>(relaxed = true)
         val actionManager = mockk<ActionManager>(relaxed = true)
         every { ApplicationManager.getApplication() } returns application
         every { application.getService(ActionManager::class.java) } returns actionManager
         every { actionManager.getAction(any()) } returns null
+        every {
+            actionManager.createActionToolbar(any(), capture(actionGroups), any())
+        } returns mockk<ActionToolbar>(relaxed = true)
 
         every { application.getService(any<Class<*>>()) } answers {
             val serviceClass = firstArg<Class<*>>()
