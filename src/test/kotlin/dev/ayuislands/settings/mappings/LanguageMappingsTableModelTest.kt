@@ -20,17 +20,6 @@ class LanguageMappingsTableModelTest {
     }
 
     @Test
-    fun `replaceAll resets rows`() {
-        val model = LanguageMappingsTableModel(AccentMappingsDraft())
-        model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
-
-        model.replaceAll(listOf(LanguageMapping("python", "Python", "#222222")))
-
-        assertEquals(1, model.rowCount)
-        assertEquals("Python", model.getValueAt(0, LanguageMappingsTableModel.COLUMN_LANGUAGE))
-    }
-
-    @Test
     fun `add appends and returns insertion index`() {
         val model = LanguageMappingsTableModel(AccentMappingsDraft())
 

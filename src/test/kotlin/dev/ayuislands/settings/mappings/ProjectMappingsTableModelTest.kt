@@ -21,17 +21,6 @@ class ProjectMappingsTableModelTest {
     }
 
     @Test
-    fun `replaceAll resets rows and fires structural change`() {
-        val model = ProjectMappingsTableModel(AccentMappingsDraft())
-        model.add(ProjectMapping("/tmp/a", "A", "#111111"))
-
-        model.replaceAll(listOf(ProjectMapping("/tmp/b", "B", "#222222")))
-
-        assertEquals(1, model.rowCount)
-        assertEquals("B", model.getValueAt(0, ProjectMappingsTableModel.COLUMN_PROJECT))
-    }
-
-    @Test
     fun `add returns inserted row index`() {
         val model = ProjectMappingsTableModel(AccentMappingsDraft())
 

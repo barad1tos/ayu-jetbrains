@@ -359,17 +359,13 @@ internal class OverridesGroupBuilder(
         fallbackGlobalHex: String,
         cacheOnly: Boolean = false,
     ): PendingAccentPreview {
+        val detectorLookup = AccentDetectorLookup.SnapshotLookup(readFallbackEarly = cacheOnly)
         val winner =
             AccentResolutionChainBuilder.overrideWinner(
                 project,
                 AccentResolutionRequest(
                     view = draft,
-                    lookup =
-                        if (cacheOnly) {
-                            AccentDetectorLookup.StrictCacheOnlyLookup
-                        } else {
-                            AccentDetectorLookup.WarmingLookup
-                        },
+                    lookup = detectorLookup,
                     policy = AccentHexPolicy.RAW,
                 ),
             )
@@ -377,14 +373,14 @@ internal class OverridesGroupBuilder(
         return PendingAccentPreview(
             hex = winner?.hex ?: fallbackGlobalHex,
             source = source,
-            detail = activeSourceDetail(project, source, cacheOnly),
+            detail = activeSourceDetail(project, source, detectorLookup.verdict),
         )
     }
 
     private fun activeSourceDetail(
         project: Project?,
         source: AccentResolver.Source,
-        cacheOnly: Boolean,
+        verdict: ProjectLanguageVerdict?,
     ): String? {
         if (source !in LANGUAGE_DETAIL_SOURCES) return null
         val activeProject =
@@ -403,12 +399,6 @@ internal class OverridesGroupBuilder(
         if (isManualLanguageSource) {
             return forcedLanguageId?.let { "${languageDisplayName(it)}, manual" }
         }
-        val verdict =
-            if (cacheOnly) {
-                ProjectLanguageDetector.verdict(activeProject)
-            } else {
-                ProjectLanguageDetector.verdict(activeProject, warmCache = true)
-            }
         return (verdict as? ProjectLanguageVerdict.Detected)?.let(::detectedLanguageDetail)
     }
 

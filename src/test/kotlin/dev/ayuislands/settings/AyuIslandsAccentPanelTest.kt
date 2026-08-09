@@ -4,6 +4,7 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.ui.TitledSeparator
@@ -11,12 +12,16 @@ import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ProjectLanguageDetector
+import dev.ayuislands.accent.ProjectLanguageVerdict
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
+import dev.ayuislands.settings.mappings.AccentMappingsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.Runs
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -27,8 +32,10 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Component
 import java.awt.Container
+import java.io.File
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
+import javax.swing.JEditorPane
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -205,6 +212,46 @@ class AyuIslandsAccentPanelTest {
     }
 
     @Test
+    fun `pending accent refresh consumes one detector snapshot for the active label`() {
+        val baseDirectory = File(System.getProperty("java.io.tmpdir"), "active-label-preview")
+        val project =
+            mockk<Project> {
+                every { isDefault } returns false
+                every { isDisposed } returns false
+                every { basePath } returns baseDirectory.path
+                every { name } returns baseDirectory.name
+                every { messageBus } returns mockk(relaxed = true)
+            }
+        every { AccentApplicator.resolveFocusedProject() } returns project
+        mockkObject(ProjectLanguageDetector)
+        every { ProjectLanguageDetector.verdict(project) } returns
+            ProjectLanguageVerdict.Detected("kotlin", mapOf("kotlin" to 1_000L))
+        val mappingsState =
+            AccentMappingsState().apply {
+                languageAccents["kotlin"] = "#112233"
+            }
+        val accentPanel = AyuIslandsAccentPanel()
+        try {
+            wireUiDslServices(mappingsState)
+            val dialogPanel =
+                panel {
+                    accentPanel.buildPanel(this, AyuVariant.MIRAGE)
+                }
+            clearMocks(ProjectLanguageDetector, answers = false, recordedCalls = true)
+
+            accentPanel.onAccentChanged?.invoke("#73D0FF")
+
+            val activeLabel =
+                descendants(dialogPanel, JEditorPane::class.java)
+                    .single { it.text.contains("Currently active:") }
+            kotlin.test.assertTrue(activeLabel.text.contains("Language override (Kotlin, 100%)"))
+            verify(exactly = 1) { ProjectLanguageDetector.verdict(project) }
+        } finally {
+            accentPanel.dispose()
+        }
+    }
+
+    @Test
     fun `buildPanel renders immutable System and Chrome sections around Overrides`() {
         wireUiDslServices()
         val accentPanel = AyuIslandsAccentPanel()
@@ -352,11 +399,11 @@ class AyuIslandsAccentPanelTest {
         }
     }
 
-    private fun wireUiDslServices() {
+    private fun wireUiDslServices(mappingsState: AccentMappingsState = AccentMappingsState()) {
         mockkStatic(ApplicationManager::class)
         val appMock = mockk<Application>(relaxed = true)
         val actionManagerMock = mockk<ActionManagerEx>(relaxed = true)
-        val mappingsSettings = AccentMappingsSettings()
+        val mappingsSettings = AccentMappingsSettings().apply { loadState(mappingsState) }
         mockkStatic(ActionManager::class)
         every { ActionManager.getInstance() } returns actionManagerMock
         every { ApplicationManager.getApplication() } returns appMock

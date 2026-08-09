@@ -8,7 +8,7 @@ import javax.swing.table.AbstractTableModel
  *
  * Immutable `val` fields enforce invariants at construction — `canonicalPath` can't be
  * blank, and `hex` must look like `#RRGGBB`. Edits go through [copy] rather than in-place
- * mutation, so the table model's fingerprint-based isModified detection stays reliable.
+ * mutation, so pending and committed snapshots remain structurally comparable.
  */
 data class ProjectMapping(
     val canonicalPath: String,
@@ -35,13 +35,6 @@ internal class ProjectMappingsTableModel(
 ) : AbstractTableModel() {
     private val rows: List<ProjectMapping>
         get() = draft.projectMappings
-
-    fun replaceAll(mappings: Collection<ProjectMapping>) {
-        val replacements = mappings.toList()
-        rows.indices.reversed().forEach(draft::removeProject)
-        replacements.forEach(draft::addProject)
-        refreshAll()
-    }
 
     fun snapshot(): List<ProjectMapping> = rows.toList()
 

@@ -40,13 +40,6 @@ internal class LanguageMappingsTableModel(
     private val rows: List<LanguageMapping>
         get() = draft.languageMappings
 
-    fun replaceAll(mappings: Collection<LanguageMapping>) {
-        val replacements = mappings.toList()
-        rows.indices.reversed().forEach(draft::removeLanguage)
-        replacements.forEach(draft::addLanguage)
-        refreshAll()
-    }
-
     fun snapshot(): List<LanguageMapping> = rows.toList()
 
     fun add(mapping: LanguageMapping): Int {

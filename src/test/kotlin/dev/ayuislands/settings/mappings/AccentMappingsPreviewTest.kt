@@ -70,6 +70,27 @@ class AccentMappingsPreviewTest {
     }
 
     @Test
+    fun `cache-only preview uses one detector snapshot for winner and detail`() {
+        val project = stubProject(File(System.getProperty("java.io.tmpdir"), "preview-snapshot"))
+        every { ProjectLanguageDetector.verdict(project) } returnsMany
+            listOf(
+                ProjectLanguageVerdict.Detected("kotlin", mapOf("kotlin" to 1_000L)),
+                ProjectLanguageVerdict.Detected("python", mapOf("python" to 1_000L)),
+            )
+        val draft =
+            AccentMappingsDraft().apply {
+                addLanguage(LanguageMapping("kotlin", "Kotlin", "#112233"))
+                addLanguage(LanguageMapping("python", "Python", "#3572A5"))
+            }
+
+        assertEquals(
+            PendingAccentPreview("#112233", AccentResolver.Source.LANGUAGE_OVERRIDE, "Kotlin, 100%"),
+            OverridesGroupBuilder(draft = draft).preview(project, "#FFCC66", cacheOnly = true),
+        )
+        verify(exactly = 1) { ProjectLanguageDetector.verdict(project) }
+    }
+
+    @Test
     fun `cache-only preview returns language fallback with detected detail`() {
         val project = stubProject(File(System.getProperty("java.io.tmpdir"), "preview-language-fallback"))
         every { ProjectLanguageDetector.verdict(project) } returns
@@ -163,12 +184,12 @@ class AccentMappingsPreviewTest {
         verify(exactly = 0) { ProjectLanguageDetector.dominant(project) }
     }
 
-    private fun stubProject(baseDir: File): Project {
+    private fun stubProject(baseDirectory: File): Project {
         val project = mockk<Project>()
         every { project.isDefault } returns false
         every { project.isDisposed } returns false
-        every { project.basePath } returns baseDir.path
-        every { project.name } returns baseDir.name
+        every { project.basePath } returns baseDirectory.path
+        every { project.name } returns baseDirectory.name
         return project
     }
 }

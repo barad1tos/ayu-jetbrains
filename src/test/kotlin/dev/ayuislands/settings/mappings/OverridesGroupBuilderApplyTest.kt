@@ -1,9 +1,12 @@
 package dev.ayuislands.settings.mappings
 
 import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.ui.CommonActionsPanel
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
@@ -19,6 +22,8 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import io.mockk.verifyOrder
+import java.awt.Component
+import java.awt.Container
 import javax.swing.JTable
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -54,14 +59,18 @@ class OverridesGroupBuilderApplyTest {
                 addProject(ProjectMapping("/tmp/project", "Project", "#AABBCC"))
             }
         val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
-        var changeCount = 0
-        builder.addPendingChangeListener { changeCount += 1 }
+        try {
+            var changeCount = 0
+            builder.addPendingChangeListener { changeCount += 1 }
 
-        builder.apply()
+            builder.apply()
 
-        assertEquals(mapOf("/tmp/project" to "#AABBCC"), state.projectAccents)
-        assertFalse(builder.isModified())
-        assertEquals(1, changeCount)
+            assertEquals(mapOf("/tmp/project" to "#AABBCC"), state.projectAccents)
+            assertFalse(builder.isModified())
+            assertEquals(1, changeCount)
+        } finally {
+            builder.dispose()
+        }
     }
 
     @Test
@@ -79,21 +88,25 @@ class OverridesGroupBuilderApplyTest {
             }
         draft.writeTo(state)
         val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
-        buildGroup(builder, project)
+        try {
+            buildGroup(builder, project)
 
-        builder.apply()
+            builder.apply()
 
-        assertEquals(mapOf("/tmp/project" to "#AABBCC"), state.projectAccents)
-        assertFalse(builder.isModified())
-        verify(exactly = 1) {
-            AccentResolver.resolve(project, AyuVariant.MIRAGE)
-            AccentApplicator.applyFromHexString("#AABBCC")
-            swapService.notifyExternalApply("#AABBCC")
-        }
-        verifyOrder {
-            AccentResolver.resolve(project, AyuVariant.MIRAGE)
-            AccentApplicator.applyFromHexString("#AABBCC")
-            swapService.notifyExternalApply("#AABBCC")
+            assertEquals(mapOf("/tmp/project" to "#AABBCC"), state.projectAccents)
+            assertFalse(builder.isModified())
+            verify(exactly = 1) {
+                AccentResolver.resolve(project, AyuVariant.MIRAGE)
+                AccentApplicator.applyFromHexString("#AABBCC")
+                swapService.notifyExternalApply("#AABBCC")
+            }
+            verifyOrder {
+                AccentResolver.resolve(project, AyuVariant.MIRAGE)
+                AccentApplicator.applyFromHexString("#AABBCC")
+                swapService.notifyExternalApply("#AABBCC")
+            }
+        } finally {
+            builder.dispose()
         }
     }
 
@@ -106,16 +119,20 @@ class OverridesGroupBuilderApplyTest {
                 addProject(ProjectMapping("/tmp/locked", "Locked", "#AABBCC"))
             }
         val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        try {
+            builder.apply()
 
-        builder.apply()
-
-        assertTrue(state.projectAccents.isEmpty())
-        assertTrue(builder.isModified())
-        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+            assertTrue(state.projectAccents.isEmpty())
+            assertTrue(builder.isModified())
+            verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        } finally {
+            builder.dispose()
+        }
     }
 
     @Test
     fun `unlicensed override remove actions cannot delete visible rows`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
         val projectMapping = ProjectMapping("/tmp/locked-preview", "Locked preview", "#AABBCC")
         val languageMapping = LanguageMapping("kotlin", "Kotlin", "#BBCCDD")
         val draft =
@@ -123,19 +140,35 @@ class OverridesGroupBuilderApplyTest {
                 addProject(projectMapping)
                 addLanguage(languageMapping)
             }
-        val builder = OverridesGroupBuilder(draft = draft)
-        table(builder, "projectTable").selectionModel.setSelectionInterval(0, 0)
-        table(builder, "languageTable").selectionModel.setSelectionInterval(0, 0)
+        val state = AccentMappingsState().also(draft::writeTo)
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        try {
+            val root = buildGroup(builder, mockk(relaxed = true))
+            val tables = descendants(root, JTable::class.java)
+            tables.single { it.columnCount == 3 }.selectionModel.setSelectionInterval(0, 0)
+            tables.single { it.columnCount == 2 }.selectionModel.setSelectionInterval(0, 0)
+            val removeActions =
+                descendants(root, CommonActionsPanel::class.java)
+                    .mapNotNull { actionsPanel ->
+                        actionsPanel.getAnAction(CommonActionsPanel.Buttons.REMOVE)
+                    }
 
-        val projectActions = unlicensedActions(builder, "projectActions")
-        val languageActions = unlicensedActions(builder, "languageActions")
-
-        assertFalse(projectActions.removeEnabled())
-        assertFalse(languageActions.removeEnabled())
-        projectActions.remove()
-        languageActions.remove()
-        assertEquals(listOf(projectMapping), draft.projectMappings)
-        assertEquals(listOf(languageMapping), draft.languageMappings)
+            assertEquals(2, removeActions.size)
+            removeActions.forEach { action ->
+                val presentation = Presentation()
+                val event = mockk<AnActionEvent>(relaxed = true)
+                every { event.presentation } returns presentation
+                action.update(event)
+                assertFalse(presentation.isEnabled)
+                action.actionPerformed(event)
+            }
+            assertEquals(listOf(projectMapping), draft.projectMappings)
+            assertEquals(1, draft.languageMappings.size)
+            assertEquals(languageMapping.languageId, draft.languageMappings.single().languageId)
+            assertEquals(languageMapping.hex, draft.languageMappings.single().hex)
+        } finally {
+            builder.dispose()
+        }
     }
 
     @Test
@@ -157,34 +190,28 @@ class OverridesGroupBuilderApplyTest {
                 addProject(ProjectMapping("/tmp/fallback", "Fallback", "#5CCFE6"))
             }
         val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        try {
+            builder.apply()
 
-        builder.apply()
-
-        verify(exactly = 1) { AccentApplicator.resolveFocusedProject() }
-        verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
-    }
-
-    private fun table(
-        builder: OverridesGroupBuilder,
-        fieldName: String,
-    ): JTable {
-        val field = OverridesGroupBuilder::class.java.getDeclaredField(fieldName)
-        field.isAccessible = true
-        return field.get(builder) as JTable
+            verify(exactly = 1) { AccentApplicator.resolveFocusedProject() }
+            verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
+            verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
+        } finally {
+            builder.dispose()
+        }
     }
 
     private fun buildGroup(
         builder: OverridesGroupBuilder,
         project: Project,
-    ) {
+    ): Container {
         installUiServices()
         val settings = mockk<AyuIslandsSettings>()
         every { settings.state } returns AyuIslandsState()
         every { settings.getAccentForVariant(AyuVariant.MIRAGE) } returns "#5CCFE6"
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
-        panel {
+        return panel {
             builder.buildGroup(this, project)
         }
     }
@@ -207,35 +234,17 @@ class OverridesGroupBuilderApplyTest {
         }
     }
 
-    private fun unlicensedActions(
-        builder: OverridesGroupBuilder,
-        methodName: String,
-    ): TableActionHandle {
-        val tableActionsField = OverridesGroupBuilder::class.java.getDeclaredField("tableActions")
-        tableActionsField.isAccessible = true
-        val tableActions = tableActionsField.get(builder)
-        val method = tableActions.javaClass.getDeclaredMethod(methodName, Boolean::class.javaPrimitiveType)
-        method.isAccessible = true
-        return TableActionHandle(method.invoke(tableActions, false))
-    }
-
-    private class TableActionHandle(
-        delegate: Any,
-    ) {
-        private val removeAction = delegate.action("getRemove")
-        private val removeEnabledAction = delegate.action("getRemoveEnabled")
-
-        fun remove() {
-            removeAction()
+    private fun <T : Component> descendants(
+        container: Container,
+        type: Class<T>,
+    ): List<T> =
+        buildList {
+            fun visit(component: Component) {
+                if (type.isInstance(component)) add(type.cast(component))
+                if (component is Container) {
+                    component.components.forEach(::visit)
+                }
+            }
+            visit(container)
         }
-
-        fun removeEnabled(): Boolean = removeEnabledAction() as Boolean
-
-        @Suppress("UNCHECKED_CAST")
-        private fun Any.action(name: String): () -> Any? {
-            val method = javaClass.getDeclaredMethod(name)
-            method.isAccessible = true
-            return method.invoke(this) as () -> Any?
-        }
-    }
 }
