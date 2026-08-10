@@ -34,6 +34,7 @@ import javax.swing.JScrollPane
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -111,6 +112,14 @@ class AccentStatusBarSurfaceTest {
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
         assertEquals(false, factory.isAvailable(project))
+    }
+
+    @Test
+    fun `widget bytecode does not expose deprecated presentation bridges`() {
+        assertFalse(
+            AccentStatusBarWidget::class.java.declaredMethods.any { it.name == "getPresentation" },
+            "CustomStatusBarWidget must not generate deprecated presentation compatibility bridges",
+        )
     }
 
     @Test

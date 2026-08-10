@@ -1,6 +1,7 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.models.ProductRelease
+import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 
 buildscript {
     repositories { mavenCentral() }
@@ -21,6 +22,13 @@ plugins {
 group = providers.gradleProperty("pluginGroup").get()
 version = providers.gradleProperty("pluginVersion").get()
 
+val integrationPlugins =
+    listOf(
+        "dev.j-a.swift" to "1.11.1.435-251",
+        "com.nasller.CodeGlancePro" to "2.0.2",
+        "indent-rainbow.indent-rainbow" to "2.2.0",
+    )
+
 kotlin {
     jvmToolchain(21)
 }
@@ -38,6 +46,9 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
         bundledPlugin("org.intellij.groovy")
+        integrationPlugins.forEach { (pluginId, pluginVersion) ->
+            plugin(pluginId, pluginVersion)
+        }
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
         testBundledPlugin("org.intellij.groovy")
@@ -79,6 +90,10 @@ tasks.register<Test>("integrationTest") {
 }
 
 tasks {
+    named<PrepareSandboxTask>("prepareTestSandbox") {
+        disabledPlugins.addAll(integrationPlugins.map { (pluginId, _) -> pluginId })
+    }
+
     named<JavaExec>("runIde") {
         jvmArgumentProviders +=
             CommandLineArgumentProvider {
@@ -105,7 +120,7 @@ intellijPlatform {
         freeArgs =
             listOf(
                 "-mute",
-                "ReleaseVersionAndPluginVersionMismatch,ExperimentalApiUsage",
+                "ReleaseVersionAndPluginVersionMismatch",
             )
         ides {
             // verifyGroup splits the 12 IDE targets across hosted runners to keep

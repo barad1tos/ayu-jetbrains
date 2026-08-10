@@ -23,6 +23,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -768,12 +769,22 @@ class IndentRainbowSyncTest {
     fun `apply keeps ownership retryable when Indent Rainbow schema is unavailable`() {
         state.irIntegrationEnabled = true
         val mockPlugin = mockk<IdeaPluginDescriptor>(relaxed = true)
+        val schemaUnavailableLoader =
+            object : ClassLoader(this::class.java.classLoader) {
+                override fun loadClass(
+                    name: String,
+                    resolve: Boolean,
+                ): Class<*> {
+                    if (name.startsWith("indent.rainbow.")) throw ClassNotFoundException(name)
+                    return super.loadClass(name, resolve)
+                }
+            }
         every { AyuPlugin.findLoadedPlugin(any()) } returns mockPlugin
-        every { mockPlugin.pluginClassLoader } returns this::class.java.classLoader
+        every { mockPlugin.pluginClassLoader } returns schemaUnavailableLoader
 
         val outcome = callApply()
 
-        assertTrue(outcome is IntegrationOutcome.Failed)
+        assertIs<ClassNotFoundException>(assertIs<IntegrationOutcome.Failed>(outcome).error)
         assertEquals(IntegrationOwnership.UNOWNED.name, state.irOwnership)
         assertEquals(false, getPrivateField("methodsResolved"))
         assertNull(getPrivateField("irConfig"))
