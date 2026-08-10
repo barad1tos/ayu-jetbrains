@@ -104,6 +104,8 @@ jobs:
         run: uv run --project scripts python scripts/tests/test-generate-campaign.py
       - name: Test Plugin Verifier API gate
         run: python3 scripts/tests/test-verify-plugin-verifier.py
+      - name: Test Gradle retry cache recovery
+        run: python3 scripts/tests/test-gradle-retry.py
       - name: Test font fallback URL smoke
         run: python3 scripts/tests/test-verify-font-fallback-urls.py
       - name: Verify font fallback URLs
