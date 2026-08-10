@@ -121,6 +121,12 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.8.3</h3>
+    <ul>
+      <li>[Fix] <b>Safer Accent settings reset</b> — resetting the Accent section now restores only its default accent mode without resetting Glow, rotation, project icons, syntax, or other Ayu preferences. The change still requires Apply and can be discarded with Cancel.</li>
+      <li>[Fix] <b>Reliable Accent override editing</b> — project and language mappings now preserve one consistent pending state across Add, Edit, Remove, Pin, Reset, Cancel, and Apply. Losing Pro access no longer discards pending mappings or partially applies related Accent settings.</li>
+      <li>[Fix] <b>Accurate Accent override preview</b> — the “Currently active” preview and diagnostics now refresh from the same detected-language result after a rescan, while reopening Settings no longer duplicates or blanks the Projects and Languages controls.</li>
+    </ul>
     <h3>2.8.2</h3>
     <ul>
       <li>[Fix] <b>Java syntax colors</b> — classes, fields, constants, and annotations keep their colors wherever they are referenced, not only where they are declared. Java code no longer flattens to a single gray tone, and editor schemes that already lost these colors are repaired automatically the first time each one is used.</li>

@@ -1,6 +1,7 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.models.ProductRelease
+import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 
 buildscript {
     repositories { mavenCentral() }
@@ -38,6 +39,9 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
         bundledPlugin("org.intellij.groovy")
+        plugin("dev.j-a.swift", "1.11.1.435-251")
+        plugin("com.nasller.CodeGlancePro", "2.0.2")
+        plugin("indent-rainbow.indent-rainbow", "2.2.0")
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
         testBundledPlugin("org.intellij.groovy")
@@ -79,6 +83,14 @@ tasks.register<Test>("integrationTest") {
 }
 
 tasks {
+    named<PrepareSandboxTask>("prepareTestSandbox") {
+        disabledPlugins.addAll(
+            "dev.j-a.swift",
+            "com.nasller.CodeGlancePro",
+            "indent-rainbow.indent-rainbow",
+        )
+    }
+
     named<JavaExec>("runIde") {
         jvmArgumentProviders +=
             CommandLineArgumentProvider {
@@ -105,7 +117,7 @@ intellijPlatform {
         freeArgs =
             listOf(
                 "-mute",
-                "ReleaseVersionAndPluginVersionMismatch,ExperimentalApiUsage",
+                "ReleaseVersionAndPluginVersionMismatch",
             )
         ides {
             // verifyGroup splits the 12 IDE targets across hosted runners to keep

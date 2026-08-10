@@ -70,6 +70,12 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.3" to
+                releaseNotes(
+                    "[Fix] Accent reset preserves unrelated Ayu preferences until Apply",
+                    "[Fix] Project and language overrides keep pending edits across license changes",
+                    "[Fix] Accent override previews refresh consistently after rescans and Settings reopens",
+                ),
             "2.8.2" to
                 releaseNotes(
                     "[Fix] Java classes, fields, constants and annotations keep their colors on references",

@@ -9,6 +9,7 @@ import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolutionChain
+import dev.ayuislands.accent.AccentResolutionStep
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 import dev.ayuislands.accent.StepOutcome
@@ -38,6 +39,7 @@ import javax.swing.JPanel
  * Hidden entirely when the license gate fails (premium feature) via
  * [AccentStatusBarWidgetFactory.isAvailable].
  */
+@JvmDefaultWithoutCompatibility
 internal class AccentStatusBarWidget(
     private val project: Project,
 ) : CustomStatusBarWidget {
@@ -181,10 +183,14 @@ internal class AccentStatusBarPanel(
 
     private fun StringBuilder.appendChainRows(chain: AccentResolutionChain) {
         for (step in chain.steps) {
-            val marker = if (step.outcome == StepOutcome.WON) "✓" else " "
-            append(escapeHtml("$marker ${AccentResolver.sourceLabel(step.source)}: ${step.detail}"))
-            append("<br>")
+            appendChainRow(step)
         }
+    }
+
+    private fun StringBuilder.appendChainRow(step: AccentResolutionStep) {
+        val marker = if (step.outcome == StepOutcome.WON) "✓" else " "
+        append(escapeHtml("$marker ${AccentResolver.sourceLabel(step.source)}: ${step.detail}"))
+        append("<br>")
     }
 
     private fun escapeHtml(text: String): String =
