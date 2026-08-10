@@ -8,7 +8,7 @@ import javax.swing.table.AbstractTableModel
  *
  * Immutable `val` fields enforce invariants at construction — `canonicalPath` can't be
  * blank, and `hex` must look like `#RRGGBB`. Edits go through [copy] rather than in-place
- * mutation, so the table model's fingerprint-based isModified detection stays reliable.
+ * mutation, so pending and committed snapshots remain structurally comparable.
  */
 data class ProjectMapping(
     val canonicalPath: String,
@@ -30,27 +30,23 @@ data class ProjectMapping(
  * Project (display name), Path (canonical path). Rows track orphaned paths
  * via [isOrphan]; the table-level prepareRenderer hook styles them accordingly.
  */
-class ProjectMappingsTableModel : AbstractTableModel() {
-    private val rows: MutableList<ProjectMapping> = mutableListOf()
-
-    fun replaceAll(mappings: Collection<ProjectMapping>) {
-        rows.clear()
-        rows.addAll(mappings)
-        fireTableDataChanged()
-    }
+internal class ProjectMappingsTableModel(
+    private val draft: AccentMappingsDraft,
+) : AbstractTableModel() {
+    private val rows: List<ProjectMapping>
+        get() = draft.projectMappings
 
     fun snapshot(): List<ProjectMapping> = rows.toList()
 
     fun add(mapping: ProjectMapping): Int {
-        rows += mapping
-        val index = rows.size - 1
+        val index = draft.addProject(mapping)
         fireTableRowsInserted(index, index)
         return index
     }
 
     fun remove(row: Int) {
         if (row !in rows.indices) return
-        rows.removeAt(row)
+        draft.removeProject(row)
         fireTableRowsDeleted(row, row)
     }
 
@@ -59,8 +55,12 @@ class ProjectMappingsTableModel : AbstractTableModel() {
         hex: String,
     ) {
         if (row !in rows.indices) return
-        rows[row] = rows[row].copy(hex = hex)
+        draft.updateProjectHex(row, hex)
         fireTableRowsUpdated(row, row)
+    }
+
+    internal fun refreshAll() {
+        fireTableDataChanged()
     }
 
     fun rowAt(index: Int): ProjectMapping? = rows.getOrNull(index)

@@ -8,19 +8,20 @@ import kotlin.test.assertTrue
 
 class LanguageMappingsTableModelTest {
     @Test
-    fun `replaceAll resets rows`() {
-        val model = LanguageMappingsTableModel()
-        model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
+    fun `table mutations update the shared accent mappings draft`() {
+        val draft = AccentMappingsDraft()
+        val model = LanguageMappingsTableModel(draft)
 
-        model.replaceAll(listOf(LanguageMapping("python", "Python", "#222222")))
+        model.add(LanguageMapping("kotlin", "Kotlin", "#AABBCC"))
+        model.updateHex(0, "#112233")
 
-        assertEquals(1, model.rowCount)
-        assertEquals("Python", model.getValueAt(0, LanguageMappingsTableModel.COLUMN_LANGUAGE))
+        assertEquals("#112233", draft.languageAccent("kotlin"))
+        assertTrue(draft.isModified)
     }
 
     @Test
     fun `add appends and returns insertion index`() {
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
 
         assertEquals(0, model.add(LanguageMapping("kotlin", "Kotlin", "#111111")))
         assertEquals(1, model.add(LanguageMapping("python", "Python", "#222222")))
@@ -28,7 +29,7 @@ class LanguageMappingsTableModelTest {
 
     @Test
     fun `updateHex mutates only the target row`() {
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
         model.add(LanguageMapping("python", "Python", "#222222"))
 
@@ -43,7 +44,7 @@ class LanguageMappingsTableModelTest {
         // LanguageMapping's init block enforces that `languageId` is always lowercase, and
         // AddLanguageMappingDialog.doOKAction lowercases the probe before calling this — so
         // the model doesn't need an ignoreCase compensator. The invariant lives in the type.
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
 
         assertTrue(model.containsLanguage("kotlin"))
@@ -62,7 +63,7 @@ class LanguageMappingsTableModelTest {
 
     @Test
     fun `remove drops the row and shifts indices`() {
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
         model.add(LanguageMapping("python", "Python", "#222222"))
 
@@ -74,7 +75,7 @@ class LanguageMappingsTableModelTest {
 
     @Test
     fun `getValueAt returns column payload by index`() {
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         model.add(LanguageMapping("kotlin", "Kotlin", "#ABCDEF"))
 
         assertEquals("#ABCDEF", model.getValueAt(0, LanguageMappingsTableModel.COLUMN_COLOR))
@@ -112,7 +113,7 @@ class LanguageMappingsTableModelTest {
         // Defensive bound check — UI code calls remove(selectedRow) and selectedRow can be
         // -1 when nothing is selected. A regression dropping the `if (row !in rows.indices)`
         // guard would NPE inside ArrayList.removeAt and kill the Settings dialog.
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
 
         model.remove(-1)
@@ -124,7 +125,7 @@ class LanguageMappingsTableModelTest {
     @Test
     fun `updateHex out-of-bounds row is a silent no-op`() {
         // Symmetric to remove: same UI code path can hand updateHex a stale or -1 index.
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
 
         model.updateHex(-1, "#FFFFFF")
@@ -138,7 +139,7 @@ class LanguageMappingsTableModelTest {
         // Swing JTable can request stale row indices during repaint races. A regression
         // dropping the `rowAt(rowIndex) ?: return null` guard would surface as NPE inside
         // the table renderer thread.
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         assertEquals(null, model.getValueAt(0, LanguageMappingsTableModel.COLUMN_COLOR))
         assertEquals(null, model.getValueAt(99, LanguageMappingsTableModel.COLUMN_LANGUAGE))
     }
@@ -148,7 +149,7 @@ class LanguageMappingsTableModelTest {
         // Future column-count growth would leave the existing JTable schema querying
         // out-of-range columns until repaint catches up. The `else -> null` arm prevents
         // those reads from throwing.
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         model.add(LanguageMapping("kotlin", "Kotlin", "#ABCDEF"))
 
         assertEquals(null, model.getValueAt(0, 99))
@@ -159,7 +160,7 @@ class LanguageMappingsTableModelTest {
         // Algorithmic guard for JTable header renderer probes that may go beyond the
         // declared column count during animation/resize. Pure logic test — locks in the
         // `getOrElse { "" }` arm so a future refactor that drops it can't ship.
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
 
         assertEquals("", model.getColumnName(99))
     }
@@ -170,7 +171,7 @@ class LanguageMappingsTableModelTest {
         // A regression returning true would let users type into the cell and bypass the
         // dialog's validation seam — the user-visible failure is "edit lands without
         // hex / language-id checks", but the regression itself is at the model level.
-        val model = LanguageMappingsTableModel()
+        val model = LanguageMappingsTableModel(AccentMappingsDraft())
         model.add(LanguageMapping("kotlin", "Kotlin", "#111111"))
 
         assertFalse(model.isCellEditable(0, LanguageMappingsTableModel.COLUMN_COLOR))

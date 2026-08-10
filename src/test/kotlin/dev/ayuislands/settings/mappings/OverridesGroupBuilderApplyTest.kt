@@ -1,53 +1,48 @@
 package dev.ayuislands.settings.mappings
 
+import com.intellij.openapi.actionSystem.ActionGroup
+import com.intellij.openapi.actionSystem.ActionManager
+import com.intellij.openapi.actionSystem.ActionToolbar
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
+import com.intellij.ui.CommonActionsPanel
+import com.intellij.ui.dsl.builder.panel
+import com.intellij.ui.table.JBTable
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkClass
 import io.mockk.mockkObject
-import io.mockk.unmockkObject
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
+import io.mockk.verify
+import io.mockk.verifyOrder
+import java.awt.Component
+import java.awt.Container
+import java.io.File
 import javax.swing.JTable
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * Locks the defense-in-depth contract around [OverridesGroupBuilder.apply]:
- *
- *  - Persisted state is committed from the pending tables BEFORE the
- *    resolver/applicator/swap chain fires.
- *  - A transient failure in the apply chain (LafManager loss, UIManager race,
- *    project-swap service shutdown) MUST NOT skip the `storedProjects` /
- *    `storedLanguages` snapshot refresh or the pending-change `fireChanged()`
- *    broadcast below the try block.
- *  - After apply() returns, `isModified()` must read `false` for the
- *    just-committed rows — or the settings UI drifts into a "Apply is lit even
- *    after saving" loop that users can only break by closing the dialog.
- *
- * Red/green: remove the runCatching wrapper from `apply()` and this test
- * fails; remove the `storedProjects` snapshot line and this test fails.
- */
 class OverridesGroupBuilderApplyTest {
-    private lateinit var mappingsState: AccentMappingsState
-
     @BeforeTest
     fun setUp() {
-        mappingsState = AccentMappingsState()
-        val settings = mockk<AccentMappingsSettings>()
-        every { settings.state } returns mappingsState
-        mockkObject(AccentMappingsSettings.Companion)
-        every { AccentMappingsSettings.getInstance() } returns settings
-
-        mockkObject(ProjectLanguageDetector)
-        every { ProjectLanguageDetector.dominant(any()) } returns null
-
         mockkObject(AyuVariant.Companion)
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator)
@@ -58,238 +53,414 @@ class OverridesGroupBuilderApplyTest {
 
     @AfterTest
     fun tearDown() {
-        unmockkObject(AccentMappingsSettings.Companion)
-        unmockkObject(ProjectLanguageDetector)
-        unmockkObject(AyuVariant.Companion)
-        unmockkObject(AccentResolver)
-        unmockkObject(AccentApplicator)
-        unmockkObject(ProjectAccentSwapService.Companion)
-        unmockkObject(LicenseChecker)
+        unmockkAll()
     }
 
     @Test
-    fun `apply() updates stored snapshot and fires changed when the apply chain throws`() {
-        // Simulate the round-2 threat model: the resolver / applicator / swap-cache
-        // chain explodes mid-apply (e.g. LafManager returning null on a shutdown
-        // race). The pending-model snapshot is already persisted to mappingsState
-        // by the time the chain runs, so the user's overrides ARE saved — what
-        // we're locking here is the in-memory drift: storedProjects/Languages must
-        // still advance and the pending-change listener must still fire, or the
-        // settings UI will keep reporting "modified" on already-saved state.
+    fun `apply persists and clears modified state when live reapply throws`() {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
-        every { AccentApplicator.apply(any()) } throws RuntimeException("LafManager boom")
+        every { AccentApplicator.applyFromHexString(any()) } throws RuntimeException("LafManager boom")
+        val state = AccentMappingsState()
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(ProjectMapping("/tmp/project", "Project", "#AABBCC"))
+            }
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        try {
+            var changeCount = 0
+            builder.addPendingChangeListener { changeCount += 1 }
 
-        val builder = OverridesGroupBuilder()
-        var listenerFired = 0
-        builder.addPendingChangeListener { listenerFired += 1 }
-        builder.seedPendingForTest(
-            projects =
-                listOf(
-                    ProjectMapping(canonicalPath = "/tmp/apply-exc-a", displayName = "a", hex = "#111111"),
-                ),
-            languages =
-                listOf(LanguageMapping(languageId = "kotlin", displayName = "Kotlin", hex = "#222222")),
-        )
+            builder.apply()
 
-        builder.apply()
-
-        // Persisted state reflects the pending snapshot (reachable because
-        // `apply()` commits to state BEFORE entering the runCatching block).
-        assertEquals(mapOf("/tmp/apply-exc-a" to "#111111"), mappingsState.projectAccents)
-        assertEquals(mapOf("kotlin" to "#222222"), mappingsState.languageAccents)
-
-        // storedProjects/Languages advanced past the pending model — `isModified()`
-        // now reads `false` even though the apply chain threw. A regression that
-        // short-circuited the snapshot refresh would leave `isModified()` true.
-        assertFalse(
-            builder.isModified(),
-            "apply()'s runCatching must not skip the storedProjects/Languages refresh — " +
-                "the settings UI would otherwise keep reporting pending changes on saved state",
-        )
-
-        // fireChanged() must still fire so any reactive label (e.g., the
-        // "Currently active: ..." comment) updates off the newly committed
-        // snapshot.
-        assertTrue(
-            listenerFired > 0,
-            "addPendingChangeListener subscribers must be notified even when the " +
-                "apply chain throws; got $listenerFired calls",
-        )
+            assertEquals(mapOf("/tmp/project" to "#AABBCC"), state.projectAccents)
+            assertFalse(builder.isModified())
+            assertEquals(1, changeCount)
+        } finally {
+            builder.dispose()
+        }
     }
 
     @Test
-    fun `apply() on happy path invokes the whole resolver-applicator-swap chain once`() {
-        // Baseline that the runCatching wrapper doesn't silently convert the
-        // success path into a swallow. One AccentApplicator.apply call, one
-        // swap-service notification, isModified() returns false.
+    fun `apply persists complete pending state before resolver applicator and swap`() {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#AABBCC"
-        every { AccentApplicator.apply(any()) } answers {}
+        every { AccentApplicator.applyFromHexString("#AABBCC") } returns true
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
+        val project = mockk<Project>(relaxed = true)
+        val state = AccentMappingsState()
+        val draft = AccentMappingsDraft()
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        var stateWasWritten = false
+        var draftWasModified = false
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } answers {
+            stateWasWritten =
+                state.projectAccents == mapOf("/tmp/project" to "#AABBCC") &&
+                state.projectDisplayNames == mapOf("/tmp/project" to "Project") &&
+                state.languageAccents == mapOf("kotlin" to "#112233") &&
+                state.projectFallbackAccents == mapOf("/tmp/project" to "#5CCFE6") &&
+                state.forcedProjectLanguages == mapOf("/tmp/project" to "kotlin") &&
+                state.languageFallbackAccent == "#73D0FF"
+            draftWasModified = builder.isModified()
+            assertTrue(stateWasWritten)
+            assertTrue(draftWasModified)
+            "#AABBCC"
+        }
+        try {
+            buildGroup(builder, project)
+            var changeCount = 0
+            builder.addPendingChangeListener { changeCount += 1 }
+            draft.addProject(ProjectMapping("/tmp/project", "Project", "#AABBCC"))
+            draft.addLanguage(LanguageMapping("kotlin", "Kotlin", "#112233"))
+            draft.setProjectFallbackAccent("/tmp/project", "#5CCFE6")
+            draft.setForcedLanguage("/tmp/project", "kotlin")
+            draft.setLanguageFallbackAccent("#73D0FF")
 
-        val stubProject = mockk<Project>(relaxed = true)
-        val builder =
-            OverridesGroupBuilder().apply {
-                setParentProjectForTest(stubProject)
-                seedPendingForTest(
-                    projects =
-                        listOf(
-                            ProjectMapping(
-                                canonicalPath = "/tmp/apply-ok-b",
-                                displayName = "b",
-                                hex = "#AABBCC",
-                            ),
-                        ),
-                )
+            builder.apply()
+
+            assertEquals(mapOf("/tmp/project" to "#AABBCC"), state.projectAccents)
+            assertFalse(builder.isModified())
+            assertEquals(1, changeCount)
+            assertTrue(stateWasWritten)
+            assertTrue(draftWasModified)
+            verify(exactly = 1) {
+                AccentResolver.resolve(project, AyuVariant.MIRAGE)
+                AccentApplicator.applyFromHexString("#AABBCC")
+                swapService.notifyExternalApply("#AABBCC")
             }
-
-        builder.apply()
-
-        assertEquals(mapOf("/tmp/apply-ok-b" to "#AABBCC"), mappingsState.projectAccents)
-        assertFalse(builder.isModified(), "stored snapshot must advance on happy path too")
-        io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
-        io.mockk.verify(exactly = 1) { swapService.notifyExternalApply("#AABBCC") }
-    }
-
-    @Test
-    fun `apply() persists fallback accents and forced languages`() {
-        every { AyuVariant.detect() } returns null
-        val builder =
-            OverridesGroupBuilder().apply {
-                setPendingFallbackAccent("/tmp/apply-resolution-overrides", "#5CCFE6")
-                setPendingForcedLanguage("/tmp/apply-resolution-overrides", "TypeScript")
-                setPendingLanguageFallbackAccent(" #73D0FF ")
+            verifyOrder {
+                AccentResolver.resolve(project, AyuVariant.MIRAGE)
+                AccentApplicator.applyFromHexString("#AABBCC")
+                swapService.notifyExternalApply("#AABBCC")
             }
-
-        assertEquals(mapOf("/tmp/apply-resolution-overrides" to "typescript"), builder.forcedLanguagesForTest())
-        assertEquals("#73D0FF", builder.languageFallbackAccentForTest())
-        assertTrue(builder.isModified(), "pending resolution overrides must participate in isModified")
-
-        builder.apply()
-
-        assertEquals(mapOf("/tmp/apply-resolution-overrides" to "#5CCFE6"), mappingsState.projectFallbackAccents)
-        assertEquals(mapOf("/tmp/apply-resolution-overrides" to "typescript"), mappingsState.forcedProjectLanguages)
-        assertEquals("#73D0FF", mappingsState.languageFallbackAccent)
-        assertFalse(builder.isModified(), "apply() must advance stored resolution override snapshots")
+        } finally {
+            builder.dispose()
+        }
     }
 
     @Test
-    fun `reset() restores fallback accents and forced languages from stored state`() {
-        mappingsState.projectFallbackAccents["/tmp/reset-resolution-overrides"] = "#5CCFE6"
-        mappingsState.forcedProjectLanguages["/tmp/reset-resolution-overrides"] = "typescript"
-        mappingsState.languageFallbackAccent = "#73D0FF"
-        val builder = OverridesGroupBuilder().apply { loadFromState() }
-
-        builder.setPendingFallbackAccent("/tmp/reset-resolution-overrides", "#FFB454")
-        builder.setPendingFallbackAccent("/tmp/reset-cleared", "#D2A6FF")
-        builder.setPendingForcedLanguage("/tmp/reset-resolution-overrides", "Kotlin")
-        builder.setPendingForcedLanguage("/tmp/reset-cleared", " ")
-        builder.setPendingLanguageFallbackAccent("#FFB454")
-
-        assertTrue(builder.isModified(), "pending resolution override edits must mark settings modified")
-
-        builder.reset()
-
-        assertEquals(mapOf("/tmp/reset-resolution-overrides" to "#5CCFE6"), builder.fallbackAccentsForTest())
-        assertEquals(mapOf("/tmp/reset-resolution-overrides" to "typescript"), builder.forcedLanguagesForTest())
-        assertEquals("#73D0FF", builder.languageFallbackAccentForTest())
-        assertFalse(builder.isModified(), "reset() must restore stored resolution override snapshots")
-    }
-
-    @Test
-    fun `loadFromState() normalizes valid resolution overrides and drops malformed rows`() {
-        mappingsState.projectFallbackAccents["/tmp/load-valid-fallback"] = " #5CCFE6 "
-        mappingsState.projectFallbackAccents["/tmp/load-invalid-fallback"] = "not-a-hex"
-        mappingsState.projectFallbackAccents[" "] = "#FFB454"
-        mappingsState.forcedProjectLanguages["/tmp/load-valid-forced"] = " TypeScript "
-        mappingsState.forcedProjectLanguages["/tmp/load-blank-forced"] = " "
-        mappingsState.forcedProjectLanguages[""] = "kotlin"
-        mappingsState.languageFallbackAccent = " #73D0FF "
-
-        val builder = OverridesGroupBuilder().apply { loadFromState() }
-
-        assertEquals(mapOf("/tmp/load-valid-fallback" to "#5CCFE6"), builder.fallbackAccentsForTest())
-        assertEquals(mapOf("/tmp/load-valid-forced" to "typescript"), builder.forcedLanguagesForTest())
-        assertEquals("#73D0FF", builder.languageFallbackAccentForTest())
-        assertFalse(builder.isModified(), "sanitized loaded resolution overrides become the stored snapshot")
-    }
-
-    @Test
-    fun `pending resolution override setters clear existing entries`() {
-        mappingsState.projectFallbackAccents["/tmp/clear-fallback"] = "#5CCFE6"
-        mappingsState.forcedProjectLanguages["/tmp/clear-forced-null"] = "typescript"
-        mappingsState.forcedProjectLanguages["/tmp/clear-forced-blank"] = "kotlin"
-        val builder = OverridesGroupBuilder().apply { loadFromState() }
-
-        builder.setPendingFallbackAccent("/tmp/clear-fallback", null)
-        builder.setPendingForcedLanguage("/tmp/clear-forced-null", null)
-        builder.setPendingForcedLanguage("/tmp/clear-forced-blank", " ")
-
-        assertTrue(builder.fallbackAccentsForTest().isEmpty())
-        assertTrue(builder.forcedLanguagesForTest().isEmpty())
-        assertTrue(builder.isModified(), "clearing stored resolution overrides must mark settings modified")
-    }
-
-    @Test
-    fun `apply() is a no-op when license is unavailable`() {
+    fun `apply fails without discarding pending mappings when license is unavailable`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
-        val builder =
-            OverridesGroupBuilder().apply {
-                seedPendingForTest(
-                    projects =
-                        listOf(
-                            ProjectMapping(
-                                canonicalPath = "/tmp/apply-locked",
-                                displayName = "locked",
-                                hex = "#AABBCC",
-                            ),
-                        ),
-                )
+        val state = AccentMappingsState()
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(ProjectMapping("/tmp/locked", "Locked", "#AABBCC"))
             }
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        try {
+            val failure = assertFailsWith<IllegalStateException> { builder.apply() }
 
-        builder.apply()
+            assertTrue("active Pro license" in failure.message.orEmpty())
+            assertTrue(state.projectAccents.isEmpty())
+            assertTrue(builder.isModified())
+            verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
 
-        assertTrue(mappingsState.projectAccents.isEmpty(), "locked overrides must not persist")
-        assertTrue(builder.isModified(), "locked apply must not advance the stored snapshot")
-        io.mockk.verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            every { AyuVariant.detect() } returns null
+
+            builder.apply()
+
+            assertEquals(mapOf("/tmp/locked" to "#AABBCC"), state.projectAccents)
+            assertFalse(builder.isModified())
+        } finally {
+            builder.dispose()
+        }
     }
 
     @Test
-    fun `unlicensed override remove actions cannot delete visible preview rows`() {
-        val projectMapping = ProjectMapping("/tmp/locked-preview", "locked-preview", "#AABBCC")
+    fun `license loss disables and guards project and language table actions`() {
+        val projectMapping = ProjectMapping("/tmp/locked-preview", "Locked preview", "#AABBCC")
         val languageMapping = LanguageMapping("kotlin", "Kotlin", "#BBCCDD")
-        val builder =
-            OverridesGroupBuilder().apply {
-                seedPendingForTest(
-                    projects = listOf(projectMapping),
-                    languages = listOf(languageMapping),
-                )
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(projectMapping)
+                addLanguage(languageMapping)
             }
-        table(builder, "projectTable").selectionModel.setSelectionInterval(0, 0)
-        table(builder, "languageTable").selectionModel.setSelectionInterval(0, 0)
+        val state = AccentMappingsState().also(draft::writeTo)
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        try {
+            val root = buildGroup(builder, mockk(relaxed = true))
+            val tables = descendants(root, JTable::class.java)
+            tables.single { it.columnCount == 3 }.selectionModel.setSelectionInterval(0, 0)
+            tables.single { it.columnCount == 2 }.selectionModel.setSelectionInterval(0, 0)
+            val actionsPanels = descendants(root, CommonActionsPanel::class.java)
+            every { LicenseChecker.isLicensedOrGrace() } returns false
 
-        val projectActions = unlicensedActions(builder, "projectActions")
-        val languageActions = unlicensedActions(builder, "languageActions")
-
-        assertFalse(projectActions.removeEnabled(), "locked project preview rows must not enable Remove")
-        assertFalse(languageActions.removeEnabled(), "locked language preview rows must not enable Remove")
-        projectActions.remove()
-        languageActions.remove()
-        assertEquals(listOf(projectMapping), projectRows(builder), "locked project preview rows must remain visible")
-        assertEquals(listOf(languageMapping), languageRows(builder), "locked language preview rows must remain visible")
+            listOf(
+                CommonActionsPanel.Buttons.ADD,
+                CommonActionsPanel.Buttons.EDIT,
+                CommonActionsPanel.Buttons.REMOVE,
+            ).forEach { button ->
+                val actions = actionsPanels.mapNotNull { it.getAnAction(button) }
+                assertEquals(2, actions.size)
+                actions.forEach { action ->
+                    val presentation = Presentation()
+                    val event = mockk<AnActionEvent>(relaxed = true)
+                    every { event.presentation } returns presentation
+                    action.update(event)
+                    assertFalse(presentation.isEnabled, "$button must disable after license loss")
+                    action.actionPerformed(event)
+                }
+            }
+            assertEquals(listOf(projectMapping), draft.projectMappings)
+            assertEquals(1, draft.languageMappings.size)
+            assertEquals(languageMapping.languageId, draft.languageMappings.single().languageId)
+            assertEquals(languageMapping.hex, draft.languageMappings.single().hex)
+        } finally {
+            builder.dispose()
+        }
     }
 
     @Test
-    fun `apply() falls back to AccentApplicator resolveFocusedProject when parentProject is not bound`() {
-        // Guards the second-tier project source inside apply(): when setParentProjectForTest
-        // has not been called (e.g. Settings Apply reached here before the panel finished
-        // binding the context project), the builder MUST route through the shared cascade —
-        // NOT `ProjectManager.openProjects.firstOrNull`, which picks the enumeration-first
-        // project and reproduces the multi-window status-label mismatch. A regression that
-        // swaps resolveFocusedProject back to openProjects.firstOrNull would pass the two
-        // tests above (parentProject is bound there) but fail this one.
+    fun `licensed project remove leaves language mapping unchanged`() {
+        val projectMapping = ProjectMapping("/tmp/removable", "Removable", "#AABBCC")
+        val languageMapping = LanguageMapping("kotlin", "Kotlin", "#BBCCDD")
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(projectMapping)
+                addLanguage(languageMapping)
+            }
+        val state = AccentMappingsState().also(draft::writeTo)
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        val actionGroups = mutableListOf<ActionGroup>()
+        try {
+            val root = buildGroup(builder, mockk(relaxed = true), actionGroups)
+            descendants(root, JTable::class.java)
+                .single { it.columnCount == 3 }
+                .selectionModel
+                .setSelectionInterval(0, 0)
+            var changeCount = 0
+            builder.addPendingChangeListener { changeCount += 1 }
+
+            actionGroups.tableAction(isProject = true, text = "Remove").actionPerformed(mockk(relaxed = true))
+
+            assertTrue(draft.projectMappings.isEmpty())
+            assertEquals(1, draft.languageMappings.size)
+            assertEquals(languageMapping.languageId, draft.languageMappings.single().languageId)
+            assertEquals(languageMapping.hex, draft.languageMappings.single().hex)
+            assertEquals(1, changeCount)
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
+    fun `licensed language remove leaves project mapping unchanged`() {
+        val projectMapping = ProjectMapping("/tmp/removable", "Removable", "#AABBCC")
+        val languageMapping = LanguageMapping("kotlin", "Kotlin", "#BBCCDD")
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(projectMapping)
+                addLanguage(languageMapping)
+            }
+        val state = AccentMappingsState().also(draft::writeTo)
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        val actionGroups = mutableListOf<ActionGroup>()
+        try {
+            val root = buildGroup(builder, mockk(relaxed = true), actionGroups)
+            descendants(root, JTable::class.java)
+                .single { it.columnCount == 2 }
+                .selectionModel
+                .setSelectionInterval(0, 0)
+            var changeCount = 0
+            builder.addPendingChangeListener { changeCount += 1 }
+
+            actionGroups.tableAction(isProject = false, text = "Remove").actionPerformed(mockk(relaxed = true))
+
+            assertEquals(1, draft.projectMappings.size)
+            assertEquals(projectMapping.canonicalPath, draft.projectMappings.single().canonicalPath)
+            assertEquals(projectMapping.hex, draft.projectMappings.single().hex)
+            assertTrue(draft.languageMappings.isEmpty())
+            assertEquals(1, changeCount)
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
+    fun `licensed Add actions append to their matching mapping domains`() {
+        val draft = AccentMappingsDraft()
+        val projectModel = ProjectMappingsTableModel(draft)
+        val languageModel = LanguageMappingsTableModel(draft)
+        val projectTable = JBTable(projectModel)
+        val languageTable = JBTable(languageModel)
+        val actionGroups = mutableListOf<ActionGroup>()
+        installUiServices(actionGroups)
+        val actions =
+            OverridesTableActions(
+                projectModel = projectModel,
+                languageModel = languageModel,
+                projectTable = projectTable,
+                languageTable = languageTable,
+                parentProjectProvider = { null },
+                isLicensed = { true },
+                onChanged = {},
+                prompts =
+                    MappingPrompts(
+                        projectMapping = { _, _ ->
+                            ProjectMapping("/tmp/added-project", "Added project", "#AABBCC")
+                        },
+                        languageMapping = { _, _ ->
+                            LanguageMapping("kotlin", "Kotlin", "#112233")
+                        },
+                    ),
+            )
+        actions.decorateProjectTable(showPinAction = true)
+        actions.decorateLanguageTable()
+
+        SwingUtilities.invokeAndWait {
+            actionGroups.tableAction(isProject = true, text = "Add").actionPerformed(mockk(relaxed = true))
+        }
+        assertEquals(
+            listOf(ProjectMapping("/tmp/added-project", "Added project", "#AABBCC")),
+            draft.projectMappings,
+        )
+        assertTrue(draft.languageMappings.isEmpty())
+
+        SwingUtilities.invokeAndWait {
+            actionGroups.tableAction(isProject = false, text = "Add").actionPerformed(mockk(relaxed = true))
+        }
+        assertEquals(listOf(LanguageMapping("kotlin", "Kotlin", "#112233")), draft.languageMappings)
+    }
+
+    @Test
+    fun `licensed Edit actions update only their matching mapping domains`() {
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(ProjectMapping("/tmp/edit-project", "Edit project", "#AABBCC"))
+                addLanguage(LanguageMapping("kotlin", "Kotlin", "#112233"))
+            }
+        val projectModel = ProjectMappingsTableModel(draft)
+        val languageModel = LanguageMappingsTableModel(draft)
+        val projectTable = JBTable(projectModel).apply { setRowSelectionInterval(0, 0) }
+        val languageTable = JBTable(languageModel).apply { setRowSelectionInterval(0, 0) }
+        val actionGroups = mutableListOf<ActionGroup>()
+        installUiServices(actionGroups)
+        val actions =
+            OverridesTableActions(
+                projectModel = projectModel,
+                languageModel = languageModel,
+                projectTable = projectTable,
+                languageTable = languageTable,
+                parentProjectProvider = { null },
+                isLicensed = { true },
+                onChanged = {},
+                prompts =
+                    MappingPrompts(
+                        projectMapping = { _, _ -> null },
+                        languageMapping = { _, _ -> null },
+                        accentHex = { _, _, displayName ->
+                            when (displayName) {
+                                "Edit project" -> "#334455"
+                                "Kotlin" -> "#667788"
+                                else -> error("Unexpected mapping: $displayName")
+                            }
+                        },
+                    ),
+            )
+        actions.decorateProjectTable(showPinAction = true)
+        actions.decorateLanguageTable()
+
+        SwingUtilities.invokeAndWait {
+            actionGroups.tableAction(isProject = true, text = "Edit Color").actionPerformed(mockk(relaxed = true))
+        }
+        assertEquals("#334455", draft.projectMappings.single().hex)
+        assertEquals("#112233", draft.languageMappings.single().hex)
+
+        SwingUtilities.invokeAndWait {
+            actionGroups.tableAction(isProject = false, text = "Edit Color").actionPerformed(mockk(relaxed = true))
+        }
+        assertEquals("#667788", draft.languageMappings.single().hex)
+    }
+
+    @Test
+    fun `license loss disables and guards pin current project action`() {
+        val projectDirectory = File(System.getProperty("java.io.tmpdir"), "pin-after-license-loss")
+        val project =
+            mockk<Project>(relaxed = true) {
+                every { isDefault } returns false
+                every { isDisposed } returns false
+                every { basePath } returns projectDirectory.path
+                every { name } returns "Pinned project"
+            }
+        val draft = AccentMappingsDraft()
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { AccentMappingsState() })
+        val actionGroups = mutableListOf<ActionGroup>()
+        try {
+            buildGroup(builder, project, actionGroups)
+
+            assertEquals(2, actionGroups.size)
+            val pinAction =
+                actionGroups
+                    .map { it as DefaultActionGroup }
+                    .flatMap { it.childActionsOrStubs.toList() }
+                    .single { it.templatePresentation.text == "Pin Current Project" }
+            val presentation = Presentation()
+            val event = mockk<AnActionEvent>(relaxed = true)
+            every { event.presentation } returns presentation
+
+            pinAction.update(event)
+            assertTrue(presentation.isEnabled)
+
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+            pinAction.update(event)
+            assertFalse(presentation.isEnabled)
+
+            pinAction.actionPerformed(event)
+            assertTrue(draft.projectMappings.isEmpty())
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
+    fun `pin current project stores global accent once and disables after pin`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val projectDirectory = File(System.getProperty("java.io.tmpdir"), "licensed-pin-project")
+        val project =
+            mockk<Project>(relaxed = true) {
+                every { isDefault } returns false
+                every { isDisposed } returns false
+                every { basePath } returns projectDirectory.path
+                every { name } returns "Licensed project"
+            }
+        val draft = AccentMappingsDraft()
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { AccentMappingsState() })
+        val actionGroups = mutableListOf<ActionGroup>()
+        try {
+            buildGroup(builder, project, actionGroups)
+
+            assertEquals(2, actionGroups.size)
+            val pinAction =
+                actionGroups
+                    .map { it as DefaultActionGroup }
+                    .flatMap { it.childActionsOrStubs.toList() }
+                    .single { it.templatePresentation.text == "Pin Current Project" }
+            val presentation = Presentation()
+            val event = mockk<AnActionEvent>(relaxed = true)
+            every { event.presentation } returns presentation
+            val expectedMapping =
+                ProjectMapping(
+                    canonicalPath = projectDirectory.canonicalPath,
+                    displayName = "Licensed project",
+                    hex = "#5CCFE6",
+                )
+
+            pinAction.actionPerformed(event)
+
+            assertEquals(listOf(expectedMapping), draft.projectMappings)
+            pinAction.update(event)
+            assertFalse(presentation.isEnabled)
+
+            pinAction.actionPerformed(event)
+            assertEquals(listOf(expectedMapping), draft.projectMappings)
+        } finally {
+            builder.dispose()
+        }
+    }
+
+    @Test
+    fun `apply uses focused project fallback when no parent is bound`() {
         val focusedProject =
             mockk<Project>(relaxed = true) {
                 every { isDisposed } returns false
@@ -298,91 +469,88 @@ class OverridesGroupBuilderApplyTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentApplicator.resolveFocusedProject() } returns focusedProject
         every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
-        every { AccentApplicator.apply(any()) } answers {}
+        every { AccentApplicator.applyFromHexString("#5CCFE6") } returns true
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
-
-        val builder =
-            OverridesGroupBuilder().apply {
-                // Deliberately do NOT call setParentProjectForTest — exercise the fallback.
-                seedPendingForTest(
-                    projects =
-                        listOf(
-                            ProjectMapping(
-                                canonicalPath = "/tmp/apply-fallback",
-                                displayName = "fallback",
-                                hex = "#5CCFE6",
-                            ),
-                        ),
-                )
+        val state = AccentMappingsState()
+        val draft =
+            AccentMappingsDraft().apply {
+                addProject(ProjectMapping("/tmp/fallback", "Fallback", "#5CCFE6"))
             }
+        val builder = OverridesGroupBuilder(draft = draft, stateProvider = { state })
+        try {
+            builder.apply()
 
-        builder.apply()
-
-        io.mockk.verify(exactly = 1) { AccentApplicator.resolveFocusedProject() }
-        io.mockk.verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
-        io.mockk.verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
-    }
-
-    private fun table(
-        builder: OverridesGroupBuilder,
-        fieldName: String,
-    ): JTable {
-        val field = OverridesGroupBuilder::class.java.getDeclaredField(fieldName)
-        field.isAccessible = true
-        return field.get(builder) as JTable
-    }
-
-    private fun unlicensedActions(
-        builder: OverridesGroupBuilder,
-        methodName: String,
-    ): TableActionHandle {
-        val tableActionsField = OverridesGroupBuilder::class.java.getDeclaredField("tableActions")
-        tableActionsField.isAccessible = true
-        val tableActions = tableActionsField.get(builder)
-        val method = tableActions.javaClass.getDeclaredMethod(methodName, Boolean::class.javaPrimitiveType)
-        method.isAccessible = true
-        return TableActionHandle(method.invoke(tableActions, false))
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun projectRows(builder: OverridesGroupBuilder): List<ProjectMapping> {
-        val model = model(builder, "projectModel")
-        return model.javaClass.getDeclaredMethod("snapshot").invoke(model) as List<ProjectMapping>
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun languageRows(builder: OverridesGroupBuilder): List<LanguageMapping> {
-        val model = model(builder, "languageModel")
-        return model.javaClass.getDeclaredMethod("snapshot").invoke(model) as List<LanguageMapping>
-    }
-
-    private fun model(
-        builder: OverridesGroupBuilder,
-        fieldName: String,
-    ): Any {
-        val field = OverridesGroupBuilder::class.java.getDeclaredField(fieldName)
-        field.isAccessible = true
-        return field.get(builder)
-    }
-
-    private class TableActionHandle(
-        delegate: Any,
-    ) {
-        private val removeAction = delegate.action("getRemove")
-        private val removeEnabledAction = delegate.action("getRemoveEnabled")
-
-        fun remove() {
-            removeAction()
-        }
-
-        fun removeEnabled(): Boolean = removeEnabledAction() as Boolean
-
-        @Suppress("UNCHECKED_CAST")
-        private fun Any.action(name: String): () -> Any? {
-            val method = javaClass.getDeclaredMethod(name)
-            method.isAccessible = true
-            return method.invoke(this) as () -> Any?
+            verify(exactly = 1) { AccentApplicator.resolveFocusedProject() }
+            verify(exactly = 1) { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) }
+            verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
+        } finally {
+            builder.dispose()
         }
     }
+
+    private fun buildGroup(
+        builder: OverridesGroupBuilder,
+        project: Project,
+        actionGroups: MutableList<ActionGroup> = mutableListOf(),
+    ): Container {
+        installUiServices(actionGroups)
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns AyuIslandsState()
+        every { settings.getAccentForVariant(AyuVariant.MIRAGE) } returns "#5CCFE6"
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+        return panel {
+            builder.buildGroup(this, project)
+        }
+    }
+
+    private fun installUiServices(actionGroups: MutableList<ActionGroup>) {
+        mockkStatic(ApplicationManager::class)
+        val application = mockk<Application>(relaxed = true)
+        val actionManager = mockk<ActionManager>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.getService(ActionManager::class.java) } returns actionManager
+        every { actionManager.getAction(any()) } returns null
+        every {
+            actionManager.createActionToolbar(any(), capture(actionGroups), any())
+        } returns mockk<ActionToolbar>(relaxed = true)
+
+        every { application.getService(any<Class<*>>()) } answers {
+            val serviceClass = firstArg<Class<*>>()
+            if (serviceClass == ActionManager::class.java) {
+                actionManager
+            } else {
+                mockkClass(serviceClass.kotlin, relaxed = true)
+            }
+        }
+    }
+
+    private fun List<ActionGroup>.tableAction(
+        isProject: Boolean,
+        text: String,
+    ): AnAction {
+        val groups = map { it as DefaultActionGroup }
+        val group =
+            groups.single { candidate ->
+                candidate.childActionsOrStubs.any {
+                    it.templatePresentation.text == "Pin Current Project"
+                } == isProject
+            }
+        return group.childActionsOrStubs.single { it.templatePresentation.text == text }
+    }
+
+    private fun <T : Component> descendants(
+        container: Container,
+        type: Class<T>,
+    ): List<T> =
+        buildList {
+            fun visit(component: Component) {
+                if (type.isInstance(component)) add(type.cast(component))
+                if (component is Container) {
+                    component.components.forEach(::visit)
+                }
+            }
+            visit(container)
+        }
 }

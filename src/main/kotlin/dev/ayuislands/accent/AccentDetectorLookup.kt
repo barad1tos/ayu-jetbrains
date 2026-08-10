@@ -37,6 +37,39 @@ internal sealed interface AccentDetectorLookup {
         languageRungVerdict: ProjectLanguageVerdict?,
     ): ProjectLanguageVerdict
 
+    // One read-only verdict backs the whole pending Settings preview, including winner detail.
+    class SnapshotLookup(
+        private val shouldReadFallbackEarly: Boolean,
+    ) : AccentDetectorLookup {
+        var consultedVerdict: ProjectLanguageVerdict? = null
+            private set
+
+        fun snapshotVerdict(project: Project): ProjectLanguageVerdict = readVerdict(project)
+
+        override fun languageRungVerdict(
+            project: Project,
+            hasLanguageCandidate: Boolean,
+            hasFallbackCandidate: Boolean,
+        ): ProjectLanguageVerdict? =
+            if (hasLanguageCandidate || (shouldReadFallbackEarly && hasFallbackCandidate)) {
+                readVerdict(project)
+            } else {
+                null
+            }
+
+        override fun fallbackRungVerdict(
+            project: Project,
+            languageRungVerdict: ProjectLanguageVerdict?,
+        ): ProjectLanguageVerdict = languageRungVerdict ?: readVerdict(project)
+
+        private fun readVerdict(project: Project): ProjectLanguageVerdict {
+            consultedVerdict?.let { return it }
+            return ProjectLanguageDetector
+                .verdict(project)
+                .also { consultedVerdict = it }
+        }
+    }
+
     /**
      * Read-only lookup for diagnostics surfaces: cache reads only, except the
      * forced-language + fallback-candidate corner, which warms the cache

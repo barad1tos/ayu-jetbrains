@@ -230,16 +230,14 @@ class AyuIslandsAccentPanel : SettingsParticipant {
         val label = currentlyActiveLabel ?: return
         val currentVariant = variant ?: return
         val globalHex = resolvePendingGlobalHex(currentVariant)
-        val effectiveHex = overrides.resolvePending(contextProject, globalHex, cacheOnly = true)
-        val displayHex = effectiveHex.ifBlank { globalHex }
+        val preview = overrides.preview(contextProject, globalHex, cacheOnly = true)
+        val displayHex = preview.hex.ifBlank { globalHex }
         val presetName =
             AYU_ACCENT_PRESETS
                 .firstOrNull { it.hex.equals(displayHex, ignoreCase = true) }
                 ?.name
                 ?: "Custom"
-        val source = overrides.sourcePending(contextProject, cacheOnly = true)
-        val sourceDetail = overrides.activeSourceDetailPending(contextProject, source, cacheOnly = true)
-        val sourceText = describeAccentSource(source, contextProject?.name, sourceDetail)
+        val sourceText = describeAccentSource(preview.source, contextProject?.name, preview.detail)
         label.text = "Currently active: $presetName ($sourceText)"
     }
 
@@ -490,8 +488,11 @@ class AyuIslandsAccentPanel : SettingsParticipant {
     override fun apply() {
         val currentVariant = variant ?: return
         if (!isModified()) return
-        val settings = AyuIslandsSettings.getInstance()
         val overridesDirty = overrides.isModified()
+        if (overridesDirty) {
+            overrides.checkApplyAllowed()
+        }
+        val settings = AyuIslandsSettings.getInstance()
 
         if (pendingFollowSystem != storedFollowSystem) {
             settings.state.followSystemAccent = pendingFollowSystem
