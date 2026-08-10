@@ -22,6 +22,13 @@ plugins {
 group = providers.gradleProperty("pluginGroup").get()
 version = providers.gradleProperty("pluginVersion").get()
 
+val integrationPlugins =
+    listOf(
+        "dev.j-a.swift" to "1.11.1.435-251",
+        "com.nasller.CodeGlancePro" to "2.0.2",
+        "indent-rainbow.indent-rainbow" to "2.2.0",
+    )
+
 kotlin {
     jvmToolchain(21)
 }
@@ -39,9 +46,9 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity(providers.gradleProperty("platformVersion"))
         bundledPlugin("org.intellij.groovy")
-        plugin("dev.j-a.swift", "1.11.1.435-251")
-        plugin("com.nasller.CodeGlancePro", "2.0.2")
-        plugin("indent-rainbow.indent-rainbow", "2.2.0")
+        integrationPlugins.forEach { (pluginId, pluginVersion) ->
+            plugin(pluginId, pluginVersion)
+        }
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
         testBundledPlugin("org.intellij.groovy")
@@ -84,11 +91,7 @@ tasks.register<Test>("integrationTest") {
 
 tasks {
     named<PrepareSandboxTask>("prepareTestSandbox") {
-        disabledPlugins.addAll(
-            "dev.j-a.swift",
-            "com.nasller.CodeGlancePro",
-            "indent-rainbow.indent-rainbow",
-        )
+        disabledPlugins.addAll(integrationPlugins.map { (pluginId, _) -> pluginId })
     }
 
     named<JavaExec>("runIde") {
