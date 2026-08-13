@@ -214,7 +214,7 @@ internal class SyntaxPreviewComponent(
         val resourceName: String,
     )
 
-    private companion object {
+    internal companion object {
         private val LOG = logger<SyntaxPreviewComponent>()
 
         private const val PREVIEW_WIDTH = 560
@@ -293,10 +293,25 @@ internal class SyntaxPreviewComponent(
         private fun previewFileType(
             language: String,
             sample: PreviewSample,
-        ): FileType =
+        ): FileType = availableFileType(language, sample) ?: PlainTextFileType.INSTANCE
+
+        internal fun preferredAvailableLanguage(
+            languages: List<String>,
+            preferred: String,
+        ): String =
+            languages.firstOrNull { it == preferred && hasFileType(it) }
+                ?: languages.firstOrNull(::hasFileType)
+                ?: languages.firstOrNull { it == preferred }
+                ?: languages.firstOrNull().orEmpty()
+
+        private fun hasFileType(language: String): Boolean = availableFileType(language, sampleFor(language)) != null
+
+        private fun availableFileType(
+            language: String,
+            sample: PreviewSample,
+        ): FileType? =
             standardFileType(sample)
                 ?: registeredLanguageFileType(language)
-                ?: PlainTextFileType.INSTANCE
 
         private fun standardFileType(sample: PreviewSample): FileType? {
             val standardName = sample.standardFileTypeName ?: return null

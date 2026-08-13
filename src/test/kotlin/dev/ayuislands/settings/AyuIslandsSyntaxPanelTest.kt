@@ -199,6 +199,35 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
+    fun `selects available preview language`() {
+        val unavailableFileType = syntaxPreviewEditorFixture.mockFileType("Unavailable", "txt")
+        val javaScriptFileType = syntaxPreviewEditorFixture.mockFileType("JavaScript", "js")
+        every { syntaxPreviewEditorFixture.fileTypeManager.getStdFileType("Kotlin") } returns unavailableFileType
+        every { syntaxPreviewEditorFixture.fileTypeManager.getStdFileType("JAVA") } returns unavailableFileType
+        every { syntaxPreviewEditorFixture.fileTypeManager.getStdFileType("JavaScript") } returns javaScriptFileType
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+        val dialogPanel = buildFullSyntaxPanel(syntaxPanel)
+
+        try {
+            val preview =
+                assertNotNull(
+                    findComponent(dialogPanel, SyntaxPreviewComponent::class.java),
+                    "Syntax tab must include the native syntax preview component.",
+                )
+            val editor =
+                assertNotNull(
+                    findComponent(preview, EditorTextField::class.java),
+                    "Syntax preview must embed EditorTextField for native syntax highlighting.",
+                )
+
+            assertEquals("JavaScript", preview.languageForTest())
+            assertEquals(javaScriptFileType, editor.fileType)
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
     fun `language selector updates syntax preview language and file type`() {
         stateBase.selectedPreset = "CUSTOM"
         val syntaxPanel = AyuIslandsSyntaxPanel()
