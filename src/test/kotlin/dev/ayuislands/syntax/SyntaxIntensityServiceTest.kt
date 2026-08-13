@@ -3,17 +3,16 @@ package dev.ayuislands.syntax
 import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
-import com.intellij.util.messages.MessageBus
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.theme.EditorSchemeChange
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -35,8 +34,8 @@ import kotlin.test.assertTrue
  * Orchestration tests for [SyntaxIntensityService]. Reuses the prior
  * service-orchestrator MockK harness - mocks the three named Ayu schemes
  * via `EditorColorsManager.getScheme(...)` plus the active `globalScheme`,
- * verifies a single read-action-free `globalSchemeChange` publish per
- * `apply()` invocation (R-7), and pins the R-1 fallback + service-layer
+ * verifies a single shared scheme-change publish per `apply()` invocation
+ * (R-7), and pins the R-1 fallback + service-layer
  * `CUSTOM` premium gate behaviour through `mockkObject` calls into
  * `RgbBlend` / `LicenseChecker` / `SyntaxIntensityApplicator`.
  */
@@ -63,8 +62,6 @@ class SyntaxIntensityServiceTest {
     private lateinit var mockDark: EditorColorsScheme
     private lateinit var mockLight: EditorColorsScheme
     private lateinit var mockManager: EditorColorsManager
-    private lateinit var mockMessageBus: MessageBus
-    private lateinit var mockPublisher: EditorColorsListener
     private lateinit var mockApp: Application
     private lateinit var loader: SyntaxOverlayLoader
     private lateinit var stateInstance: SyntaxIntensityState
@@ -97,8 +94,6 @@ class SyntaxIntensityServiceTest {
         every { mockLight.defaultBackground } returns Color(0xFC, 0xFC, 0xFC)
 
         mockManager = mockk(relaxed = true)
-        mockMessageBus = mockk(relaxed = true)
-        mockPublisher = mockk(relaxed = true)
         mockApp = mockk(relaxed = true)
         ayuState = AyuIslandsState()
         ayuSettings = mockk(relaxed = true)
@@ -116,12 +111,12 @@ class SyntaxIntensityServiceTest {
 
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApp
-        every { mockApp.messageBus } returns mockMessageBus
-        every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockPublisher
-
         every { mockApp.runReadAction(any<Runnable>()) } answers {
             firstArg<Runnable>().run()
         }
+
+        mockkObject(EditorSchemeChange)
+        every { EditorSchemeChange.publish() } returns Unit
 
         loader = mockk(relaxed = true)
         val payload =
@@ -211,18 +206,18 @@ class SyntaxIntensityServiceTest {
     // ---------- Test 3: R-7 single publish per apply ----------
 
     @Test
-    fun `apply fires globalSchemeChange exactly once per call (R-7)`() {
+    fun `apply publishes one shared scheme change per call (R-7)`() {
         SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
-        verify(exactly = 1) { mockPublisher.globalSchemeChange(null) }
+        verify(exactly = 1) { EditorSchemeChange.publish() }
     }
 
-    // ---------- Test 4: R-7 publish without read-action wrap ----------
+    // ---------- Test 4: R-7 delegates read-action handling ----------
 
     @Test
-    fun `globalSchemeChange publish is not wrapped in read action (R-7)`() {
+    fun `apply delegates scheme change without application read action (R-7)`() {
         SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
         verify(exactly = 0) { mockApp.runReadAction(any<Runnable>()) }
-        verify(exactly = 1) { mockPublisher.globalSchemeChange(null) }
+        verify(exactly = 1) { EditorSchemeChange.publish() }
     }
 
     // ---------- Test 5: R-1 fallback engages for dark variant + WHITE bg ----------
@@ -346,7 +341,7 @@ class SyntaxIntensityServiceTest {
         SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
         verify(atLeast = 1) { mockDark.setAttributes(any(), any<TextAttributes>()) }
         verify(atLeast = 1) { mockLight.setAttributes(any(), any<TextAttributes>()) }
-        verify(exactly = 1) { mockPublisher.globalSchemeChange(null) }
+        verify(exactly = 1) { EditorSchemeChange.publish() }
     }
 
     @Test

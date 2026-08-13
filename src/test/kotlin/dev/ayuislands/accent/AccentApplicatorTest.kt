@@ -25,6 +25,7 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeChange
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -85,11 +86,13 @@ class AccentApplicatorTest {
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
-        every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockk(relaxed = true)
         // AccentChangedTopic publish — Apply path casts the syncPublisher
         // return value to AccentChangeListener. Stub a relaxed mock so the
         // cast succeeds in this legacy headless test.
         every { mockMessageBus.syncPublisher(AccentChangedTopic.TOPIC) } returns mockk(relaxed = true)
+
+        mockkObject(EditorSchemeChange)
+        every { EditorSchemeChange.publish() } returns Unit
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings

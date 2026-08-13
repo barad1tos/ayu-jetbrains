@@ -1,10 +1,10 @@
 package dev.ayuislands.font
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.ModifiableFontPreferences
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.theme.EditorSchemeChange
 import javax.swing.SwingUtilities
 
 /** Applies and reverts font presets to the IDE editor (and optionally console). */
@@ -56,11 +56,7 @@ object FontPresetApplicator {
                 scheme.consoleLineSpacing = settings.lineSpacing
             }
 
-            ApplicationManager
-                .getApplication()
-                .messageBus
-                .syncPublisher(EditorColorsManager.TOPIC)
-                .globalSchemeChange(null)
+            EditorSchemeChange.publish()
             LOG.info(
                 "Font preset applied: ${settings.preset.displayName} " +
                     "($resolvedFamily, subFamily=$subFamily, " +
@@ -88,11 +84,7 @@ object FontPresetApplicator {
             scheme.setConsoleFontSize(DEFAULT_FONT_SIZE)
             scheme.consoleLineSpacing = DEFAULT_LINE_SPACING
 
-            ApplicationManager
-                .getApplication()
-                .messageBus
-                .syncPublisher(EditorColorsManager.TOPIC)
-                .globalSchemeChange(null)
+            EditorSchemeChange.publish()
             LOG.info("Font preset reverted to defaults")
         }
     }
