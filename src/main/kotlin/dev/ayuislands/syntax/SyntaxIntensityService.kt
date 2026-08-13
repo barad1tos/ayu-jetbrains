@@ -12,6 +12,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.theme.EditorSchemeChange
 import java.awt.Color
 import java.awt.Font
 import java.util.concurrent.ConcurrentHashMap
@@ -26,11 +27,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    active `globalScheme` whenever it isn't one of the named instances we
  *    already touched (identity dedup avoids double-writes on a clean
  *    install).
- *  - R-7 single publish: exactly one
- *    `MessageBus.syncPublisher(EditorColorsManager.TOPIC)` invocation
- *    publishing a single global-scheme-change event per apply call. The
- *    publish must stay outside read actions because downstream editor
- *    listeners may refresh highlighters through write-intent read actions.
+ *  - R-7 single publish: exactly one [EditorSchemeChange] event per apply call.
+ *    The shared publisher supplies the write-intent context required by
+ *    downstream editor listeners.
  *  - Pattern A latches: a missing named scheme logs WARN once per (scheme,
  *    session); an unknown overlay variant tag arriving via
  *    [resolveActiveAyuOverlayVariant] (a future Ayu variant outside the whitelist)
@@ -415,11 +414,7 @@ class SyntaxIntensityService {
         PropertiesComponent.getInstance().getList(RETIREMENT_FLAG_KEY)?.toSet() ?: emptySet()
 
     private fun publishSchemeChange() {
-        val application = ApplicationManager.getApplication()
-        application
-            .messageBus
-            .syncPublisher(EditorColorsManager.TOPIC)
-            .globalSchemeChange(null)
+        EditorSchemeChange.publish()
     }
 
     companion object {

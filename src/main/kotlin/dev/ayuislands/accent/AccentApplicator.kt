@@ -6,7 +6,6 @@ import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.ColorKey
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
@@ -27,6 +26,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeChange
 import dev.ayuislands.theme.EditorSchemeOwner
 import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
@@ -768,16 +768,7 @@ object AccentApplicator {
             AyuEditorSchemeScope.writeAttributes(scheme, alwaysOnOwner, attrKey, updated)
         }
 
-        // Notify editors to repaint with an updated scheme
-        // Wrapped in a read action because Jupyter's NotebookEditorColorsListener
-        // accesses PSI from globalSchemeChange, which requires read access.
-        val application = ApplicationManager.getApplication()
-        application.runReadAction {
-            application
-                .messageBus
-                .syncPublisher(EditorColorsManager.TOPIC)
-                .globalSchemeChange(null)
-        }
+        EditorSchemeChange.publish()
     }
 
     private fun applyTabUnderline(
@@ -833,13 +824,7 @@ object AccentApplicator {
     private fun revertAlwaysOnEditorKeys() {
         AyuEditorSchemeScope.restore(alwaysOnOwner)
 
-        val application = ApplicationManager.getApplication()
-        application.runReadAction {
-            application
-                .messageBus
-                .syncPublisher(EditorColorsManager.TOPIC)
-                .globalSchemeChange(null)
-        }
+        EditorSchemeChange.publish()
     }
 
     private class ElementRevertFailure(
