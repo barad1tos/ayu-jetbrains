@@ -699,7 +699,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
             SyntaxLanguageRegistry.supportedLanguages().map {
                 it.displayName
             },
-    ): String = languages.firstOrNull { it == DEFAULT_PREVIEW_LANGUAGE } ?: languages.firstOrNull().orEmpty()
+    ): String = SyntaxPreviewComponent.preferredAvailableLanguage(languages, DEFAULT_PREVIEW_LANGUAGE)
 
     private fun readabilityOptions(): SyntaxReadabilityOptions =
         SyntaxReadabilityOptions(

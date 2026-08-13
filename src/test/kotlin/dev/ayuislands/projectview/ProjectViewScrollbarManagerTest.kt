@@ -269,16 +269,19 @@ class ProjectViewScrollbarManagerTest {
         realState.hideProjectRootPath = true
         realState.hideProjectViewHScrollbar = false
 
-        every {
-            Registry.get(any<String>())
-        } throws
-            MissingResourceException(
-                "Not found",
-                "Registry",
-                "project.tree.structure.show.url",
+        val manager =
+            ProjectViewScrollbarManager(
+                project = project,
+                rootPathLease = rootPathLease,
+                registryValueProvider = {
+                    throw MissingResourceException(
+                        "Not found",
+                        "Registry",
+                        "project.tree.structure.show.url",
+                    )
+                },
             )
-
-        val manager = createAndDrain()
+        SwingUtilities.invokeAndWait {}
 
         SwingUtilities.invokeAndWait {
             // Should not throw
