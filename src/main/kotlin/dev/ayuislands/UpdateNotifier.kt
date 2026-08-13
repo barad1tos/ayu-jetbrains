@@ -70,6 +70,11 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.4" to
+                releaseNotes(
+                    "[Fix] Rider editor color refreshes no longer trigger write-thread access errors",
+                    "[Fix] WebStorm syntax previews use an available language instead of plain text",
+                ),
             "2.8.3" to
                 releaseNotes(
                     items =

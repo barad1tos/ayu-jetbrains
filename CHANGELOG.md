@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.8.4] - 2026-08-14
+
+- [Fix] **Reliable editor color refreshes in Rider** — startup and settings
+  changes no longer trigger write-thread access errors while Ayu refreshes the
+  active editor color scheme.
+- [Fix] **Syntax preview highlighting in WebStorm** — syntax preset previews
+  now use an available language in the host IDE instead of falling back to a
+  plain-text Kotlin sample.
+
 ## [2.8.3] - 2026-08-10
 
 - [Fix] **Safer Accent settings reset** — resetting the Accent section now
