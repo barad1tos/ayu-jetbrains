@@ -166,6 +166,22 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
+    fun `preserves language fallbacks without file types`() {
+        val unavailableFileType = editorFixture.mockFileType("Unavailable", "txt")
+        every { editorFixture.fileTypeManager.getStdFileType(any()) } returns unavailableFileType
+
+        assertEquals(
+            "Kotlin",
+            SyntaxPreviewComponent.preferredAvailableLanguage(listOf("Java", "Kotlin"), "Kotlin"),
+        )
+        assertEquals(
+            "Java",
+            SyntaxPreviewComponent.preferredAvailableLanguage(listOf("Java", "Python"), "Kotlin"),
+        )
+        assertEquals("", SyntaxPreviewComponent.preferredAvailableLanguage(emptyList(), "Kotlin"))
+    }
+
+    @Test
     fun `preferred size is non-zero`() {
         val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
         val preferred = component.preferredSize
