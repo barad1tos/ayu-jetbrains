@@ -10,9 +10,19 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parent.parent / "gradle-retry.sh"
+REPOSITORY_ROOT = SCRIPT.parent.parent
+RELEASE_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "release.yml"
 
 
 class GradleRetryTest(unittest.TestCase):
+    def test_release_verifier_uses_retry_wrapper(self) -> None:
+        workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "run: scripts/gradle-retry.sh verifyPlugin -DverifyGroup=${{ matrix.group }}",
+            workflow,
+        )
+
     def test_retry_rebuilds_generated_caches_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
