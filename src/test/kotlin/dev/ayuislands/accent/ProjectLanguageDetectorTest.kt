@@ -1,6 +1,8 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
@@ -939,7 +941,7 @@ class ProjectLanguageDetectorTest {
     }
 
     @Test
-    fun `rescan on a project with no canonical path is a no-op`() {
+    fun `rescan on a project with no canonical path does not schedule a scan`() {
         // AccentResolver.projectKey returns null for a disposal race / default
         // project. rescan must bail out without touching caches or scheduling.
         val project = mockk<Project>()
@@ -949,10 +951,14 @@ class ProjectLanguageDetectorTest {
 
         stubDumbServiceSmart(project)
         mockkObject(ProjectLanguageScanAsync)
+        val application = mockk<Application>(relaxed = true)
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
 
         ProjectLanguageDetector.rescan(project)
 
         verify(exactly = 0) { ProjectLanguageScanAsync.schedule(any(), any(), any()) }
+        verify(exactly = 1) { application.invokeLater(any(), ModalityState.nonModal()) }
     }
 
     @Test
@@ -1197,8 +1203,11 @@ class ProjectLanguageDetectorTest {
         stubDumbServiceSmart(closingProject)
         val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
         wireMessageBus(closingProject, listener)
-        mockkStatic(javax.swing.SwingUtilities::class)
-        every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
+        val application = mockk<Application>()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.isDispatchThread } returns false
+        every { application.invokeLater(any(), ModalityState.nonModal()) } answers {
             // With the accent refresh behind the scanCompleted subscriber, the
             // scan body queues exactly ONE EDT hop — the publish. Flip
             // disposal before the queued runnable runs to simulate the
@@ -1242,9 +1251,12 @@ class ProjectLanguageDetectorTest {
         stubDumbServiceSmart(closingProject)
         val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
         wireMessageBus(closingProject, listener)
-        mockkStatic(javax.swing.SwingUtilities::class)
+        val application = mockk<Application>()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.isDispatchThread } returns false
         lateinit var stalePublish: Runnable
-        every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
+        every { application.invokeLater(any(), ModalityState.nonModal()) } answers {
             // The scan body queues exactly one EDT hop (the scanCompleted
             // publish); capture it without running so the test can replay it
             // as a stale publish after the reopened project warms a fresh
@@ -1413,8 +1425,11 @@ class ProjectLanguageDetectorTest {
     }
 
     private fun runInvokeLaterInline() {
-        mockkStatic(javax.swing.SwingUtilities::class)
-        every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
+        val application = mockk<Application>()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.isDispatchThread } returns false
+        every { application.invokeLater(any(), ModalityState.nonModal()) } answers {
             firstArg<Runnable>().run()
         }
     }

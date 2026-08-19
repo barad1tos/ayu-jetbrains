@@ -1,6 +1,7 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
@@ -9,7 +10,6 @@ import com.intellij.openapi.roots.ProjectRootManager
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
-import javax.swing.SwingUtilities
 
 /**
  * Detector for the dominant language of a project. Resolver calls are gated to
@@ -38,8 +38,9 @@ import javax.swing.SwingUtilities
  * via [ProjectLanguageScanAsync] and returns null immediately; the caller falls through
  * to the global accent. When the BG scan completes, the detector only publishes
  * [ProjectLanguageDetectionListener.scanCompleted]; [ScanCompletionAccentRefresher] —
- * the sole accent-owning subscriber — re-applies the resolver result on EDT for
- * cacheable outcomes so the UI picks up either the new winner or the fallback
+ * the sole accent-owning subscriber — re-applies the resolver result in a non-modal,
+ * write-safe EDT callback for cacheable outcomes so the UI picks up either the new
+ * winner or the fallback
  * without waiting for the next focus swap. Detection stays a one-way event: this
  * detector never re-enters the resolve+apply pipeline itself.
  *
@@ -333,8 +334,9 @@ object ProjectLanguageDetector {
     }
 
     /**
-     * Dispatch [ProjectLanguageDetectionListener.scanCompleted] on EDT so
-     * subscribers can touch Swing directly. Separate from the scan task body
+     * Dispatch [ProjectLanguageDetectionListener.scanCompleted] through the
+     * platform's non-modal EDT queue so subscribers can safely enter model-backed
+     * accent code. Separate from the scan task body
      * so the scheduler's executor thread never reaches the MessageBus
      * `syncPublisher` machinery — syncPublisher's invocation handler can run
      * arbitrary subscriber code, and keeping that off the scan pool prevents
@@ -358,22 +360,25 @@ object ProjectLanguageDetector {
             LOG.debug("publishScanCompleted dropped before invokeLater: project already disposed")
             return
         }
-        SwingUtilities.invokeLater {
-            if (project.isDisposed) {
-                if (cacheKey != null && cacheEntry != null) {
-                    verdictCache.remove(cacheKey, cacheEntry)
+        ApplicationManager.getApplication().invokeLater(
+            {
+                if (project.isDisposed) {
+                    if (cacheKey != null && cacheEntry != null) {
+                        verdictCache.remove(cacheKey, cacheEntry)
+                    }
+                    LOG.debug("publishScanCompleted dropped inside invokeLater: project disposed during EDT hop")
+                    return@invokeLater
                 }
-                LOG.debug("publishScanCompleted dropped inside invokeLater: project disposed during EDT hop")
-                return@invokeLater
-            }
-            runCatchingPreservingCancellation {
-                project.messageBus
-                    .syncPublisher(ProjectLanguageDetectionListener.TOPIC)
-                    .scanCompleted(outcome)
-            }.onFailure { exception ->
-                LOG.warn("scanCompleted publish failed; subscribers will not refresh for this scan", exception)
-            }
-        }
+                runCatchingPreservingCancellation {
+                    project.messageBus
+                        .syncPublisher(ProjectLanguageDetectionListener.TOPIC)
+                        .scanCompleted(outcome)
+                }.onFailure { exception ->
+                    LOG.warn("scanCompleted publish failed; subscribers will not refresh for this scan", exception)
+                }
+            },
+            ModalityState.nonModal(),
+        )
     }
 
     /**

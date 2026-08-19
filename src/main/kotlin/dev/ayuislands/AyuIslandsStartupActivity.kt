@@ -212,7 +212,11 @@ internal class AyuIslandsStartupActivity(
         // The notification fires exactly once per install via a distinct
         // PropertiesComponent flag (`ayu.syntax.intensity.notified`) so users
         // who saw the prior syntax notification still receive this message.
-        SwingUtilities.invokeLater { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }
+        ApplicationManager.getApplication().invokeLater(
+            { SyntaxIntensityService.getInstance().reapplyForActiveLaf() },
+            ModalityState.nonModal(),
+            project.disposed,
+        )
         SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }
 
         // Initialize the glow overlay system if the glow is enabled
@@ -400,40 +404,44 @@ internal class AyuIslandsStartupActivity(
         // catch used to produce a generic "License defaults failed" with no way to tell
         // whether migration, orchestrator routing, defaults, workspace init, wizard
         // scheduling, or trial warning blew up.
-        SwingUtilities.invokeLater {
-            if (project.isDisposed) return@invokeLater
-            var wizardAction: WizardAction? = null
+        ApplicationManager.getApplication().invokeLater(
+            {
+                if (project.isDisposed) return@invokeLater
+                var wizardAction: WizardAction? = null
 
-            runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
-            if (entitlement != LicenseEntitlement.UNKNOWN) {
-                wizardAction =
-                    applyDefinitiveEntitlement(
-                        entitlement = entitlement,
-                        project = project,
-                        settings = settings,
-                        isReturningUser = isReturningUser,
-                    )
-            }
-            runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
-            runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
-            runStep("reconcile-entitlement") {
-                val deferredEntitlement =
-                    if (entitlement == LicenseEntitlement.UNKNOWN) {
-                        deferredWorkflow(settings, isReturningUser, adaptiveDelayMs)
-                    } else {
-                        null
-                    }
-                reconcileAtStartup(entitlement, listOf(project), deferredEntitlement)
-            }
-            runStep("handle-wizard-action") {
-                wizardAction?.let {
-                    StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
+                runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
+                if (entitlement != LicenseEntitlement.UNKNOWN) {
+                    wizardAction =
+                        applyDefinitiveEntitlement(
+                            entitlement = entitlement,
+                            project = project,
+                            settings = settings,
+                            isReturningUser = isReturningUser,
+                        )
                 }
-            }
-            if (entitlement == LicenseEntitlement.LICENSED) {
-                runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
-            }
-        }
+                runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
+                runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
+                runStep("reconcile-entitlement") {
+                    val deferredEntitlement =
+                        if (entitlement == LicenseEntitlement.UNKNOWN) {
+                            deferredWorkflow(settings, isReturningUser, adaptiveDelayMs)
+                        } else {
+                            null
+                        }
+                    reconcileAtStartup(entitlement, listOf(project), deferredEntitlement)
+                }
+                runStep("handle-wizard-action") {
+                    wizardAction?.let {
+                        StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
+                    }
+                }
+                if (entitlement == LicenseEntitlement.LICENSED) {
+                    runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
+                }
+            },
+            ModalityState.nonModal(),
+            project.disposed,
+        )
     }
 
     private fun applyDefinitiveEntitlement(
@@ -594,8 +602,8 @@ internal class AyuIslandsStartupActivity(
      * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors.
      *
      * Most production call sites (the license-handling block in [checkLicenseState]
-     * and friends) run inside `SwingUtilities.invokeLater { ... }`, so the surrounding
-     * Runnable is dispatched by `IdeEventQueue`. The `apply-persisted-vcs-colors` step
+     * and friends) run inside non-modal `Application.invokeLater`, so the surrounding
+     * Runnable is dispatched with the platform's write-safety constraints. The `apply-persisted-vcs-colors` step
      * runs from the coroutine body of [execute] instead — RuntimeException semantics
      * are identical regardless of thread context:
      *

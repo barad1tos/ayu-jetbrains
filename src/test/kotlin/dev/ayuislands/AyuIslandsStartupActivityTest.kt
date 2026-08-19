@@ -1,5 +1,8 @@
 package dev.ayuislands
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.licensing.LicenseChecker
@@ -14,10 +17,10 @@ import dev.ayuislands.vcs.VcsColorApplier
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.util.EnumSet
-import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -169,6 +172,7 @@ class AyuIslandsStartupActivityTest {
             )
 
         try {
+            runPlatformTaskInline()
             val method =
                 AyuIslandsStartupActivity::class.java.getDeclaredMethod(
                     "checkLicenseState",
@@ -178,7 +182,6 @@ class AyuIslandsStartupActivityTest {
                 )
             method.isAccessible = true
             method.invoke(retryingActivity, project, settings, false)
-            SwingUtilities.invokeAndWait {}
 
             verify(exactly = 0) {
                 StartupLicenseHandler.applyEntitlement(any(), any(), any())
@@ -264,6 +267,7 @@ class AyuIslandsStartupActivityTest {
             )
 
         try {
+            runPlatformTaskInline()
             val method =
                 AyuIslandsStartupActivity::class.java.getDeclaredMethod(
                     "checkLicenseState",
@@ -273,7 +277,6 @@ class AyuIslandsStartupActivityTest {
                 )
             method.isAccessible = true
             method.invoke(retryingActivity, project, settings, false)
-            SwingUtilities.invokeAndWait {}
 
             entitlement = LicenseEntitlement.LICENSED
             val entitlementFailure = mutableListOf<Pair<String, Throwable?>>()
@@ -1059,14 +1062,20 @@ class AyuIslandsStartupActivityTest {
     @Test
     fun `startup re-applies persisted syntax intensity before migration notification`() {
         val source = readStartupActivitySource()
-        val reapplyCall =
-            "SwingUtilities.invokeLater { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }"
+        val dispatchCall = "ApplicationManager.getApplication().invokeLater("
+        val reapplyCall = "SyntaxIntensityService.getInstance().reapplyForActiveLaf()"
         val notificationCall =
             "SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }"
         val reapplyIndex = source.indexOf(reapplyCall)
+        val dispatchIndex = source.lastIndexOf(dispatchCall, reapplyIndex)
+        val modalityIndex = source.indexOf("ModalityState.nonModal()", reapplyIndex)
+        val expirationIndex = source.indexOf("project.disposed", reapplyIndex)
         val notificationIndex = source.indexOf(notificationCall)
 
         assertTrue(reapplyIndex >= 0, "startup must reapply persisted syntax intensity after scheme registration")
+        assertTrue(dispatchIndex >= 0, "syntax intensity reapply must use Application.invokeLater")
+        assertTrue(modalityIndex in reapplyIndex..<notificationIndex, "syntax reapply must use non-modal dispatch")
+        assertTrue(expirationIndex in reapplyIndex..<notificationIndex, "syntax reapply must expire with the project")
         assertTrue(notificationIndex >= 0, "startup must still show the syntax intensity migration notification")
         assertTrue(
             reapplyIndex < notificationIndex,
@@ -1122,6 +1131,15 @@ class AyuIslandsStartupActivityTest {
                 ?.readText()
         assertNotNull(source, "Could not locate AyuIslandsStartupActivity.kt for source-level guard")
         return source
+    }
+
+    private fun runPlatformTaskInline() {
+        val application = mockk<Application>()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.invokeLater(any(), ModalityState.nonModal(), any()) } answers {
+            firstArg<Runnable>().run()
+        }
     }
 
     private fun capturingProcessor(captured: MutableList<Pair<String, Throwable?>>) =
