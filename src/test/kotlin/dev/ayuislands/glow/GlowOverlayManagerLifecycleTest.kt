@@ -11,6 +11,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AccentChangeListener
@@ -1062,6 +1063,45 @@ class GlowOverlayManagerLifecycleTest {
             Rectangle(50 - margin, 40 - margin, 120 + margin * 2, 80 + margin * 2),
             readGlassPane(waveformManager, "waveform").bounds,
         )
+    }
+
+    @Test
+    fun `editor attach reports missing tab hierarchy only after settling`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.invokeLater(any()) } answers { scheduled += firstArg<Runnable>() }
+        val project = stubProject("settling-editor-project")
+        val host = SettlingEditorHost().apply { setSize(800, 600) }
+        val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
+        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        every { rootPane.layeredPane } returns layeredPane
+        every { SwingUtilities.getRootPane(host) } returns rootPane
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
+        val warnings = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (category.contains("EditorTabGeometry")) warnings += message
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            invokeAttachOverlay(GlowOverlayManager(project), "settling-editor", host, isEditorOverlay = true)
+            assertTrue(warnings.isEmpty(), "initial fallback must remain silent: $warnings")
+            assertEquals(1, scheduled.size)
+
+            scheduled.removeAt(0).run()
+            assertTrue(warnings.isEmpty(), "first post-layout correction must remain silent: $warnings")
+            assertEquals(1, scheduled.size)
+
+            scheduled.removeAt(0).run()
+            assertEquals(1, warnings.size, "settled fallback must retain one actionable warning")
+        }
     }
 
     @Test
@@ -2163,5 +2203,9 @@ class GlowOverlayManagerLifecycleTest {
 
         /** Sentinel key for the late-overlay attach-path test. */
         private const val LATE_OVERLAY_KEY = "LateOverlay"
+    }
+
+    private class SettlingEditorHost : javax.swing.JComponent() {
+        override fun isShowing(): Boolean = true
     }
 }
