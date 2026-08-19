@@ -95,9 +95,9 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
     ): Allowance(1, "documented focused-project publish-gate compromise"),
     (
-        "src/test/kotlin/dev/ayuislands/accent/Gap4BannedApiGuardTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent",
-    ): Allowance(1, "banned platform API guard directory"),
+        "src/test/kotlin/dev/ayuislands/ui/UiRefreshGuardTest.kt",
+        "src/main/kotlin/dev/ayuislands",
+    ): Allowance(1, "production-wide banned platform API guard"),
     (
         "src/test/kotlin/dev/ayuislands/accent/LiveChromeRefresherTest.kt",
         "src/main/kotlin/dev/ayuislands/accent/LiveChromeRefresher.kt",

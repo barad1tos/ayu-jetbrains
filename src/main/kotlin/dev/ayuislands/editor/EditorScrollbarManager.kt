@@ -45,9 +45,9 @@ class EditorScrollbarManager(
             this,
         )
 
-        // Self-heal after IJSwingUtilities.updateComponentTreeUI (startup, focus swap,
-        // LAF change) — that walk calls updateUI() on every JScrollBar descendant and
-        // resets the preferredSize=0 trick this manager uses to hide scrollbars.
+        // Self-heal after platform LAF changes and explicit Ayu refresh notifications.
+        // A platform LAF change calls `updateUI()` on scrollbars and resets the
+        // `preferredSize=0` override this manager uses to hide them.
         //
         // Drop the cached "original preferred size" client property before reapplying so the
         // next hideScrollBar call captures the freshly-installed default. Without this, the

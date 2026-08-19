@@ -87,7 +87,7 @@ class ProjectAccentSwapServiceTest {
         every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs
+        every { ComponentTreeRefresher.notifyOnly(any()) } just Runs
 
         mockkStatic(WindowManager::class)
         // Default: no project frames. Tests that need a matching frame override via
@@ -199,7 +199,7 @@ class ProjectAccentSwapServiceTest {
         verify(exactly = 1) { AyuVariant.detect() }
         verify(exactly = 1) { AccentResolver.resolve(project, AccentContext.External) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
-        verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
+        verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(project) }
     }
 
     @Test
@@ -221,7 +221,7 @@ class ProjectAccentSwapServiceTest {
             AccentApplicator.syncCodeGlanceProViewportForSwap("#AABBCC", AccentContext.External)
         }
         verify(exactly = 1) { IndentRainbowSync.apply(AccentContext.External, "#AABBCC") }
-        verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
+        verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(project) }
     }
 
     @Test
@@ -245,12 +245,12 @@ class ProjectAccentSwapServiceTest {
         // JVM-wide UIManager/globalScheme color since the last activation. The apply itself
         // is still skipped when the resolver output matches lastAppliedHex.
         //
-        // `walkAndNotify` and the integration refresh path
+        // The project refresh notification and the integration refresh path
         // (`syncCodeGlanceProViewportForSwap` + `IndentRainbowSync.apply`) fire on
         // every activation regardless of hex change so the per-project hex is pushed into
         // the app-scoped CGP/IR caches and the focused chrome repaints. Historically the
         // blanket `if (effectiveHex == lastAppliedHex) return` short-circuited everything;
-        // the same-hex branch now still fires the `walkAndNotify` + integration writes.
+        // the same-hex branch now still publishes the refresh + integration writes.
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
@@ -261,8 +261,8 @@ class ProjectAccentSwapServiceTest {
 
         verify(exactly = 2) { AccentResolver.resolve(project, AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        // walkAndNotify fires on BOTH activations.
-        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
+        // Subscriber notification fires on BOTH activations.
+        verify(exactly = 2) { ComponentTreeRefresher.notifyOnly(project) }
         // Strict count: integration refresh fires EXACTLY ONCE — only on the
         // second activation (same-hex branch). The first activation takes the
         // changed-hex branch (delegating to `applyFromHexString`) which does
@@ -298,7 +298,7 @@ class ProjectAccentSwapServiceTest {
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 2) { AccentApplicator.applyFromHexString("#5CCFE6") }
-        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
+        verify(exactly = 2) { ComponentTreeRefresher.notifyOnly(project) }
     }
 
     @Test
@@ -334,27 +334,23 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
-    fun `onWindowActivated invokes ComponentTreeRefresher walkAndNotify after apply`() {
-        // AccentApplicator updates UIManager + editor scheme but leaves cached JBColor on
-        // already-painted components. The handler must follow apply() with a tree-walk so
-        // toolbar / tab underlines / scrollbar chrome pick up the new accent. Regression
-        // dropping the walkAndNotify call would silently break per-project visual isolation
-        // (apply would update UIManager but the visible UI would stay stale until the next
-        // organic refresh).
+    fun `onWindowActivated notifies component subscribers after apply`() {
+        // AccentApplicator owns the targeted UI refresh. The swap handler then publishes
+        // a project-scoped event so scrollbar managers can reapply their local overrides.
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
 
         service.onWindowActivatedForTest(makeEvent(window))
 
-        verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, window) }
+        verify(exactly = 1) { ComponentTreeRefresher.notifyOnly(project) }
     }
 
     @Test
     fun `same-hex focus swap re-syncs CGP and IR caches`() {
         // Alt-tab from project A (hex X) to project B which also resolves to
         // hex X. The blanket short-circuit historically skipped
-        // `applyFromHexString` AND `walkAndNotify` AND the integration writes —
+        // `applyFromHexString`, the refresh notification, and the integration writes —
         // leaving CGP `CodeGlanceConfigService` and IR `IrConfig` app-scoped
         // caches holding project A's hex while the user looked at project B.
         //
@@ -409,17 +405,16 @@ class ProjectAccentSwapServiceTest {
         verify(exactly = 1) { AccentApplicator.syncCodeGlanceProViewportForSwap(sharedHex) }
         verify(exactly = 1) { IndentRainbowSync.apply(AyuVariant.MIRAGE, sharedHex) }
 
-        // walkAndNotify fires for BOTH activations — historically the blanket
-        // return skipped this on the same-hex branch, leaving the per-project
-        // chrome stale.
-        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(any(), any()) }
+        // Subscriber notification fires for BOTH activations — historically the blanket
+        // return skipped this on the same-hex branch, leaving overrides stale.
+        verify(exactly = 2) { ComponentTreeRefresher.notifyOnly(any()) }
     }
 
     @Test
     fun `different-hex focus swap applies and refreshes`() {
         // Regression lock for the normal case: a focus swap between projects
-        // with different hexes MUST still invoke `applyFromHexString` +
-        // `walkAndNotify`. Ensures the same-hex relaxation did not break the
+        // with different hexes MUST still invoke `applyFromHexString` and publish the
+        // project refresh event. Ensures the same-hex relaxation did not break the
         // happy path.
         val projectA = stubProject("project-a")
         val projectB = stubProject("project-b")
@@ -442,7 +437,7 @@ class ProjectAccentSwapServiceTest {
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#DFBFFF") }
-        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(any(), any()) }
+        verify(exactly = 2) { ComponentTreeRefresher.notifyOnly(any()) }
     }
 
     @Test

@@ -1075,6 +1075,21 @@ class AyuIslandsStartupActivityTest {
     }
 
     @Test
+    fun `startup notifies component subscribers after both managers exist`() {
+        val source = readStartupActivitySource()
+        val editorManager = source.indexOf("EditorScrollbarManager.getInstance(project)")
+        val projectViewManager = source.indexOf("ProjectViewScrollbarManager.getInstance(project)")
+        val notification = source.indexOf("ComponentTreeRefresher.notifyOnly(project)")
+
+        assertTrue(editorManager >= 0, "startup must initialize EditorScrollbarManager")
+        assertTrue(projectViewManager >= 0, "startup must initialize ProjectViewScrollbarManager")
+        assertTrue(notification > editorManager, "startup must notify after the editor manager exists")
+        assertTrue(notification > projectViewManager, "startup must notify after the project-view manager exists")
+        assertFalse(source.contains("ComponentTreeRefresher.walkAndNotify"))
+        assertFalse(source.contains("WindowManager.getInstance().getFrame(project)"))
+    }
+
+    @Test
     fun `startup installs the scan-completion accent refresher before the first accent resolve`() {
         // Regression guard: `runStartupAccentOnEdt` can schedule the first
         // background language scan (EDT resolve on a cold detector cache).

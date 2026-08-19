@@ -81,9 +81,9 @@ class ProjectViewScrollbarManager(
             if (!project.isDisposed) apply()
         }
 
-        // Self-heal after IJSwingUtilities.updateComponentTreeUI (startup, focus swap,
-        // LAF change) — the walk resets the ScrollPane's horizontal scrollbar policy
-        // and any rendering overrides we patch from apply().
+        // Self-heal after platform LAF changes and explicit Ayu refresh notifications.
+        // A platform LAF change can reset the scroll pane's horizontal policy and the
+        // rendering overrides installed by `apply()`.
         project.messageBus
             .connect(this)
             .subscribe(

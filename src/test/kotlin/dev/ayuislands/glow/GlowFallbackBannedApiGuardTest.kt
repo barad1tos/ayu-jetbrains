@@ -35,7 +35,7 @@ class GlowFallbackBannedApiGuardTest {
     /**
      * Strips block comments `/* ... */` and line comments `// ...` so KDoc that
      * documents the very banned API it forbids cannot false-positive a guard.
-     * Mirrors the canonical helper in `dev.ayuislands.accent.Gap4BannedApiGuardTest`.
+     * Mirrors the canonical helper in `dev.ayuislands.ui.UiRefreshGuardTest`.
      */
     private fun stripComments(input: String): String {
         val noBlock = input.replace(Regex("/\\*[\\s\\S]*?\\*/"), "")

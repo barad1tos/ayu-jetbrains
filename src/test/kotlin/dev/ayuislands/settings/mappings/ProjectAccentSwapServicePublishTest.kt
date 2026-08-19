@@ -81,7 +81,7 @@ class ProjectAccentSwapServicePublishTest {
             IndentRainbowSync.apply(any<AyuVariant>(), any())
         } returns IntegrationOutcome.Skipped
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { ComponentTreeRefresher.walkAndNotify(any(), any()) } just Runs
+        every { ComponentTreeRefresher.notifyOnly(any()) } just Runs
 
         mockkStatic(WindowManager::class)
         val windowManager =
@@ -150,8 +150,8 @@ class ProjectAccentSwapServicePublishTest {
     fun `same-hex branch survives a throwing subscriber without aborting the swap pipeline`() {
         // Pattern B regression lock at the same-hex publish site. A malicious
         // subscriber must NOT prevent the swap service from running its post-
-        // publish bookkeeping (walkAndNotify already ran before the publish, and
-        // the handler still returns gracefully from `handleWindowActivated`).
+        // publish refresh notification, and the handler still returns gracefully
+        // from `handleWindowActivated`.
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         every { AccentResolver.source(project) } returns AccentResolver.Source.GLOBAL
@@ -163,9 +163,9 @@ class ProjectAccentSwapServicePublishTest {
         // The next call must not throw out of the handler — Pattern B contains the throw.
         service.onWindowActivatedForTest(makeEvent(window))
 
-        // ComponentTreeRefresher.walkAndNotify fires for BOTH activations, proving the
+        // ComponentTreeRefresher.notifyOnly fires for BOTH activations, proving the
         // handler ran to completion despite the subscriber exception.
-        verify(exactly = 2) { ComponentTreeRefresher.walkAndNotify(project, window) }
+        verify(exactly = 2) { ComponentTreeRefresher.notifyOnly(project) }
         // The publisher was invoked on the same-hex branch (second activation).
         verify(exactly = 1) {
             listener.accentChanged(project, AccentHex.unsafeOf("#FFCC66"), AccentResolver.Source.GLOBAL)

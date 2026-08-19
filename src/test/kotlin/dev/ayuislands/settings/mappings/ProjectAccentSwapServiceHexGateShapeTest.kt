@@ -16,20 +16,20 @@ import kotlin.test.assertTrue
  *   if (effectiveHex == lastAppliedHex) return
  *
  * That triggered a bug on alt-tab from project A (hex X) to project B which
- * also resolves to hex X. The blanket return skipped `applyFromHexString` AND
- * `walkAndNotify` AND the integration writes — leaving CGP/IR app-scoped
+ * also resolves to hex X. The blanket return skipped `applyFromHexString`,
+ * the project refresh notification, and the integration writes — leaving CGP/IR app-scoped
  * caches holding project A's hex while the user looked at project B.
  *
  * The gate is now split into a conditional: `applyFromHexString` is still
- * skipped when hex is unchanged, but `walkAndNotify` + the direct integration
+ * skipped when hex is unchanged, but `notifyOnly` + the direct integration
  * calls (`AccentApplicator.syncCodeGlanceProViewportForSwap` +
  * `IndentRainbowSync.apply`) ALWAYS fire so the per-project hex is pushed
- * into the app-scoped caches before the tree walk repaints.
+ * into the app-scoped caches before subscribers reapply their overrides.
  *
  * This test pins:
  *   1. The blanket `if (effectiveHex == lastAppliedHex) return` literal must
  *      NOT appear.
- *   2. `walkAndNotify` MUST appear exactly once at the function's top level so
+ *   2. `notifyOnly` MUST appear exactly once at the function's top level so
  *      it fires on every focus swap, not nested inside the changed-only branch.
  *   3. The same-hex branch MUST trigger the integration refresh path
  *      (`syncCodeGlanceProViewportForSwap` + `IndentRainbowSync.apply`).
@@ -103,31 +103,31 @@ class ProjectAccentSwapServiceHexGateShapeTest {
             blanketReturnPattern.containsMatchIn(body),
             "handleWindowActivated MUST NOT carry a blanket " +
                 "`if (effectiveHex == lastAppliedHex) return` — the hex-gate must " +
-                "only skip applyFromHexString. walkAndNotify and integration refresh " +
+                "only skip applyFromHexString. notifyOnly and integration refresh " +
                 "MUST always fire to push the per-project hex into app-scoped " +
                 "CGP/IR caches (Pattern G + L regression lock).",
         )
     }
 
     @Test
-    fun `walkAndNotify fires from both hex-changed and hex-unchanged branches`() {
+    fun `notifyOnly fires from both hex-changed and hex-unchanged branches`() {
         val body = extractHandleWindowActivatedBody()
         assertTrue(
-            Regex("""walkAndNotify\(""").containsMatchIn(body),
-            "handleWindowActivated MUST still call ComponentTreeRefresher.walkAndNotify",
+            body.contains("ComponentTreeRefresher.notifyOnly(project)"),
+            "handleWindowActivated MUST still call ComponentTreeRefresher.notifyOnly",
         )
-        // walkAndNotify must appear EXACTLY once, at the function's top level
+        // notifyOnly must appear EXACTLY once, at the function's top level
         // after the gate. Two occurrences would suggest duplication into both
         // branches (still correct but a maintenance hazard); zero would mean
         // the call vanished. One outside the conditional is the canonical
         // shape.
-        val walkCount = Regex("""walkAndNotify\(""").findAll(body).count()
+        val notificationCount = Regex("""notifyOnly\(""").findAll(body).count()
         assertEquals(
             1,
-            walkCount,
-            "walkAndNotify MUST appear EXACTLY once in handleWindowActivated — " +
+            notificationCount,
+            "notifyOnly MUST appear EXACTLY once in handleWindowActivated — " +
                 "outside the hex-changed branch so it fires on every focus swap " +
-                "(found $walkCount occurrences).",
+                "(found $notificationCount occurrences).",
         )
     }
 

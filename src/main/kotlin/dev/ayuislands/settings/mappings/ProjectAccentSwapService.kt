@@ -121,14 +121,10 @@ class ProjectAccentSwapService : Disposable {
             publishSameHexAccentChanged(project, effectiveAccent.hex)
         }
 
-        // Always refresh the component tree on focus swap — preserves the
-        // "WINDOW_ACTIVATED always refreshes subscribers" invariant. AccentApplicator
-        // updates UIManager + editor scheme but UIManager-only components (toolbar, tab
-        // underlines, scrollbar chrome, focus rings) hold cached JBColor resolutions
-        // captured at construction time. ComponentTreeRefresher does the component-tree
-        // LAF refresh AND fires ComponentTreeRefreshedTopic so managers whose
-        // customizations got reset by the walk (scrollbar hiders etc.) reapply themselves.
-        ComponentTreeRefresher.walkAndNotify(project, window)
+        // Both branches must notify project-scoped subscribers. The changed-hex path
+        // already performed targeted live-peer refresh and repaint inside `AccentApplicator`;
+        // the same-hex path refreshed app-scoped integrations above.
+        ComponentTreeRefresher.notifyOnly(project)
         LOG.info(
             "Project accent refreshed for ${project.name} (hex=${effectiveAccent.hex}, changed=$hexChanged)",
         )
@@ -176,8 +172,8 @@ class ProjectAccentSwapService : Disposable {
         // caches still hold whoever wrote last; force-refresh them so the newly-focused
         // minimap + indent panels paint the correct per-project accent.
         //
-        // walkAndNotify alone CANNOT close this gap because CGP and IR do not subscribe
-        // to ComponentTreeRefreshedTopic — they read from the app-scoped cache directly.
+        // The component refresh topic cannot close this gap because CGP and IR do not
+        // subscribe to it; they read from app-scoped caches and need direct refreshes.
         val state = AyuIslandsSettings.getInstance().state
         when (val context = effectiveAccent.context) {
             is AccentContext.Ayu -> refreshAyuIntegrations(context, effectiveAccent.hex, state)

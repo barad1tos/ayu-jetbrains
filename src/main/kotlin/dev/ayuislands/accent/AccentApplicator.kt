@@ -869,11 +869,10 @@ object AccentApplicator {
      * `CodeGlanceConfigService` cache without re-running the full UIManager
      * apply (which is already correct for the unchanged hex).
      *
-     * `ComponentTreeRefresher.walkAndNotify` alone cannot push the new accent
-     * into the app-scoped CGP cache because CGP does not subscribe to
-     * `ComponentTreeRefreshedTopic`. Calling this wrapper directly from the
-     * swap service achieves the cache write without the apply path's
-     * redundant work.
+     * `ComponentTreeRefresher.notifyOnly` cannot push the new accent into the
+     * app-scoped CGP cache because CGP does not subscribe to
+     * `ComponentTreeRefreshedTopic`. Calling this wrapper directly from the swap
+     * service achieves the cache write without the apply path's redundant work.
      */
     internal fun syncCodeGlanceProViewportForSwap(
         hex: String,
