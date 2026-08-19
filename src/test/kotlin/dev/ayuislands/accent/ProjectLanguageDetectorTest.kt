@@ -656,7 +656,7 @@ class ProjectLanguageDetectorTest {
             error("EDT dominant must schedule scan instead of reading project files synchronously")
         }
         mockkStatic(ApplicationManager::class)
-        val application = mockk<com.intellij.openapi.application.Application>()
+        val application = mockk<Application>()
         every { ApplicationManager.getApplication() } returns application
         every { application.isDispatchThread } returns true
         mockkObject(ProjectLanguageScanAsync)

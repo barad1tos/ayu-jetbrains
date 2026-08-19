@@ -1074,13 +1074,9 @@ class AyuIslandsStartupActivityTest {
 
         assertTrue(reapplyIndex >= 0, "startup must reapply persisted syntax intensity after scheme registration")
         assertTrue(dispatchIndex >= 0, "syntax intensity reapply must use Application.invokeLater")
+        assertTrue(notificationIndex >= 0, "startup must still show the syntax intensity migration notification")
         assertTrue(modalityIndex in reapplyIndex..<notificationIndex, "syntax reapply must use non-modal dispatch")
         assertTrue(expirationIndex in reapplyIndex..<notificationIndex, "syntax reapply must expire with the project")
-        assertTrue(notificationIndex >= 0, "startup must still show the syntax intensity migration notification")
-        assertTrue(
-            reapplyIndex < notificationIndex,
-            "persisted syntax intensity should be restored before the migration notification is queued",
-        )
     }
 
     @Test
