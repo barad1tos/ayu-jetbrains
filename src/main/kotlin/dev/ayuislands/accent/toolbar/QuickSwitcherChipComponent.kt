@@ -3,6 +3,7 @@ package dev.ayuislands.accent.toolbar
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.messages.MessageBusConnection
@@ -216,7 +217,10 @@ internal class QuickSwitcherChipComponent : JLabel() {
                     hex: AccentHex,
                     source: AccentResolver.Source,
                 ) {
-                    SwingUtilities.invokeLater { refreshFromFocusedProject() }
+                    ApplicationManager.getApplication().invokeLater(
+                        { refreshFromFocusedProject() },
+                        ModalityState.nonModal(),
+                    )
                 }
             },
         )

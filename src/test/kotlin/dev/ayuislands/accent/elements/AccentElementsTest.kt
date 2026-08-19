@@ -1,5 +1,8 @@
 package dev.ayuislands.accent.elements
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
@@ -445,11 +448,18 @@ class AccentElementsTest {
     @Test
     fun `ProgressBarElement runOnEdt uses invokeLater when not on EDT`() {
         every { SwingUtilities.isEventDispatchThread() } returns false
+        val application = mockk<Application>()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.invokeLater(any(), ModalityState.nonModal()) } answers {
+            firstArg<Runnable>().run()
+        }
 
         val element = ProgressBarElement()
         element.apply(testColor)
 
-        verify { SwingUtilities.invokeLater(any()) }
+        verify { application.invokeLater(any(), ModalityState.nonModal()) }
+        verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
         verify { UIManager.put("ProgressBar.foreground", testColor) }
     }
 
@@ -460,10 +470,17 @@ class AccentElementsTest {
         val element = ProgressBarElement()
         element.apply(testColor)
         every { SwingUtilities.isEventDispatchThread() } returns false
+        val application = mockk<Application>()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.invokeLater(any(), ModalityState.nonModal()) } answers {
+            firstArg<Runnable>().run()
+        }
 
         element.revert()
 
-        verify { SwingUtilities.invokeLater(any()) }
+        verify { application.invokeLater(any(), ModalityState.nonModal()) }
+        verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
         store.assertOriginalValues(element)
     }
 

@@ -1,5 +1,7 @@
 package dev.ayuislands.accent.elements
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.editor.colors.ColorKey
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
@@ -56,7 +58,10 @@ class ProgressBarElement : AccentElement {
         if (SwingUtilities.isEventDispatchThread()) {
             block()
         } else {
-            SwingUtilities.invokeLater { block() }
+            ApplicationManager.getApplication().invokeLater(
+                { block() },
+                ModalityState.nonModal(),
+            )
         }
     }
 }

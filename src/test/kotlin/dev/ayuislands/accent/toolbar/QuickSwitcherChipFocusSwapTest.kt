@@ -4,6 +4,7 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFrame
@@ -60,6 +61,9 @@ class QuickSwitcherChipFocusSwapTest {
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
+        every { mockApplication.invokeLater(any(), ModalityState.nonModal()) } answers {
+            firstArg<Runnable>().run()
+        }
         every { mockMessageBus.connect(any<Disposable>()) } returns mockConnection
 
         // Catch-all FIRST — mockk evaluates last-defined-wins, so the specific captures
@@ -157,8 +161,7 @@ class QuickSwitcherChipFocusSwapTest {
         // Fire the publish — publisher signature: project, hex, source.
         // The hex parameter is the [AccentHex] value class — wrap the literal to match.
         accentListenerSlot.captured.accentChanged(project, AccentHex.unsafeOf("#DFBFFF"), AccentResolver.Source.GLOBAL)
-        // Handler wraps in SwingUtilities.invokeLater; flush.
-        SwingUtilities.invokeAndWait { /* flush */ }
+        verify(exactly = 1) { mockApplication.invokeLater(any(), ModalityState.nonModal()) }
 
         val icon = chip.icon as LayeredAccentIcon
         assertEquals(Color(0xDF, 0xBF, 0xFF), icon.accentColor)

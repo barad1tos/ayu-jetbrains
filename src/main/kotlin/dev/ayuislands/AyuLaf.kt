@@ -1,7 +1,8 @@
 package dev.ayuislands
 
 import com.intellij.ide.ui.LafManager
-import javax.swing.SwingUtilities
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 
 object AyuLaf {
     @Suppress("UnstableApiUsage")
@@ -23,7 +24,7 @@ object AyuLaf {
             lafManager.updateUI()
         }
         if (shouldApplyLater) {
-            SwingUtilities.invokeLater(apply)
+            ApplicationManager.getApplication().invokeLater(apply, ModalityState.nonModal())
         } else {
             apply()
         }

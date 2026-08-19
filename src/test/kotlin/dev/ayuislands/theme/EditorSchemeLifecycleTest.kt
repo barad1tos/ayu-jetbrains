@@ -1,5 +1,8 @@
 package dev.ayuislands.theme
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
@@ -170,7 +173,10 @@ class EditorSchemeLifecycleTest {
         currentScheme = first.scheme
         val callback = slot<Runnable>()
         every { SwingUtilities.isEventDispatchThread() } returns false
-        every { SwingUtilities.invokeLater(capture(callback)) } returns Unit
+        val application = mockk<Application>()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.invokeLater(capture(callback), ModalityState.nonModal()) } returns Unit
 
         ProgressBarElement().apply(Color.ORANGE)
         currentScheme = second.scheme
@@ -178,6 +184,7 @@ class EditorSchemeLifecycleTest {
 
         first.assertOriginalValues()
         second.assertOriginalValues()
+        io.mockk.verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
     }
 
     private inner class SchemeStore(

@@ -4,6 +4,9 @@ package dev.ayuislands
 
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.laf.UIThemeLookAndFeelInfo
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAppearanceProvider
 import dev.ayuislands.accent.SystemAppearanceProvider.Appearance
@@ -15,7 +18,6 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -29,6 +31,7 @@ class AppearanceSyncServiceTest {
     private lateinit var settings: AyuIslandsSettings
     private lateinit var state: AyuIslandsState
     private lateinit var lafManager: LafManager
+    private lateinit var application: Application
 
     @BeforeTest
     fun setUp() {
@@ -38,17 +41,18 @@ class AppearanceSyncServiceTest {
         every { settings.state } returns state
 
         lafManager = mockk(relaxed = true)
+        application = mockk()
 
         mockkObject(SystemAppearanceProvider)
         mockkObject(AyuVariant.Companion)
         mockkObject(AyuIslandsSettings.Companion)
         mockkStatic(LafManager::class)
-        mockkStatic(SwingUtilities::class)
+        mockkStatic(ApplicationManager::class)
 
         every { AyuIslandsSettings.getInstance() } returns settings
         every { LafManager.getInstance() } returns lafManager
-        // Capture the Runnable passed to invokeLater and run it immediately
-        every { SwingUtilities.invokeLater(any()) } answers {
+        every { ApplicationManager.getApplication() } returns application
+        every { application.invokeLater(any(), ModalityState.nonModal()) } answers {
             firstArg<Runnable>().run()
         }
     }
@@ -175,6 +179,7 @@ class AppearanceSyncServiceTest {
         assertTrue(service.programmaticSwitch)
         verify { lafManager.setCurrentLookAndFeel(targetThemeLaf, true) }
         verify { lafManager.updateUI() }
+        verify { application.invokeLater(any(), ModalityState.nonModal()) }
     }
 
     // -- switchToTheme: the current theme already matches the target --
