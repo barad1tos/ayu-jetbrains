@@ -1,5 +1,8 @@
 package dev.ayuislands
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.licensing.LicenseChecker
@@ -14,6 +17,7 @@ import dev.ayuislands.vcs.VcsColorApplier
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.util.EnumSet
@@ -40,8 +44,48 @@ import kotlin.test.assertTrue
 class AyuIslandsStartupActivityTest {
     private val activity = AyuIslandsStartupActivity()
 
-    // No @AfterTest needed - LoggedErrorProcessor.executeWith restores the default
-    // processor at block end, and we don't mockkStatic/mockkObject anything global.
+    // Tests that mock global objects restore them in a local finally block;
+    // LoggedErrorProcessor.executeWith restores the default processor itself.
+
+    @Test
+    fun `license startup uses IntelliJ write-safe dispatcher`() {
+        val application = mockk<Application>(relaxed = true)
+        val project = mockk<Project>(relaxed = true)
+        val settings = mockk<AyuIslandsSettings>(relaxed = true)
+        val scheduledActions = mutableListOf<Runnable>()
+        mockkStatic(ApplicationManager::class)
+        mockkObject(LicenseChecker)
+        mockkObject(StartupLicenseHandler)
+        every { ApplicationManager.getApplication() } returns application
+        every {
+            application.invokeLater(capture(scheduledActions), ModalityState.nonModal())
+        } returns Unit
+        every { LicenseChecker.getTrialDaysRemaining() } returns null
+        every { StartupLicenseHandler.computeAdaptiveDelay() } returns 1
+        val startupActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.UNKNOWN },
+            )
+
+        try {
+            val method =
+                AyuIslandsStartupActivity::class.java.getDeclaredMethod(
+                    "checkLicenseState",
+                    Project::class.java,
+                    AyuIslandsSettings::class.java,
+                    Boolean::class.javaPrimitiveType,
+                )
+            method.isAccessible = true
+            method.invoke(startupActivity, project, settings, false)
+
+            assertEquals(1, scheduledActions.size)
+            verify(exactly = 1) {
+                application.invokeLater(any<Runnable>(), ModalityState.nonModal())
+            }
+        } finally {
+            unmockkAll()
+        }
+    }
 
     @Test
     fun `runStep swallows RuntimeException so the next step can run`() {
@@ -1060,10 +1104,13 @@ class AyuIslandsStartupActivityTest {
     fun `startup re-applies persisted syntax intensity before migration notification`() {
         val source = readStartupActivitySource()
         val reapplyCall =
-            "SwingUtilities.invokeLater { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }"
+            Regex(
+                """dispatchWriteSafe\s*\{\s*""" +
+                    """SyntaxIntensityService\.getInstance\(\)\.reapplyForActiveLaf\(\)\s*}""",
+            )
         val notificationCall =
             "SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }"
-        val reapplyIndex = source.indexOf(reapplyCall)
+        val reapplyIndex = reapplyCall.find(source)?.range?.first ?: -1
         val notificationIndex = source.indexOf(notificationCall)
 
         assertTrue(reapplyIndex >= 0, "startup must reapply persisted syntax intensity after scheme registration")

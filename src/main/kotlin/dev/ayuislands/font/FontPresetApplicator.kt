@@ -1,5 +1,7 @@
 package dev.ayuislands.font
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.ModifiableFontPreferences
@@ -93,7 +95,12 @@ object FontPresetApplicator {
         if (SwingUtilities.isEventDispatchThread()) {
             action()
         } else {
-            SwingUtilities.invokeLater(action)
+            val application = ApplicationManager.getApplication()
+            if (application == null) {
+                SwingUtilities.invokeLater(action)
+            } else {
+                application.invokeLater(action, ModalityState.nonModal())
+            }
         }
     }
 }

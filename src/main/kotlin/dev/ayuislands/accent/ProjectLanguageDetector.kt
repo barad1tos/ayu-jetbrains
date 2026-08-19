@@ -1,6 +1,7 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.DumbService
@@ -358,22 +359,33 @@ object ProjectLanguageDetector {
             LOG.debug("publishScanCompleted dropped before invokeLater: project already disposed")
             return
         }
-        SwingUtilities.invokeLater {
-            if (project.isDisposed) {
-                if (cacheKey != null && cacheEntry != null) {
-                    verdictCache.remove(cacheKey, cacheEntry)
+        dispatchWriteSafe(
+            Runnable {
+                if (project.isDisposed) {
+                    if (cacheKey != null && cacheEntry != null) {
+                        verdictCache.remove(cacheKey, cacheEntry)
+                    }
+                    LOG.debug("publishScanCompleted dropped inside invokeLater: project disposed during EDT hop")
+                    return@Runnable
                 }
-                LOG.debug("publishScanCompleted dropped inside invokeLater: project disposed during EDT hop")
-                return@invokeLater
-            }
-            runCatchingPreservingCancellation {
-                project.messageBus
-                    .syncPublisher(ProjectLanguageDetectionListener.TOPIC)
-                    .scanCompleted(outcome)
-            }.onFailure { exception ->
-                LOG.warn("scanCompleted publish failed; subscribers will not refresh for this scan", exception)
-            }
+                runCatchingPreservingCancellation {
+                    project.messageBus
+                        .syncPublisher(ProjectLanguageDetectionListener.TOPIC)
+                        .scanCompleted(outcome)
+                }.onFailure { exception ->
+                    LOG.warn("scanCompleted publish failed; subscribers will not refresh for this scan", exception)
+                }
+            },
+        )
+    }
+
+    private fun dispatchWriteSafe(action: Runnable) {
+        val application = ApplicationManager.getApplication()
+        if (application == null) {
+            SwingUtilities.invokeLater(action)
+            return
         }
+        application.invokeLater(action, ModalityState.nonModal())
     }
 
     /**
