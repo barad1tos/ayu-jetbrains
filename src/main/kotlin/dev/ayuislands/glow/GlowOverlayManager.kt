@@ -383,10 +383,12 @@ class GlowOverlayManager(
         if (!host.isShowing) return
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
+            val canReportFallback =
+                !glassPane.isEditorOverlay || FileEditorManager.getInstance(project).selectedEditor != null
             if (glassPane.usesWaveformBounds) {
                 val geometry =
                     if (glassPane.isEditorOverlay) {
-                        EditorTabGeometry.editorOverlayGeometry(host, shouldReportFallback)
+                        EditorTabGeometry.editorOverlayGeometry(host, shouldReportFallback && canReportFallback)
                     } else {
                         EditorOverlayGeometry(
                             contentBounds = Rectangle(0, 0, host.width, host.height),
@@ -407,7 +409,10 @@ class GlowOverlayManager(
                 glassPane.waveformInwardEdges = clippedWaveformEdges(overlayBounds, layeredPane.visibleRect)
             } else if (glassPane.isEditorOverlay) {
                 glassPane.waveformInwardEdges = emptySet()
-                val bounds = EditorTabGeometry.editorOverlayGeometry(host, shouldReportFallback).contentBounds
+                val bounds =
+                    EditorTabGeometry
+                        .editorOverlayGeometry(host, shouldReportFallback && canReportFallback)
+                        .contentBounds
                 glassPane.bounds = Rectangle(point.x + bounds.x, point.y + bounds.y, bounds.width, bounds.height)
             } else {
                 glassPane.waveformInwardEdges = emptySet()

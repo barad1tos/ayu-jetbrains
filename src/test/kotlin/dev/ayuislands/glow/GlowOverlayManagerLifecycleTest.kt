@@ -1071,6 +1071,10 @@ class GlowOverlayManagerLifecycleTest {
         val scheduled = mutableListOf<Runnable>()
         every { SwingUtilities.invokeLater(any()) } answers { scheduled += firstArg<Runnable>() }
         val project = stubProject("settling-editor-project")
+        val editorManager = mockk<FileEditorManager>()
+        mockkStatic(FileEditorManager::class)
+        every { FileEditorManager.getInstance(project) } returns editorManager
+        every { editorManager.selectedEditor } returns mockk()
         val host = SettlingEditorHost().apply { setSize(800, 600) }
         val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
         val layeredPane = mockk<JLayeredPane>(relaxed = true)
@@ -1152,6 +1156,7 @@ class GlowOverlayManagerLifecycleTest {
     fun `existing editor overlay refreshes top spans when editor selection changes`() {
         val project = stubProject("editor-tab-geometry-project")
         val manager = GlowOverlayManager(project)
+        val editorManager = mockk<FileEditorManager>()
         val host = mockk<javax.swing.JComponent>(relaxed = true)
         val layeredPane = mockk<JLayeredPane>(relaxed = true)
         val pane =
@@ -1163,10 +1168,13 @@ class GlowOverlayManagerLifecycleTest {
                 isEditorOverlay = true,
             )
         pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig())
+        mockkStatic(FileEditorManager::class)
+        every { FileEditorManager.getInstance(project) } returns editorManager
+        every { editorManager.selectedEditor } returns mockk()
         every { host.isShowing } returns true
         every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(10, 20)
         mockkObject(EditorTabGeometry)
-        every { EditorTabGeometry.editorOverlayGeometry(host) } returns
+        every { EditorTabGeometry.editorOverlayGeometry(host, any()) } returns
             EditorOverlayGeometry(Rectangle(0, 28, 120, 80), listOf(0..72))
         seedOverlaysMapWithMocks(manager, pane, host, layeredPane, key = "Editor")
 
@@ -1204,10 +1212,25 @@ class GlowOverlayManagerLifecycleTest {
         every { rootPane.layeredPane } returns layeredPane
         every { SwingUtilities.getRootPane(host) } returns rootPane
         every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
+        val warnings = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (category.contains("EditorTabGeometry")) warnings += message
+                    return false
+                }
+            }
 
-        invokeAttachEditorOverlayIfNeeded(manager)
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            invokeAttachEditorOverlayIfNeeded(manager)
+        }
 
         assertTrue(readOverlaysMap(manager).containsKey("Editor"))
+        assertTrue(warnings.isEmpty(), "an empty editor has no tab hierarchy to warn about: $warnings")
     }
 
     @Test
