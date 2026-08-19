@@ -6,6 +6,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import java.awt.Color
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -17,7 +18,7 @@ import kotlin.test.assertTrue
 
 /**
  * Baseline-loader behaviour for [SyntaxOverlayLoader]. Validates
- * [loadBaselineForVariant] returns the parsed baseline `<attributes>` section
+ * [SyntaxOverlayLoader.loadBaselineForVariant] returns the parsed baseline `<attributes>` section
  * for each Ayu variant from the `baselineResourceBase` path, caches per
  * variant, and degrades gracefully on missing/malformed resources.
  *
@@ -398,6 +399,41 @@ class SyntaxOverlayLoaderBaselineTest {
                 "$variant baseline scheme must map inlay type hints to the Ayu type color",
             )
         }
+    }
+
+    @Test
+    fun `production Light baseline preserves translucent attribute backgrounds`() {
+        val baselineByName =
+            SyntaxOverlayLoader()
+                .loadBaselineForVariant("Light")
+                .entries
+                .associate { it.key.externalName to it.value }
+
+        assertEquals(
+            Color(0xE6, 0x50, 0x50, 0x20),
+            baselineByName["DIFF_CONFLICT"]?.backgroundColor,
+            "Light diff-conflict background must preserve its 12.5% alpha",
+        )
+        assertEquals(
+            Color(0xFF, 0x73, 0x83, 0x14),
+            baselineByName["DIFF_DELETED"]?.backgroundColor,
+            "Light deleted-line background must preserve its 7.8% alpha",
+        )
+        assertEquals(
+            Color(0x6C, 0xBF, 0x43, 0x20),
+            baselineByName["DIFF_INSERTED"]?.backgroundColor,
+            "Light inserted-line background must not shift a parseable RGBA value into opaque RGB",
+        )
+        assertEquals(
+            Color(0xFF, 0xE2, 0x94, 0x80),
+            baselineByName["IDENTIFIER_UNDER_CARET_ATTRIBUTES"]?.backgroundColor,
+            "Light identifier-under-caret background must preserve its 50% alpha",
+        )
+        assertEquals(
+            Color(0xE6, 0x50, 0x50),
+            baselineByName["DIFF_CONFLICT"]?.errorStripeColor,
+            "RGBA compatibility must keep neighboring opaque fields intact",
+        )
     }
 
     @Test
