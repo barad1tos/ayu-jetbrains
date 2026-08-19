@@ -9,6 +9,7 @@ import java.awt.Component
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
+import java.awt.Shape
 import java.awt.geom.Area
 import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
@@ -30,6 +31,7 @@ class GlowRenderer {
         private const val NEON_BLOOM_INTENSITY = 0.6f
         private const val FRAME_RENDER_BUDGET_MS = 16.0
         private const val NANOS_PER_MS = 1_000_000.0
+        private const val CACHE_EDGE_PADDING = 2
     }
 
     // Style cache (lightweight, recomputed on style/color change)
@@ -38,6 +40,7 @@ class GlowRenderer {
         val color: Color,
         val intensity: Int,
         val glowWidth: Int,
+        val isLightTheme: Boolean,
     )
 
     private var styleKey: StyleKey? = null
@@ -57,8 +60,38 @@ class GlowRenderer {
         val edgesOnly: Boolean,
     )
 
+    private data class GlowLayer(
+        val shape: Shape,
+        val color: Color,
+    )
+
+    private data class FrameSlice(
+        val image: BufferedImage,
+        val x: Int,
+        val y: Int,
+    )
+
+    private data class FrameCache(
+        val slices: List<FrameSlice>,
+    ) {
+        val pixelCount: Long = slices.sumOf { it.image.width.toLong() * it.image.height }
+
+        fun paint(
+            graphics: Graphics2D,
+            x: Int,
+            y: Int,
+        ) {
+            slices.forEach { slice ->
+                graphics.drawImage(slice.image, x + slice.x, y + slice.y, null)
+            }
+        }
+    }
+
     private var frameKey: FrameKey? = null
-    private var cachedFrame: BufferedImage? = null
+    private var cachedFrame: FrameCache? = null
+
+    internal val cachedPixelCount: Long
+        get() = cachedFrame?.pixelCount ?: 0L
 
     fun ensureCache(
         accentColor: Color,
@@ -66,15 +99,14 @@ class GlowRenderer {
         intensity: Int = 40,
         glowWidth: Int = DEFAULT_GLOW_WIDTH,
     ) {
-        val key = StyleKey(style, accentColor, intensity, glowWidth)
+        val panelBackground = UIManager.getColor("Panel.background")
+        val isLightTheme = panelBackground != null && !ColorUtil.isDark(panelBackground)
+        val key = StyleKey(style, accentColor, intensity, glowWidth, isLightTheme)
         if (key == styleKey) return
 
         val baseAlpha = (intensity / PERCENTAGE_DIVISOR * MAX_ALPHA).toInt().coerceIn(0, MAX_ALPHA)
-
-        val panelBackground = UIManager.getColor("Panel.background")
-        val isLight = panelBackground != null && !ColorUtil.isDark(panelBackground)
         cachedBaseAlpha =
-            if (isLight) {
+            if (isLightTheme) {
                 (baseAlpha * LIGHT_THEME_ALPHA_MULTIPLIER).toInt().coerceIn(0, MAX_ALPHA)
             } else {
                 baseAlpha
@@ -89,7 +121,7 @@ class GlowRenderer {
     }
 
     /**
-     * Paints glow from a cached BufferedImage (~0.5ms after first render):
+     * Paints glow from cached border slices:
      * concentric rounded rectangles from edge inward, or — with [edgesOnly] —
      * straight full-height vertical falloff strips on the left and right,
      * with no corner arcs at all.
@@ -103,7 +135,7 @@ class GlowRenderer {
     ) {
         if (bounds.width <= 0 || bounds.height <= 0) return
 
-        val fKey =
+        val nextFrameKey =
             FrameKey(
                 bounds.width,
                 bounds.height,
@@ -115,7 +147,7 @@ class GlowRenderer {
                 edgesOnly,
             )
 
-        if (fKey != frameKey || cachedFrame == null) {
+        if (nextFrameKey != frameKey || cachedFrame == null) {
             val startNanos = System.nanoTime()
             cachedFrame =
                 if (edgesOnly) {
@@ -123,14 +155,14 @@ class GlowRenderer {
                 } else {
                     renderFrame(bounds.width, bounds.height, arcWidth, glowWidth)
                 }
-            frameKey = fKey
+            frameKey = nextFrameKey
             val elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MS
             if (elapsedMs > FRAME_RENDER_BUDGET_MS) {
                 log.warn("Glow frame render took %.2fms (target: <16ms) — cached for reuse".format(elapsedMs))
             }
         }
 
-        graphics.drawImage(cachedFrame, bounds.x, bounds.y, null)
+        cachedFrame?.paint(graphics, bounds.x, bounds.y)
     }
 
     private fun renderFrame(
@@ -138,45 +170,14 @@ class GlowRenderer {
         height: Int,
         arcWidth: Int,
         glowWidth: Int,
-    ): BufferedImage {
-        val image = UIUtil.createImage(null as Component?, width, height, BufferedImage.TYPE_INT_ARGB)
-        val g2 = image.createGraphics()
-        try {
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+    ): FrameCache {
+        val layers = frameLayers(width, height, arcWidth, glowWidth)
+        if (layers.isEmpty()) return FrameCache(emptyList())
 
-            for (i in 0 until glowWidth) {
-                val progress = i.toFloat() / glowWidth.toFloat()
-                val alpha = computeAlpha(progress)
-                if (alpha <= 0) continue
-
-                g2.color = ColorUtil.toAlpha(cachedColor, alpha)
-
-                val inset = i.toDouble()
-                val outerW = (width - 2.0 * inset).coerceAtLeast(0.0)
-                val outerH = (height - 2.0 * inset).coerceAtLeast(0.0)
-                if (outerW <= 0 || outerH <= 0) break
-
-                val outerArc = if (arcWidth > 0) (arcWidth.toDouble() - 2.0 * i).coerceAtLeast(0.0) else 0.0
-                val outer = RoundRectangle2D.Double(inset, inset, outerW, outerH, outerArc, outerArc)
-
-                val nextInset = inset + 1.0
-                val innerW = (width - 2.0 * nextInset).coerceAtLeast(0.0)
-                val innerH = (height - 2.0 * nextInset).coerceAtLeast(0.0)
-
-                if (innerW > 0 && innerH > 0) {
-                    val innerArc = if (arcWidth > 0) (arcWidth.toDouble() - 2.0 * (i + 1)).coerceAtLeast(0.0) else 0.0
-                    val inner = RoundRectangle2D.Double(nextInset, nextInset, innerW, innerH, innerArc, innerArc)
-                    val ring = Area(outer)
-                    ring.subtract(Area(inner))
-                    g2.fill(ring)
-                } else {
-                    g2.fill(outer)
-                }
-            }
-        } finally {
-            g2.dispose()
-        }
-        return image
+        val arcExtent = (arcWidth.coerceAtLeast(0) + 1) / 2
+        val thickness = maxOf(glowWidth + CACHE_EDGE_PADDING, arcExtent + CACHE_EDGE_PADDING)
+        val slices = borderRegions(width, height, thickness).map { region -> renderSlice(region, layers) }
+        return FrameCache(slices)
     }
 
     // Side-edges placement: two mirrored vertical falloff strips, every column
@@ -185,28 +186,148 @@ class GlowRenderer {
         width: Int,
         height: Int,
         glowWidth: Int,
-    ): BufferedImage {
-        val image = UIUtil.createImage(null as Component?, width, height, BufferedImage.TYPE_INT_ARGB)
-        val g2 = image.createGraphics()
-        try {
-            val columns = glowWidth.coerceAtMost((width + 1) / 2)
-            for (i in 0 until columns) {
-                val progress = i.toFloat() / glowWidth.toFloat()
+    ): FrameCache {
+        val columns = glowWidth.coerceAtMost((width + 1) / 2)
+        if (columns <= 0) return FrameCache(emptyList())
+
+        val slices =
+            sideRegions(width, height, columns).map { region ->
+                renderSideSlice(region, width, height, glowWidth)
+            }
+        return FrameCache(slices)
+    }
+
+    private fun frameLayers(
+        width: Int,
+        height: Int,
+        arcWidth: Int,
+        glowWidth: Int,
+    ): List<GlowLayer> =
+        buildList {
+            for (index in 0 until glowWidth) {
+                val progress = index.toFloat() / glowWidth.toFloat()
                 val alpha = computeAlpha(progress)
                 if (alpha <= 0) continue
 
-                g2.color = ColorUtil.toAlpha(cachedColor, alpha)
-                g2.fillRect(i, 0, 1, height)
-                // On odd-width overlays the strips meet in the middle; paint
-                // the shared center column once or SrcOver doubles its alpha
-                // into a bright seam.
-                val rightX = width - 1 - i
-                if (rightX != i) g2.fillRect(rightX, 0, 1, height)
+                val inset = index.toDouble()
+                val outerWidth = (width - 2.0 * inset).coerceAtLeast(0.0)
+                val outerHeight = (height - 2.0 * inset).coerceAtLeast(0.0)
+                if (outerWidth <= 0 || outerHeight <= 0) break
+
+                val outerArc = if (arcWidth > 0) (arcWidth.toDouble() - 2.0 * index).coerceAtLeast(0.0) else 0.0
+                val outer = RoundRectangle2D.Double(inset, inset, outerWidth, outerHeight, outerArc, outerArc)
+                val nextInset = inset + 1.0
+                val innerWidth = (width - 2.0 * nextInset).coerceAtLeast(0.0)
+                val innerHeight = (height - 2.0 * nextInset).coerceAtLeast(0.0)
+                val shape =
+                    if (innerWidth > 0 && innerHeight > 0) {
+                        val innerArc =
+                            if (arcWidth > 0) {
+                                (arcWidth.toDouble() - 2.0 * (index + 1)).coerceAtLeast(0.0)
+                            } else {
+                                0.0
+                            }
+                        Area(outer).apply {
+                            subtract(
+                                Area(
+                                    RoundRectangle2D.Double(
+                                        nextInset,
+                                        nextInset,
+                                        innerWidth,
+                                        innerHeight,
+                                        innerArc,
+                                        innerArc,
+                                    ),
+                                ),
+                            )
+                        }
+                    } else {
+                        outer
+                    }
+                add(GlowLayer(shape, ColorUtil.toAlpha(cachedColor, alpha)))
+            }
+        }
+
+    private fun renderSlice(
+        region: Rectangle,
+        layers: List<GlowLayer>,
+    ): FrameSlice {
+        val image = UIUtil.createImage(null as Component?, region.width, region.height, BufferedImage.TYPE_INT_ARGB)
+        val g2 = image.createGraphics()
+        try {
+            g2.translate(-region.x, -region.y)
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            layers.forEach { layer ->
+                g2.color = layer.color
+                g2.fill(layer.shape)
             }
         } finally {
             g2.dispose()
         }
-        return image
+        return FrameSlice(image, region.x, region.y)
+    }
+
+    private fun renderSideSlice(
+        region: Rectangle,
+        frameWidth: Int,
+        frameHeight: Int,
+        glowWidth: Int,
+    ): FrameSlice {
+        val image = UIUtil.createImage(null as Component?, region.width, region.height, BufferedImage.TYPE_INT_ARGB)
+        val g2 = image.createGraphics()
+        try {
+            g2.translate(-region.x, -region.y)
+            val columns = glowWidth.coerceAtMost((frameWidth + 1) / 2)
+            for (index in 0 until columns) {
+                val progress = index.toFloat() / glowWidth.toFloat()
+                val alpha = computeAlpha(progress)
+                if (alpha <= 0) continue
+
+                g2.color = ColorUtil.toAlpha(cachedColor, alpha)
+                g2.fillRect(index, 0, 1, frameHeight)
+                // On odd-width overlays the strips meet in the middle; paint
+                // the shared center column once or SrcOver doubles its alpha
+                // into a bright seam.
+                val rightX = frameWidth - 1 - index
+                if (rightX != index) g2.fillRect(rightX, 0, 1, frameHeight)
+            }
+        } finally {
+            g2.dispose()
+        }
+        return FrameSlice(image, region.x, region.y)
+    }
+
+    private fun borderRegions(
+        width: Int,
+        height: Int,
+        thickness: Int,
+    ): List<Rectangle> {
+        val topHeight = thickness.coerceAtMost(height)
+        val bottomY = maxOf(topHeight, height - thickness)
+        val middleHeight = bottomY - topHeight
+        val leftWidth = thickness.coerceAtMost(width)
+        val rightX = maxOf(leftWidth, width - thickness)
+        return buildList {
+            add(Rectangle(0, 0, width, topHeight))
+            if (bottomY < height) add(Rectangle(0, bottomY, width, height - bottomY))
+            if (middleHeight > 0) {
+                add(Rectangle(0, topHeight, leftWidth, middleHeight))
+                if (rightX < width) add(Rectangle(rightX, topHeight, width - rightX, middleHeight))
+            }
+        }
+    }
+
+    private fun sideRegions(
+        width: Int,
+        height: Int,
+        columns: Int,
+    ): List<Rectangle> {
+        val leftWidth = columns.coerceAtMost(width)
+        val rightX = maxOf(leftWidth, width - columns)
+        return buildList {
+            add(Rectangle(0, 0, leftWidth, height))
+            if (rightX < width) add(Rectangle(rightX, 0, width - rightX, height))
+        }
     }
 
     internal fun computeAlpha(progress: Float): Int =

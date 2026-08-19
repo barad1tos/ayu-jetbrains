@@ -744,7 +744,6 @@ class GlowOverlayManager(
                 resolveGlowPlacement(isEditorOverlay = glassPane.isEditorOverlay, state = state)
             glassPane.configureWaveform(GlowShape.fromName(state.glowShape), resolveWaveformConfig(state))
             updateOverlayBounds(glassPane, host, layeredPane)
-            glassPane.invalidateRendererCache()
             glassPane.repaint()
         }
     }
