@@ -32,6 +32,7 @@ class CommitPanelAutoFitManager(
         }
     private var pathRendererTree: JTree? = null
     private var pathRendererListener: PropertyChangeListener? = null
+    private var canShortenPaths = false
 
     init {
         project.messageBus.connect(this).subscribe(
@@ -58,7 +59,8 @@ class CommitPanelAutoFitManager(
     }
 
     fun apply() {
-        if (!LicenseChecker.isLicensedOrGrace()) {
+        canShortenPaths = LicenseChecker.isLicensedOrGrace()
+        if (!canShortenPaths) {
             removePathRenderer()
             autoFitter.removeExpansionListener()
             return
@@ -74,6 +76,7 @@ class CommitPanelAutoFitManager(
     }
 
     override fun dispose() {
+        canShortenPaths = false
         removePathRenderer()
         autoFitter.removeExpansionListener()
     }
@@ -103,7 +106,7 @@ class CommitPanelAutoFitManager(
             tree.cellRenderer =
                 CommitPathShorteningRenderer(
                     current,
-                    canApply = { LicenseChecker.isLicensedOrGrace() },
+                    canApply = { canShortenPaths },
                 )
             refreshTree(tree)
         }
@@ -134,7 +137,8 @@ class CommitPanelAutoFitManager(
                 val newRenderer = event.newValue as? TreeCellRenderer ?: return@PropertyChangeListener
                 if (newRenderer is CommitPathShorteningRenderer) return@PropertyChangeListener
 
-                if (!LicenseChecker.isLicensedOrGrace()) {
+                canShortenPaths = LicenseChecker.isLicensedOrGrace()
+                if (!canShortenPaths) {
                     removePathRenderer()
                     return@PropertyChangeListener
                 }
@@ -150,7 +154,7 @@ class CommitPanelAutoFitManager(
                 tree.cellRenderer =
                     CommitPathShorteningRenderer(
                         newRenderer,
-                        canApply = { LicenseChecker.isLicensedOrGrace() },
+                        canApply = { canShortenPaths },
                     )
                 refreshTree(tree)
             }

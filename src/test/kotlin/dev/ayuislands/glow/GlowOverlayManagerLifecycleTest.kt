@@ -2055,6 +2055,7 @@ class GlowOverlayManagerLifecycleTest {
         val editorHost = mockk<javax.swing.JComponent>(relaxed = true)
         val commitHost = mockk<javax.swing.JComponent>(relaxed = true)
         val toolWindowManager = mockk<ToolWindowManager>(relaxed = true)
+        every { window.isActive } returns true
         every { editorHost.isShowing } returns true
         every { editorHost.isDisplayable } returns true
         every { editorHost.width } returns 400

@@ -16,6 +16,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.PanelWidthMode
 import dev.ayuislands.toolwindow.AutoFitCalculator
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -612,6 +613,38 @@ class CommitPanelAutoFitManagerTest {
                 tree.cellRenderer,
                 "repeated apply must not stack renderer wrappers",
             )
+        }
+    }
+
+    @Test
+    fun `installed renderer does not recheck license while painting rows`() {
+        SwingUtilities.invokeAndWait {
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            realState.commitPanelWidthMode = PanelWidthMode.FIXED.name
+            realState.commitPanelFixedWidth = 350
+            val tree = JTree()
+            val panel =
+                JPanel(FlowLayout()).apply {
+                    add(tree)
+                    setSize(200, 400)
+                }
+            setupCommitToolWindow(panel)
+            val manager = CommitPanelAutoFitManager(project)
+            manager.apply()
+            clearMocks(LicenseChecker, answers = false, recordedCalls = true)
+
+            tree.cellRenderer.getTreeCellRendererComponent(
+                tree,
+                tree.model.root,
+                false,
+                false,
+                false,
+                0,
+                false,
+            )
+
+            verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
+            manager.dispose()
         }
     }
 

@@ -41,6 +41,10 @@ internal class RouteCoordinator(
 
     @RequiresEdt
     fun handle(event: RouteEvent): RouteUpdate {
+        if (event is RouteEvent.Tick && !event.isWindowActive) {
+            clock.resetWallTick()
+            return RouteUpdate()
+        }
         val transition =
             when (val current = state) {
                 LifecycleState.Dormant -> handleDormant(event)

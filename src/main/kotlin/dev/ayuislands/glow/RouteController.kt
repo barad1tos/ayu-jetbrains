@@ -98,8 +98,15 @@ internal class RouteController(
 
     private fun dispatch(event: RouteEvent): Boolean {
         val current = coordinator ?: return false
+        val handledEvent =
+            if (event is RouteEvent.Tick) {
+                event.copy(isWindowActive = roots.values.any { root -> root.window.isActive })
+            } else {
+                event
+            }
         try {
-            applyUpdate(current.handle(event))
+            val update = current.handle(handledEvent)
+            if (handledEvent !is RouteEvent.Tick || handledEvent.isWindowActive) applyUpdate(update)
         } catch (exception: RuntimeException) {
             fail(exception)
         }

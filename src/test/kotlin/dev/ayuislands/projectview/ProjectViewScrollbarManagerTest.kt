@@ -209,6 +209,31 @@ class ProjectViewScrollbarManagerTest {
     }
 
     @Test
+    fun `installed root renderer does not recheck license while painting rows`() {
+        realState.hideProjectRootPath = true
+        val tree = JTree()
+        val wrapper = JPanel(FlowLayout()).apply { add(JScrollPane(tree)) }
+        setupToolWindowContent(wrapper)
+        val manager = createAndDrain()
+        clearMocks(LicenseChecker, answers = false, recordedCalls = true)
+
+        SwingUtilities.invokeAndWait {
+            tree.cellRenderer.getTreeCellRendererComponent(
+                tree,
+                tree.model.root,
+                false,
+                false,
+                false,
+                0,
+                false,
+            )
+        }
+
+        verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
+        SwingUtilities.invokeAndWait { manager.dispose() }
+    }
+
+    @Test
     fun `applyScrollbar hides horizontal scrollbar`() {
         realState.hideProjectViewHScrollbar = true
         realState.hideProjectRootPath = false

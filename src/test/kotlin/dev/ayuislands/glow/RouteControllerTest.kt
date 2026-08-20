@@ -4,14 +4,18 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.glow.waveform.CrossWindowBridge
 import dev.ayuislands.glow.waveform.RouteConnector
 import dev.ayuislands.glow.waveform.RouteConnectorId
+import dev.ayuislands.glow.waveform.RouteCoordinator
 import dev.ayuislands.glow.waveform.RouteEndpoint
+import dev.ayuislands.glow.waveform.RouteEvent
 import dev.ayuislands.glow.waveform.RouteFrame
 import dev.ayuislands.glow.waveform.RouteGraph
 import dev.ayuislands.glow.waveform.RouteLayerStyle
 import dev.ayuislands.glow.waveform.RoutePaintTarget
 import dev.ayuislands.glow.waveform.RoutePoint
+import dev.ayuislands.glow.waveform.RouteRootId
 import dev.ayuislands.glow.waveform.RouteSide
 import dev.ayuislands.glow.waveform.RouteSlice
+import dev.ayuislands.glow.waveform.RouteUpdate
 import dev.ayuislands.glow.waveform.TravelDirection
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformFrame
@@ -27,10 +31,32 @@ import io.mockk.unmockkConstructor
 import io.mockk.verify
 import org.junit.jupiter.api.Test
 import java.awt.Color
+import java.awt.Point
 import java.awt.Window
+import javax.swing.JLayeredPane
 import kotlin.test.assertEquals
 
 class RouteControllerTest {
+    @Test
+    fun `inactive route does not advance until one route window is active`() {
+        val controller = controller()
+        val coordinator = mockk<RouteCoordinator>()
+        every { coordinator.handle(any()) } returns RouteUpdate()
+        seedCoordinator(controller, coordinator)
+        val window = mockk<Window>()
+        every { window.isActive } returns false
+        seedRouteRoot(controller, window)
+
+        controller.handle(RouteEvent.Tick(100L))
+
+        verify(exactly = 1) { coordinator.handle(RouteEvent.Tick(100L, isWindowActive = false)) }
+
+        every { window.isActive } returns true
+        controller.handle(RouteEvent.Tick(200L))
+
+        verify(exactly = 1) { coordinator.handle(RouteEvent.Tick(200L, isWindowActive = true)) }
+    }
+
     @Test
     fun `every visible window bridge slice is rendered`() {
         mockkConstructor(CrossWindowBridge::class)
@@ -269,6 +295,35 @@ class RouteControllerTest {
             state = { AyuIslandsState() },
             onFailure = {},
         )
+
+    private fun seedCoordinator(
+        controller: RouteController,
+        coordinator: RouteCoordinator,
+    ) {
+        val field = controller.javaClass.getDeclaredField("coordinator")
+        field.isAccessible = true
+        field.set(controller, coordinator)
+    }
+
+    private fun seedRouteRoot(
+        controller: RouteController,
+        window: Window,
+    ) {
+        val rootClass = Class.forName("dev.ayuislands.glow.RouteRoot")
+        val constructor =
+            rootClass.getDeclaredConstructor(
+                JLayeredPane::class.java,
+                Window::class.java,
+                Point::class.java,
+            )
+        constructor.isAccessible = true
+        val root = constructor.newInstance(JLayeredPane(), window, Point())
+        val field = controller.javaClass.getDeclaredField("roots")
+        field.isAccessible = true
+        val roots = field.get(controller)
+        val put = roots.javaClass.getMethod("put", Any::class.java, Any::class.java)
+        put.invoke(roots, RouteRootId(1), root)
+    }
 
     private fun renderBridge(
         controller: RouteController,
