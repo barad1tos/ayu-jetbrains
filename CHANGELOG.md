@@ -4,8 +4,8 @@
 
 - [Fix] **Smoother Glow in large and background windows** — Glow keeps the
   same visuals while using less memory for large panels, pauses waveform work
-  in inactive IDE windows, and stops deferred updates after an overlay is
-  hidden or removed.
+  in inactive IDE windows, and stops deferred updates after their host is
+  hidden or the project is closed.
 - [Fix] **Reliable startup in 2026.2 IDEs** — fixes the write-unsafe startup
   exception reported in [#330](https://github.com/barad1tos/ayu-jetbrains/issues/330)
   while Ayu refreshes the interface, syntax colors, accents, or fonts.
