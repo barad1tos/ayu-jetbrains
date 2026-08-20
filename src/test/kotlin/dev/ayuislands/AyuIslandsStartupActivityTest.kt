@@ -24,6 +24,10 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import org.jetbrains.org.objectweb.asm.ClassReader
+import org.jetbrains.org.objectweb.asm.ClassVisitor
+import org.jetbrains.org.objectweb.asm.MethodVisitor
+import org.jetbrains.org.objectweb.asm.Opcodes
 import java.util.EnumSet
 import javax.swing.JFrame
 import javax.swing.SwingUtilities
@@ -128,6 +132,50 @@ class AyuIslandsStartupActivityTest {
         } finally {
             unmockkAll()
         }
+    }
+
+    @Test
+    fun `execute routes frame refresh through write-safe helper`() {
+        val invokedMethods = mutableListOf<Pair<String, String>>()
+        val classBytes =
+            requireNotNull(
+                AyuIslandsStartupActivity::class.java.getResourceAsStream("AyuIslandsStartupActivity.class"),
+            )
+        classBytes.use { input ->
+            ClassReader(input).accept(
+                object : ClassVisitor(Opcodes.ASM9) {
+                    override fun visitMethod(
+                        access: Int,
+                        name: String,
+                        descriptor: String,
+                        signature: String?,
+                        exceptions: Array<out String>?,
+                    ): MethodVisitor? {
+                        if (name != "execute") return null
+                        return object : MethodVisitor(Opcodes.ASM9) {
+                            override fun visitMethodInsn(
+                                opcode: Int,
+                                owner: String,
+                                name: String,
+                                descriptor: String,
+                                isInterface: Boolean,
+                            ) {
+                                invokedMethods += owner to name
+                            }
+                        }
+                    }
+                },
+                ClassReader.SKIP_DEBUG or ClassReader.SKIP_FRAMES,
+            )
+        }
+
+        assertTrue(
+            invokedMethods.any {
+                it.first == "dev/ayuislands/AyuIslandsStartupActivity" &&
+                    it.second == "scheduleFrameRefresh"
+            },
+            "execute must keep the issue #330 component refresh on the write-safe helper path",
+        )
     }
 
     @Test

@@ -11,6 +11,7 @@ import java.awt.image.BufferedImage
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class GlowRendererTest {
@@ -79,20 +80,35 @@ class GlowRendererTest {
     }
 
     @Test
-    fun `ensureCache invalidates frame cache on style change`() {
+    fun `ensureCache invalidates rendered frame when color changes`() {
         val renderer = GlowRenderer()
         renderer.ensureCache(Color.RED, GlowStyle.SOFT, 40, 12)
+        val redFrame = BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB)
+        val redGraphics = redFrame.createGraphics()
+        try {
+            renderer.paintGlow(redGraphics, Rectangle(0, 0, 100, 100), 12, 0)
+        } finally {
+            redGraphics.dispose()
+        }
 
-        val image = BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB)
-        val g2 = image.createGraphics()
-        renderer.paintGlow(g2, Rectangle(0, 0, 100, 100), 12, 8)
-        g2.dispose()
+        renderer.ensureCache(Color.BLUE, GlowStyle.SOFT, 40, 12)
+        val blueFrame = BufferedImage(100, 100, BufferedImage.TYPE_INT_ARGB)
+        val blueGraphics = blueFrame.createGraphics()
+        try {
+            renderer.paintGlow(blueGraphics, Rectangle(0, 0, 100, 100), 12, 0)
+        } finally {
+            blueGraphics.dispose()
+        }
 
-        renderer.ensureCache(Color.BLUE, GlowStyle.SHARP_NEON, 85, 20)
-
-        renderer.invalidateCache()
-        // After invalidation, accessing ensureCache with new params should work without error
-        renderer.ensureCache(Color.GREEN, GlowStyle.GRADIENT, 50, 12)
+        assertFalse(
+            pixels(redFrame).contentEquals(pixels(blueFrame)),
+            "Changing cache parameters must replace the previously rendered frame",
+        )
+        val paintedPixel = pixels(blueFrame).map { Color(it, true) }.first { it.alpha > 0 }
+        assertTrue(
+            paintedPixel.blue > paintedPixel.red,
+            "The replacement frame must use the new blue accent",
+        )
     }
 
     @Test
