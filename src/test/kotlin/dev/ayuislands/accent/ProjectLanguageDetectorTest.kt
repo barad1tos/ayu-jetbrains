@@ -1,6 +1,8 @@
 package dev.ayuislands.accent
 
+import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
@@ -654,7 +656,7 @@ class ProjectLanguageDetectorTest {
             error("EDT dominant must schedule scan instead of reading project files synchronously")
         }
         mockkStatic(ApplicationManager::class)
-        val application = mockk<com.intellij.openapi.application.Application>()
+        val application = mockk<Application>()
         every { ApplicationManager.getApplication() } returns application
         every { application.isDispatchThread } returns true
         mockkObject(ProjectLanguageScanAsync)
@@ -974,6 +976,35 @@ class ProjectLanguageDetectorTest {
 
         ProjectLanguageDetector.rescan(project)
 
+        verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Detected("python")) }
+    }
+
+    @Test
+    fun `rescan publishes through IntelliJ write-safe dispatcher`() {
+        val project = stubProject("/tmp/rescan-write-safe-publish-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns mapOf("python" to 900L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+        stubDumbServiceSmart(project)
+        val listener = mockk<ProjectLanguageDetectionListener>(relaxed = true)
+        val messageBus = mockk<com.intellij.util.messages.MessageBus>()
+        every { project.messageBus } returns messageBus
+        every { messageBus.syncPublisher(ProjectLanguageDetectionListener.TOPIC) } returns listener
+        val application = mockk<Application>(relaxed = true)
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every {
+            application.invokeLater(any<Runnable>(), ModalityState.nonModal())
+        } answers {
+            firstArg<Runnable>().run()
+        }
+        runSchedulerInline()
+
+        ProjectLanguageDetector.rescan(project)
+
+        verify(exactly = 1) {
+            application.invokeLater(any<Runnable>(), ModalityState.nonModal())
+        }
         verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Detected("python")) }
     }
 

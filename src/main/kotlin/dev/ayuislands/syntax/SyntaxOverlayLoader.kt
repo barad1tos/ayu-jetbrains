@@ -6,7 +6,20 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.ui.ColorUtil
+import com.intellij.ui.JBColor
+import org.jdom.Element
 import java.util.concurrent.ConcurrentHashMap
+
+private data class ParsedColorField(
+    val name: String,
+    val color: JBColor,
+)
+
+private data class NormalizedAttributes(
+    val element: Element,
+    val colors: List<ParsedColorField>,
+)
 
 /**
  * Overlay loader for the `AyuIslands{Variant}.extended.xml` scheme overlays
@@ -27,9 +40,9 @@ import java.util.concurrent.ConcurrentHashMap
  * - Malformed XML or missing resource files → log WARN once per resource via
  *   the [warnedResources] latch (Pattern A — no silent `?: continue`), return
  *   empty map for that variant.
- * - `baseAttributes="REF"` entries: resolve via `TextAttributesKey.find(REF)
- *   .defaultAttributes`. If null (plugin absent), fall back to empty
- *   `TextAttributes()` and continue (no throw).
+ * - `baseAttributes="REF"` entries: return empty `TextAttributes()` so the
+ *   active editor scheme resolves the reference through its own inheritance
+ *   chain instead of baking platform-default colors into the overlay.
  *
  * **Baseline path:** [loadBaselineForVariant] returns the variant's baseline
  * `<attributes>` section so downstream consumers can read the curated baseline
@@ -104,7 +117,7 @@ class SyntaxOverlayLoader internal constructor(
         return javaClass.classLoader.getResourceAsStream(normalized)
     }
 
-    private fun buildOverlayMap(attributesEl: org.jdom.Element): Map<TextAttributesKey, TextAttributes> {
+    private fun buildOverlayMap(attributesEl: Element): Map<TextAttributesKey, TextAttributes> {
         val map = mutableMapOf<TextAttributesKey, TextAttributes>()
         for (optionEl in JDOMUtil.getChildren(attributesEl, "option")) {
             val keyName = optionEl.getAttributeValue("name") ?: continue
@@ -123,7 +136,7 @@ class SyntaxOverlayLoader internal constructor(
                     else -> {
                         val valueEl = optionEl.getChild("value") ?: continue
                         try {
-                            TextAttributes(valueEl)
+                            parseTextAttributes(valueEl)
                         } catch (cancellation: kotlinx.coroutines.CancellationException) {
                             throw cancellation
                         } catch (runtime: RuntimeException) {
@@ -135,6 +148,46 @@ class SyntaxOverlayLoader internal constructor(
             map[key] = attrs
         }
         return map
+    }
+
+    private fun parseTextAttributes(valueElement: Element): TextAttributes {
+        val input = normalizeRgbaFields(valueElement)
+        return TextAttributes(input.element).also { attributes ->
+            input.colors.forEach { field -> applyColor(attributes, field) }
+        }
+    }
+
+    private fun normalizeRgbaFields(valueElement: Element): NormalizedAttributes {
+        val normalizedElement = valueElement.clone()
+        val colors = mutableListOf<ParsedColorField>()
+        for (fieldElement in JDOMUtil.getChildren(normalizedElement, "option")) {
+            val fieldName = fieldElement.getAttributeValue("name") ?: continue
+            val value = fieldElement.getAttributeValue("value") ?: continue
+            if (fieldName !in COLOR_FIELDS || value.length != RGBA_LENGTH) continue
+
+            colors += ParsedColorField(fieldName, parseRgba(value))
+            fieldElement.setAttribute("value", value.take(RGB_LENGTH))
+        }
+        return NormalizedAttributes(normalizedElement, colors)
+    }
+
+    private fun applyColor(
+        attributes: TextAttributes,
+        field: ParsedColorField,
+    ) {
+        when (field.name) {
+            "FOREGROUND" -> attributes.foregroundColor = field.color
+            "BACKGROUND" -> attributes.backgroundColor = field.color
+            "EFFECT_COLOR" -> attributes.effectColor = field.color
+            "ERROR_STRIPE_COLOR" -> attributes.errorStripeColor = field.color
+            else -> error("Unsupported text-attribute color field: ${field.name}")
+        }
+    }
+
+    private fun parseRgba(value: String): JBColor {
+        val rgb = ColorUtil.fromHex(value.take(RGB_LENGTH))
+        val rgba = ColorUtil.toAlpha(rgb, value.drop(RGB_LENGTH).toInt(HEX_RADIX))
+        return JBColor(rgba, rgba)
     }
 
     private fun logResourceOnce(
@@ -149,6 +202,10 @@ class SyntaxOverlayLoader internal constructor(
     companion object {
         internal const val DEFAULT_RESOURCE_BASE = "/themes/extended"
         internal const val DEFAULT_BASELINE_BASE = "/themes"
+        private const val HEX_RADIX = 16
+        private const val RGB_LENGTH = 6
+        private const val RGBA_LENGTH = 8
+        private val COLOR_FIELDS = setOf("FOREGROUND", "BACKGROUND", "EFFECT_COLOR", "ERROR_STRIPE_COLOR")
 
         fun getInstance(): SyntaxOverlayLoader {
             val app = ApplicationManager.getApplication()

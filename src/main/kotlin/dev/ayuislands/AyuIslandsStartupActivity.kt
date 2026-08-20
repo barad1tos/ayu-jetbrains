@@ -2,6 +2,7 @@ package dev.ayuislands
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
@@ -170,10 +171,7 @@ internal class AyuIslandsStartupActivity(
         // AccentApplicator only updates UIManager + editor scheme; cached JBColor instances on
         // already-painted components otherwise keep the global-accent values they captured when
         // the frame first rendered.
-        SwingUtilities.invokeLater {
-            val frame = WindowManager.getInstance().getFrame(project) ?: return@invokeLater
-            ComponentTreeRefresher.walkAndNotify(project, frame)
-        }
+        scheduleFrameRefresh(project)
 
         // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
         // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)
@@ -214,8 +212,8 @@ internal class AyuIslandsStartupActivity(
         // The notification fires exactly once per install via a distinct
         // PropertiesComponent flag (`ayu.syntax.intensity.notified`) so users
         // who saw the prior syntax notification still receive this message.
-        SwingUtilities.invokeLater { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }
-        SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }
+        dispatchWriteSafe { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }
+        dispatchWriteSafe { SyntaxIntensityMigrationNotifier.maybeFire(project) }
 
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip
@@ -402,8 +400,8 @@ internal class AyuIslandsStartupActivity(
         // catch used to produce a generic "License defaults failed" with no way to tell
         // whether migration, orchestrator routing, defaults, workspace init, wizard
         // scheduling, or trial warning blew up.
-        SwingUtilities.invokeLater {
-            if (project.isDisposed) return@invokeLater
+        dispatchWriteSafe {
+            if (project.isDisposed) return@dispatchWriteSafe
             var wizardAction: WizardAction? = null
 
             runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
@@ -435,6 +433,22 @@ internal class AyuIslandsStartupActivity(
             if (entitlement == LicenseEntitlement.LICENSED) {
                 runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
             }
+        }
+    }
+
+    private fun dispatchWriteSafe(action: Runnable) {
+        val application = ApplicationManager.getApplication()
+        if (application == null) {
+            SwingUtilities.invokeLater(action)
+            return
+        }
+        application.invokeLater(action, ModalityState.nonModal())
+    }
+
+    private fun scheduleFrameRefresh(project: Project) {
+        dispatchWriteSafe {
+            val frame = WindowManager.getInstance().getFrame(project) ?: return@dispatchWriteSafe
+            ComponentTreeRefresher.walkAndNotify(project, frame)
         }
     }
 
@@ -596,8 +610,8 @@ internal class AyuIslandsStartupActivity(
      * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors.
      *
      * Most production call sites (the license-handling block in [checkLicenseState]
-     * and friends) run inside `SwingUtilities.invokeLater { ... }`, so the surrounding
-     * Runnable is dispatched by `IdeEventQueue`. The `apply-persisted-vcs-colors` step
+     * and friends) run inside `Application.invokeLater`, so the surrounding
+     * [Runnable] is dispatched by `IdeEventQueue`. The `apply-persisted-vcs-colors` step
      * runs from the coroutine body of [execute] instead — RuntimeException semantics
      * are identical regardless of thread context:
      *

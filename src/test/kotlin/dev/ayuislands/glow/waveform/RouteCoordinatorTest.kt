@@ -715,6 +715,28 @@ class RouteCoordinatorTest {
     }
 
     @TestCase
+    fun `paused wall clock excludes an inactive window interval`() {
+        val coordinator = testCoordinator(seededRandom(44))
+        val graph = testGraph(mapOf("Editor" to 400f), emptyList())
+        coordinator.handle(RouteEvent.Activate(graph, "Editor", false))
+        coordinator.handle(RouteEvent.Tick(0L))
+        coordinator.handle(RouteEvent.Tick(5_000L))
+        val before = coordinator.snapshot.distanceOnLeg
+
+        coordinator.handle(RouteEvent.Tick(900_000L, isWindowActive = false))
+
+        assertEquals(before, coordinator.snapshot.distanceOnLeg, 0.001f)
+
+        coordinator.handle(RouteEvent.Tick(901_000L))
+
+        assertEquals(before, coordinator.snapshot.distanceOnLeg, 0.001f)
+
+        coordinator.handle(RouteEvent.Tick(902_000L))
+
+        assertTrue(coordinator.snapshot.distanceOnLeg > before)
+    }
+
+    @TestCase
     fun `resume preserves the pre-suspend frame`() {
         val coordinator = testCoordinator(seededRandom(97))
         val graph = testGraph(mapOf("Editor" to 400f), emptyList())

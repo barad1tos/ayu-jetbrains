@@ -71,10 +71,13 @@ object EditorTabGeometry {
      */
     fun calculateEditorOverlayBounds(host: JComponent): Rectangle = editorOverlayGeometry(host).contentBounds
 
-    internal fun editorOverlayGeometry(host: JComponent): EditorOverlayGeometry {
+    internal fun editorOverlayGeometry(
+        host: JComponent,
+        shouldReportFallback: Boolean = true,
+    ): EditorOverlayGeometry {
         val editorTabs = findEditorTabsRecursive(host) as? Container
         if (editorTabs == null) {
-            if (warnedHosts.add("EditorTabsOverlay:${host.javaClass.name}")) {
+            if (shouldReportFallback && warnedHosts.add("EditorTabsOverlay:${host.javaClass.name}")) {
                 log.warn("EditorTabs not found in ${host.javaClass.name}, using DEFAULT_TAB_HEIGHT for overlay")
             }
             val tabStripBottom = DEFAULT_TAB_HEIGHT
@@ -122,7 +125,7 @@ object EditorTabGeometry {
             return geometryFor(fullHostBounds, editorTabs, host)
         }
 
-        if (warnedHosts.add("TabLabelOverlay:${editorTabs.javaClass.name}")) {
+        if (shouldReportFallback && warnedHosts.add("TabLabelOverlay:${editorTabs.javaClass.name}")) {
             log.warn("TabLabel not found in EditorTabs, using DEFAULT_TAB_HEIGHT for overlay")
         }
         val tabStripBottom = DEFAULT_TAB_HEIGHT

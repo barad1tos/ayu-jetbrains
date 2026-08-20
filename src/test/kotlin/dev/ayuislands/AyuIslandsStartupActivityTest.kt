@@ -1,6 +1,10 @@
 package dev.ayuislands
 
+import com.intellij.openapi.application.Application
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.licensing.LicenseEntitlement
@@ -10,13 +14,22 @@ import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.ui.ComponentTreeRefresher
 import dev.ayuislands.vcs.VcsColorApplier
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import org.jetbrains.org.objectweb.asm.ClassReader
+import org.jetbrains.org.objectweb.asm.ClassVisitor
+import org.jetbrains.org.objectweb.asm.MethodVisitor
+import org.jetbrains.org.objectweb.asm.Opcodes
 import java.util.EnumSet
+import javax.swing.JFrame
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -40,8 +53,130 @@ import kotlin.test.assertTrue
 class AyuIslandsStartupActivityTest {
     private val activity = AyuIslandsStartupActivity()
 
-    // No @AfterTest needed - LoggedErrorProcessor.executeWith restores the default
-    // processor at block end, and we don't mockkStatic/mockkObject anything global.
+    // Tests that mock global objects restore them in a local finally block;
+    // LoggedErrorProcessor.executeWith restores the default processor itself.
+
+    @Test
+    fun `license startup uses IntelliJ write-safe dispatcher`() {
+        val application = mockk<Application>(relaxed = true)
+        val project = mockk<Project>(relaxed = true)
+        val settings = mockk<AyuIslandsSettings>(relaxed = true)
+        val scheduledActions = mutableListOf<Runnable>()
+        mockkStatic(ApplicationManager::class)
+        mockkObject(LicenseChecker)
+        mockkObject(StartupLicenseHandler)
+        every { ApplicationManager.getApplication() } returns application
+        every {
+            application.invokeLater(capture(scheduledActions), ModalityState.nonModal())
+        } returns Unit
+        every { LicenseChecker.getTrialDaysRemaining() } returns null
+        every { StartupLicenseHandler.computeAdaptiveDelay() } returns 1
+        val startupActivity =
+            AyuIslandsStartupActivity(
+                entitlementProvider = { LicenseEntitlement.UNKNOWN },
+            )
+
+        try {
+            val method =
+                AyuIslandsStartupActivity::class.java.getDeclaredMethod(
+                    "checkLicenseState",
+                    Project::class.java,
+                    AyuIslandsSettings::class.java,
+                    Boolean::class.javaPrimitiveType,
+                )
+            method.isAccessible = true
+            method.invoke(startupActivity, project, settings, false)
+
+            assertEquals(1, scheduledActions.size)
+            verify(exactly = 1) {
+                application.invokeLater(any<Runnable>(), ModalityState.nonModal())
+            }
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `startup frame refresh uses IntelliJ write-safe dispatcher`() {
+        val application = mockk<Application>(relaxed = true)
+        val project = mockk<Project>(relaxed = true)
+        val windowManager = mockk<WindowManager>()
+        val frame = mockk<JFrame>(relaxed = true)
+        val scheduledActions = mutableListOf<Runnable>()
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(WindowManager::class)
+        mockkObject(ComponentTreeRefresher)
+        every { ApplicationManager.getApplication() } returns application
+        every {
+            application.invokeLater(capture(scheduledActions), ModalityState.nonModal())
+        } returns Unit
+        every { WindowManager.getInstance() } returns windowManager
+        every { windowManager.getFrame(project) } returns frame
+        every { ComponentTreeRefresher.walkAndNotify(project, frame) } just Runs
+
+        try {
+            val method =
+                AyuIslandsStartupActivity::class.java.getDeclaredMethod(
+                    "scheduleFrameRefresh",
+                    Project::class.java,
+                )
+            method.isAccessible = true
+            method.invoke(activity, project)
+
+            assertEquals(1, scheduledActions.size)
+            scheduledActions.single().run()
+            verify(exactly = 1) {
+                application.invokeLater(any<Runnable>(), ModalityState.nonModal())
+            }
+            verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, frame) }
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `execute routes frame refresh through write-safe helper`() {
+        val invokedMethods = mutableListOf<Pair<String, String>>()
+        val classBytes =
+            requireNotNull(
+                AyuIslandsStartupActivity::class.java.getResourceAsStream("AyuIslandsStartupActivity.class"),
+            )
+        classBytes.use { input ->
+            ClassReader(input).accept(
+                object : ClassVisitor(Opcodes.ASM9) {
+                    override fun visitMethod(
+                        access: Int,
+                        name: String,
+                        descriptor: String,
+                        signature: String?,
+                        exceptions: Array<out String>?,
+                    ): MethodVisitor? {
+                        if (name != "execute") return null
+                        return object : MethodVisitor(Opcodes.ASM9) {
+                            override fun visitMethodInsn(
+                                opcode: Int,
+                                owner: String,
+                                name: String,
+                                descriptor: String,
+                                isInterface: Boolean,
+                            ) {
+                                invokedMethods += owner to name
+                            }
+                        }
+                    }
+                },
+                ClassReader.SKIP_DEBUG or ClassReader.SKIP_FRAMES,
+            )
+        }
+
+        assertTrue(
+            invokedMethods.any {
+                it.first == "dev/ayuislands/AyuIslandsStartupActivity" &&
+                    it.second == "scheduleFrameRefresh"
+            },
+            "execute must keep the issue #330 component refresh on the write-safe helper path",
+        )
+    }
 
     @Test
     fun `runStep swallows RuntimeException so the next step can run`() {
@@ -1060,17 +1195,30 @@ class AyuIslandsStartupActivityTest {
     fun `startup re-applies persisted syntax intensity before migration notification`() {
         val source = readStartupActivitySource()
         val reapplyCall =
-            "SwingUtilities.invokeLater { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }"
+            Regex(
+                """dispatchWriteSafe\s*\{\s*""" +
+                    """SyntaxIntensityService\.getInstance\(\)\.reapplyForActiveLaf\(\)\s*}""",
+            )
         val notificationCall =
-            "SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }"
-        val reapplyIndex = source.indexOf(reapplyCall)
-        val notificationIndex = source.indexOf(notificationCall)
+            Regex(
+                """dispatchWriteSafe\s*\{\s*""" +
+                    """SyntaxIntensityMigrationNotifier\.maybeFire\(project\)\s*}""",
+            )
+        val reapplyIndex = reapplyCall.find(source)?.range?.first ?: -1
+        val notificationIndex = notificationCall.find(source)?.range?.first ?: -1
 
         assertTrue(reapplyIndex >= 0, "startup must reapply persisted syntax intensity after scheme registration")
-        assertTrue(notificationIndex >= 0, "startup must still show the syntax intensity migration notification")
+        assertTrue(
+            notificationIndex >= 0,
+            "startup must queue the syntax intensity migration notification in a write-safe context",
+        )
+        assertFalse(
+            source.contains("SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }"),
+            "the migration notification must not bypass the non-modal IntelliJ queue",
+        )
         assertTrue(
             reapplyIndex < notificationIndex,
-            "persisted syntax intensity should be restored before the migration notification is queued",
+            "persisted syntax intensity must enter the non-modal queue before the migration notification",
         )
     }
 

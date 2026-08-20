@@ -454,10 +454,6 @@ class GlowGlassPane(
         waveformFrame = null
         waveformPlan = null
     }
-
-    fun invalidateRendererCache() {
-        renderer.invalidateCache()
-    }
 }
 
 private data class SolidPaintStyle(

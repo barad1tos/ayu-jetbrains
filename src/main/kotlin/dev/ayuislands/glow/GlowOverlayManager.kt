@@ -372,14 +372,23 @@ class GlowOverlayManager(
         glassPane: GlowGlassPane,
         host: JComponent,
         layeredPane: JLayeredPane,
+    ) = updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = true)
+
+    private fun updateOverlayBounds(
+        glassPane: GlowGlassPane,
+        host: JComponent,
+        layeredPane: JLayeredPane,
+        shouldReportFallback: Boolean,
     ) {
         if (!host.isShowing) return
         try {
             val point = SwingUtilities.convertPoint(host, 0, 0, layeredPane)
+            val canReportFallback =
+                !glassPane.isEditorOverlay || FileEditorManager.getInstance(project).selectedEditor != null
             if (glassPane.usesWaveformBounds) {
                 val geometry =
                     if (glassPane.isEditorOverlay) {
-                        EditorTabGeometry.editorOverlayGeometry(host)
+                        EditorTabGeometry.editorOverlayGeometry(host, shouldReportFallback && canReportFallback)
                     } else {
                         EditorOverlayGeometry(
                             contentBounds = Rectangle(0, 0, host.width, host.height),
@@ -400,7 +409,10 @@ class GlowOverlayManager(
                 glassPane.waveformInwardEdges = clippedWaveformEdges(overlayBounds, layeredPane.visibleRect)
             } else if (glassPane.isEditorOverlay) {
                 glassPane.waveformInwardEdges = emptySet()
-                val bounds = EditorTabGeometry.calculateEditorOverlayBounds(host)
+                val bounds =
+                    EditorTabGeometry
+                        .editorOverlayGeometry(host, shouldReportFallback && canReportFallback)
+                        .contentBounds
                 glassPane.bounds = Rectangle(point.x + bounds.x, point.y + bounds.y, bounds.width, bounds.height)
             } else {
                 glassPane.waveformInwardEdges = emptySet()
@@ -410,6 +422,23 @@ class GlowOverlayManager(
             log.debug("Component hierarchy changed during overlay bounds update", exception)
         }
         routeController.scheduleGraphRefresh()
+    }
+
+    private fun scheduleBoundsSettling(
+        glassPane: GlowGlassPane,
+        host: JComponent,
+        layeredPane: JLayeredPane,
+    ) {
+        SwingUtilities.invokeLater {
+            if (disposed || !host.isShowing) return@invokeLater
+            updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = false)
+            if (!glassPane.isEditorOverlay) return@invokeLater
+
+            SwingUtilities.invokeLater {
+                if (disposed || !host.isShowing) return@invokeLater
+                updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = true)
+            }
+        }
     }
 
     private fun attachOverlay(
@@ -448,7 +477,7 @@ class GlowOverlayManager(
             )
         if (isEditorOverlay) {
             glassPane.topSpansProvider = {
-                EditorTabGeometry.editorOverlayGeometry(host).occupiedTopSpans
+                EditorTabGeometry.editorOverlayGeometry(host, shouldReportFallback = false).occupiedTopSpans
             }
         }
         glassPane.configureWaveform(
@@ -461,7 +490,7 @@ class GlowOverlayManager(
 
         layeredPane.setLayer(glassPane, JLayeredPane.PALETTE_LAYER)
         layeredPane.add(glassPane)
-        updateOverlayBounds(glassPane, host, layeredPane)
+        updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = false)
 
         val compListener =
             object : ComponentAdapter() {
@@ -479,9 +508,7 @@ class GlowOverlayManager(
             }
         host.addHierarchyBoundsListener(boundsListener)
 
-        SwingUtilities.invokeLater {
-            updateOverlayBounds(glassPane, host, layeredPane)
-        }
+        scheduleBoundsSettling(glassPane, host, layeredPane)
 
         overlays[id] = OverlayEntry(glassPane, host, layeredPane, compListener, boundsListener)
         routeController.scheduleGraphRefresh()
@@ -724,7 +751,6 @@ class GlowOverlayManager(
                 resolveGlowPlacement(isEditorOverlay = glassPane.isEditorOverlay, state = state)
             glassPane.configureWaveform(GlowShape.fromName(state.glowShape), resolveWaveformConfig(state))
             updateOverlayBounds(glassPane, host, layeredPane)
-            glassPane.invalidateRendererCache()
             glassPane.repaint()
         }
     }

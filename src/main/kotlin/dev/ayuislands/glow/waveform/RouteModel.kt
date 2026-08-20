@@ -11,6 +11,7 @@ internal sealed interface RouteEvent {
 
     data class Tick(
         val nowMs: Long,
+        val isWindowActive: Boolean = true,
     ) : RouteEvent
 
     data class Keystroke(

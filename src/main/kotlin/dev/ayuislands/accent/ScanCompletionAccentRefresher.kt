@@ -22,9 +22,9 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
  * one. [ScanOutcome.Unavailable] is transient — the cache was not populated,
  * so there is nothing new to apply and the previous accent stays put.
  *
- * Threading: [ProjectLanguageDetectionListener] handlers run on the EDT
- * (`publishScanCompleted` dispatches the publish via `invokeLater`), so the
- * resolver + apply chain here needs no additional dispatch. The subscription
+ * Threading: [ProjectLanguageDetectionListener] handlers run in an IntelliJ
+ * write-safe EDT context (`publishScanCompleted` uses `Application.invokeLater`),
+ * so the resolver + apply chain here needs no additional dispatch. The subscription
  * is anchored to this service's own [Disposable], so it is torn down with
  * the project (the service container disposes project services on close).
  */
@@ -60,8 +60,8 @@ internal class ScanCompletionAccentRefresher(
      * EDT body of the post-scan refresh. Returns early on disposal, logs and
      * swallows any downstream apply failure. The EDT contract is enforced only
      * transitively by `publishScanCompleted`'s dispatch choice — a future
-     * producer publishing off-EDT would race the UIManager writes downstream,
-     * so keep that dispatch the sole publish path.
+     * producer publishing outside the platform EDT context would race the
+     * `UIManager` writes downstream, so keep that dispatch the sole publish path.
      */
     private fun refreshAccent() {
         if (project.isDisposed) return

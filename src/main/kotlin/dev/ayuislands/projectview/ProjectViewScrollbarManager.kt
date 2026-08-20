@@ -47,6 +47,7 @@ class ProjectViewScrollbarManager(
     private var trackedTree: JTree? = null
     private var lastAppliedHidePath: Boolean? = null
     private var rendererListener: PropertyChangeListener? = null
+    private var canFilterRoot = false
     private var rootPathLeaseProvider: () -> RootPathLease = RootPathLease::getInstance
     private var registryValueProvider: () -> RegistryValue = { Registry.get(SHOW_URL_KEY) }
     private val rootPathLease: RootPathLease
@@ -103,7 +104,8 @@ class ProjectViewScrollbarManager(
     }
 
     fun apply() {
-        if (!LicenseChecker.isLicensedOrGrace()) {
+        canFilterRoot = LicenseChecker.isLicensedOrGrace()
+        if (!canFilterRoot) {
             cleanupRuntime()
             return
         }
@@ -190,7 +192,7 @@ class ProjectViewScrollbarManager(
     private fun installRendererWrapper(tree: JTree) {
         val current = tree.cellRenderer
         if (current is RootFilteringRenderer) return
-        tree.cellRenderer = RootFilteringRenderer(current, project)
+        tree.cellRenderer = RootFilteringRenderer(current, project) { canFilterRoot }
     }
 
     private fun unwrapRenderer(tree: JTree) {
@@ -211,12 +213,13 @@ class ProjectViewScrollbarManager(
                     val newRenderer =
                         event.newValue as? TreeCellRenderer
                             ?: return@PropertyChangeListener
+                    canFilterRoot = LicenseChecker.isLicensedOrGrace()
                     if (newRenderer !is RootFilteringRenderer &&
-                        LicenseChecker.isLicensedOrGrace() &&
+                        canFilterRoot &&
                         AyuIslandsSettings.getInstance().state.hideProjectRootPath
                     ) {
                         tree.cellRenderer =
-                            RootFilteringRenderer(newRenderer, project)
+                            RootFilteringRenderer(newRenderer, project) { canFilterRoot }
                     }
                 }
             }
@@ -271,6 +274,7 @@ class ProjectViewScrollbarManager(
     }
 
     private fun cleanupRuntime() {
+        canFilterRoot = false
         removeRendererGuard()
         autoFitter.removeExpansionListener()
         val scrollPane = findProjectScrollPane()
@@ -309,7 +313,7 @@ class ProjectViewScrollbarManager(
 
 /**
  * Filters root node path fragments.
- * Reads settings LIVE on every render — no state caching needed.
+ * Reads the path-display setting live; entitlement is supplied by the owning manager.
  */
 internal class RootFilteringRenderer(
     val delegate: TreeCellRenderer,

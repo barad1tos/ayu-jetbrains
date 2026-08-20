@@ -34,11 +34,14 @@ import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
+import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.TreeCellRenderer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertSame
 
 class ProjectViewScrollbarManagerTest {
     private lateinit var project: Project
@@ -206,6 +209,85 @@ class ProjectViewScrollbarManagerTest {
             assertEquals(native, rendered)
             assertEquals(2, rendered.fragmentCount)
         }
+    }
+
+    @Test
+    fun `installed root renderer does not recheck license while painting rows`() {
+        realState.hideProjectRootPath = true
+        lateinit var tree: JTree
+        lateinit var wrapper: JPanel
+        SwingUtilities.invokeAndWait {
+            tree = JTree()
+            wrapper = JPanel(FlowLayout()).apply { add(JScrollPane(tree)) }
+        }
+        setupToolWindowContent(wrapper)
+        val manager = createAndDrain()
+        try {
+            lateinit var renderer: RootFilteringRenderer
+            SwingUtilities.invokeAndWait {
+                renderer = assertIs(tree.cellRenderer)
+            }
+            clearMocks(LicenseChecker, answers = false, recordedCalls = true)
+
+            SwingUtilities.invokeAndWait {
+                paintRootRow(tree, renderer)
+            }
+
+            verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
+        } finally {
+            SwingUtilities.invokeAndWait { manager.dispose() }
+        }
+    }
+
+    @Test
+    fun `renderer guard keeps replacement paint free of license checks`() {
+        realState.hideProjectRootPath = true
+        lateinit var tree: JTree
+        lateinit var wrapper: JPanel
+        lateinit var replacement: DefaultTreeCellRenderer
+        SwingUtilities.invokeAndWait {
+            tree = JTree()
+            wrapper = JPanel(FlowLayout()).apply { add(JScrollPane(tree)) }
+            replacement = DefaultTreeCellRenderer()
+        }
+        setupToolWindowContent(wrapper)
+        val manager = createAndDrain()
+        try {
+            lateinit var renderer: RootFilteringRenderer
+            SwingUtilities.invokeAndWait {
+                tree.cellRenderer = replacement
+                renderer = assertIs(tree.cellRenderer)
+                assertSame(replacement, renderer.delegate)
+            }
+            clearMocks(LicenseChecker, answers = false, recordedCalls = true)
+
+            SwingUtilities.invokeAndWait {
+                paintRootRow(tree, renderer)
+            }
+
+            verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
+        } finally {
+            SwingUtilities.invokeAndWait { manager.dispose() }
+        }
+    }
+
+    private fun paintRootRow(
+        tree: JTree,
+        renderer: TreeCellRenderer,
+    ) {
+        val isSelected = false
+        val isExpanded = false
+        val isLeaf = false
+        val hasFocus = false
+        renderer.getTreeCellRendererComponent(
+            tree,
+            tree.model.root,
+            isSelected,
+            isExpanded,
+            isLeaf,
+            0,
+            hasFocus,
+        )
     }
 
     @Test

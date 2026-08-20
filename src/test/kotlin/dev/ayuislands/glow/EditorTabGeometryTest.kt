@@ -1,5 +1,6 @@
 package dev.ayuislands.glow
 
+import com.intellij.testFramework.LoggedErrorProcessor
 import java.awt.Color
 import java.awt.Rectangle
 import javax.swing.JComponent
@@ -8,6 +9,8 @@ import javax.swing.JPanel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class EditorTabGeometryTest {
     @Test
@@ -77,7 +80,21 @@ class EditorTabGeometryTest {
         assertNull(EditorTabGeometry.findEditorTabsComponent(child))
     }
 
-    // --- calculateEditorOverlayBounds tests ---
+    @Test
+    fun `selection fake exposes the reflective editor tab contract`() {
+        val content = JPanel()
+        val info = TabInfoFake(content)
+        val label = MockTabLabel()
+        val editorTabs = SelectionEditorTabsFake()
+        editorTabs.infoForTest = info
+        editorTabs.labelForTest = label
+
+        assertSame(info, editorTabs.getSelectedInfo())
+        assertSame(label, editorTabs.getSelectedLabel())
+        assertSame(content, info.getComponent())
+    }
+
+    // calculateEditorOverlayBounds tests
 
     @Test
     fun `calculateEditorOverlayBounds uses default when no EditorTabs found`() {
@@ -246,6 +263,34 @@ class EditorTabGeometryTest {
     }
 
     @Test
+    fun `transient fallback stays silent until a confirming geometry pass`() {
+        val host = TransientEditorsSplittersFake()
+        host.setSize(800, 600)
+        val warnings = mutableListOf<String>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean {
+                    if (category.contains("EditorTabGeometry")) warnings += message
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            val settling = EditorTabGeometry.editorOverlayGeometry(host, shouldReportFallback = false)
+            assertEquals(Rectangle(0, 28, 800, 572), settling.contentBounds)
+            assertTrue(warnings.isEmpty(), "transient layout fallback must not warn: $warnings")
+
+            val confirmed = EditorTabGeometry.editorOverlayGeometry(host, shouldReportFallback = true)
+            assertEquals(settling, confirmed)
+            assertEquals(1, warnings.size, "stable fallback must retain one actionable warning")
+        }
+    }
+
+    @Test
     fun `tab label bottom converts through offset containers into host coordinates`() {
         // The strip anchor must be measured in HOST coordinates: a tabs
         // component sitting 10px below the host top means the strip starts at
@@ -290,6 +335,8 @@ class EditorTabGeometryTest {
     private class MockTabLabel : JComponent()
 
     private class MockActionToolbar : JComponent()
+
+    private class TransientEditorsSplittersFake : JPanel()
 }
 
 // File-level fakes (NOT private nested classes): the production code invokes
