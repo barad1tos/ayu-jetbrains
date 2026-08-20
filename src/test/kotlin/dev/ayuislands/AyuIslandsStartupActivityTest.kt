@@ -4,6 +4,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.licensing.LicenseEntitlement
@@ -13,14 +14,18 @@ import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.ui.ComponentTreeRefresher
 import dev.ayuislands.vcs.VcsColorApplier
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.util.EnumSet
+import javax.swing.JFrame
 import javax.swing.SwingUtilities
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -82,6 +87,44 @@ class AyuIslandsStartupActivityTest {
             verify(exactly = 1) {
                 application.invokeLater(any<Runnable>(), ModalityState.nonModal())
             }
+        } finally {
+            unmockkAll()
+        }
+    }
+
+    @Test
+    fun `startup frame refresh uses IntelliJ write-safe dispatcher`() {
+        val application = mockk<Application>(relaxed = true)
+        val project = mockk<Project>(relaxed = true)
+        val windowManager = mockk<WindowManager>()
+        val frame = mockk<JFrame>(relaxed = true)
+        val scheduledActions = mutableListOf<Runnable>()
+        mockkStatic(ApplicationManager::class)
+        mockkStatic(WindowManager::class)
+        mockkObject(ComponentTreeRefresher)
+        every { ApplicationManager.getApplication() } returns application
+        every {
+            application.invokeLater(capture(scheduledActions), ModalityState.nonModal())
+        } returns Unit
+        every { WindowManager.getInstance() } returns windowManager
+        every { windowManager.getFrame(project) } returns frame
+        every { ComponentTreeRefresher.walkAndNotify(project, frame) } just Runs
+
+        try {
+            val method =
+                AyuIslandsStartupActivity::class.java.getDeclaredMethod(
+                    "scheduleFrameRefresh",
+                    Project::class.java,
+                )
+            method.isAccessible = true
+            method.invoke(activity, project)
+
+            assertEquals(1, scheduledActions.size)
+            scheduledActions.single().run()
+            verify(exactly = 1) {
+                application.invokeLater(any<Runnable>(), ModalityState.nonModal())
+            }
+            verify(exactly = 1) { ComponentTreeRefresher.walkAndNotify(project, frame) }
         } finally {
             unmockkAll()
         }

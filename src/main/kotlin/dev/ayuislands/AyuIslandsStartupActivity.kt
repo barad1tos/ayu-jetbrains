@@ -171,10 +171,7 @@ internal class AyuIslandsStartupActivity(
         // AccentApplicator only updates UIManager + editor scheme; cached JBColor instances on
         // already-painted components otherwise keep the global-accent values they captured when
         // the frame first rendered.
-        SwingUtilities.invokeLater {
-            val frame = WindowManager.getInstance().getFrame(project) ?: return@invokeLater
-            ComponentTreeRefresher.walkAndNotify(project, frame)
-        }
+        scheduleFrameRefresh(project)
 
         // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
         // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)
@@ -446,6 +443,13 @@ internal class AyuIslandsStartupActivity(
             return
         }
         application.invokeLater(action, ModalityState.nonModal())
+    }
+
+    private fun scheduleFrameRefresh(project: Project) {
+        dispatchWriteSafe {
+            val frame = WindowManager.getInstance().getFrame(project) ?: return@dispatchWriteSafe
+            ComponentTreeRefresher.walkAndNotify(project, frame)
+        }
     }
 
     private fun applyDefinitiveEntitlement(
