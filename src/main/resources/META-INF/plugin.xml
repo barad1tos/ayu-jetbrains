@@ -121,6 +121,12 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.8.5</h3>
+    <ul>
+      <li>[Fix] <b>Smoother Glow in large and background windows</b> — Glow keeps the same visuals while using less memory for large panels, pauses waveform work in inactive IDE windows, and stops deferred updates after their host is hidden or the project is closed.</li>
+      <li>[Fix] <b>Reliable startup in 2026.2 IDEs</b> — fixes the write-unsafe startup exception reported in <a href="https://github.com/barad1tos/ayu-jetbrains/issues/330">#330</a> while Ayu refreshes the interface, syntax colors, accents, or fonts.</li>
+      <li>[Fix] <b>Correct translucent syntax colors</b> — diff and caret backgrounds keep their intended opacity instead of loading as corrupted colors or emitting parsing warnings.</li>
+    </ul>
     <h3>2.8.4</h3>
     <ul>
       <li>[Fix] <b>Reliable editor color refreshes in Rider</b> — startup and settings changes no longer trigger write-thread access errors while Ayu refreshes the active editor color scheme.</li>

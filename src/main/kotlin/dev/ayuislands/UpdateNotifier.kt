@@ -70,6 +70,12 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.5" to
+                releaseNotes(
+                    "[Fix] Glow stays smooth in large panels and pauses work in inactive windows",
+                    "[Fix] Startup refreshes in 2026.2 IDEs no longer trigger the exception reported in #330",
+                    "[Fix] Translucent diff and caret backgrounds keep their intended opacity",
+                ),
             "2.8.4" to
                 releaseNotes(
                     "[Fix] Rider editor color refreshes no longer trigger write-thread access errors",
