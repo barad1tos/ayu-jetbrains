@@ -138,8 +138,8 @@ class SyntaxOverlayLoaderTest {
     @Test
     fun `baseAttributes-only entry is loaded without throw (no value child)`() {
         // FAKE_KEY_WITH_BASE_REF has baseAttributes="JAVA_KEYWORD" and no <value>.
-        // Loader must resolve via TextAttributesKey.find(baseRef).defaultAttributes
-        // or fall back to empty TextAttributes when defaultAttributes is null.
+        // The loader keeps its own attributes unset so the active editor scheme
+        // resolves JAVA_KEYWORD through its normal inheritance chain.
         val overlay = loader().loadOverlayForVariant("Mirage")
         val names = overlay.keys.map { it.externalName }
         assertTrue("FAKE_KEY_WITH_BASE_REF" in names)

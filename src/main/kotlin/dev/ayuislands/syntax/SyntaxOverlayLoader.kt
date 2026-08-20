@@ -40,9 +40,9 @@ private data class NormalizedAttributes(
  * - Malformed XML or missing resource files → log WARN once per resource via
  *   the [warnedResources] latch (Pattern A — no silent `?: continue`), return
  *   empty map for that variant.
- * - `baseAttributes="REF"` entries: resolve via `TextAttributesKey.find(REF)
- *   .defaultAttributes`. If null (plugin absent), fall back to empty
- *   `TextAttributes()` and continue (no throw).
+ * - `baseAttributes="REF"` entries: return empty `TextAttributes()` so the
+ *   active editor scheme resolves the reference through its own inheritance
+ *   chain instead of baking platform-default colors into the overlay.
  *
  * **Baseline path:** [loadBaselineForVariant] returns the variant's baseline
  * `<attributes>` section so downstream consumers can read the curated baseline

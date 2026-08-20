@@ -34,7 +34,7 @@ class GlowRenderer {
         private const val CACHE_EDGE_PADDING = 2
     }
 
-    // Style cache (lightweight, recomputed on style/color change)
+    // Render-input cache (lightweight, recomputed when any style input changes)
     private data class StyleKey(
         val style: GlowStyle,
         val color: Color,
@@ -48,7 +48,7 @@ class GlowRenderer {
     internal var cachedStyle: GlowStyle = GlowStyle.SOFT
     internal var cachedBaseAlpha: Int = 0
 
-    // Frame image cache (expensive, keyed on size + style)
+    // Border-slice cache (expensive, keyed on geometry and resolved style)
     private data class FrameKey(
         val width: Int,
         val height: Int,
@@ -115,7 +115,7 @@ class GlowRenderer {
         cachedStyle = style
         styleKey = key
 
-        // Style changed — invalidate frame cache
+        // Render inputs changed — discard the cached border slices
         cachedFrame = null
         frameKey = null
     }
