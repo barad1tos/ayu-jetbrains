@@ -430,10 +430,12 @@ class GlowOverlayManager(
         layeredPane: JLayeredPane,
     ) {
         SwingUtilities.invokeLater {
+            if (disposed || !host.isShowing) return@invokeLater
             updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = false)
             if (!glassPane.isEditorOverlay) return@invokeLater
 
             SwingUtilities.invokeLater {
+                if (disposed || !host.isShowing) return@invokeLater
                 updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = true)
             }
         }

@@ -1109,6 +1109,36 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
+    fun `editor settling stops after manager disposal`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.invokeLater(any()) } answers { scheduled += firstArg<Runnable>() }
+        val project = stubProject("disposed-settling-project")
+        val editorManager = mockk<FileEditorManager>()
+        mockkStatic(FileEditorManager::class)
+        every { FileEditorManager.getInstance(project) } returns editorManager
+        every { editorManager.selectedEditor } returns mockk()
+        val host = SettlingEditorHost().apply { setSize(800, 600) }
+        val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
+        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        every { rootPane.layeredPane } returns layeredPane
+        every { SwingUtilities.getRootPane(host) } returns rootPane
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
+        val manager = GlowOverlayManager(project)
+
+        invokeAttachOverlay(manager, "disposed-settling-editor", host, isEditorOverlay = true)
+        assertEquals(1, scheduled.size)
+
+        scheduled.removeAt(0).run()
+        assertEquals(1, scheduled.size)
+        manager.dispose()
+
+        scheduled.removeAt(0).run()
+
+        verify(exactly = 2) { SwingUtilities.convertPoint(host, 0, 0, layeredPane) }
+    }
+
+    @Test
     fun `waveform directs clipped edges inward and clears them when space returns`() {
         val project = stubProject("clipped-waveform-project")
         val manager = GlowOverlayManager(project)
