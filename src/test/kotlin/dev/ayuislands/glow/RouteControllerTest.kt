@@ -16,6 +16,7 @@ import dev.ayuislands.glow.waveform.RouteRootId
 import dev.ayuislands.glow.waveform.RouteSide
 import dev.ayuislands.glow.waveform.RouteSlice
 import dev.ayuislands.glow.waveform.RouteUpdate
+import dev.ayuislands.glow.waveform.TimerDirective
 import dev.ayuislands.glow.waveform.TravelDirection
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformFrame
@@ -34,27 +35,35 @@ import java.awt.Color
 import java.awt.Point
 import java.awt.Window
 import javax.swing.JLayeredPane
+import javax.swing.Timer
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 
 class RouteControllerTest {
     @Test
     fun `inactive route does not advance until one route window is active`() {
         val controller = controller()
         val coordinator = mockk<RouteCoordinator>()
-        every { coordinator.handle(any()) } returns RouteUpdate()
+        every { coordinator.handle(any()) } returns RouteUpdate(timerDirective = TimerDirective.START)
         seedCoordinator(controller, coordinator)
-        val window = mockk<Window>()
-        every { window.isActive } returns false
-        seedRouteRoot(controller, window)
+        val firstWindow = mockk<Window>()
+        val secondWindow = mockk<Window>()
+        every { firstWindow.isActive } returns false
+        every { secondWindow.isActive } returns false
+        seedRouteRoot(controller, RouteRootId(1), firstWindow)
+        seedRouteRoot(controller, RouteRootId(2), secondWindow)
 
         controller.handle(RouteEvent.Tick(100L))
 
         verify(exactly = 1) { coordinator.handle(RouteEvent.Tick(100L, isWindowActive = false)) }
+        assertNull(routeTimer(controller))
 
-        every { window.isActive } returns true
+        every { secondWindow.isActive } returns true
         controller.handle(RouteEvent.Tick(200L))
 
         verify(exactly = 1) { coordinator.handle(RouteEvent.Tick(200L, isWindowActive = true)) }
+        assertNotNull(routeTimer(controller)).stop()
     }
 
     @Test
@@ -307,6 +316,7 @@ class RouteControllerTest {
 
     private fun seedRouteRoot(
         controller: RouteController,
+        rootId: RouteRootId,
         window: Window,
     ) {
         val rootClass = Class.forName("dev.ayuislands.glow.RouteRoot")
@@ -322,7 +332,13 @@ class RouteControllerTest {
         field.isAccessible = true
         val roots = field.get(controller)
         val put = roots.javaClass.getMethod("put", Any::class.java, Any::class.java)
-        put.invoke(roots, RouteRootId(1), root)
+        put.invoke(roots, rootId, root)
+    }
+
+    private fun routeTimer(controller: RouteController): Timer? {
+        val field = controller.javaClass.getDeclaredField("timer")
+        field.isAccessible = true
+        return field.get(controller) as Timer?
     }
 
     private fun renderBridge(

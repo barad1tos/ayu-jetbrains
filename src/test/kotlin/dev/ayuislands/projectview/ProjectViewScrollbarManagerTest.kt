@@ -34,11 +34,14 @@ import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
+import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.TreeCellRenderer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertSame
 
 class ProjectViewScrollbarManagerTest {
     private lateinit var project: Project
@@ -215,22 +218,57 @@ class ProjectViewScrollbarManagerTest {
         val wrapper = JPanel(FlowLayout()).apply { add(JScrollPane(tree)) }
         setupToolWindowContent(wrapper)
         val manager = createAndDrain()
+        val renderer = assertIs<RootFilteringRenderer>(tree.cellRenderer)
         clearMocks(LicenseChecker, answers = false, recordedCalls = true)
 
         SwingUtilities.invokeAndWait {
-            tree.cellRenderer.getTreeCellRendererComponent(
-                tree,
-                tree.model.root,
-                false,
-                false,
-                false,
-                0,
-                false,
-            )
+            paintRootRow(tree, renderer)
         }
 
         verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
         SwingUtilities.invokeAndWait { manager.dispose() }
+    }
+
+    @Test
+    fun `renderer guard keeps replacement paint free of license checks`() {
+        realState.hideProjectRootPath = true
+        val tree = JTree()
+        val wrapper = JPanel(FlowLayout()).apply { add(JScrollPane(tree)) }
+        setupToolWindowContent(wrapper)
+        val manager = createAndDrain()
+        val replacement = DefaultTreeCellRenderer()
+
+        SwingUtilities.invokeAndWait { tree.cellRenderer = replacement }
+
+        val renderer = assertIs<RootFilteringRenderer>(tree.cellRenderer)
+        assertSame(replacement, renderer.delegate)
+        clearMocks(LicenseChecker, answers = false, recordedCalls = true)
+
+        SwingUtilities.invokeAndWait {
+            paintRootRow(tree, renderer)
+        }
+
+        verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
+        SwingUtilities.invokeAndWait { manager.dispose() }
+    }
+
+    private fun paintRootRow(
+        tree: JTree,
+        renderer: TreeCellRenderer,
+    ) {
+        val isSelected = false
+        val isExpanded = false
+        val isLeaf = false
+        val hasFocus = false
+        renderer.getTreeCellRendererComponent(
+            tree,
+            tree.model.root,
+            isSelected,
+            isExpanded,
+            isLeaf,
+            0,
+            hasFocus,
+        )
     }
 
     @Test

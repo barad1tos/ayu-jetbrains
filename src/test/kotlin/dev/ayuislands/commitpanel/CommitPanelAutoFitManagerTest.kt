@@ -584,6 +584,23 @@ class CommitPanelAutoFitManagerTest {
                 renderer.delegate,
                 "Renderer guard must preserve the IDE replacement as the delegate",
             )
+            clearMocks(LicenseChecker, answers = false, recordedCalls = true)
+            val isSelected = false
+            val isExpanded = false
+            val isLeaf = false
+            val hasFocus = false
+
+            renderer.getTreeCellRendererComponent(
+                tree,
+                tree.model.root,
+                isSelected,
+                isExpanded,
+                isLeaf,
+                0,
+                hasFocus,
+            )
+
+            verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
         }
     }
 
