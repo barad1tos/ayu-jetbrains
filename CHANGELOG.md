@@ -1,8 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [2.8.5] - 2026-08-20
 
-- [Paid] **Smoother Glow in large and background windows** — Glow keeps the
+- [Fix] **Smoother Glow in large and background windows** — Glow keeps the
   same visuals while using less memory for large panels, pauses waveform work
   in inactive IDE windows, and stops deferred updates after an overlay is
   hidden or removed.
