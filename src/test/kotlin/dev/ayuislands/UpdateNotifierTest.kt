@@ -7,7 +7,6 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
-import dev.ayuislands.AyuPlugin
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.SettingsBadges
@@ -79,7 +78,7 @@ class UpdateNotifierTest {
     @Test
     fun `same-version startup expires overdue settings badges`() {
         state.lastSeenVersion = "2.8.0"
-        for (anchor in SettingsBadges.registry) state.settingsBadgeDeadlines[anchor.id] = "1"
+        for ((id) in SettingsBadges.registry) state.settingsBadgeDeadlines[id] = "1"
         every {
             AyuPlugin.findLoadedPlugin(any<PluginId>())
         } returns descriptor
@@ -157,6 +156,40 @@ class UpdateNotifierTest {
                         body.contains("[Paid] Typing-responsive ECG glow") &&
                         body.contains("[Free] New-setting wayfinding") &&
                         body.contains("[Fix] Commit panel accessibility")
+                },
+                NotificationType.INFORMATION,
+            )
+        }
+        verify(exactly = 1) { notification.notify(project) }
+    }
+
+    @Test
+    fun `2_8_5 balloon lists release fixes`() {
+        state.lastSeenVersion = "2.8.4"
+        every {
+            AyuPlugin.findLoadedPlugin(any<PluginId>())
+        } returns descriptor
+        every { descriptor.version } returns "2.8.5"
+
+        val notification = mockk<Notification>(relaxed = true)
+        val group = mockk<NotificationGroup>(relaxed = true)
+        val groupManager = mockk<NotificationGroupManager>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+        every { groupManager.getNotificationGroup("Ayu Islands") } returns group
+        every {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns notification
+
+        UpdateNotifier.showIfUpdated(project)
+
+        assertEquals("2.8.5", state.lastSeenVersion)
+        verify(exactly = 1) {
+            group.createNotification(
+                "Ayu Islands updated to 2.8.5",
+                match<String> { body ->
+                    body.contains("[Fix] Glow stays smooth") &&
+                        body.contains("[Fix] Startup refreshes") &&
+                        body.contains("[Fix] Translucent diff and caret backgrounds")
                 },
                 NotificationType.INFORMATION,
             )
