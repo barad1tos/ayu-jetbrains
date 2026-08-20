@@ -213,7 +213,7 @@ internal class AyuIslandsStartupActivity(
         // PropertiesComponent flag (`ayu.syntax.intensity.notified`) so users
         // who saw the prior syntax notification still receive this message.
         dispatchWriteSafe { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }
-        SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }
+        dispatchWriteSafe { SyntaxIntensityMigrationNotifier.maybeFire(project) }
 
         // Initialize the glow overlay system if the glow is enabled
         // Uses ApplicationManager.invokeLater with project.disposed condition to skip

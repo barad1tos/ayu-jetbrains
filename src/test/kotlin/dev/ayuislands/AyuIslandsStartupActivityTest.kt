@@ -1200,15 +1200,25 @@ class AyuIslandsStartupActivityTest {
                     """SyntaxIntensityService\.getInstance\(\)\.reapplyForActiveLaf\(\)\s*}""",
             )
         val notificationCall =
-            "SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }"
+            Regex(
+                """dispatchWriteSafe\s*\{\s*""" +
+                    """SyntaxIntensityMigrationNotifier\.maybeFire\(project\)\s*}""",
+            )
         val reapplyIndex = reapplyCall.find(source)?.range?.first ?: -1
-        val notificationIndex = source.indexOf(notificationCall)
+        val notificationIndex = notificationCall.find(source)?.range?.first ?: -1
 
         assertTrue(reapplyIndex >= 0, "startup must reapply persisted syntax intensity after scheme registration")
-        assertTrue(notificationIndex >= 0, "startup must still show the syntax intensity migration notification")
+        assertTrue(
+            notificationIndex >= 0,
+            "startup must queue the syntax intensity migration notification in a write-safe context",
+        )
+        assertFalse(
+            source.contains("SwingUtilities.invokeLater { SyntaxIntensityMigrationNotifier.maybeFire(project) }"),
+            "the migration notification must not bypass the non-modal IntelliJ queue",
+        )
         assertTrue(
             reapplyIndex < notificationIndex,
-            "persisted syntax intensity should be restored before the migration notification is queued",
+            "persisted syntax intensity must enter the non-modal queue before the migration notification",
         )
     }
 
