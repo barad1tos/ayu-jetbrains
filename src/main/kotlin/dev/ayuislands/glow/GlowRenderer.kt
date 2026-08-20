@@ -209,44 +209,50 @@ class GlowRenderer {
                 val alpha = computeAlpha(progress)
                 if (alpha <= 0) continue
 
-                val inset = index.toDouble()
-                val outerWidth = (width - 2.0 * inset).coerceAtLeast(0.0)
-                val outerHeight = (height - 2.0 * inset).coerceAtLeast(0.0)
-                if (outerWidth <= 0 || outerHeight <= 0) break
-
-                val outerArc = if (arcWidth > 0) (arcWidth.toDouble() - 2.0 * index).coerceAtLeast(0.0) else 0.0
-                val outer = RoundRectangle2D.Double(inset, inset, outerWidth, outerHeight, outerArc, outerArc)
-                val nextInset = inset + 1.0
-                val innerWidth = (width - 2.0 * nextInset).coerceAtLeast(0.0)
-                val innerHeight = (height - 2.0 * nextInset).coerceAtLeast(0.0)
-                val shape =
-                    if (innerWidth > 0 && innerHeight > 0) {
-                        val innerArc =
-                            if (arcWidth > 0) {
-                                (arcWidth.toDouble() - 2.0 * (index + 1)).coerceAtLeast(0.0)
-                            } else {
-                                0.0
-                            }
-                        Area(outer).apply {
-                            subtract(
-                                Area(
-                                    RoundRectangle2D.Double(
-                                        nextInset,
-                                        nextInset,
-                                        innerWidth,
-                                        innerHeight,
-                                        innerArc,
-                                        innerArc,
-                                    ),
-                                ),
-                            )
-                        }
-                    } else {
-                        outer
-                    }
+                val shape = frameLayerShape(width, height, arcWidth, index) ?: break
                 add(GlowLayer(shape, ColorUtil.toAlpha(cachedColor, alpha)))
             }
         }
+
+    private fun frameLayerShape(
+        width: Int,
+        height: Int,
+        arcWidth: Int,
+        index: Int,
+    ): Shape? {
+        val inset = index.toDouble()
+        val outerWidth = (width - 2.0 * inset).coerceAtLeast(0.0)
+        val outerHeight = (height - 2.0 * inset).coerceAtLeast(0.0)
+        if (outerWidth <= 0 || outerHeight <= 0) return null
+
+        val outerArc = if (arcWidth > 0) (arcWidth.toDouble() - 2.0 * index).coerceAtLeast(0.0) else 0.0
+        val outer = RoundRectangle2D.Double(inset, inset, outerWidth, outerHeight, outerArc, outerArc)
+        val nextInset = inset + 1.0
+        val innerWidth = (width - 2.0 * nextInset).coerceAtLeast(0.0)
+        val innerHeight = (height - 2.0 * nextInset).coerceAtLeast(0.0)
+        if (innerWidth <= 0 || innerHeight <= 0) return outer
+
+        val innerArc =
+            if (arcWidth > 0) {
+                (arcWidth.toDouble() - 2.0 * (index + 1)).coerceAtLeast(0.0)
+            } else {
+                0.0
+            }
+        return Area(outer).apply {
+            subtract(
+                Area(
+                    RoundRectangle2D.Double(
+                        nextInset,
+                        nextInset,
+                        innerWidth,
+                        innerHeight,
+                        innerArc,
+                        innerArc,
+                    ),
+                ),
+            )
+        }
+    }
 
     private fun renderSlice(
         region: Rectangle,
