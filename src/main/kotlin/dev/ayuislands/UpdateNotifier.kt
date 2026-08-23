@@ -70,6 +70,10 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.6" to
+                releaseNotes(
+                    "[Fix] Chaotic ECG traces stay inside their editor and tool-window islands",
+                ),
             "2.8.5" to
                 releaseNotes(
                     "[Fix] Glow stays smooth in large panels and pauses work in inactive windows",
