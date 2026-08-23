@@ -121,6 +121,10 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.8.6</h3>
+    <ul>
+      <li>[Fix] <b>Contained chaotic waveform borders</b> — Chaotic ECG traces stay inside their editor and tool-window islands instead of spilling across neighboring panels, while route connectors remain visible during focus and window transitions.</li>
+    </ul>
     <h3>2.8.5</h3>
     <ul>
       <li>[Fix] <b>Smoother Glow in large and background windows</b> — Glow keeps the same visuals while using less memory for large panels, pauses waveform work in inactive IDE windows, and stops deferred updates after their host is hidden or the project is closed.</li>

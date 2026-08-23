@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.8.6] - 2026-08-23
 
 - [Fix] **Contained chaotic waveform borders** — Chaotic ECG traces stay
   inside their editor and tool-window islands instead of spilling across
