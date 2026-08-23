@@ -38,6 +38,29 @@ class RouteLayerPixelTest {
     }
 
     @Test
+    fun `perimeter traces stay inside their islands while connector remains visible`() {
+        val layer = WaveformRouteLayer(RouteRootId(1)) { throw it }
+        layer.setBounds(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+        layer.updateStyle(testStyle())
+        val frame = transitionFrame()
+        val editorBounds = Rectangle(280, 144, 18, 13)
+        val commitBounds = Rectangle(342, 144, 18, 13)
+
+        layer.showFrame(
+            frame = frame,
+            slices = frame.slices,
+            surfaceBounds = mapOf("Editor" to editorBounds, "Commit" to commitBounds),
+        )
+
+        val image = render(layer)
+
+        assertTrue(hasPaintedPixel(image, editorBounds), "source perimeter must remain visible")
+        assertFalse(hasPaintedPixel(image, Rectangle(280, 130, 18, 14)))
+        assertFalse(hasPaintedPixel(image, Rectangle(280, 157, 18, 14)))
+        assertTrue(hasPaintedPixel(image, Rectangle(314, 138, 12, 24)), "connector must remain visible")
+    }
+
+    @Test
     fun `touching perimeter handoff keeps brightness and bounded motion`() {
         val frames = touchingCoordinatorFrames()
         val images = frames.map(::renderFrame)
