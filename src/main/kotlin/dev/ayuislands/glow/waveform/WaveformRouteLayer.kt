@@ -18,13 +18,18 @@ internal data class RouteLayerStyle(
     val config: WaveformConfig,
 )
 
+private data class ClippedPlan(
+    val plan: WaveformRenderPlan,
+    val clip: Rectangle?,
+)
+
 internal class WaveformRouteLayer(
     val rootId: RouteRootId,
     private val onFailure: (RuntimeException) -> Unit,
 ) : JComponent() {
     private val painter = WaveformPainter()
     private var style: RouteLayerStyle? = null
-    private var plans: List<WaveformRenderPlan> = emptyList()
+    private var plans: List<ClippedPlan> = emptyList()
     private var frameAlpha = 1f
     private var failureReported = false
 
@@ -47,6 +52,7 @@ internal class WaveformRouteLayer(
     fun showFrame(
         frame: RouteFrame,
         slices: List<RouteSlice>,
+        surfaceBounds: Map<String, Rectangle>,
     ) {
         val currentStyle = style ?: return
         try {
@@ -56,8 +62,16 @@ internal class WaveformRouteLayer(
                     .filter { slice ->
                         val target = slice.target as? RoutePaintTarget.Root
                         target?.rootId == rootId
-                    }.map { slice -> preparePlan(frame, slice, currentStyle) }
-                    .toList()
+                    }.mapNotNull { slice ->
+                        val clip =
+                            slice.surfaceId?.let { surfaceId ->
+                                surfaceBounds[surfaceId]?.let(::Rectangle) ?: return@mapNotNull null
+                            }
+                        ClippedPlan(
+                            plan = preparePlan(frame, slice, currentStyle),
+                            clip = clip,
+                        )
+                    }.toList()
             replacePlans(nextPlans, frame.alpha.coerceIn(0f, 1f))
         } catch (exception: RuntimeException) {
             reportFailure(exception)
@@ -76,7 +90,20 @@ internal class WaveformRouteLayer(
             routeGraphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             routeGraphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
             routeGraphics.composite = AlphaComposite.SrcOver.derive(frameAlpha)
-            plans.forEach { plan -> painter.paint(routeGraphics, plan) }
+            plans.forEach { clippedPlan ->
+                val clip = clippedPlan.clip
+                if (clip == null) {
+                    painter.paint(routeGraphics, clippedPlan.plan)
+                    return@forEach
+                }
+                val planGraphics = routeGraphics.create() as Graphics2D
+                try {
+                    planGraphics.clip(clip)
+                    painter.paint(planGraphics, clippedPlan.plan)
+                } finally {
+                    planGraphics.dispose()
+                }
+            }
         } catch (exception: RuntimeException) {
             reportFailure(exception)
         } finally {
@@ -118,7 +145,7 @@ internal class WaveformRouteLayer(
     }
 
     private fun replacePlans(
-        nextPlans: List<WaveformRenderPlan>,
+        nextPlans: List<ClippedPlan>,
         frameAlpha: Float,
     ) {
         val oldBounds = planBounds(plans)
@@ -140,8 +167,8 @@ internal class WaveformRouteLayer(
         onFailure(exception)
     }
 
-    private fun planBounds(renderPlans: List<WaveformRenderPlan>): Rectangle? =
+    private fun planBounds(renderPlans: List<ClippedPlan>): Rectangle? =
         renderPlans
-            .mapNotNull(WaveformRenderPlan::signalBounds)
+            .mapNotNull { clippedPlan -> clippedPlan.plan.signalBounds }
             .reduceOrNull(Rectangle::union)
 }

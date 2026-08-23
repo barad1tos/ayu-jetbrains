@@ -31,6 +31,7 @@ import dev.ayuislands.settings.effectiveLoopSeconds
 import dev.ayuislands.settings.effectiveTraceDensity
 import dev.ayuislands.settings.effectiveTraceLength
 import java.awt.Point
+import java.awt.Rectangle
 import java.awt.Window
 import java.util.IdentityHashMap
 import javax.swing.JComponent
@@ -298,7 +299,16 @@ internal class RouteController(
                     }
             layer.setBounds(0, 0, root.layeredPane.width, root.layeredPane.height)
             layer.updateStyle(style)
-            layer.showFrame(frame, slices.map { slice -> slice.relativeTo(root.screenOrigin) })
+            val surfaceBounds =
+                routeOverlays
+                    .asSequence()
+                    .filter { overlay -> overlay.layeredPane === root.layeredPane }
+                    .associate { overlay -> overlay.id to Rectangle(overlay.pane.bounds) }
+            layer.showFrame(
+                frame = frame,
+                slices = slices.map { slice -> slice.relativeTo(root.screenOrigin) },
+                surfaceBounds = surfaceBounds,
+            )
             if (!isActive) return
         }
         layers
