@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+- [Fix] **Contained chaotic waveform borders** — Chaotic ECG traces stay
+  inside their editor and tool-window islands instead of spilling across
+  neighboring panels, while route connectors remain visible during focus and
+  window transitions. [#333](https://github.com/barad1tos/ayu-jetbrains/issues/333)
+
 ## [2.8.5] - 2026-08-20
 
 - [Fix] **Smoother Glow in large and background windows** — Glow keeps the
