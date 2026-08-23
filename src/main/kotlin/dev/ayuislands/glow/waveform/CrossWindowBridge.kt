@@ -128,7 +128,11 @@ internal class CrossWindowBridge(
             window.bounds = bounds
             layer.setBounds(0, 0, bounds.width, bounds.height)
             layer.updateStyle(style)
-            layer.showFrame(frame, visibleSlices.map { slice -> localSlice(slice, bounds) })
+            layer.showFrame(
+                frame = frame,
+                slices = visibleSlices.map { slice -> localSlice(slice, bounds) },
+                surfaceBounds = emptyMap(),
+            )
             if (disposed) return
             if (!visible) {
                 window.isVisible = true

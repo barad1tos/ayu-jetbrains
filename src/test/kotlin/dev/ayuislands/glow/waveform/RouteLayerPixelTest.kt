@@ -22,7 +22,7 @@ class RouteLayerPixelTest {
         layer.setBounds(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
         layer.updateStyle(testStyle())
         val frame = transitionFrame()
-        layer.showFrame(frame, frame.slices)
+        layer.showFrame(frame, frame.slices, fullSurfaceBounds(frame))
 
         val image = render(layer)
 
@@ -58,6 +58,32 @@ class RouteLayerPixelTest {
         assertFalse(hasPaintedPixel(image, Rectangle(280, 130, 18, 14)))
         assertFalse(hasPaintedPixel(image, Rectangle(280, 157, 18, 14)))
         assertTrue(hasPaintedPixel(image, Rectangle(314, 138, 12, 24)), "connector must remain visible")
+    }
+
+    @Test
+    fun `recovery omits a missing current island while preserving its route`() {
+        val layer = WaveformRouteLayer(RouteRootId(1)) { throw it }
+        layer.setBounds(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+        layer.updateStyle(testStyle())
+        val frame = transitionFrame()
+        val editorBounds = Rectangle(280, 144, 18, 13)
+
+        layer.showFrame(
+            frame = frame,
+            slices = frame.slices,
+            surfaceBounds = mapOf("Editor" to editorBounds),
+        )
+
+        val image = render(layer)
+        val missingPerimeterRegion = Rectangle(354, 138, 6, 24)
+
+        assertTrue(
+            hasPaintedPixel(renderFrame(frame), missingPerimeterRegion),
+            "fixture must include the current perimeter",
+        )
+        assertTrue(hasPaintedPixel(image, editorBounds), "surviving perimeter must remain visible")
+        assertTrue(hasPaintedPixel(image, Rectangle(314, 138, 12, 24)), "connector must remain visible")
+        assertFalse(hasPaintedPixel(image, missingPerimeterRegion), "missing perimeter must not leave a ghost")
     }
 
     @Test
@@ -272,7 +298,7 @@ class RouteLayerPixelTest {
         layer.setBounds(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
         layer.updateStyle(testStyle())
         val frame = transitionFrame()
-        layer.showFrame(frame, frame.slices)
+        layer.showFrame(frame, frame.slices, fullSurfaceBounds(frame))
 
         val image = render(layer)
 
@@ -337,11 +363,11 @@ class RouteLayerPixelTest {
         val recordingManager = RecordingRepaintManager()
         RepaintManager.setCurrentManager(recordingManager)
         try {
-            layer.showFrame(firstFrame, firstFrame.slices)
+            layer.showFrame(firstFrame, firstFrame.slices, fullSurfaceBounds(firstFrame))
             val firstBounds = assertNotNull(paintedBounds(render(layer)))
             recordingManager.clear()
 
-            layer.showFrame(secondFrame, secondFrame.slices)
+            layer.showFrame(secondFrame, secondFrame.slices, fullSurfaceBounds(secondFrame))
             val secondBounds = assertNotNull(paintedBounds(render(layer)))
             val dirtyBounds = assertNotNull(recordingManager.dirtyBounds())
 
@@ -376,7 +402,7 @@ class RouteLayerPixelTest {
         WaveformRouteLayer(RouteRootId(1)) { throw it }.also { layer ->
             layer.setBounds(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
             layer.updateStyle(testStyle())
-            layer.showFrame(frame, frame.slices)
+            layer.showFrame(frame, frame.slices, fullSurfaceBounds(frame))
         }
 
     private fun renderFrame(frame: RouteFrame): BufferedImage = render(routeLayer(frame))
@@ -431,6 +457,12 @@ private fun testStyle(): RouteLayerStyle =
                 traceLength = 360,
             ),
     )
+
+private fun fullSurfaceBounds(frame: RouteFrame): Map<String, Rectangle> =
+    frame.slices
+        .mapNotNull(RouteSlice::surfaceId)
+        .distinct()
+        .associateWith { Rectangle(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT) }
 
 private fun transitionFrame(): RouteFrame {
     val target = RoutePaintTarget.Root(RouteRootId(1))

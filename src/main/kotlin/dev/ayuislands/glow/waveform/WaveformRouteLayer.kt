@@ -52,7 +52,7 @@ internal class WaveformRouteLayer(
     fun showFrame(
         frame: RouteFrame,
         slices: List<RouteSlice>,
-        surfaceBounds: Map<String, Rectangle> = emptyMap(),
+        surfaceBounds: Map<String, Rectangle>,
     ) {
         val currentStyle = style ?: return
         try {
@@ -62,10 +62,14 @@ internal class WaveformRouteLayer(
                     .filter { slice ->
                         val target = slice.target as? RoutePaintTarget.Root
                         target?.rootId == rootId
-                    }.map { slice ->
+                    }.mapNotNull { slice ->
+                        val clip =
+                            slice.surfaceId?.let { surfaceId ->
+                                surfaceBounds[surfaceId]?.let(::Rectangle) ?: return@mapNotNull null
+                            }
                         ClippedPlan(
                             plan = preparePlan(frame, slice, currentStyle),
-                            clip = slice.surfaceId?.let(surfaceBounds::get)?.let(::Rectangle),
+                            clip = clip,
                         )
                     }.toList()
             replacePlans(nextPlans, frame.alpha.coerceIn(0f, 1f))
