@@ -8,7 +8,7 @@ import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
 import java.awt.Font
 
-internal const val SYNTAX_INTENSITY_SCHEMA_VERSION = 3
+internal const val SYNTAX_INTENSITY_SCHEMA_VERSION = 4
 
 /**
  * Per-category font style for the Custom drill-down (Part A backend).
@@ -37,6 +37,42 @@ enum class FontStyleOverride(
          * throws — a bad XML value degrades to "inherit the source style".
          */
         fun fromName(raw: String?): FontStyleOverride? = entries.firstOrNull { it.name == raw }
+    }
+}
+
+/**
+ * Additive per-category font emphasis for the Custom drill-down.
+ *
+ * Unlike [FontStyleOverride], this closed catalog omits [Font.PLAIN]: an
+ * absent cell is a strict no-op that preserves the source font style.
+ */
+enum class FontEmphasis(
+    val fontType: Int,
+) {
+    BOLD(Font.BOLD),
+    ITALIC(Font.ITALIC),
+    BOLD_ITALIC(Font.BOLD or Font.ITALIC),
+    ;
+
+    val isBold: Boolean
+        get() = fontType and Font.BOLD != 0
+
+    val isItalic: Boolean
+        get() = fontType and Font.ITALIC != 0
+
+    companion object {
+        fun fromName(raw: String?): FontEmphasis? = entries.firstOrNull { it.name == raw }
+
+        fun fromFlags(
+            isBold: Boolean,
+            isItalic: Boolean,
+        ): FontEmphasis? =
+            when {
+                isBold && isItalic -> BOLD_ITALIC
+                isBold -> BOLD
+                isItalic -> ITALIC
+                else -> null
+            }
     }
 }
 
@@ -118,6 +154,7 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
                     quietOperators = state.quietOperators,
                     emphasizeDeclarations = state.emphasizeDeclarations,
                 ),
+            customEmphasis = reshapeFlatMap(state.customEmphasis) { FontEmphasis.fromName(it)?.fontType },
         )
 
     /**
@@ -178,14 +215,19 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
  *    materialise; an absent cell inherits the source attribute's font style.
  *    Independent of the intensity slider — a cell may carry a style override
  *    with no slider, or a slider with no style.
+ *  - [customEmphasis]: sibling FLAT composite-key map for per-category font
+ *    emphasis. Key = `"language|category"`; value = [FontEmphasis] enum
+ *    `name` (`"BOLD"` / `"ITALIC"` / `"BOLD_ITALIC"`). Sparse and additive:
+ *    an absent cell is a strict no-op, and this map never rewrites legacy
+ *    [customStyles] replacement tokens.
  *  - [dimComments], [softenDocumentation], [quietOperators], and
  *    [emphasizeDeclarations]: global readability modifiers layered on top of
  *    any selected preset. Defaults are false, so existing XML with no elements
  *    stays byte-identical until the user opts in.
- *  - [schemaVersion]: forward-compat sentinel; default `3` since readability
- *    modifiers were introduced. A v2 config (no readability elements)
- *    deserialises with all booleans false through the BaseState delegates, so
- *    the bump needs NO read-time migration.
+ *  - [schemaVersion]: forward-compat sentinel; default `4` since additive
+ *    emphasis was introduced. A v3 config without [customEmphasis] keeps its
+ *    loaded schema version and deserialises this map as empty, so the bump
+ *    needs NO read-time migration.
  *
  * The free tier never writes to [customOverrides] / [customStyles] — the
  * premium Custom drill-down is the only writer.
@@ -195,6 +237,7 @@ class SyntaxIntensityBaseState : BaseState() {
     var subordinatePreset by string("AMBIENT")
     var customOverrides by map<String, String>()
     var customStyles by map<String, String>()
+    var customEmphasis by map<String, String>()
     var dimComments by property(false)
     var softenDocumentation by property(false)
     var quietOperators by property(false)

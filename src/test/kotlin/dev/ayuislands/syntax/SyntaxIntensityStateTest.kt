@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.awt.Font
 import kotlin.test.assertNotNull
 
 /**
@@ -25,7 +26,7 @@ import kotlin.test.assertNotNull
  *
  * 10 invariants per the plan spec:
  *  1.  Default state: `selectedPreset == "AMBIENT"`, `customOverrides`
- *      empty, readability modifiers off, `schemaVersion == 3`.
+ *      empty, readability modifiers off, `schemaVersion == 4`.
  *  2.  `selectedPreset` round-trip via in-memory loadState.
  *  3.  `SyntaxPreset.fromName` integration - tampered preset name falls
  *      back to `AMBIENT`.
@@ -50,16 +51,17 @@ class SyntaxIntensityStateTest {
     // --- Test 1 - defaults --------------------------------------------------
 
     @Test
-    fun `default base state is AMBIENT preset with empty customOverrides readability off and schemaVersion 3`() {
+    fun `default base state is AMBIENT preset with empty customOverrides readability off and schemaVersion 4`() {
         val state = SyntaxIntensityBaseState()
         assertEquals("AMBIENT", state.selectedPreset, "default selectedPreset must be AMBIENT per D-23")
         assertTrue(state.customOverrides.isEmpty(), "default customOverrides must be empty (free tier never writes)")
         assertTrue(state.customStyles.isEmpty(), "default customStyles must be empty (free tier never writes)")
+        assertTrue(state.customEmphasis.isEmpty(), "default customEmphasis must be empty")
         assertFalse(state.dimComments, "Dim comments must be opt-in")
         assertFalse(state.softenDocumentation, "Soften documentation must be opt-in")
         assertFalse(state.quietOperators, "Quiet operators must be opt-in")
         assertFalse(state.emphasizeDeclarations, "Emphasize declarations must be opt-in")
-        assertEquals(3, state.schemaVersion, "default schemaVersion must be 3 since readability toggles were added")
+        assertEquals(4, state.schemaVersion, "default schemaVersion must be 4 since emphasis was added")
     }
 
     // --- Test 2 - selectedPreset round-trip --------------------------------
@@ -128,7 +130,7 @@ class SyntaxIntensityStateTest {
     fun `schemaVersion survives loadState round-trip for default and bumped values`() {
         // No mutation - verify the default schemaVersion survives the round-trip.
         val reloadedDefault = roundTrip { _ -> }
-        assertEquals(3, reloadedDefault.state.schemaVersion)
+        assertEquals(4, reloadedDefault.state.schemaVersion)
 
         val reloadedBumped = roundTrip { state -> state.schemaVersion = 3 }
         assertEquals(3, reloadedBumped.state.schemaVersion, "schemaVersion 3 must round-trip for future migration")
@@ -350,6 +352,63 @@ class SyntaxIntensityStateTest {
         assertEquals(SyntaxReadabilityOptions(dimComments = true, quietOperators = true), config.readabilityOptions)
         assertTrue(config.customOverrides.isEmpty())
         assertTrue(config.customStyles.isEmpty())
+        assertTrue(config.customEmphasis.isEmpty())
+    }
+
+    @Test
+    fun `customEmphasis survives a sparse state round-trip`() {
+        val reloaded =
+            roundTrip { state ->
+                state.customEmphasis["Kotlin|FUNCTION_DECLARATION"] = "BOLD_ITALIC"
+            }
+
+        assertEquals(
+            mapOf("Kotlin|FUNCTION_DECLARATION" to "BOLD_ITALIC"),
+            reloaded.state.customEmphasis,
+        )
+        assertEquals(
+            mapOf("Kotlin" to mapOf("FUNCTION_DECLARATION" to (Font.BOLD or Font.ITALIC))),
+            reloaded.toPresetConfig().customEmphasis,
+        )
+    }
+
+    @Test
+    fun `schema 3 legacy styles load unchanged and do not synthesize emphasis`() {
+        val saved =
+            SyntaxIntensityBaseState().apply {
+                schemaVersion = 3
+                customOverrides["Java|KEYWORD"] = "72"
+                customStyles["Java|KEYWORD"] = "BOLD"
+                dimComments = true
+            }
+        val reloaded = SyntaxIntensityState()
+
+        reloaded.loadState(saved)
+
+        assertEquals(3, reloaded.state.schemaVersion)
+        assertEquals(mapOf("Java|KEYWORD" to "72"), reloaded.state.customOverrides)
+        assertEquals(mapOf("Java|KEYWORD" to "BOLD"), reloaded.state.customStyles)
+        assertTrue(reloaded.state.customEmphasis.isEmpty())
+        assertTrue(reloaded.state.dimComments)
+        assertEquals(
+            mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+            reloaded.toPresetConfig().customStyles,
+        )
+        assertTrue(reloaded.toPresetConfig().customEmphasis.isEmpty())
+    }
+
+    @Test
+    fun `unknown emphasis token is ignored without touching legacy styles`() {
+        val state =
+            SyntaxIntensityState().apply {
+                this.state.customStyles["Java|KEYWORD"] = "ITALIC"
+                this.state.customEmphasis["Java|KEYWORD"] = "UNDERLINE"
+            }
+
+        val config = state.toPresetConfig()
+
+        assertEquals(mapOf("Java" to mapOf("KEYWORD" to Font.ITALIC)), config.customStyles)
+        assertTrue(config.customEmphasis.isEmpty())
     }
 
     // --- Test 10 - getInstance service lookup -----------------------------
