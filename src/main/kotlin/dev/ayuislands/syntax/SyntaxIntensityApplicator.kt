@@ -41,12 +41,12 @@ import kotlin.math.abs
  * Hue invariant by construction.
  *
  * Custom font style (Part A backend): under `preset == CUSTOM` the per-cell
- * `customStyles` map (language -> category -> `java.awt.Font` bitmask) sets
- * the clone's `fontType` after the foreground transform. The two fields are
- * independent `TextAttributes` slots, so the style set is orthogonal to the
- * hue/color math — a cell may carry a style with no slider, or a slider with
- * no style. Sparse: an absent cell leaves `fontType` untouched (inherits the
- * source style). Named / AMBIENT presets never read `customStyles`.
+ * `customStyles` replacement map (language -> category -> `java.awt.Font`
+ * bitmask) sets the clone's `fontType` after the foreground transform.
+ * `customEmphasis` is a separate additive map: it ORs its bitmask into the
+ * resolved source or replacement style. Both maps are sparse; absent cells
+ * leave `fontType` untouched (inherits the source style). Named / AMBIENT
+ * presets never read either map.
  *
  * Readability modifiers are a second semantic layer after the selected preset
  * has resolved. They never write Custom slider cells: comments, docs, and
@@ -97,6 +97,7 @@ object SyntaxIntensityApplicator {
         val subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
         val customStyles: Map<String, Map<String, Int>> = emptyMap(),
         val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
+        val customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
     )
 
     fun compute(request: Request): Map<TextAttributesKey, TextAttributes> {
@@ -115,6 +116,7 @@ object SyntaxIntensityApplicator {
                 subordinatePreset = subordinatePreset,
                 customStyles = request.customStyles,
                 readabilityOptions = request.readabilityOptions,
+                customEmphasis = request.customEmphasis,
                 editorBg = request.editorBg,
             )
         val sources = AttributeSources(baseline, overlay)
@@ -159,6 +161,7 @@ object SyntaxIntensityApplicator {
         val subordinatePreset: SyntaxPreset,
         val customStyles: Map<String, Map<String, Int>>,
         val readabilityOptions: SyntaxReadabilityOptions,
+        val customEmphasis: Map<String, Map<String, Int>>,
         val editorBg: Color,
     )
 
@@ -190,12 +193,15 @@ object SyntaxIntensityApplicator {
                 category = category,
                 editorBg = context.editorBg,
             )
-        // Sparse per-category font style — gated to the Custom drill-down.
-        // fontType and foregroundColor are independent TextAttributes fields,
-        // so the style set is orthogonal to the hue/color transform above.
-        // An absent cell leaves clone.fontType untouched.
+        // The legacy per-category style remains a replacement. Additive
+        // emphasis is layered over that resolved style only for Custom.
         if (context.preset == SyntaxPreset.CUSTOM) {
-            context.customStyles[language]?.get(category.name)?.let { clone.fontType = it }
+            context.customStyles[language]?.get(category.name)?.let { legacyStyle ->
+                clone.fontType = legacyStyle
+            }
+            context.customEmphasis[language]?.get(category.name)?.let { emphasis ->
+                clone.fontType = clone.fontType or emphasis
+            }
         }
         return clone
     }

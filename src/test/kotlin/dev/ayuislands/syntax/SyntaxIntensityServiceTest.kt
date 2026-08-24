@@ -592,19 +592,45 @@ class SyntaxIntensityServiceTest {
     }
 
     @Test
-    fun `reapplyForActiveLaf forwards config customStyles to compute`() {
+    fun `apply threads customEmphasis through to the applicator compute call`() {
+        val emphasis = mapOf("Kotlin" to mapOf("FUNCTION_DECLARATION" to Font.BOLD))
+
+        SyntaxIntensityService().apply(
+            config =
+                SyntaxPresetConfig(
+                    selectedPreset = "CUSTOM",
+                    customOverrides = emptyMap(),
+                    customEmphasis = emphasis,
+                ),
+        )
+
+        verify(atLeast = 1) {
+            SyntaxIntensityApplicator.compute(
+                match { request ->
+                    request.preset == SyntaxPreset.CUSTOM && request.customEmphasis == emphasis
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `reapplyForActiveLaf forwards config custom style and emphasis maps to compute`() {
         val styles = mapOf("Kotlin" to mapOf("COMMENT" to Font.ITALIC))
+        val emphasis = mapOf("Kotlin" to mapOf("FUNCTION_DECLARATION" to Font.BOLD))
         every { stateInstance.toPresetConfig() } returns
             SyntaxPresetConfig(
                 selectedPreset = "CUSTOM",
                 customOverrides = emptyMap(),
                 customStyles = styles,
+                customEmphasis = emphasis,
             )
         SyntaxIntensityService().reapplyForActiveLaf()
         verify(atLeast = 1) {
             SyntaxIntensityApplicator.compute(
                 match {
-                    it.preset == SyntaxPreset.CUSTOM && it.customStyles == styles
+                    it.preset == SyntaxPreset.CUSTOM &&
+                        it.customStyles == styles &&
+                        it.customEmphasis == emphasis
                 },
             )
         }

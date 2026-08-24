@@ -600,6 +600,105 @@ class SyntaxIntensityApplicatorTest {
         assertEquals(Font.BOLD, attrs.fontType, "omitted customStyles must leave the source fontType intact")
     }
 
+    @Test
+    fun `legacy custom style remains a replacement when emphasis is absent`() {
+        val source = attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC }
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaKeywordKey to source),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customStyles = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                    ),
+            )
+
+        assertEquals(Font.BOLD, assertNotNull(result[javaKeywordKey]).fontType)
+    }
+
+    @Test
+    fun `bold emphasis combines with inherited italic`() {
+        val source = attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC }
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaKeywordKey to source),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customEmphasis = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                    ),
+            )
+
+        assertEquals(Font.BOLD or Font.ITALIC, assertNotNull(result[javaKeywordKey]).fontType)
+    }
+
+    @Test
+    fun `emphasis layers after the legacy replacement`() {
+        val source = attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.PLAIN }
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaKeywordKey to source),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customStyles = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                        customEmphasis = mapOf("Java" to mapOf("KEYWORD" to Font.ITALIC)),
+                    ),
+            )
+
+        assertEquals(Font.BOLD or Font.ITALIC, assertNotNull(result[javaKeywordKey]).fontType)
+    }
+
+    @Test
+    fun `named preset ignores custom emphasis`() {
+        val source = attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.PLAIN }
+        val result =
+            compute(
+                preset = SyntaxPreset.NEON,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaKeywordKey to source),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customEmphasis = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                    ),
+            )
+
+        assertEquals(Font.PLAIN, assertNotNull(result[javaKeywordKey]).fontType)
+    }
+
+    @Test
+    fun `empty custom emphasis preserves the complete compute output`() {
+        val baseline =
+            mapOf(
+                javaKeywordKey to attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC },
+                javaCommentKey to attrsWithFg(Color(0x99, 0x99, 0x99)),
+            )
+        val withoutEmphasis =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = baseline,
+                overlay = emptyMap(),
+            )
+        val withEmptyEmphasis =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = baseline,
+                overlay = emptyMap(),
+                options = ComputeOptions(customEmphasis = emptyMap()),
+            )
+
+        assertEquals(withoutEmphasis, withEmptyEmphasis)
+    }
+
     // --- Test 15 — Signed chroma intent resolver -------------------------
 
     @Test
@@ -1236,6 +1335,7 @@ class SyntaxIntensityApplicatorTest {
         val customStyles: Map<String, Map<String, Int>> = emptyMap(),
         val editorBg: Color = Color(0x1F, 0x24, 0x30),
         val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
+        val customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
     )
 
     private fun compute(
@@ -1256,6 +1356,7 @@ class SyntaxIntensityApplicatorTest {
                 subordinatePreset = options.subordinatePreset,
                 customStyles = options.customStyles,
                 readabilityOptions = options.readabilityOptions,
+                customEmphasis = options.customEmphasis,
             ),
         )
 
