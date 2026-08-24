@@ -16,12 +16,14 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.syntax.FontEmphasis
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxIntensityBaseState
 import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPreset
+import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import io.mockk.every
 import io.mockk.mockk
@@ -34,12 +36,14 @@ import io.mockk.verifyOrder
 import java.awt.Color
 import java.awt.Container
 import java.awt.Font
+import java.awt.Point
 import java.io.File
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JSlider
+import javax.swing.SwingUtilities
 import javax.swing.Timer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -274,31 +278,95 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `loadStateIntoPending normalizes unlicensed persisted Custom to Ambient`() {
+    fun `loadStateIntoPending normalizes unlicensed Custom but retains every sparse map`() {
+        // Break caught: losing edit access must not make a later unrelated Apply erase saved Custom cells.
         every { LicenseChecker.isLicensedOrGrace() } returns false
         stateBase.selectedPreset = "CUSTOM"
         stateBase.subordinatePreset = "NEON"
         stateBase.customOverrides["Java|KEYWORD"] = "85"
         stateBase.customStyles["Java|KEYWORD"] = "BOLD"
+        stateBase.customEmphasis["Java|KEYWORD"] = "ITALIC"
 
         val panel = panelWithLoadedState()
 
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
         assertSame(SyntaxPreset.AMBIENT, readStoredPreset(panel))
-        assertTrue(readPendingOverrides(panel).isEmpty(), "unlicensed Custom load must hide slider overrides")
-        assertTrue(readPendingStyles(panel).isEmpty(), "unlicensed Custom load must hide style overrides")
+        assertEquals(mapOf("Java|KEYWORD" to "85"), readPendingOverrides(panel))
+        assertEquals(mapOf("Java|KEYWORD" to "BOLD"), readPendingStyles(panel))
+        assertEquals(mapOf("Java|KEYWORD" to "ITALIC"), readPendingEmphasis(panel))
+    }
+
+    @Test
+    fun `opening the new panel preserves every pre-feature setting`() {
+        // Break caught: passive dialog build and reset must never migrate or rewrite persisted userspace.
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.subordinatePreset = "NEON"
+        stateBase.customOverrides["Java|KEYWORD"] = "72"
+        stateBase.customStyles["Java|KEYWORD"] = "BOLD"
+        stateBase.dimComments = true
+        stateBase.quietOperators = true
+        stateBase.schemaVersion = 3
+        val beforeOverrides = stateBase.customOverrides.toMap()
+        val beforeStyles = stateBase.customStyles.toMap()
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            syntaxPanel.reset()
+
+            assertFalse(syntaxPanel.isModified())
+            assertEquals("CUSTOM", stateBase.selectedPreset)
+            assertEquals("NEON", stateBase.subordinatePreset)
+            assertEquals(beforeOverrides, stateBase.customOverrides)
+            assertEquals(beforeStyles, stateBase.customStyles)
+            assertTrue(stateBase.customEmphasis.isEmpty())
+            assertTrue(stateBase.dimComments)
+            assertTrue(stateBase.quietOperators)
+            assertEquals(3, stateBase.schemaVersion)
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `free named preset apply preserves all saved sparse maps`() {
+        // Break caught: runtime license normalization must not convert missing edit access into deletion permission.
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customOverrides["Java|KEYWORD"] = "72"
+        stateBase.customStyles["Java|KEYWORD"] = "BOLD"
+        stateBase.customEmphasis["Java|KEYWORD"] = "ITALIC"
+        val beforeOverrides = stateBase.customOverrides.toMap()
+        val beforeStyles = stateBase.customStyles.toMap()
+        val beforeEmphasis = stateBase.customEmphasis.toMap()
+        val syntaxPanel = panelWithLoadedState()
+
+        invokeOnPresetChosen(syntaxPanel, SyntaxPreset.NEON)
+
+        assertEquals(beforeOverrides, stateBase.customOverrides)
+        assertEquals(beforeStyles, stateBase.customStyles)
+        assertEquals(beforeEmphasis, stateBase.customEmphasis)
     }
 
     // ---------- Test 2 - pill selection applies + persists ----------
 
     @Test
     fun `pill selection invokes SyntaxIntensityService apply with empty overrides`() {
+        // Break caught: named preset clicks must preview through the complete configuration boundary.
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
 
         invokeOnPresetChosen(panel, SyntaxPreset.NEON)
 
-        verify(exactly = 1) { intensityService.apply(SyntaxPreset.NEON, emptyMap(), any(), emptyMap()) }
+        verify(exactly = 1) {
+            intensityService.apply(
+                SyntaxPresetConfig(
+                    selectedPreset = SyntaxPreset.NEON.name,
+                    customOverrides = emptyMap(),
+                    subordinatePreset = SyntaxPreset.NEON.name,
+                ),
+            )
+        }
     }
 
     @Test
@@ -325,6 +393,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `apply orders service call BEFORE state persistence (Anti-Pattern 4)`() {
+        // Break caught: persistence must not advance before the runtime configuration succeeds.
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.NEON)
@@ -332,16 +401,17 @@ class AyuIslandsSyntaxPanelTest {
         panel.apply()
 
         verifyOrder {
-            intensityService.apply(SyntaxPreset.NEON, emptyMap(), any(), emptyMap())
+            intensityService.apply(any<SyntaxPresetConfig>())
             stateService.state
         }
     }
 
     @Test
     fun `apply ordering - service throw leaves state selectedPreset UNCHANGED`() {
+        // Break caught: a failed runtime apply must leave the saved preset untouched.
         stateBase.selectedPreset = "AMBIENT"
         every {
-            intensityService.apply(any(), any(), any(), any())
+            intensityService.apply(any<SyntaxPresetConfig>())
         } throws RuntimeException("simulated apply failure")
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.NEON)
@@ -359,6 +429,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `Custom pill rejected for unlicensed users - requestLicense fires, no service call, no persist`() {
+        // Break caught: an unauthorized Custom selection must not reach either runtime or persistence.
         every { LicenseChecker.isLicensedOrGrace() } returns false
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
@@ -368,7 +439,7 @@ class AyuIslandsSyntaxPanelTest {
         verify(exactly = 1) {
             LicenseChecker.requestLicense("Unlock per-language syntax customization")
         }
-        verify(exactly = 0) { intensityService.apply(any(), any(), any(), any()) }
+        verify(exactly = 0) { intensityService.apply(any<SyntaxPresetConfig>()) }
         assertEquals("AMBIENT", stateBase.selectedPreset)
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
     }
@@ -377,13 +448,21 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `Custom pill accepted for licensed users - apply with empty overrides + persist`() {
+        // Break caught: an authorized Custom selection must use the configuration overload and persist.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
 
         invokeOnPresetChosen(panel, SyntaxPreset.CUSTOM)
 
-        verify(exactly = 1) { intensityService.apply(SyntaxPreset.CUSTOM, emptyMap(), any(), emptyMap()) }
+        verify(exactly = 1) {
+            intensityService.apply(
+                SyntaxPresetConfig(
+                    selectedPreset = SyntaxPreset.CUSTOM.name,
+                    customOverrides = emptyMap(),
+                ),
+            )
+        }
         assertEquals("CUSTOM", stateBase.selectedPreset)
         verify(exactly = 0) { LicenseChecker.requestLicense(any()) }
     }
@@ -421,6 +500,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `apply passes readability options before persisting them`() {
+        // Break caught: readability must travel in the preview config before state and schema persistence.
         stateBase.selectedPreset = "AMBIENT"
         stateBase.schemaVersion = 2
         val panel = panelWithLoadedState()
@@ -431,11 +511,11 @@ class AyuIslandsSyntaxPanelTest {
 
         verifyOrder {
             intensityService.apply(
-                SyntaxPreset.AMBIENT,
-                emptyMap(),
-                any(),
-                emptyMap(),
-                SyntaxReadabilityOptions(dimComments = true, quietOperators = true),
+                SyntaxPresetConfig(
+                    selectedPreset = SyntaxPreset.AMBIENT.name,
+                    customOverrides = emptyMap(),
+                    readabilityOptions = SyntaxReadabilityOptions(dimComments = true, quietOperators = true),
+                ),
             )
             stateService.state
         }
@@ -443,7 +523,7 @@ class AyuIslandsSyntaxPanelTest {
         assertTrue(stateBase.quietOperators)
         assertFalse(stateBase.softenDocumentation)
         assertFalse(stateBase.emphasizeDeclarations)
-        assertEquals(3, stateBase.schemaVersion)
+        assertEquals(4, stateBase.schemaVersion)
         assertFalse(panel.isModified(), "persisted readability toggles must become the stored buffer")
     }
 
@@ -464,6 +544,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `dim comments checkbox previews and reset restores stored readability`() {
+        // Break caught: a real checkbox must preview pending readability and Reset must restore stored state.
         stateBase.selectedPreset = SyntaxPreset.AMBIENT.name
         val panel = AyuIslandsSyntaxPanel()
 
@@ -476,11 +557,11 @@ class AyuIslandsSyntaxPanelTest {
 
             verify(exactly = 1) {
                 intensityService.apply(
-                    SyntaxPreset.AMBIENT,
-                    emptyMap(),
-                    any(),
-                    emptyMap(),
-                    SyntaxReadabilityOptions(dimComments = true),
+                    SyntaxPresetConfig(
+                        selectedPreset = SyntaxPreset.AMBIENT.name,
+                        customOverrides = emptyMap(),
+                        readabilityOptions = SyntaxReadabilityOptions(dimComments = true),
+                    ),
                 )
             }
             assertTrue(panel.isModified(), "toggling the real checkbox must dirty the syntax panel")
@@ -490,11 +571,10 @@ class AyuIslandsSyntaxPanelTest {
 
             verify(exactly = 1) {
                 intensityService.apply(
-                    SyntaxPreset.AMBIENT,
-                    emptyMap(),
-                    any(),
-                    emptyMap(),
-                    SyntaxReadabilityOptions.DEFAULT,
+                    SyntaxPresetConfig(
+                        selectedPreset = SyntaxPreset.AMBIENT.name,
+                        customOverrides = emptyMap(),
+                    ),
                 )
             }
             assertFalse(dimComments.isSelected, "reset must return the visible checkbox to stored state")
@@ -506,6 +586,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `unlicensed build shows readability controls disabled without preview writes`() {
+        // Break caught: disabled premium readability controls must not produce a configuration apply.
         every { LicenseChecker.isLicensedOrGrace() } returns false
         stateBase.dimComments = true
         val panel = AyuIslandsSyntaxPanel()
@@ -529,7 +610,7 @@ class AyuIslandsSyntaxPanelTest {
             findDimCommentsCheckBox(component).doClick()
 
             verify(exactly = 0) {
-                intensityService.apply(any(), any(), any(), any(), any())
+                intensityService.apply(any<SyntaxPresetConfig>())
             }
             assertFalse(panel.isModified(), "disabled readability controls must not dirty the panel")
         } finally {
@@ -577,6 +658,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `reset disables readability controls when license flips to free`() {
+        // Break caught: Reset after license loss must gate readability while retaining the normal preview boundary.
         stateBase.selectedPreset = SyntaxPreset.AMBIENT.name
         stateBase.dimComments = true
         val panel = AyuIslandsSyntaxPanel()
@@ -596,11 +678,10 @@ class AyuIslandsSyntaxPanelTest {
 
             verify(exactly = 1) {
                 intensityService.apply(
-                    SyntaxPreset.AMBIENT,
-                    emptyMap(),
-                    any(),
-                    emptyMap(),
-                    SyntaxReadabilityOptions.DEFAULT,
+                    SyntaxPresetConfig(
+                        selectedPreset = SyntaxPreset.AMBIENT.name,
+                        customOverrides = emptyMap(),
+                    ),
                 )
             }
             io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
@@ -608,7 +689,7 @@ class AyuIslandsSyntaxPanelTest {
             dimComments.doClick()
 
             verify(exactly = 0) {
-                intensityService.apply(any(), any(), any(), any(), any())
+                intensityService.apply(any<SyntaxPresetConfig>())
             }
             assertFalse(panel.isModified(), "disabled readability controls must not dirty the panel")
         } finally {
@@ -883,6 +964,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `panel builds sliders via the UI DSL slider cell, never a bare JSlider constructor (documented compromise)`() {
+        // Break caught: the extracted slider helper must keep the native UI DSL range and zero-tick contract.
         // Documented compromise: a bare `JSlider(...)` constructor bypasses
         // UI-DSL theming and would look out-of-place against the surrounding
         // settings rows. The DSL build site cannot be exercised without
@@ -896,8 +978,10 @@ class AyuIslandsSyntaxPanelTest {
             "Direction B: sliders must be built via the UI-DSL slider() cell, never new JSlider(...).",
         )
         assertTrue(
-            source.contains("slider(SLIDER_MIN, SLIDER_MAX, 0, 0)"),
-            "Direction B: the tick-free slider cell must be built with zero tick spacing.",
+            source.contains("slider(minimum, maximum, 0, 0)") &&
+                source.contains("minimum = SLIDER_MIN") &&
+                source.contains("maximum = SLIDER_MAX"),
+            "Direction B: the tick-free slider helper must receive the declared range with zero tick spacing.",
         )
     }
 
@@ -1015,6 +1099,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `slider preview applies pending overrides without persisting Settings state`() {
+        // Break caught: slider previews must use pending config without writing the sparse state map.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
@@ -1027,10 +1112,10 @@ class AyuIslandsSyntaxPanelTest {
 
             verify(exactly = 1) {
                 intensityService.apply(
-                    SyntaxPreset.CUSTOM,
-                    mapOf("Java" to mapOf("KEYWORD" to 80)),
-                    any(),
-                    emptyMap(),
+                    SyntaxPresetConfig(
+                        selectedPreset = SyntaxPreset.CUSTOM.name,
+                        customOverrides = mapOf("Java" to mapOf("KEYWORD" to 80)),
+                    ),
                 )
             }
             assertTrue(stateBase.customOverrides.isEmpty(), "preview must not persist pending slider overrides")
@@ -1091,6 +1176,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `apply reshapes seeded overrides into nested language-category-int and skips malformed keys`() {
+        // Break caught: malformed flat cells must be excluded from the nested configuration boundary.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
@@ -1104,10 +1190,10 @@ class AyuIslandsSyntaxPanelTest {
 
         verify(exactly = 1) {
             intensityService.apply(
-                SyntaxPreset.CUSTOM,
-                mapOf("Java" to mapOf("KEYWORD" to 75)),
-                any(),
-                emptyMap(),
+                SyntaxPresetConfig(
+                    selectedPreset = SyntaxPreset.CUSTOM.name,
+                    customOverrides = mapOf("Java" to mapOf("KEYWORD" to 75)),
+                ),
             )
         }
     }
@@ -1219,6 +1305,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `apply threads decoded font styles to the service and skips malformed style cells`() {
+        // Break caught: legacy style tokens must remain a distinct validated configuration map.
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.CUSTOM)
@@ -1232,14 +1319,16 @@ class AyuIslandsSyntaxPanelTest {
 
         verify(exactly = 1) {
             intensityService.apply(
-                SyntaxPreset.CUSTOM,
-                emptyMap(),
-                any(),
-                mapOf(
-                    "Java" to
+                SyntaxPresetConfig(
+                    selectedPreset = SyntaxPreset.CUSTOM.name,
+                    customOverrides = emptyMap(),
+                    customStyles =
                         mapOf(
-                            "KEYWORD" to (Font.BOLD),
-                            "STRING_LITERAL" to (Font.BOLD or Font.ITALIC),
+                            "Java" to
+                                mapOf(
+                                    "KEYWORD" to Font.BOLD,
+                                    "STRING_LITERAL" to (Font.BOLD or Font.ITALIC),
+                                ),
                         ),
                 ),
             )
@@ -1322,6 +1411,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `apply persists pending styles into state customStyles after the service call (behavioral)`() {
+        // Break caught: legacy styles must persist only after the configuration apply succeeds.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
@@ -1333,7 +1423,7 @@ class AyuIslandsSyntaxPanelTest {
 
         verifyOrder {
             // Service call first.
-            intensityService.apply(any(), any(), any(), any())
+            intensityService.apply(any<SyntaxPresetConfig>())
             // Then the persistence reads state.
             stateService.state
         }
@@ -1344,10 +1434,185 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
+    @Test
+    fun `emphasis event previews a separate pending layer and persists only on Apply`() {
+        // Break caught: the additive Aa control must neither rewrite legacy replacement styles
+        // nor persist during preview.
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customStyles["Kotlin|FUNCTION_DECL"] = "BOLD"
+        val syntaxPanel = panelWithLoadedState()
+        writeCurrentLanguage(syntaxPanel, "Kotlin")
+
+        try {
+            invokeOnEmphasisChanged(syntaxPanel, PrimitiveCategory.FUNCTION_DECL, FontEmphasis.ITALIC)
+
+            assertEquals(
+                mapOf("Kotlin|FUNCTION_DECL" to "ITALIC"),
+                readPendingEmphasis(syntaxPanel),
+            )
+            assertEquals(mapOf("Kotlin|FUNCTION_DECL" to "BOLD"), readPendingStyles(syntaxPanel))
+            assertEquals(mapOf("Kotlin|FUNCTION_DECL" to "BOLD"), stateBase.customStyles)
+            assertTrue(stateBase.customEmphasis.isEmpty(), "pending checkbox edits must not persist before Apply")
+
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            invokePreview(syntaxPanel)
+            val previewConfig = io.mockk.slot<SyntaxPresetConfig>()
+            verify(exactly = 1) { intensityService.apply(capture(previewConfig)) }
+            assertEquals(
+                mapOf("Kotlin" to mapOf("FUNCTION_DECL" to Font.BOLD)),
+                previewConfig.captured.customStyles,
+            )
+            assertEquals(
+                mapOf("Kotlin" to mapOf("FUNCTION_DECL" to Font.ITALIC)),
+                previewConfig.captured.customEmphasis,
+            )
+            assertTrue(stateBase.customEmphasis.isEmpty(), "preview must remain pending-only")
+
+            syntaxPanel.apply()
+
+            assertEquals("ITALIC", stateBase.customEmphasis["Kotlin|FUNCTION_DECL"])
+            assertEquals("BOLD", stateBase.customStyles["Kotlin|FUNCTION_DECL"])
+            assertEquals(4, stateBase.schemaVersion)
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `clearing emphasis returns to inherited state without clearing legacy style`() {
+        // Break caught: reaching Aa must remove only the additive sparse cell, never the legacy customStyles token.
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customStyles["Kotlin|FUNCTION_DECL"] = "BOLD"
+        stateBase.customEmphasis["Kotlin|FUNCTION_DECL"] = "ITALIC"
+        val syntaxPanel = panelWithLoadedState()
+        writeCurrentLanguage(syntaxPanel, "Kotlin")
+
+        try {
+            invokeOnEmphasisChanged(syntaxPanel, PrimitiveCategory.FUNCTION_DECL, null)
+
+            assertFalse(readPendingEmphasis(syntaxPanel).containsKey("Kotlin|FUNCTION_DECL"))
+            assertEquals("BOLD", readPendingStyles(syntaxPanel)["Kotlin|FUNCTION_DECL"])
+            assertEquals("BOLD", stateBase.customStyles["Kotlin|FUNCTION_DECL"])
+            assertEquals("ITALIC", stateBase.customEmphasis["Kotlin|FUNCTION_DECL"])
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `reset reloads stored emphasis and restores its glyph`() {
+        // Break caught: Cancel or Reset must discard pending emphasis and rebind the visible glyph from stored state.
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customEmphasis["Kotlin|FUNCTION_DECL"] = "BOLD"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            invokeOnEmphasisChanged(syntaxPanel, PrimitiveCategory.FUNCTION_DECL, FontEmphasis.ITALIC)
+            assertEquals("I", readStyleGlyph(syntaxPanel, PrimitiveCategory.FUNCTION_DECL))
+
+            syntaxPanel.reset()
+
+            assertEquals("BOLD", readPendingEmphasis(syntaxPanel)["Kotlin|FUNCTION_DECL"])
+            assertEquals("B", readStyleGlyph(syntaxPanel, PrimitiveCategory.FUNCTION_DECL))
+            assertFalse(syntaxPanel.isModified())
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `category reset clears all three dimensions for only that cell`() {
+        // Break caught: a row reset must include emphasis without widening into neighboring
+        // categories or legacy layers elsewhere.
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = panelWithLoadedState()
+        writeCurrentLanguage(syntaxPanel, "Java")
+        seedWidgets(syntaxPanel, PrimitiveCategory.KEYWORD)
+        seedPendingOverride(syntaxPanel, "Java|KEYWORD", "80")
+        seedPendingStyle(syntaxPanel, "Java|KEYWORD", "BOLD")
+        seedPendingEmphasis(syntaxPanel, "Java|KEYWORD", "ITALIC")
+        seedPendingEmphasis(syntaxPanel, "Java|COMMENT", "BOLD")
+
+        try {
+            invokeResetKeywordCell(syntaxPanel)
+
+            assertFalse(readPendingOverrides(syntaxPanel).containsKey("Java|KEYWORD"))
+            assertFalse(readPendingStyles(syntaxPanel).containsKey("Java|KEYWORD"))
+            assertFalse(readPendingEmphasis(syntaxPanel).containsKey("Java|KEYWORD"))
+            assertEquals("BOLD", readPendingEmphasis(syntaxPanel)["Java|COMMENT"])
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `language reset clears emphasis only for the active language`() {
+        // Break caught: language reset must include the new layer but retain every other language prefix.
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = panelWithLoadedState()
+        writeCurrentLanguage(syntaxPanel, "Java")
+        seedPendingEmphasis(syntaxPanel, "Java|KEYWORD", "ITALIC")
+        seedPendingEmphasis(syntaxPanel, "Kotlin|KEYWORD", "BOLD")
+
+        try {
+            invokeOnResetCurrentLanguage(syntaxPanel)
+
+            assertFalse(readPendingEmphasis(syntaxPanel).keys.any { it.startsWith("Java|") })
+            assertEquals("BOLD", readPendingEmphasis(syntaxPanel)["Kotlin|KEYWORD"])
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `every slider and style control share a parent gap and centerline`() {
+        // Break caught: the Aa glyph must stay paired with its slider, exactly 8px away, before readout and reset.
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            val component = buildFullSyntaxPanel(syntaxPanel)
+            component.size = component.preferredSize
+            layoutRecursively(component)
+
+            for (category in PrimitiveCategory.entries) {
+                val slider = readSlider(syntaxPanel, category)
+                val styleControl = readStyleControl(syntaxPanel, category)
+                val sliderCenter =
+                    SwingUtilities.convertPoint(
+                        slider.parent,
+                        Point(slider.x + slider.width, slider.y + slider.height / 2),
+                        component,
+                    )
+                val styleCenter =
+                    SwingUtilities.convertPoint(
+                        styleControl.component.parent,
+                        Point(
+                            styleControl.component.x,
+                            styleControl.component.y + styleControl.component.height / 2,
+                        ),
+                        component,
+                    )
+
+                assertSame(
+                    slider.parent,
+                    styleControl.component.parent,
+                    "${category.name} must share one direct parent",
+                )
+                assertEquals(JBUI.scale(8), styleCenter.x - sliderCenter.x, "${category.name} must use exact gap")
+                assertEquals(sliderCenter.y, styleCenter.y, "${category.name} must share the slider centerline")
+            }
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
     // ---------- Test 18 - debounce behavior (INTENSITY-13 / D-19, behavioral) ----------
 
     @Test
     fun `applyTimer is a single-shot 100ms timer that previews without persisting`() {
+        // Break caught: debounced edits must not call the runtime configuration boundary synchronously.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "CUSTOM"
         val panel = panelWithLoadedState()
@@ -1365,7 +1630,7 @@ class AyuIslandsSyntaxPanelTest {
             invokeOnJavaKeywordSliderChanged(panel, 80)
 
             verify(exactly = 0) {
-                intensityService.apply(any(), any(), any(), any())
+                intensityService.apply(any<SyntaxPresetConfig>())
             }
             assertTrue(
                 timer.isRunning,
@@ -1557,6 +1822,42 @@ class AyuIslandsSyntaxPanelTest {
         putMethod.invoke(map, key, value)
     }
 
+    private fun pendingEmphasisField(panel: AyuIslandsSyntaxPanel): MutableMap<*, *> {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingEmphasis")
+        field.isAccessible = true
+        return field.get(panel) as MutableMap<*, *>
+    }
+
+    private fun readPendingEmphasis(panel: AyuIslandsSyntaxPanel): Map<String, String> =
+        pendingEmphasisField(panel).entries.associate { (key, value) ->
+            (key as String) to (value as String)
+        }
+
+    private fun seedPendingEmphasis(
+        panel: AyuIslandsSyntaxPanel,
+        key: String,
+        value: String,
+    ) {
+        val map = pendingEmphasisField(panel)
+        val putMethod = map.javaClass.getMethod("put", Any::class.java, Any::class.java)
+        putMethod.invoke(map, key, value)
+    }
+
+    private fun invokeOnEmphasisChanged(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+        emphasis: FontEmphasis?,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "onEmphasisChanged",
+                PrimitiveCategory::class.java,
+                FontEmphasis::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(panel, category, emphasis)
+    }
+
     private fun invokeOnResetCurrentLanguage(panel: AyuIslandsSyntaxPanel) {
         val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("onResetCurrentLanguage")
         method.isAccessible = true
@@ -1633,6 +1934,36 @@ class AyuIslandsSyntaxPanelTest {
         val map = field.get(panel) as MutableMap<*, *>
         val putMethod = map.javaClass.getMethod("put", Any::class.java, Any::class.java)
         putMethod.invoke(map, category, value)
+    }
+
+    private fun readStyleControl(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ): SyntaxStyleControl {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("styleControls")
+        field.isAccessible = true
+        val controls = field.get(panel) as Map<*, *>
+        return controls[category] as SyntaxStyleControl
+    }
+
+    private fun readStyleGlyph(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ): String {
+        val icon = readStyleControl(panel, category).component.icon as StyleGlyphIcon
+        val glyphField = StyleGlyphIcon::class.java.getDeclaredField("glyph")
+        glyphField.isAccessible = true
+        return glyphField.get(icon) as String
+    }
+
+    private fun readSlider(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ): JSlider {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("sliders")
+        field.isAccessible = true
+        val sliders = field.get(panel) as Map<*, *>
+        return sliders[category] as JSlider
     }
 
     private data class SeededWidgets(

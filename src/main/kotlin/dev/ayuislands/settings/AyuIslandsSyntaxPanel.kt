@@ -5,14 +5,18 @@ import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.InplaceButton
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.AlignY
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
 import com.intellij.ui.dsl.builder.SegmentedButton
 import com.intellij.ui.dsl.builder.SegmentedButton.ItemPresentation
+import com.intellij.ui.dsl.builder.panel
+import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.syntax.FontEmphasis
 import dev.ayuislands.syntax.FontStyleOverride
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SYNTAX_INTENSITY_SCHEMA_VERSION
@@ -20,12 +24,14 @@ import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
+import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import org.jetbrains.annotations.TestOnly
 import java.awt.Dimension
 import java.awt.GridLayout
 import javax.swing.JButton
 import javax.swing.JCheckBox
+import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSlider
@@ -57,8 +63,8 @@ import javax.swing.Timer
  * model (0..100, 50 = identity, sparse store keyed by
  * `language|category.name`) is unchanged — the signed string lives only in the
  * readout [JLabel] and is never parsed back. The legacy font-style sparse map
- * still threads through [apply] for stored configurations, but row-level B/I
- * controls are intentionally not part of this compact grid.
+ * still threads through [apply] for stored configurations, while the compact
+ * style selector owns a separate additive emphasis layer.
  */
 @Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
 class AyuIslandsSyntaxPanel : SettingsParticipant {
@@ -92,9 +98,12 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     // row-level controls in the compact Custom grid.
     private val pendingStyles: MutableMap<String, String> = mutableMapOf()
     private val storedStyles: MutableMap<String, String> = mutableMapOf()
+    private val pendingEmphasis: MutableMap<String, String> = mutableMapOf()
+    private val storedEmphasis: MutableMap<String, String> = mutableMapOf()
     private val sliders: MutableMap<PrimitiveCategory, JSlider> = mutableMapOf()
     private val sliderLabels: MutableMap<PrimitiveCategory, JLabel> = mutableMapOf()
     private val resetButtons: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
+    private val styleControls: MutableMap<PrimitiveCategory, SyntaxStyleControl> = mutableMapOf()
     private var dimCommentsCheckbox: JCheckBox? = null
     private var softenDocumentationCheckbox: JCheckBox? = null
     private var quietOperatorsCheckbox: JCheckBox? = null
@@ -120,6 +129,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     }
 
     override fun dispose() {
+        styleControls.values.forEach(SyntaxStyleControl::dispose)
+        styleControls.clear()
         applyTimer.stop()
     }
 
@@ -305,17 +316,28 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
                     minimumSize = Dimension(width, preferredSize.height)
                 },
             ).gap(RightGap.SMALL)
-            val intensitySlider =
-                slider(SLIDER_MIN, SLIDER_MAX, 0, 0)
-                    .applyToComponent {
-                        paintTicks = false
-                        paintLabels = false
-                        snapToTicks = false
-                        val width = JBUI.scale(SLIDER_TRACK_WIDTH)
-                        preferredSize = Dimension(width, preferredSize.height)
-                        maximumSize = Dimension(width, preferredSize.height)
-                    }.gap(RightGap.SMALL)
-                    .component
+            val styleControl =
+                SyntaxStyleControl(
+                    category = category,
+                    language = { currentLanguage },
+                    emphasis = {
+                        FontEmphasis.fromName(
+                            pendingEmphasis[compositeKey(currentLanguage, category)],
+                        )
+                    },
+                    onEmphasisChanged = { emphasis -> onEmphasisChanged(category, emphasis) },
+                )
+            styleControls[category] = styleControl
+            val sliderAndStyle =
+                sliderStylePair(
+                    styleControl = styleControl,
+                    minimum = SLIDER_MIN,
+                    maximum = SLIDER_MAX,
+                    trackWidth = SLIDER_TRACK_WIDTH,
+                    controlGap = STYLE_CONTROL_GAP,
+                )
+            val intensitySlider = sliderAndStyle.slider
+            cell(sliderAndStyle.component)
             val valueLabel =
                 JLabel(signedReadout(SLIDER_MID), SwingConstants.RIGHT).apply {
                     val width = JBUI.scale(READOUT_WIDTH)
@@ -354,7 +376,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         val key = compositeKey(currentLanguage, category)
         val sliderMoved = (sliders[category]?.value ?: SLIDER_MID) != SLIDER_MID
         val styled = pendingStyles[key] != null
-        resetButtons[category]?.isVisible = sliderMoved || styled
+        val emphasized = pendingEmphasis[key] != null
+        resetButtons[category]?.isVisible = sliderMoved || styled || emphasized
     }
 
     private fun computeLabelColumnWidth(): Int {
@@ -369,6 +392,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         val key = compositeKey(currentLanguage, category)
         pendingOverrides.remove(key)
         pendingStyles.remove(key)
+        pendingEmphasis.remove(key)
+        styleControls[category]?.refreshPresentation()
         refreshResetVisibility(category)
         refreshMasterResetButton()
         applyTimer.restart()
@@ -388,6 +413,22 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         } else {
             pendingOverrides[key] = value.toString()
         }
+        refreshResetVisibility(category)
+        refreshMasterResetButton()
+        applyTimer.restart()
+    }
+
+    private fun onEmphasisChanged(
+        category: PrimitiveCategory,
+        emphasis: FontEmphasis?,
+    ) {
+        val key = compositeKey(currentLanguage, category)
+        if (emphasis == null) {
+            pendingEmphasis.remove(key)
+        } else {
+            pendingEmphasis[key] = emphasis.name
+        }
+        styleControls[category]?.refreshPresentation()
         refreshResetVisibility(category)
         refreshMasterResetButton()
         applyTimer.restart()
@@ -425,6 +466,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         val prefix = "$currentLanguage|"
         pendingOverrides.keys.filter { it.startsWith(prefix) }.forEach { pendingOverrides.remove(it) }
         pendingStyles.keys.filter { it.startsWith(prefix) }.forEach { pendingStyles.remove(it) }
+        pendingEmphasis.keys.filter { it.startsWith(prefix) }.forEach { pendingEmphasis.remove(it) }
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
         applyTimer.restart()
@@ -459,6 +501,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         pendingPreset != storedPreset ||
             pendingOverrides != storedOverrides ||
             pendingStyles != storedStyles ||
+            pendingEmphasis != storedEmphasis ||
             pendingSubordinate != storedSubordinate ||
             pendingDimComments != storedDimComments ||
             pendingSoftenDocumentation != storedSoftenDocumentation ||
@@ -481,6 +524,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         state.customOverrides.putAll(pendingOverrides)
         state.customStyles.clear()
         state.customStyles.putAll(pendingStyles)
+        state.customEmphasis.clear()
+        state.customEmphasis.putAll(pendingEmphasis)
         val appliedReadabilityOptions = readabilityOptions()
         state.dimComments = appliedReadabilityOptions.dimComments
         state.softenDocumentation = appliedReadabilityOptions.softenDocumentation
@@ -493,6 +538,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         storedOverrides.putAll(pendingOverrides)
         storedStyles.clear()
         storedStyles.putAll(pendingStyles)
+        storedEmphasis.clear()
+        storedEmphasis.putAll(pendingEmphasis)
         rememberReadabilityOptions(appliedReadabilityOptions)
     }
 
@@ -534,17 +581,17 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
             },
         )
         storedOverrides.clear()
-        if (canUseCustom) {
-            storedOverrides.putAll(state.customOverrides)
-        }
+        storedOverrides.putAll(state.customOverrides)
         pendingOverrides.clear()
         pendingOverrides.putAll(storedOverrides)
         storedStyles.clear()
-        if (canUseCustom) {
-            storedStyles.putAll(state.customStyles)
-        }
+        storedStyles.putAll(state.customStyles)
         pendingStyles.clear()
         pendingStyles.putAll(storedStyles)
+        storedEmphasis.clear()
+        storedEmphasis.putAll(state.customEmphasis)
+        pendingEmphasis.clear()
+        pendingEmphasis.putAll(storedEmphasis)
     }
 
     private fun refreshReadabilityCheckboxes() {
@@ -580,6 +627,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
                 sliders[category]?.value = value
                 sliderLabels[category]?.let { applyReadout(it, value) }
                 sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
+                styleControls[category]?.rebind()
                 refreshResetVisibility(category)
             }
         } finally {
@@ -597,7 +645,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         val prefix = "$currentLanguage|"
         val hasLanguageCustomizations =
             pendingOverrides.keys.any { it.startsWith(prefix) } ||
-                pendingStyles.keys.any { it.startsWith(prefix) }
+                pendingStyles.keys.any { it.startsWith(prefix) } ||
+                pendingEmphasis.keys.any { it.startsWith(prefix) }
         button.text = "Reset $currentLanguage customizations"
         button.isVisible = hasLanguageCustomizations
         button.isEnabled = hasLanguageCustomizations
@@ -668,11 +717,21 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     }
 
     private fun preview() {
-        val nested = buildNested(pendingOverrides) { it.toIntOrNull() }
+        val nestedOverrides = buildNested(pendingOverrides) { it.toIntOrNull() }
         val nestedStyles = buildNested(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
+        val nestedEmphasis = buildNested(pendingEmphasis) { FontEmphasis.fromName(it)?.fontType }
         SyntaxIntensityService
             .getInstance()
-            .apply(pendingPreset, nested, pendingSubordinate, nestedStyles, readabilityOptions())
+            .apply(
+                SyntaxPresetConfig(
+                    selectedPreset = pendingPreset.name,
+                    customOverrides = nestedOverrides,
+                    subordinatePreset = pendingSubordinate.name,
+                    customStyles = nestedStyles,
+                    readabilityOptions = readabilityOptions(),
+                    customEmphasis = nestedEmphasis,
+                ),
+            )
         refreshPreview()
     }
 
@@ -738,6 +797,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         private const val SLIDER_MID = 50
 
         private const val SLIDER_TRACK_WIDTH = 140
+        private const val STYLE_CONTROL_GAP = 8
         private const val READOUT_WIDTH = 28
         private const val TRAILING_SLOT_COUNT = 1
         private const val TRAILING_SLOT_SIDE = 20
@@ -801,4 +861,45 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
                 listOf(CATEGORY_GROUPS[1], CATEGORY_GROUPS[2]),
             )
     }
+}
+
+private data class SliderStylePair(
+    val component: JComponent,
+    val slider: JSlider,
+)
+
+private fun sliderStylePair(
+    styleControl: SyntaxStyleControl,
+    minimum: Int,
+    maximum: Int,
+    trackWidth: Int,
+    controlGap: Int,
+): SliderStylePair {
+    lateinit var intensitySlider: JSlider
+    val component =
+        panel {
+            row {
+                intensitySlider =
+                    slider(minimum, maximum, 0, 0)
+                        .applyToComponent {
+                            paintTicks = false
+                            paintLabels = false
+                            snapToTicks = false
+                            val width = JBUI.scale(trackWidth)
+                            preferredSize = Dimension(width, preferredSize.height)
+                            maximumSize = Dimension(width, preferredSize.height)
+                        }.customize(UnscaledGaps(right = controlGap))
+                        .align(AlignY.CENTER)
+                        .component
+                styleControl.component.preferredSize =
+                    Dimension(
+                        styleControl.component.preferredSize.width,
+                        intensitySlider.preferredSize.height,
+                    )
+                cell(styleControl.component).align(AlignY.CENTER)
+            }
+        }.apply {
+            isOpaque = false
+        }
+    return SliderStylePair(component, intensitySlider)
 }
