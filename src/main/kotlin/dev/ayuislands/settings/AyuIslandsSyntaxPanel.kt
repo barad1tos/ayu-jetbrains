@@ -277,7 +277,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     }
 
     private fun JCheckBox.applyReadabilityCheckboxState(selected: Boolean) {
-        isSelected = selected
+        isSelected = selected && premiumSyntaxControlsEnabled
         isEnabled = premiumSyntaxControlsEnabled
         toolTipText = if (premiumSyntaxControlsEnabled) null else PREMIUM_CONTROL_TOOLTIP
     }
@@ -569,16 +569,12 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         storedSubordinate = SyntaxPreset.fromName(state.subordinatePreset)
         pendingSubordinate = storedSubordinate
         rememberReadabilityOptions(
-            if (premiumSyntaxControlsEnabled) {
-                SyntaxReadabilityOptions(
-                    dimComments = state.dimComments,
-                    softenDocumentation = state.softenDocumentation,
-                    quietOperators = state.quietOperators,
-                    emphasizeDeclarations = state.emphasizeDeclarations,
-                )
-            } else {
-                SyntaxReadabilityOptions.DEFAULT
-            },
+            SyntaxReadabilityOptions(
+                dimComments = state.dimComments,
+                softenDocumentation = state.softenDocumentation,
+                quietOperators = state.quietOperators,
+                emphasizeDeclarations = state.emphasizeDeclarations,
+            ),
         )
         storedOverrides.clear()
         storedOverrides.putAll(state.customOverrides)

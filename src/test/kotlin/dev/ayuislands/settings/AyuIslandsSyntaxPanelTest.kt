@@ -329,13 +329,18 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `free named preset apply preserves all saved sparse maps`() {
-        // Break caught: runtime license normalization must not convert missing edit access into deletion permission.
+    fun `free named preset apply preserves all saved premium settings`() {
+        // Break caught: runtime license normalization must not convert missing edit access into deletion permission
+        // for either sparse maps or premium readability choices.
         every { LicenseChecker.isLicensedOrGrace() } returns false
         stateBase.selectedPreset = "CUSTOM"
         stateBase.customOverrides["Java|KEYWORD"] = "72"
         stateBase.customStyles["Java|KEYWORD"] = "BOLD"
         stateBase.customEmphasis["Java|KEYWORD"] = "ITALIC"
+        stateBase.dimComments = true
+        stateBase.softenDocumentation = true
+        stateBase.quietOperators = true
+        stateBase.emphasizeDeclarations = true
         val beforeOverrides = stateBase.customOverrides.toMap()
         val beforeStyles = stateBase.customStyles.toMap()
         val beforeEmphasis = stateBase.customEmphasis.toMap()
@@ -346,6 +351,10 @@ class AyuIslandsSyntaxPanelTest {
         assertEquals(beforeOverrides, stateBase.customOverrides)
         assertEquals(beforeStyles, stateBase.customStyles)
         assertEquals(beforeEmphasis, stateBase.customEmphasis)
+        assertTrue(stateBase.dimComments)
+        assertTrue(stateBase.softenDocumentation)
+        assertTrue(stateBase.quietOperators)
+        assertTrue(stateBase.emphasizeDeclarations)
     }
 
     // ---------- Test 2 - pill selection applies + persists ----------
@@ -407,22 +416,48 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `apply ordering - service throw leaves state selectedPreset UNCHANGED`() {
-        // Break caught: a failed runtime apply must leave the saved preset untouched.
+    fun `apply ordering - service throw leaves the complete stored snapshot unchanged`() {
+        // Break caught: a failed runtime apply must not partially persist any pending field or map.
         stateBase.selectedPreset = "AMBIENT"
+        stateBase.subordinatePreset = "WHISPER"
+        stateBase.customOverrides["Java|KEYWORD"] = "72"
+        stateBase.customStyles["Java|COMMENT"] = "PLAIN"
+        stateBase.customEmphasis["Kotlin|STRING_LITERAL"] = "ITALIC"
+        stateBase.dimComments = true
+        stateBase.softenDocumentation = false
+        stateBase.quietOperators = true
+        stateBase.emphasizeDeclarations = false
+        stateBase.schemaVersion = 3
+        val initialOverrides = stateBase.customOverrides.toMap()
+        val initialStyles = stateBase.customStyles.toMap()
+        val initialEmphasis = stateBase.customEmphasis.toMap()
+        val panel = panelWithLoadedState()
+        writePendingPreset(panel, SyntaxPreset.NEON)
+        writePendingSubordinate(panel, SyntaxPreset.CYBERPUNK)
+        seedPendingOverride(panel, "Java|KEYWORD", "90")
+        seedPendingOverride(panel, "Kotlin|COMMENT", "30")
+        seedPendingStyle(panel, "Java|COMMENT", "BOLD")
+        seedPendingEmphasis(panel, "Kotlin|STRING_LITERAL", "BOLD_ITALIC")
+        writePendingBoolean(panel, "pendingDimComments", false)
+        writePendingBoolean(panel, "pendingSoftenDocumentation", true)
+        writePendingBoolean(panel, "pendingQuietOperators", false)
+        writePendingBoolean(panel, "pendingEmphasizeDeclarations", true)
         every {
             intensityService.apply(any<SyntaxPresetConfig>())
         } throws RuntimeException("simulated apply failure")
-        val panel = panelWithLoadedState()
-        writePendingPreset(panel, SyntaxPreset.NEON)
 
         assertFailsWith<RuntimeException> { panel.apply() }
 
-        assertEquals(
-            "AMBIENT",
-            stateBase.selectedPreset,
-            "apply-FIRST persist-SECOND: a service throw must NOT mutate state.selectedPreset",
-        )
+        assertEquals("AMBIENT", stateBase.selectedPreset)
+        assertEquals("WHISPER", stateBase.subordinatePreset)
+        assertEquals(initialOverrides, stateBase.customOverrides)
+        assertEquals(initialStyles, stateBase.customStyles)
+        assertEquals(initialEmphasis, stateBase.customEmphasis)
+        assertTrue(stateBase.dimComments)
+        assertFalse(stateBase.softenDocumentation)
+        assertTrue(stateBase.quietOperators)
+        assertFalse(stateBase.emphasizeDeclarations)
+        assertEquals(3, stateBase.schemaVersion)
     }
 
     // ---------- Test 4 - Custom rejection for unlicensed users ----------
@@ -681,6 +716,7 @@ class AyuIslandsSyntaxPanelTest {
                     SyntaxPresetConfig(
                         selectedPreset = SyntaxPreset.AMBIENT.name,
                         customOverrides = emptyMap(),
+                        readabilityOptions = SyntaxReadabilityOptions(dimComments = true),
                     ),
                 )
             }
@@ -1566,22 +1602,28 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `every slider and style control share a parent gap and centerline`() {
+    fun `every category keeps slider and style paired before readout and reset`() {
         // Break caught: the Aa glyph must stay paired with its slider, exactly 8px away, before readout and reset.
         stateBase.selectedPreset = "CUSTOM"
         val syntaxPanel = AyuIslandsSyntaxPanel()
 
         try {
             val component = buildFullSyntaxPanel(syntaxPanel)
+            PrimitiveCategory.entries.forEach { category ->
+                readResetButton(syntaxPanel, category).isVisible = true
+            }
             component.size = component.preferredSize
             layoutRecursively(component)
 
             for (category in PrimitiveCategory.entries) {
                 val slider = readSlider(syntaxPanel, category)
                 val styleControl = readStyleControl(syntaxPanel, category)
+                val pairContainer = slider.parent
+                val readout = readSliderLabel(syntaxPanel, category)
+                val resetButton = readResetButton(syntaxPanel, category)
                 val sliderCenter =
                     SwingUtilities.convertPoint(
-                        slider.parent,
+                        pairContainer,
                         Point(slider.x + slider.width, slider.y + slider.height / 2),
                         component,
                     )
@@ -1596,12 +1638,41 @@ class AyuIslandsSyntaxPanelTest {
                     )
 
                 assertSame(
-                    slider.parent,
+                    pairContainer,
                     styleControl.component.parent,
                     "${category.name} must share one direct parent",
                 )
                 assertEquals(JBUI.scale(8), styleCenter.x - sliderCenter.x, "${category.name} must use exact gap")
                 assertEquals(sliderCenter.y, styleCenter.y, "${category.name} must share the slider centerline")
+                assertFalse(
+                    SwingUtilities.isDescendingFrom(readout, pairContainer),
+                    "${category.name} readout must stay outside the slider/glyph pair",
+                )
+                assertFalse(
+                    SwingUtilities.isDescendingFrom(resetButton, pairContainer),
+                    "${category.name} reset must stay outside the slider/glyph pair",
+                )
+
+                val pairRightPoint =
+                    SwingUtilities.convertPoint(
+                        pairContainer.parent,
+                        Point(pairContainer.x + pairContainer.width, pairContainer.y),
+                        component,
+                    )
+                val pairRight = pairRightPoint.x
+                val readoutLeft =
+                    SwingUtilities.convertPoint(readout.parent, Point(readout.x, readout.y), component).x
+                val readoutRightPoint =
+                    SwingUtilities.convertPoint(
+                        readout.parent,
+                        Point(readout.x + readout.width, readout.y),
+                        component,
+                    )
+                val readoutRight = readoutRightPoint.x
+                val resetLeft =
+                    SwingUtilities.convertPoint(resetButton.parent, Point(resetButton.x, resetButton.y), component).x
+                assertTrue(pairRight <= readoutLeft, "${category.name} readout must follow the slider/glyph pair")
+                assertTrue(readoutRight <= resetLeft, "${category.name} reset must follow the readout")
             }
         } finally {
             syntaxPanel.dispose()
@@ -1744,6 +1815,15 @@ class AyuIslandsSyntaxPanelTest {
         preset: SyntaxPreset,
     ) {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingPreset")
+        field.isAccessible = true
+        field.set(panel, preset)
+    }
+
+    private fun writePendingSubordinate(
+        panel: AyuIslandsSyntaxPanel,
+        preset: SyntaxPreset,
+    ) {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingSubordinate")
         field.isAccessible = true
         field.set(panel, preset)
     }
@@ -1964,6 +2044,26 @@ class AyuIslandsSyntaxPanelTest {
         field.isAccessible = true
         val sliders = field.get(panel) as Map<*, *>
         return sliders[category] as JSlider
+    }
+
+    private fun readSliderLabel(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ): JLabel {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("sliderLabels")
+        field.isAccessible = true
+        val labels = field.get(panel) as Map<*, *>
+        return labels[category] as JLabel
+    }
+
+    private fun readResetButton(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ): InplaceButton {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("resetButtons")
+        field.isAccessible = true
+        val buttons = field.get(panel) as Map<*, *>
+        return buttons[category] as InplaceButton
     }
 
     private data class SeededWidgets(
