@@ -86,15 +86,31 @@ class SyntaxIntensityService {
         customStyles: Map<String, Map<String, Int>> = emptyMap(),
         readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
     ) {
+        apply(
+            config =
+                SyntaxPresetConfig(
+                    selectedPreset = preset.name,
+                    customOverrides = customOverrides,
+                    subordinatePreset = subordinatePreset.name,
+                    customStyles = customStyles,
+                    readabilityOptions = readabilityOptions,
+                ),
+        )
+    }
+
+    fun apply(config: SyntaxPresetConfig) {
+        val preset = SyntaxPreset.fromName(config.selectedPreset)
+        val subordinatePreset = SyntaxPreset.fromName(config.subordinatePreset)
         val effectivePreset = enforceCustomGate(preset)
-        val effectiveReadabilityOptions = enforceReadabilityGate(readabilityOptions)
+        val effectiveReadabilityOptions = enforceReadabilityGate(config.readabilityOptions)
         val context =
             ApplyContext(
                 preset = effectivePreset,
-                customOverrides = customOverrides,
+                customOverrides = config.customOverrides,
                 subordinatePreset = subordinatePreset,
-                customStyles = customStyles,
+                customStyles = config.customStyles,
                 readabilityOptions = effectiveReadabilityOptions,
+                customEmphasis = config.customEmphasis,
                 ignorePluginSyntaxColorsEnabled =
                     AyuIslandsSettings.getInstance().state.ignorePluginSyntaxColorsEnabled,
             )
@@ -131,9 +147,7 @@ class SyntaxIntensityService {
     fun reapplyForActiveLaf() {
         val state = SyntaxIntensityState.getInstance()
         val config = state.toPresetConfig()
-        val preset = SyntaxPreset.fromName(config.selectedPreset)
-        val subordinate = SyntaxPreset.fromName(config.subordinatePreset)
-        apply(preset, config.customOverrides, subordinate, config.customStyles, config.readabilityOptions)
+        apply(config = config)
     }
 
     private data class ApplyContext(
@@ -142,6 +156,7 @@ class SyntaxIntensityService {
         val subordinatePreset: SyntaxPreset,
         val customStyles: Map<String, Map<String, Int>>,
         val readabilityOptions: SyntaxReadabilityOptions,
+        val customEmphasis: Map<String, Map<String, Int>>,
         val ignorePluginSyntaxColorsEnabled: Boolean,
     )
 
@@ -280,6 +295,7 @@ class SyntaxIntensityService {
                 subordinatePreset = context.subordinatePreset,
                 customStyles = context.customStyles,
                 readabilityOptions = context.readabilityOptions,
+                customEmphasis = context.customEmphasis,
             ),
         )
     }
