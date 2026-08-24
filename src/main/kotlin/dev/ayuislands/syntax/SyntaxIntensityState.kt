@@ -94,10 +94,10 @@ enum class FontEmphasis(
  *    The nested `Map<String, MutableMap<String, Int>>` spike from round 1
  *    is skipped — both reviewers independently flagged BaseState's nested-map
  *    delegate as unreliable for XML round-trip.
- *  - OpenCode suggestion: `schemaVersion` field added for forward migration
- *    safety; now `3` since the global readability booleans were added. A v2
- *    config (no readability elements) reads as all false, so the bump needs no
- *    read-time migration.
+ *  - `schemaVersion` is `4` since the sparse additive [FontEmphasis] layer was
+ *    added. A v3 config has no `customEmphasis` element, so it deserialises to
+ *    an empty map and needs no read-time migration; all legacy fields and
+ *    replacement-style tokens remain unchanged.
  *  - Codex HIGH #1 continuation: [toPresetConfig] is the one-way bridge
  *    that adapts the flat composite-key map back into the nested
  *    `Map<String, Map<String, Int>>` shape consumed by
