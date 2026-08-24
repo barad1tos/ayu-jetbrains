@@ -201,10 +201,12 @@ class LicenseCheckerVcsRevokeTest {
 
     @Test
     fun `revertToFreeDefaults preserves syntax intensity state`() {
+        // Break caught: license revocation must retain both the legacy replacement layer and additive emphasis layer.
         syntaxState.state.selectedPreset = SyntaxPreset.CUSTOM.name
         syntaxState.state.subordinatePreset = SyntaxPreset.NEON.name
         syntaxState.state.customOverrides["Java|KEYWORD"] = "85"
         syntaxState.state.customStyles["Java|KEYWORD"] = "BOLD"
+        syntaxState.state.customEmphasis["Java|KEYWORD"] = "ITALIC"
         syntaxState.state.dimComments = true
         syntaxState.state.softenDocumentation = true
         syntaxState.state.quietOperators = true
@@ -216,6 +218,7 @@ class LicenseCheckerVcsRevokeTest {
         assertEquals(SyntaxPreset.NEON.name, syntaxState.state.subordinatePreset)
         assertEquals("85", syntaxState.state.customOverrides["Java|KEYWORD"])
         assertEquals("BOLD", syntaxState.state.customStyles["Java|KEYWORD"])
+        assertEquals("ITALIC", syntaxState.state.customEmphasis["Java|KEYWORD"])
         assertTrue(syntaxState.state.dimComments)
         assertTrue(syntaxState.state.softenDocumentation)
         assertTrue(syntaxState.state.quietOperators)

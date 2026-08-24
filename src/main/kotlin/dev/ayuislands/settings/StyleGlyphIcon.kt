@@ -5,7 +5,6 @@ import com.intellij.util.ui.UIUtil
 import java.awt.BasicStroke
 import java.awt.Color
 import java.awt.Component
-import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
@@ -13,10 +12,10 @@ import java.awt.geom.RoundRectangle2D
 import javax.swing.Icon
 
 /**
- * Text-glyph [Icon] for the per-category Bold / Italic style toggles in the
+ * Text-glyph [Icon] for the compact per-category font-style selector in the
  * Ayu Islands syntax Custom drill-down. [com.intellij.icons.AllIcons] ships no
- * stable Bold / Italic vector, so the cue is a single drawn glyph: `"B"` in
- * [Font.BOLD] or `"I"` in [Font.ITALIC], centered in a square chip.
+ * stable combined font-style vector, so the cue is drawn as text centered in
+ * a square chip.
  */
 class StyleGlyphIcon(
     private val glyph: String,

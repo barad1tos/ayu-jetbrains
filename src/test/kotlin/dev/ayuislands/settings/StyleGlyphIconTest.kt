@@ -98,6 +98,7 @@ class StyleGlyphIconTest {
 
     @Test
     fun `the glyph itself rasterises non-transparent pixels`() {
+        // Break caught: the glyph renderer must keep producing a visible non-color cue.
         val icon = StyleGlyphIcon("B", Font.BOLD, OPAQUE_FG, background = null, cell = CELL, glyphSize = GLYPH)
         val image = paint(icon)
 
@@ -108,6 +109,30 @@ class StyleGlyphIconTest {
             }
         }
         assertTrue(painted > 0, "the glyph must draw at least some opaque pixels")
+    }
+
+    @Test
+    fun `combined BI glyph stays inside the twenty pixel icon cell`() {
+        // Break caught: the wider combined glyph must not bleed into the adjacent slider or reset cells.
+        val icon = StyleGlyphIcon("BI", Font.BOLD or Font.ITALIC, OPAQUE_FG, cell = 20, glyphSize = 16)
+        val image = BufferedImage(30, 30, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        try {
+            icon.paintIcon(null, graphics, 4, 5)
+        } finally {
+            graphics.dispose()
+        }
+
+        var paintedInside = 0
+        var paintedOutside = 0
+        for (x in 0 until image.width) {
+            for (y in 0 until image.height) {
+                if (Color(image.getRGB(x, y), true).alpha == 0) continue
+                if (x in 4 until 24 && y in 5 until 25) paintedInside++ else paintedOutside++
+            }
+        }
+        assertTrue(paintedInside > 0, "the BI glyph must rasterise inside its icon cell")
+        assertEquals(0, paintedOutside, "the BI glyph must not paint outside its 20-by-20 icon cell")
     }
 
     @Test
