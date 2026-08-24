@@ -5,6 +5,7 @@ import com.intellij.openapi.ui.popup.ComponentPopupBuilder
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
+import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import dev.ayuislands.syntax.FontEmphasis
 import dev.ayuislands.syntax.PrimitiveCategory
 import io.mockk.CapturingSlot
@@ -104,6 +105,13 @@ class SyntaxStyleControlTest {
         assertEquals("Font style — Function declaration, Kotlin", control.component.accessibleContext.accessibleName)
 
         language = "Java"
+        every { popup.cancel() } answers {
+            assertEquals(
+                "Font style — Function declaration, Kotlin",
+                control.component.accessibleContext.accessibleName,
+                "the old popup must cancel before accessibility is rebound",
+            )
+        }
         control.rebind()
 
         verify(exactly = 1) { popup.cancel() }
@@ -115,9 +123,10 @@ class SyntaxStyleControlTest {
     }
 
     @Test
-    fun `dispose closes an open popup once and stays idempotent`() {
-        // Break caught: repeated settings disposal must neither leak nor recancel the same popup.
-        val popup = stubPopup()
+    fun `stale popup closure cannot detach the replacement before dispose`() {
+        // Break caught: an old popup's delayed close event must not clear the newer popup reference.
+        val listeners = mutableListOf<JBPopupListener>()
+        val (firstPopup, secondPopup) = stubPopupSequence(listeners)
         val control =
             SyntaxStyleControl(
                 category = PrimitiveCategory.FUNCTION_DECL,
@@ -126,11 +135,16 @@ class SyntaxStyleControlTest {
                 onEmphasisChanged = {},
             )
         control.component.doClick()
+        control.component.doClick()
+        assertEquals(2, listeners.size)
+
+        listeners.first().onClosed(mockk<LightweightWindowEvent>(relaxed = true))
 
         control.dispose()
         control.dispose()
 
-        verify(exactly = 1) { popup.cancel() }
+        verify(exactly = 1) { firstPopup.cancel() }
+        verify(exactly = 1) { secondPopup.cancel() }
     }
 
     @Test
@@ -184,6 +198,27 @@ class SyntaxStyleControlTest {
         every { builder.createPopup() } returns popup
         every { popup.addListener(capture(listenerSlot)) } returns Unit
         return popup
+    }
+
+    private fun stubPopupSequence(listeners: MutableList<JBPopupListener>): Pair<JBPopup, JBPopup> {
+        mockkStatic(JBPopupFactory::class)
+        val factory = mockk<JBPopupFactory>(relaxed = true)
+        val builder = mockk<ComponentPopupBuilder>(relaxed = true)
+        val firstPopup = mockk<JBPopup>(relaxed = true)
+        val secondPopup = mockk<JBPopup>(relaxed = true)
+        every { JBPopupFactory.getInstance() } returns factory
+        every { factory.createComponentPopupBuilder(any(), any()) } returns builder
+        every { builder.setTitle(any()) } returns builder
+        every { builder.setRequestFocus(any()) } returns builder
+        every { builder.setCancelOnClickOutside(any()) } returns builder
+        every { builder.setCancelOnWindowDeactivation(any()) } returns builder
+        every { builder.setMovable(any()) } returns builder
+        every { builder.setResizable(any()) } returns builder
+        every { builder.setCancelKeyEnabled(any()) } returns builder
+        every { builder.createPopup() } returnsMany listOf(firstPopup, secondPopup)
+        every { firstPopup.addListener(capture(listeners)) } returns Unit
+        every { secondPopup.addListener(capture(listeners)) } returns Unit
+        return firstPopup to secondPopup
     }
 
     private fun findCheckBoxes(container: Container): List<JCheckBox> =
