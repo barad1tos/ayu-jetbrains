@@ -3,6 +3,8 @@ package dev.ayuislands.syntax
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.State
+import com.intellij.openapi.util.JDOMUtil
+import com.intellij.util.xmlb.XmlSerializer
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -18,11 +20,9 @@ import kotlin.test.assertNotNull
 /**
  * Test set for [SyntaxIntensityState].
  *
- * Uses an in-memory loadState round-trip pattern - the
- * `XmlSerializerUtil.copyBean` path inside [SimplePersistentStateComponent]
- * matches the on-disk persistence shape and avoids the platform-fixture
- * boot pain seen elsewhere. Annotation metadata is verified via reflection;
- * the application service lookup is mocked only at the IntelliJ boundary.
+ * Uses both in-memory loadState checks and real [XmlSerializer] boundaries.
+ * Annotation metadata is verified via reflection; the application service
+ * lookup is mocked only at the IntelliJ boundary.
  *
  * 10 invariants per the plan spec:
  *  1.  Default state: `selectedPreset == "AMBIENT"`, `customOverrides`
@@ -356,42 +356,108 @@ class SyntaxIntensityStateTest {
     }
 
     @Test
-    fun `customEmphasis survives a sparse state round-trip`() {
-        val reloaded =
-            roundTrip { state ->
-                state.customEmphasis["Kotlin|FUNCTION_DECLARATION"] = "BOLD_ITALIC"
+    fun `schema 4 customEmphasis tokens survive XML serialization`() {
+        val original =
+            SyntaxIntensityBaseState().apply {
+                selectedPreset = "CUSTOM"
+                customEmphasis["Java|FUNCTION_DECLARATION"] = "BOLD"
+                customEmphasis["Kotlin|COMMENT"] = "ITALIC"
+                customEmphasis["Python|CLASS_DECLARATION"] = "BOLD_ITALIC"
             }
 
+        val serialized = XmlSerializer.serialize(original)
+        val reloaded = SyntaxIntensityState()
+        reloaded.loadState(XmlSerializer.deserialize(serialized, SyntaxIntensityBaseState::class.java))
+
         assertEquals(
-            mapOf("Kotlin|FUNCTION_DECLARATION" to "BOLD_ITALIC"),
+            mapOf(
+                "Java|FUNCTION_DECLARATION" to "BOLD",
+                "Kotlin|COMMENT" to "ITALIC",
+                "Python|CLASS_DECLARATION" to "BOLD_ITALIC",
+            ),
             reloaded.state.customEmphasis,
         )
         assertEquals(
-            mapOf("Kotlin" to mapOf("FUNCTION_DECLARATION" to (Font.BOLD or Font.ITALIC))),
+            mapOf(
+                "Java" to mapOf("FUNCTION_DECLARATION" to Font.BOLD),
+                "Kotlin" to mapOf("COMMENT" to Font.ITALIC),
+                "Python" to mapOf("CLASS_DECLARATION" to (Font.BOLD or Font.ITALIC)),
+            ),
             reloaded.toPresetConfig().customEmphasis,
         )
     }
 
     @Test
-    fun `schema 3 legacy styles load unchanged and do not synthesize emphasis`() {
+    fun `schema 3 XML preserves legacy state and leaves emphasis empty`() {
         val saved =
-            SyntaxIntensityBaseState().apply {
-                schemaVersion = 3
-                customOverrides["Java|KEYWORD"] = "72"
-                customStyles["Java|KEYWORD"] = "BOLD"
-                dimComments = true
-            }
+            XmlSerializer.deserialize(
+                JDOMUtil.load(
+                    """
+                    <SyntaxIntensityBaseState>
+                      <option name="selectedPreset" value="CUSTOM" />
+                      <option name="subordinatePreset" value="NEON" />
+                      <option name="customOverrides">
+                        <map>
+                          <entry key="Java|KEYWORD" value="72" />
+                          <entry key="Kotlin|COMMENT" value="28" />
+                        </map>
+                      </option>
+                      <option name="customStyles">
+                        <map>
+                          <entry key="Java|KEYWORD" value="PLAIN" />
+                          <entry key="Java|CLASS_DECLARATION" value="BOLD" />
+                          <entry key="Kotlin|COMMENT" value="ITALIC" />
+                          <entry key="Kotlin|FUNCTION_DECLARATION" value="BOLD_ITALIC" />
+                        </map>
+                      </option>
+                      <option name="dimComments" value="true" />
+                      <option name="softenDocumentation" value="true" />
+                      <option name="quietOperators" value="true" />
+                      <option name="emphasizeDeclarations" value="true" />
+                      <option name="schemaVersion" value="3" />
+                    </SyntaxIntensityBaseState>
+                    """.trimIndent(),
+                ),
+                SyntaxIntensityBaseState::class.java,
+            )
         val reloaded = SyntaxIntensityState()
 
         reloaded.loadState(saved)
 
+        assertEquals("CUSTOM", reloaded.state.selectedPreset)
+        assertEquals("NEON", reloaded.state.subordinatePreset)
         assertEquals(3, reloaded.state.schemaVersion)
-        assertEquals(mapOf("Java|KEYWORD" to "72"), reloaded.state.customOverrides)
-        assertEquals(mapOf("Java|KEYWORD" to "BOLD"), reloaded.state.customStyles)
+        assertEquals(
+            mapOf("Java|KEYWORD" to "72", "Kotlin|COMMENT" to "28"),
+            reloaded.state.customOverrides,
+        )
+        assertEquals(
+            mapOf(
+                "Java|KEYWORD" to "PLAIN",
+                "Java|CLASS_DECLARATION" to "BOLD",
+                "Kotlin|COMMENT" to "ITALIC",
+                "Kotlin|FUNCTION_DECLARATION" to "BOLD_ITALIC",
+            ),
+            reloaded.state.customStyles,
+        )
         assertTrue(reloaded.state.customEmphasis.isEmpty())
         assertTrue(reloaded.state.dimComments)
+        assertTrue(reloaded.state.softenDocumentation)
+        assertTrue(reloaded.state.quietOperators)
+        assertTrue(reloaded.state.emphasizeDeclarations)
         assertEquals(
-            mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+            mapOf(
+                "Java" to
+                    mapOf(
+                        "KEYWORD" to Font.PLAIN,
+                        "CLASS_DECLARATION" to Font.BOLD,
+                    ),
+                "Kotlin" to
+                    mapOf(
+                        "COMMENT" to Font.ITALIC,
+                        "FUNCTION_DECLARATION" to (Font.BOLD or Font.ITALIC),
+                    ),
+            ),
             reloaded.toPresetConfig().customStyles,
         )
         assertTrue(reloaded.toPresetConfig().customEmphasis.isEmpty())

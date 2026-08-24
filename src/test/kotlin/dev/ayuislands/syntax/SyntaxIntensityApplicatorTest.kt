@@ -674,20 +674,13 @@ class SyntaxIntensityApplicatorTest {
     }
 
     @Test
-    fun `empty custom emphasis preserves the complete compute output`() {
+    fun `empty custom emphasis preserves fixed legacy output attributes`() {
         val baseline =
             mapOf(
                 javaKeywordKey to attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC },
                 javaCommentKey to attrsWithFg(Color(0x99, 0x99, 0x99)),
             )
-        val withoutEmphasis =
-            compute(
-                preset = SyntaxPreset.CUSTOM,
-                customOverrides = emptyMap(),
-                baseline = baseline,
-                overlay = emptyMap(),
-            )
-        val withEmptyEmphasis =
+        val actual =
             compute(
                 preset = SyntaxPreset.CUSTOM,
                 customOverrides = emptyMap(),
@@ -695,8 +688,13 @@ class SyntaxIntensityApplicatorTest {
                 overlay = emptyMap(),
                 options = ComputeOptions(customEmphasis = emptyMap()),
             )
+        val expected =
+            mapOf(
+                javaKeywordKey to attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC },
+                javaCommentKey to attrsWithFg(Color(0x99, 0x99, 0x99)),
+            )
 
-        assertEquals(withoutEmphasis, withEmptyEmphasis)
+        assertEquals(expected, actual)
     }
 
     // --- Test 15 — Signed chroma intent resolver -------------------------
