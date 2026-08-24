@@ -22,7 +22,8 @@ package dev.ayuislands.syntax
  *  - [customOverrides]: nested `language -> category -> slider 0..100` map.
  *    The free tier never writes to this map; the premium Custom drill-down is
  *    the only writer.
- *  - [customStyles]: nested `language -> category -> fontType` map, where
+ *  - [customStyles]: shipped replacement-layer nested
+ *    `language -> category -> fontType` map, where
  *    `fontType` is the `java.awt.Font` bitmask (`PLAIN=0`, `BOLD=1`,
  *    `ITALIC=2`, `BOLD_ITALIC=3`) decoded from the persisted
  *    `FontStyleOverride` name. Sparse and independent of [customOverrides];
@@ -32,6 +33,9 @@ package dev.ayuislands.syntax
  *  - [readabilityOptions]: global semantic modifiers layered on top of the
  *    selected preset. Defaults to [SyntaxReadabilityOptions.DEFAULT] so old
  *    callers and old XML preserve the previous byte-identical output.
+ *  - [customEmphasis]: additive nested `language -> category -> fontType`
+ *    map. It defaults to `emptyMap()` so an absent emphasis cell is a strict
+ *    no-op and legacy [customStyles] semantics remain unchanged.
  */
 data class SyntaxPresetConfig(
     val selectedPreset: String,
@@ -39,6 +43,7 @@ data class SyntaxPresetConfig(
     val subordinatePreset: String = "AMBIENT",
     val customStyles: Map<String, Map<String, Int>> = emptyMap(),
     val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
+    val customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
 )
 
 /**
