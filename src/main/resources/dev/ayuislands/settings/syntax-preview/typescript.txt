@@ -1,8 +1,15 @@
-export function greet(name: string): void {
-    const msg = "hello";
-    const count = 42;
-    // print greeting
-    if (msg.length > 0) {
-        console.log(name, count);
+/** Renders values for preview. */
+interface Previewing<Value> {
+    render(value: Value): string;
+}
+
+@sealed
+class Preview<Value> implements Previewing<Value> {
+    private prefix: string = "Ayu";
+
+    /** Formats one value. */
+    render(value: Value): string {
+        const result: string = `${this.prefix}: ${value}`; // tuned local
+        return result;
     }
 }

@@ -1,5 +1,12 @@
 # Ayu Islands
 
-`code` and **strong** text
+> Tune every supported Markdown role.
 
-- count: 42
+- **Strong** and *emphasized* prose
+- [`inline code`](https://example.com)
+
+```kotlin
+val count = 42
+```
+
+<!-- Preview comment -->

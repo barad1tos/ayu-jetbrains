@@ -1,5 +1,9 @@
 {
-  "name": "Ayu Islands",
-  "enabled": true,
-  "count": 42
+  "preview": {
+    "name": "Ayu Islands",
+    "count": 42,
+    "enabled": true,
+    "tags": ["dark", "syntax"],
+    "fallback": null
+  }
 }

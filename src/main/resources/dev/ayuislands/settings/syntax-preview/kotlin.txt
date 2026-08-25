@@ -1,12 +1,16 @@
-fun main() {
-    val msg = "hello"
-    val count = 42
-    // print greeting
-    /** Greet the user */
-    class Greeter {
-        @JvmStatic
-        fun greet(name: String) {
-            if (msg.isNotEmpty()) println(name)
-        }
+/** Renders values for preview. */
+interface Previewing<T> { fun render(value: T): String }
+
+class Preview<T>(private val prefix: String) : Previewing<T> {
+    companion object {
+        const val LIMIT = 42
+
+        /** Formats one value. */
+        @JvmStatic fun label(name: String) = "Ayu: $name"
+    }
+
+    override fun render(value: T): String {
+        val result = "$prefix: $value" // tuned local
+        return result
     }
 }
