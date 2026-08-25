@@ -12,6 +12,7 @@ import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.AyuPlugin
+import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
@@ -79,7 +80,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         val pluginVersion = resolvePluginVersion()
         val variant = AyuVariant.detect()
         val nextSession = SettingsSession(::refreshGlow)
-        val contentTabs = AyuSettingsComposition(variant, nextSession).buildContentTabs()
+        val contentTabs =
+            AyuSettingsComposition(
+                variant = variant,
+                session = nextSession,
+                contextProject = AccentApplicator.resolveFocusedProject(),
+            ).buildContentTabs()
         session = nextSession
 
         val settings = AyuIslandsSettings.getInstance()
