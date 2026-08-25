@@ -1,0 +1,13 @@
+/** Renders values for preview. */
+interface Previewing<T> { String render(T value) }
+
+@Deprecated
+class Preview<T> implements Previewing<T> {
+    static final int LIMIT = 42
+    String prefix = "Ayu"
+
+    String render(T value) {
+        def result = "${prefix}: ${value}" // tuned local
+        result ?: "none"
+    }
+}

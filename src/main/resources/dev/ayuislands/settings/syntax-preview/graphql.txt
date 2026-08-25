@@ -1,0 +1,11 @@
+"""A syntax-preview node."""
+directive @preview(limit: Int = 42) on FIELD_DEFINITION
+
+interface Node {
+  id: ID!
+}
+
+type Preview implements Node {
+  id: ID!
+  tags(limit: Int = 3): [String!]! @preview
+}

@@ -1,0 +1,20 @@
+# Renders values for preview.
+module Previewing
+  def render(value)
+    raise NotImplementedError
+  end
+end
+
+class Preview
+  include Previewing
+  LIMIT = 42
+
+  def initialize(prefix = "Ayu")
+    @prefix = prefix
+  end
+
+  def render(value)
+    result = "#{@prefix}: #{value}"
+    result.empty? || LIMIT < 1 ? :none : result
+  end
+end

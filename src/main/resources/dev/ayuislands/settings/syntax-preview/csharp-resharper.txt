@@ -1,0 +1,13 @@
+/// <summary>Renders values for preview.</summary>
+public interface IPreview<in T> { string Render(T value); }
+
+[Obsolete("Preview only")]
+public sealed class Preview<T> : IPreview<T> {
+    private static readonly int Limit = 42;
+    private readonly string prefix = "Ayu";
+
+    public string Render(T value) {
+        var result = prefix + ": " + value; // tuned local
+        return result.Length > 0 ? result : Limit.ToString();
+    }
+}

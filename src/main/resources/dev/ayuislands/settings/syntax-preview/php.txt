@@ -1,0 +1,16 @@
+<?php
+namespace Preview;
+
+/** Renders values for preview. */
+interface Previewing { public function render(string $value): string; }
+
+#[\AllowDynamicProperties]
+final class Preview implements Previewing {
+    public static int $limit = 42;
+    private string $prefix = "Ayu";
+
+    public function render(string $value): string {
+        $result = $this->prefix . ": " . $value; // tuned local
+        return strlen($result) > 0 ? $result : "none";
+    }
+}

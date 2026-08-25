@@ -1,0 +1,12 @@
+$accent: #ffcc66;
+
+@mixin card($space: 12px) {
+  .preview-#{"card"} {
+    color: $accent;
+    padding: $space + 2px;
+    content: "Ayu";
+    // Tuned declaration
+  }
+}
+
+@include card(12px);

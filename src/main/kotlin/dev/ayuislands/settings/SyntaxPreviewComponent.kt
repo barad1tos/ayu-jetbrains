@@ -16,7 +16,6 @@ import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.syntax.PrimitiveCategory
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Dimension
@@ -228,15 +227,6 @@ internal class SyntaxPreviewComponent(
         val isPlainTextFallback: Boolean,
     )
 
-    private data class PreviewSampleSpec(
-        val language: String,
-        val fileName: String,
-        val standardFileTypeName: String,
-        val defaultExtension: String,
-        val resourceName: String,
-        val demonstratedCategories: Set<PrimitiveCategory>,
-    )
-
     internal companion object {
         private val LOG = logger<SyntaxPreviewComponent>()
 
@@ -257,249 +247,6 @@ internal class SyntaxPreviewComponent(
                 PreviewChromeProjectRow(fixedColor(0xFFD580), "build/"),
             )
 
-        private val PREVIEW_SAMPLE_SPECS =
-            listOf(
-                PreviewSampleSpec(
-                    "Kotlin",
-                    "PresetPreview.kt",
-                    "Kotlin",
-                    "kt",
-                    "kotlin.txt",
-                    categorySet(
-                        PrimitiveCategory.COMMENT,
-                        PrimitiveCategory.DOCUMENTATION,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.CLASS_DECL,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.LOCAL_VAR,
-                        PrimitiveCategory.FUNCTION_DECL,
-                        PrimitiveCategory.INSTANCE_FIELD,
-                        PrimitiveCategory.INTERFACE_DECL,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.PARAMETER,
-                        PrimitiveCategory.NUMBER_LITERAL,
-                        PrimitiveCategory.TYPE_REF,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "Java",
-                    "PresetPreview.java",
-                    "JAVA",
-                    "java",
-                    "java.txt",
-                    categorySet(
-                        PrimitiveCategory.COMMENT,
-                        PrimitiveCategory.DOCUMENTATION,
-                        PrimitiveCategory.CLASS_DECL,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.OPERATOR,
-                        PrimitiveCategory.FUNCTION_DECL,
-                        PrimitiveCategory.PARAMETER,
-                        PrimitiveCategory.INSTANCE_FIELD,
-                        PrimitiveCategory.INTERFACE_DECL,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.LOCAL_VAR,
-                        PrimitiveCategory.NUMBER_LITERAL,
-                        PrimitiveCategory.STATIC_FIELD,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "Python",
-                    "preset_preview.py",
-                    "Python",
-                    "py",
-                    "python.txt",
-                    categorySet(
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.OPERATOR,
-                        PrimitiveCategory.DOCUMENTATION,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.FUNCTION_DECL,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.COMMENT,
-                        PrimitiveCategory.NUMBER_LITERAL,
-                        PrimitiveCategory.PARAMETER,
-                        PrimitiveCategory.TYPE_REF,
-                        PrimitiveCategory.LOCAL_VAR,
-                        PrimitiveCategory.GENERICS,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "JavaScript",
-                    "preset-preview.js",
-                    "JavaScript",
-                    "js",
-                    "javascript.txt",
-                    categorySet(
-                        PrimitiveCategory.COMMENT,
-                        PrimitiveCategory.DOCUMENTATION,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.LOCAL_VAR,
-                        PrimitiveCategory.INSTANCE_FIELD,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.CLASS_DECL,
-                        PrimitiveCategory.NUMBER_LITERAL,
-                        PrimitiveCategory.PARAMETER,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.TYPE_REF,
-                        PrimitiveCategory.STATIC_FIELD,
-                        PrimitiveCategory.OPERATOR,
-                        PrimitiveCategory.FUNCTION_DECL,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "TypeScript",
-                    "preset-preview.ts",
-                    "TypeScript",
-                    "ts",
-                    "typescript.txt",
-                    categorySet(
-                        PrimitiveCategory.COMMENT,
-                        PrimitiveCategory.DOCUMENTATION,
-                        PrimitiveCategory.INTERFACE_DECL,
-                        PrimitiveCategory.CLASS_DECL,
-                        PrimitiveCategory.GENERICS,
-                        PrimitiveCategory.TYPE_REF,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.LOCAL_VAR,
-                        PrimitiveCategory.PARAMETER,
-                        PrimitiveCategory.FUNCTION_DECL,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.INSTANCE_FIELD,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "Go",
-                    "preset_preview.go",
-                    "Go",
-                    "go",
-                    "go.txt",
-                    categorySet(
-                        PrimitiveCategory.COMMENT,
-                        PrimitiveCategory.NUMBER_LITERAL,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.FUNCTION_DECL,
-                        PrimitiveCategory.TYPE_REF,
-                        PrimitiveCategory.LOCAL_VAR,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.INTERFACE_DECL,
-                        PrimitiveCategory.CLASS_DECL,
-                        PrimitiveCategory.PARAMETER,
-                        PrimitiveCategory.INSTANCE_FIELD,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.OPERATOR,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "Rust",
-                    "preset_preview.rs",
-                    "Rust",
-                    "rs",
-                    "rust.txt",
-                    categorySet(
-                        PrimitiveCategory.COMMENT,
-                        PrimitiveCategory.DOCUMENTATION,
-                        PrimitiveCategory.NUMBER_LITERAL,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.FUNCTION_DECL,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.CLASS_DECL,
-                        PrimitiveCategory.PARAMETER,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.TYPE_REF,
-                        PrimitiveCategory.OPERATOR,
-                        PrimitiveCategory.GENERICS,
-                        PrimitiveCategory.LOCAL_VAR,
-                        PrimitiveCategory.STATIC_FIELD,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "CSS",
-                    "preview.css",
-                    "CSS",
-                    "css",
-                    "css.txt",
-                    categorySet(
-                        PrimitiveCategory.OPERATOR,
-                        PrimitiveCategory.CLASS_DECL,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.NUMBER_LITERAL,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.LOCAL_VAR,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "HTML",
-                    "preview.html",
-                    "HTML",
-                    "html",
-                    "html.txt",
-                    categorySet(
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.KEYWORD,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "JSON",
-                    "preview.json",
-                    "JSON",
-                    "json",
-                    "json.txt",
-                    categorySet(PrimitiveCategory.NUMBER_LITERAL, PrimitiveCategory.STRING_LITERAL),
-                ),
-                PreviewSampleSpec(
-                    "YAML",
-                    "preview.yaml",
-                    "YAML",
-                    "yaml",
-                    "yaml.txt",
-                    categorySet(
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.OPERATOR,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "Markdown",
-                    "preview.md",
-                    "Markdown",
-                    "md",
-                    "markdown.txt",
-                    categorySet(
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.DOCUMENTATION,
-                        PrimitiveCategory.COMMENT,
-                    ),
-                ),
-                PreviewSampleSpec(
-                    "Swift",
-                    "Preview.swift",
-                    "Swift",
-                    "swift",
-                    "swift.txt",
-                    categorySet(
-                        PrimitiveCategory.CLASS_DECL,
-                        PrimitiveCategory.PARAMETER,
-                        PrimitiveCategory.TYPE_REF,
-                        PrimitiveCategory.ANNOTATION,
-                        PrimitiveCategory.KEYWORD,
-                        PrimitiveCategory.FUNCTION_DECL,
-                        PrimitiveCategory.INSTANCE_FIELD,
-                        PrimitiveCategory.LOCAL_VAR,
-                        PrimitiveCategory.NUMBER_LITERAL,
-                        PrimitiveCategory.INTERFACE_DECL,
-                        PrimitiveCategory.STRING_LITERAL,
-                        PrimitiveCategory.GENERICS,
-                        PrimitiveCategory.COMMENT,
-                        PrimitiveCategory.STATIC_FIELD,
-                        PrimitiveCategory.DOCUMENTATION,
-                    ),
-                ),
-            ).associateBy(PreviewSampleSpec::language)
-
         private val DEFAULT_SAMPLE =
             PreviewSample(
                 "Preview.txt",
@@ -516,26 +263,22 @@ internal class SyntaxPreviewComponent(
 
         private fun fixedColor(rgb: Int): JBColor = JBColor(rgb, rgb)
 
-        private fun categorySet(vararg categories: PrimitiveCategory): Set<PrimitiveCategory> = categories.toSet()
+        @TestOnly
+        internal fun catalogLanguagesForTest(): Set<String> = SyntaxPreviewCatalog.languages()
 
         @TestOnly
-        internal fun catalogLanguagesForTest(): Set<String> = PREVIEW_SAMPLE_SPECS.keys.toSet()
+        internal fun categoriesForTest(language: String) = SyntaxPreviewCatalog.categories(language)
 
         @TestOnly
-        internal fun categoriesForTest(language: String): Set<PrimitiveCategory> =
-            PREVIEW_SAMPLE_SPECS[language]?.demonstratedCategories.orEmpty()
-
-        @TestOnly
-        internal fun resourceNamesForTest(): Set<String> =
-            PREVIEW_SAMPLE_SPECS.values.mapTo(linkedSetOf(), PreviewSampleSpec::resourceName)
+        internal fun resourceNamesForTest(): Set<String> = SyntaxPreviewCatalog.resourceNames()
 
         private fun normalizeLanguage(language: String): String =
             language.takeIf { it.isNotBlank() } ?: DEFAULT_LANGUAGE
 
         private fun sampleFor(language: String): PreviewSample =
-            PREVIEW_SAMPLE_SPECS[normalizeLanguage(language)]?.toPreviewSample() ?: DEFAULT_SAMPLE
+            SyntaxPreviewCatalog.find(normalizeLanguage(language))?.toPreviewSample() ?: DEFAULT_SAMPLE
 
-        private fun PreviewSampleSpec.toPreviewSample(): PreviewSample =
+        private fun SyntaxPreviewSpec.toPreviewSample(): PreviewSample =
             PreviewSample(
                 fileName,
                 standardFileTypeName,

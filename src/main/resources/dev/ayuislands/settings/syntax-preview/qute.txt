@@ -1,0 +1,11 @@
+{@java.util.List<String> items}
+{! Native Qute preview !}
+{#if items.size > 0}
+<ul>
+  {#for item in items}
+  <li data-index="{item_index}">{item ?: 'none'}</li>
+  {/for}
+</ul>
+{#else}
+Empty
+{/if}

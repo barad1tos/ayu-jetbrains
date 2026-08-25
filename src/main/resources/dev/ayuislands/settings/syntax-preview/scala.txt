@@ -1,0 +1,13 @@
+/** Renders values for preview. */
+trait Previewing[T] { def render(value: T): String }
+
+@deprecated("preview", "1.0")
+final class Preview[T](private val prefix: String) extends Previewing[T] {
+  override def render(value: T): String = {
+    val count = 42
+    val result = s"$prefix: $value"
+    if count > 0 then result else "none"
+  }
+}
+
+object Preview { val Limit: Int = 42 }

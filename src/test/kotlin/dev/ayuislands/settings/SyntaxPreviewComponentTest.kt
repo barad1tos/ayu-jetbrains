@@ -215,11 +215,32 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
-    fun `core preview resources are unique`() {
+    fun `general web template and data previews are complete and capability exact`() {
+        val effectiveCategories = effectiveCategoryUnions()
+        val catalogLanguages = SyntaxPreviewComponent.catalogLanguagesForTest()
         val resources = SyntaxPreviewComponent.resourceNamesForTest()
 
-        assertEquals(13, resources.size)
-        assertFalse(resources.any { it.isBlank() })
+        assertTrue(
+            catalogLanguages.containsAll(GENERAL_PREVIEW_LANGUAGES),
+            "Missing languages: ${GENERAL_PREVIEW_LANGUAGES - catalogLanguages}",
+        )
+        assertEquals(catalogLanguages.size, resources.size, "Every catalog language must own one unique resource.")
+
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val previewAssertions: List<() -> Unit> =
+            GENERAL_PREVIEW_LANGUAGES.map { language ->
+                {
+                    component.updatePreview(AyuVariant.MIRAGE, language)
+                    assertFalse(component.sampleFileNameForTest() == "Preview.txt", language)
+                    assertTrue(component.sampleCodeForTest().isNotBlank(), "$language sample must be nonblank.")
+                    assertEquals(
+                        effectiveCategories[language].orEmpty(),
+                        SyntaxPreviewComponent.categoriesForTest(language),
+                        "$language preview categories must equal the effective three-variant union.",
+                    )
+                }
+            }
+        assertAll(previewAssertions)
     }
 
     @Test
@@ -354,5 +375,43 @@ class SyntaxPreviewComponentTest {
             }
         }
         return categories.mapValues { (_, values) -> values.toSet() }
+    }
+
+    private companion object {
+        val GENERAL_PREVIEW_LANGUAGES =
+            setOf(
+                "Angular",
+                "Apple plist",
+                "C# (ReSharper)",
+                "CodeQL",
+                "CoffeeScript",
+                "CSS",
+                "Dart",
+                "Django",
+                "dotenv",
+                "Erlang",
+                "FreeMarker",
+                "GraphQL",
+                "Groovy",
+                "HAML",
+                "HTML",
+                "JSON",
+                "JSONPath",
+                "Lua",
+                "Markdown",
+                "Objective-C",
+                "PHP",
+                "PowerShell",
+                "Properties files",
+                "Qute",
+                "Ruby",
+                "Sass",
+                "Scala",
+                "Slim",
+                "Velocity",
+                "Vue",
+                "XML",
+                "YAML",
+            )
     }
 }
