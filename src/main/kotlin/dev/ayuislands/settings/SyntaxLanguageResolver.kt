@@ -56,10 +56,12 @@ internal class SyntaxLanguageResolver(
         languageId: String,
         supportedLanguages: List<SyntaxLanguageRegistry.LangTag>,
     ): String? {
+        val canonicalId =
+            if (languageId.equals(NOCTULE_SWIFT_ID, ignoreCase = true)) SWIFT_ID else languageId
         supportedLanguages
-            .firstOrNull { it.tag.equals(languageId, ignoreCase = true) }
+            .firstOrNull { it.tag.equals(canonicalId, ignoreCase = true) }
             ?.let { return it.displayName }
-        val platformDisplayName = LanguageDetectionRules.displayNameForLanguageId(languageId)
+        val platformDisplayName = LanguageDetectionRules.displayNameForLanguageId(canonicalId)
         return supportedLanguages
             .firstOrNull { it.displayName.equals(platformDisplayName, ignoreCase = true) }
             ?.displayName
@@ -67,6 +69,8 @@ internal class SyntaxLanguageResolver(
 
     private companion object {
         private val LOG = logger<SyntaxLanguageResolver>()
+        private const val NOCTULE_SWIFT_ID = "NoctuleSwift"
+        private const val SWIFT_ID = "Swift"
 
         fun readSelectedFileType(project: Project): FileType? {
             val selectedFiles = FileEditorManager.getInstance(project).selectedFiles
