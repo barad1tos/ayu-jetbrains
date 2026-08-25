@@ -226,6 +226,35 @@ class SyntaxIntensityServiceTest {
     }
 
     @Test
+    fun `active operator replacement exposes exact font style to range highlighters`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = SyntaxPreset.CUSTOM.name,
+                subordinatePreset = SyntaxPreset.AMBIENT.name,
+                customOverrides = emptyMap(),
+                customStyles =
+                    mapOf(
+                        "Swift" to mapOf(PrimitiveCategory.OPERATOR.name to Font.PLAIN),
+                    ),
+                customEmphasis =
+                    mapOf(
+                        "Swift" to mapOf(PrimitiveCategory.OPERATOR.name to Font.BOLD),
+                    ),
+            ),
+        )
+
+        assertEquals(
+            Font.BOLD,
+            service.replacementFontType("Swift", PrimitiveCategory.OPERATOR),
+        )
+
+        service.apply(SyntaxPreset.AMBIENT, emptyMap())
+
+        assertNull(service.replacementFontType("Swift", PrimitiveCategory.OPERATOR))
+    }
+
+    @Test
     fun `tunable categories return effective map without scheme writes or publication`() {
         val expected = mapOf("Swift" to setOf(PrimitiveCategory.FUNCTION_DECL))
         every { SyntaxIntensityApplicator.tunableCategories(any()) } returns expected

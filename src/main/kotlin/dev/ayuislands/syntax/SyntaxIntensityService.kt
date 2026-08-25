@@ -91,6 +91,9 @@ class SyntaxIntensityService {
     private val loggedCapabilityMisses = ConcurrentHashMap.newKeySet<String>()
     private val unlicensedCustomLogged = AtomicBoolean(false)
 
+    @Volatile
+    private var replacementFonts: Map<String, Map<String, Int>> = emptyMap()
+
     fun apply(
         preset: SyntaxPreset,
         customOverrides: Map<String, Map<String, Int>>,
@@ -156,6 +159,7 @@ class SyntaxIntensityService {
         }
         writeActiveScheme(context, touched, retirement)
         retirement.commitRepaired()
+        replacementFonts = context.replacementFonts()
         publishSchemeChange()
     }
 
@@ -184,6 +188,11 @@ class SyntaxIntensityService {
             }
     }
 
+    internal fun replacementFontType(
+        language: String,
+        category: PrimitiveCategory,
+    ): Int? = replacementFonts[language]?.get(category.name)
+
     private data class ApplyContext(
         val preset: SyntaxPreset,
         val customOverrides: Map<String, Map<String, Int>>,
@@ -192,7 +201,16 @@ class SyntaxIntensityService {
         val readabilityOptions: SyntaxReadabilityOptions,
         val customEmphasis: Map<String, Map<String, Int>>,
         val ignorePluginSyntaxColorsEnabled: Boolean,
-    )
+    ) {
+        fun replacementFonts(): Map<String, Map<String, Int>> {
+            if (preset != SyntaxPreset.CUSTOM) return emptyMap()
+            return customStyles.mapValues { (language, styles) ->
+                styles.mapValues { (category, style) ->
+                    style or (customEmphasis[language]?.get(category) ?: Font.PLAIN)
+                }
+            }
+        }
+    }
 
     private data class SchemeComputation(
         val attributes: Map<TextAttributesKey, TextAttributes>,
