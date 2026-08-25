@@ -141,6 +141,20 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
+    fun `Swift preview uses the registered file association when the standard name is unavailable`() {
+        val noctuleSwift = editorFixture.mockFileType("NoctuleSwift", "swift")
+        every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns
+            editorFixture.mockFileType("NotSwift", "txt")
+        every { editorFixture.fileTypeManager.getFileTypeByFileName("Preview.swift") } returns noctuleSwift
+
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, "Swift")
+
+        val editor = assertNotNull(findEditorTextField(component))
+        assertSame(noctuleSwift, editor.fileType)
+        assertEquals("Syntax color preview", component.toolTipText)
+    }
+
+    @Test
     fun `updatePreview installs a virtual-file highlighter for the selected language`() {
         val swiftFileType = editorFixture.mockFileType("Swift", "swift")
         every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns swiftFileType

@@ -5,6 +5,7 @@ import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
+import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import io.mockk.every
@@ -33,6 +34,7 @@ internal class SyntaxPreviewEditorFixture {
         fileTypeManager = mockk(relaxed = true)
         every { fileTypeManager.getStdFileType("Kotlin") } returns kotlinFileType
         every { fileTypeManager.getStdFileType("JAVA") } returns javaFileType
+        every { fileTypeManager.getFileTypeByFileName(any<String>()) } returns UnknownFileType.INSTANCE
         mockkStatic(FileTypeManager::class)
         every { FileTypeManager.getInstance() } returns fileTypeManager
 

@@ -21,6 +21,11 @@ private data class NormalizedAttributes(
     val colors: List<ParsedColorField>,
 )
 
+private data class ParsedSyntaxAttributes(
+    val attributes: Map<TextAttributesKey, TextAttributes>,
+    val fallbackKeyNames: Map<String, String>,
+)
+
 /**
  * Overlay loader for the `AyuIslands{Variant}.extended.xml` scheme overlays
  * plus the matching baseline `AyuIslands{Variant}.xml` scheme attributes.
@@ -56,11 +61,11 @@ class SyntaxOverlayLoader internal constructor(
     private val log = logger<SyntaxOverlayLoader>()
     private val warnedResources = ConcurrentHashMap.newKeySet<String>()
 
-    private val overlayCache = ConcurrentHashMap<String, Map<TextAttributesKey, TextAttributes>>()
-    private val baselineCache = ConcurrentHashMap<String, Map<TextAttributesKey, TextAttributes>>()
+    private val overlayCache = ConcurrentHashMap<String, ParsedSyntaxAttributes>()
+    private val baselineCache = ConcurrentHashMap<String, ParsedSyntaxAttributes>()
 
     fun loadOverlayForVariant(variantName: String): Map<TextAttributesKey, TextAttributes> =
-        overlayCache.computeIfAbsent(variantName) { parseOverlayXml(it) }
+        overlayAttributes(variantName).attributes
 
     /**
      * Loads the baseline scheme `<attributes>` section for [variantName] from
@@ -70,33 +75,42 @@ class SyntaxOverlayLoader internal constructor(
      * contract as [loadOverlayForVariant]).
      */
     fun loadBaselineForVariant(variantName: String): Map<TextAttributesKey, TextAttributes> =
+        baselineAttributes(variantName).attributes
+
+    fun fallbacksFor(variantName: String): Map<String, String> =
+        baselineAttributes(variantName).fallbackKeyNames + overlayAttributes(variantName).fallbackKeyNames
+
+    private fun overlayAttributes(variantName: String): ParsedSyntaxAttributes =
+        overlayCache.computeIfAbsent(variantName) { parseOverlayXml(it) }
+
+    private fun baselineAttributes(variantName: String): ParsedSyntaxAttributes =
         baselineCache.computeIfAbsent(variantName) { parseBaselineXml(it) }
 
-    private fun parseOverlayXml(variantName: String): Map<TextAttributesKey, TextAttributes> {
+    private fun parseOverlayXml(variantName: String): ParsedSyntaxAttributes {
         val path = "$resourceBase/AyuIslands$variantName.extended.xml"
         return parseAttributesXml(path)
     }
 
-    private fun parseBaselineXml(variantName: String): Map<TextAttributesKey, TextAttributes> {
+    private fun parseBaselineXml(variantName: String): ParsedSyntaxAttributes {
         val path = "$baselineResourceBase/AyuIslands$variantName.xml"
         return parseAttributesXml(path)
     }
 
-    private fun parseAttributesXml(path: String): Map<TextAttributesKey, TextAttributes> {
+    private fun parseAttributesXml(path: String): ParsedSyntaxAttributes {
         val stream =
             openClasspathResource(path) ?: run {
                 logResourceOnce(path, "scheme XML resource not found")
-                return emptyMap()
+                return EMPTY_ATTRIBUTES
             }
         return try {
             val root = stream.use { JDOMUtil.load(it) }
-            val attributesEl = root.getChild("attributes") ?: return emptyMap()
-            buildOverlayMap(attributesEl)
+            val attributesEl = root.getChild("attributes") ?: return EMPTY_ATTRIBUTES
+            buildAttributes(attributesEl)
         } catch (cancellation: kotlinx.coroutines.CancellationException) {
             throw cancellation
         } catch (runtime: RuntimeException) {
             logResourceOnce(path, "failed to parse scheme XML: ${runtime.message}")
-            emptyMap()
+            EMPTY_ATTRIBUTES
         }
     }
 
@@ -117,12 +131,14 @@ class SyntaxOverlayLoader internal constructor(
         return javaClass.classLoader.getResourceAsStream(normalized)
     }
 
-    private fun buildOverlayMap(attributesEl: Element): Map<TextAttributesKey, TextAttributes> {
+    private fun buildAttributes(attributesEl: Element): ParsedSyntaxAttributes {
         val map = mutableMapOf<TextAttributesKey, TextAttributes>()
+        val fallbackKeyNames = mutableMapOf<String, String>()
         for (optionEl in JDOMUtil.getChildren(attributesEl, "option")) {
             val keyName = optionEl.getAttributeValue("name") ?: continue
             val key = TextAttributesKey.find(keyName)
             val baseRef = optionEl.getAttributeValue("baseAttributes")
+            if (baseRef != null) fallbackKeyNames[keyName] = baseRef
             val attrs =
                 when {
                     // baseAttributes keys (e.g. GO_STRING -> DEFAULT_STRING) carry no own
@@ -147,7 +163,7 @@ class SyntaxOverlayLoader internal constructor(
                 }
             map[key] = attrs
         }
-        return map
+        return ParsedSyntaxAttributes(map, fallbackKeyNames)
     }
 
     private fun parseTextAttributes(valueElement: Element): TextAttributes {
@@ -205,6 +221,7 @@ class SyntaxOverlayLoader internal constructor(
         private const val HEX_RADIX = 16
         private const val RGB_LENGTH = 6
         private const val RGBA_LENGTH = 8
+        private val EMPTY_ATTRIBUTES = ParsedSyntaxAttributes(emptyMap(), emptyMap())
         private val COLOR_FIELDS = setOf("FOREGROUND", "BACKGROUND", "EFFECT_COLOR", "ERROR_STRIPE_COLOR")
 
         fun getInstance(): SyntaxOverlayLoader {

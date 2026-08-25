@@ -141,6 +141,7 @@ class SyntaxIntensityServiceTest {
         for (variant in listOf("Mirage", "Dark", "Light")) {
             every { loader.loadOverlayForVariant(variant) } returns payload
             every { loader.loadBaselineForVariant(variant) } returns payload
+            every { loader.fallbacksFor(variant) } returns emptyMap()
         }
         mockkObject(SyntaxOverlayLoader.Companion)
         every { SyntaxOverlayLoader.getInstance() } returns loader
@@ -743,6 +744,20 @@ class SyntaxIntensityServiceTest {
                 match {
                     it.preset == SyntaxPreset.CUSTOM && it.customStyles == styles
                 },
+            )
+        }
+    }
+
+    @Test
+    fun `apply threads explicit scheme fallbacks through to compute`() {
+        val fallbacks = mapOf("SWIFT.BRACKETS" to "DEFAULT_BRACES")
+        every { loader.fallbacksFor("Mirage") } returns fallbacks
+
+        SyntaxIntensityService().apply(SyntaxPreset.CUSTOM, emptyMap())
+
+        verify(atLeast = 1) {
+            SyntaxIntensityApplicator.compute(
+                match { request -> request.variantName == "Mirage" && request.fallbacks == fallbacks },
             )
         }
     }
