@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.rotation.HslColor
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
@@ -1299,6 +1300,38 @@ class SyntaxIntensityApplicatorTest {
         }
         val comment = assertNotNull(result[javaCommentKey]?.foregroundColor)
         assertEquals(commentFg.rgb, comment.rgb, "Emphasize declarations must not rewrite unrelated categories")
+    }
+
+    @Test
+    fun `tunable categories group direct and cascade targets by language`() {
+        val defaultString = TextAttributesKey.find("DEFAULT_STRING")
+        val swiftString = TextAttributesKey.find("SWIFT_STRING")
+        val swiftFunction = TextAttributesKey.find("SWIFT.FUNCTION_DECLARATION")
+        val jsonString = TextAttributesKey.find("JSON.STRING")
+        val request =
+            SyntaxIntensityApplicator.Request(
+                preset = SyntaxPreset.AMBIENT,
+                variantName = "Mirage",
+                editorBg = Color(0x1F, 0x24, 0x30),
+                baseline =
+                    linkedMapOf(
+                        defaultString to attrsWithFg(Color(0xD5, 0xFF, 0x80)),
+                        swiftString to TextAttributes(),
+                        swiftFunction to attrsWithFg(Color(0xFF, 0xCC, 0x66)),
+                        jsonString to attrsWithFg(Color(0xD5, 0xFF, 0x80)),
+                    ),
+                overlay = emptyMap(),
+            )
+
+        val effective = SyntaxIntensityApplicator.compute(request)
+        val categories = SyntaxIntensityApplicator.tunableCategories(effective.keys)
+
+        assertEquals(
+            setOf(PrimitiveCategory.FUNCTION_DECL, PrimitiveCategory.STRING_LITERAL),
+            categories["Swift"],
+        )
+        assertEquals(setOf(PrimitiveCategory.STRING_LITERAL), categories["JSON"])
+        assertFalse(categories.containsKey("Default"), "cascade source buckets are not user-selectable languages")
     }
 
     // --- Helpers ---------------------------------------------------------

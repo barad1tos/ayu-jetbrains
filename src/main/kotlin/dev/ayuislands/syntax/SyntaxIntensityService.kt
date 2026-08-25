@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
+import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.theme.EditorSchemeChange
@@ -77,6 +78,9 @@ class SyntaxIntensityService {
     private val missingSchemeLogged = ConcurrentHashMap.newKeySet<String>()
     private val unknownVariantLogged = ConcurrentHashMap.newKeySet<String>()
     private val skippedForeignActiveSchemeLogged = ConcurrentHashMap.newKeySet<String>()
+    private val capabilitiesByVariant =
+        ConcurrentHashMap<String, Map<String, Set<PrimitiveCategory>>>()
+    private val missingCapabilitySnapshotsLogged = ConcurrentHashMap.newKeySet<String>()
     private val unlicensedCustomLogged = AtomicBoolean(false)
 
     fun apply(
@@ -148,6 +152,25 @@ class SyntaxIntensityService {
         val state = SyntaxIntensityState.getInstance()
         val config = state.toPresetConfig()
         apply(config = config)
+    }
+
+    internal fun tunableCategories(variant: AyuVariant): Map<String, Set<PrimitiveCategory>>? {
+        val variantName =
+            when (variant) {
+                AyuVariant.MIRAGE -> "Mirage"
+                AyuVariant.DARK -> "Dark"
+                AyuVariant.LIGHT -> "Light"
+            }
+        return capabilitiesByVariant[variantName]
+            ?: run {
+                if (missingCapabilitySnapshotsLogged.add(variantName)) {
+                    log.warn(
+                        "Syntax capability snapshot for '$variantName' is unavailable — " +
+                            "keeping all controls enabled",
+                    )
+                }
+                null
+            }
     }
 
     private data class ApplyContext(
@@ -284,7 +307,7 @@ class SyntaxIntensityService {
         context: ApplyContext,
     ): Map<TextAttributesKey, TextAttributes> {
         val loader = SyntaxOverlayLoader.getInstance()
-        return SyntaxIntensityApplicator.compute(
+        val request =
             SyntaxIntensityApplicator.Request(
                 preset = context.preset,
                 variantName = variantTag,
@@ -296,8 +319,11 @@ class SyntaxIntensityService {
                 customStyles = context.customStyles,
                 readabilityOptions = context.readabilityOptions,
                 customEmphasis = context.customEmphasis,
-            ),
-        )
+            )
+        val computed = SyntaxIntensityApplicator.compute(request)
+        capabilitiesByVariant[variantTag] = SyntaxIntensityApplicator.tunableCategories(computed.keys)
+        missingCapabilitySnapshotsLogged.remove(variantTag)
+        return computed
     }
 
     private fun applyIgnorePluginPreference(

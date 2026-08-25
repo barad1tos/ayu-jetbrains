@@ -155,6 +155,19 @@ object SyntaxIntensityApplicator {
         return result
     }
 
+    internal fun tunableCategories(keys: Iterable<TextAttributesKey>): Map<String, Set<PrimitiveCategory>> {
+        val categories = linkedMapOf<String, MutableSet<PrimitiveCategory>>()
+        for (key in keys) {
+            val language = SyntaxLanguageRegistry.classify(key.externalName)
+            if (language.bucket != SyntaxLanguageRegistry.Bucket.LANGUAGE) continue
+            val category = SyntaxCategoryRegistry.classify(key.externalName)
+            if (category != null) {
+                categories.getOrPut(language.displayName) { linkedSetOf() }.add(category)
+            }
+        }
+        return categories.mapValues { (_, values) -> values.toSet() }
+    }
+
     private data class TransformContext(
         val preset: SyntaxPreset,
         val customOverrides: Map<String, Map<String, Int>>,
