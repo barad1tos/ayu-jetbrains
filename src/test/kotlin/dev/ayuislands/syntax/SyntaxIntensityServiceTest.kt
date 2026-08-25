@@ -9,10 +9,12 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.JBColor
+import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.theme.EditorSchemeChange
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -28,6 +30,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -155,6 +158,7 @@ class SyntaxIntensityServiceTest {
         every {
             SyntaxIntensityApplicator.compute(any())
         } returns payload
+        every { SyntaxIntensityApplicator.tunableCategories(any()) } returns emptyMap()
 
         every { mockApp.getService(SyntaxIntensityService::class.java) } returns SyntaxIntensityService()
         every { mockApp.getService(AyuIslandsSettings::class.java) } returns ayuSettings
@@ -209,6 +213,40 @@ class SyntaxIntensityServiceTest {
     fun `apply publishes one shared scheme change per call (R-7)`() {
         SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
         verify(exactly = 1) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `tunable categories return effective map without scheme writes or publication`() {
+        val expected = mapOf("Swift" to setOf(PrimitiveCategory.FUNCTION_DECL))
+        every { SyntaxIntensityApplicator.tunableCategories(any()) } returns expected
+        val service = SyntaxIntensityService()
+        service.apply(SyntaxPreset.AMBIENT, emptyMap())
+        clearMocks(loader, mockMirage, mockDark, mockLight, answers = false, recordedCalls = true)
+        clearMocks(EditorSchemeChange, SyntaxIntensityApplicator, answers = false, recordedCalls = true)
+
+        val result = service.tunableCategories(AyuVariant.MIRAGE)
+
+        assertEquals(expected, result)
+        verify(exactly = 0) { EditorSchemeChange.publish() }
+        verify(exactly = 0) { loader.loadBaselineForVariant(any()) }
+        verify(exactly = 0) { loader.loadOverlayForVariant(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.compute(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.tunableCategories(any()) }
+        verify(exactly = 0) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
+        verify(exactly = 0) { mockDark.setAttributes(any(), any<TextAttributes>()) }
+        verify(exactly = 0) { mockLight.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `tunable categories fail open before a variant snapshot exists`() {
+        val result = SyntaxIntensityService().tunableCategories(AyuVariant.MIRAGE)
+
+        assertNull(result)
+        verify(exactly = 0) { loader.loadBaselineForVariant(any()) }
+        verify(exactly = 0) { loader.loadOverlayForVariant(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.compute(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.tunableCategories(any()) }
+        verify(exactly = 0) { EditorSchemeChange.publish() }
     }
 
     // ---------- Test 4: R-7 delegates read-action handling ----------
