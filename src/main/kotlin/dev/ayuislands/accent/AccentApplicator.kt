@@ -32,7 +32,6 @@ import dev.ayuislands.theme.EditorSchemeOwner
 import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
-import java.awt.KeyboardFocusManager
 import java.awt.Window
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
@@ -435,54 +434,20 @@ object AccentApplicator {
      *  5. `null` — no project open; resolver will return the global accent.
      */
     @RequiresEdt
-    internal fun resolveFocusedProject(shouldLogDiagnostics: Boolean = false): com.intellij.openapi.project.Project? {
-        val platformCandidate = ProjectUtil.getActiveProject()
-
-        fun recordSelection(
-            source: String,
-            selected: com.intellij.openapi.project.Project?,
-        ) {
-            if (!shouldLogDiagnostics) return
-            val openProjects = ProjectManager.getInstance().openProjects
-            log.info(
-                "Syntax context diagnostics: stage=project-resolution, source=$source, " +
-                    "selected=${selected.diagnosticLabel()}, " +
-                    "platformCandidate=${platformCandidate.diagnosticLabel()}, " +
-                    "openProjects=${openProjects.joinToString(
-                        prefix = "[",
-                        postfix = "]",
-                    ) { it.diagnosticLabel() }}, " +
-                    "activeWindowChain=${activeWindowChainLabel()}",
-            )
-        }
-
-        platformCandidate?.takeIf { it.isUsable() }?.let { selected ->
-            recordSelection("ProjectUtil.getActiveProject", selected)
-            return selected
-        }
-
-        osActiveProjectFrame()?.let { selected ->
-            recordSelection("WindowManager.activeFrame", selected)
-            return selected
-        }
+    internal fun resolveFocusedProject(): com.intellij.openapi.project.Project? {
+        ProjectUtil.getActiveProject()?.takeIf { it.isUsable() }?.let { return it }
+        osActiveProjectFrame()?.let { return it }
 
         IdeFocusManager
             .getGlobalInstance()
             .lastFocusedFrame
             ?.project
             ?.takeIf { it.isUsable() }
-            ?.let { selected ->
-                recordSelection("IdeFocusManager.lastFocusedFrame", selected)
-                return selected
-            }
-
-        val selected =
-            ProjectManager
-                .getInstance()
-                .openProjects
-                .firstOrNull { it.isUsable() }
-        recordSelection(if (selected == null) "none" else "ProjectManager.openProjects", selected)
-        return selected
+            ?.let { return it }
+        return ProjectManager
+            .getInstance()
+            .openProjects
+            .firstOrNull { it.isUsable() }
     }
 
     /**
@@ -1128,22 +1093,3 @@ internal fun resolveUnderlineHeight(
  * commentary stay accurate.
  */
 private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed
-
-private fun com.intellij.openapi.project.Project?.diagnosticLabel(): String =
-    this?.let { project ->
-        "${project.name}@${System.identityHashCode(project)}" +
-            "(default=${project.isDefault},disposed=${project.isDisposed})"
-    } ?: "<none>"
-
-private fun activeWindowChainLabel(): String {
-    val activeWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow ?: return "<none>"
-    return generateSequence(activeWindow) { it.owner }
-        .take(MAX_DIAGNOSTIC_WINDOW_DEPTH)
-        .joinToString(" -> ") { window ->
-            "${window.javaClass.name}@${System.identityHashCode(window)}" +
-                "(name=${window.name},active=${window.isActive}," +
-                "focused=${window.isFocused},showing=${window.isShowing})"
-        }
-}
-
-private const val MAX_DIAGNOSTIC_WINDOW_DEPTH = 6

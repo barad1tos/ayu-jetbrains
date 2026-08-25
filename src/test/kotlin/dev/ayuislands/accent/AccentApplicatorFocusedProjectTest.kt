@@ -214,10 +214,8 @@ class AccentApplicatorFocusedProjectTest {
         every { AccentResolver.resolve(activeProject, ayu(AyuVariant.MIRAGE)) } returns "#ACTIVE"
         every { AccentResolver.resolve(staleFocusedProject, ayu(AyuVariant.MIRAGE)) } returns "#STALE"
 
-        val resolved = AccentApplicator.resolveFocusedProject(shouldLogDiagnostics = true)
         val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
 
-        assertEquals(activeProject, resolved)
         assertEquals("#ACTIVE", applied)
         verify(exactly = 1) { AccentResolver.resolve(activeProject, ayu(AyuVariant.MIRAGE)) }
         verify(exactly = 0) { AccentResolver.resolve(staleFocusedProject, any<AccentContext>()) }

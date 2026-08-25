@@ -1,6 +1,5 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.project.Project
@@ -25,19 +24,10 @@ internal class SyntaxLanguageResolver(
         val activeLanguageId = LanguageDetectionRules.resolveLanguageId(activeFileType)
         val verdict = project?.let(projectVerdict)
         val contextualPreferences = languagePreferences(activeLanguageId, verdict, supportedLanguages)
-        val selected =
-            SyntaxPreviewComponent.preferredAvailableLanguage(
-                languages = displayNames,
-                preferred = contextualPreferences + fallbackLanguage,
-            )
-        LOG.info(
-            "Syntax context diagnostics: stage=language-resolution, " +
-                "project=${project.diagnosticLabel()}, activeFileType=${activeFileType.diagnosticLabel()}, " +
-                "activeLanguageId=${activeLanguageId ?: "<none>"}, " +
-                "projectVerdict=${verdict.diagnosticLabel()}, " +
-                "contextualPreferences=$contextualPreferences, fallback=$fallbackLanguage, selected=$selected",
+        return SyntaxPreviewComponent.preferredAvailableLanguage(
+            languages = displayNames,
+            preferred = contextualPreferences + fallbackLanguage,
         )
-        return selected
     }
 
     private fun languagePreferences(
@@ -68,41 +58,14 @@ internal class SyntaxLanguageResolver(
     }
 
     private companion object {
-        private val LOG = logger<SyntaxLanguageResolver>()
         private const val NOCTULE_SWIFT_ID = "NoctuleSwift"
         private const val SWIFT_ID = "Swift"
 
-        fun readSelectedFileType(project: Project): FileType? {
-            val selectedFiles = FileEditorManager.getInstance(project).selectedFiles
-            LOG.info(
-                "Syntax context diagnostics: stage=selected-files, " +
-                    "project=${project.diagnosticLabel()}, " +
-                    "selectedFiles=${selectedFiles.joinToString(prefix = "[", postfix = "]") { file ->
-                        "${file.path}{fileType=${file.fileType.diagnosticLabel()}}"
-                    }}",
-            )
-            return selectedFiles.firstOrNull()?.fileType
-        }
-
-        private fun Project?.diagnosticLabel(): String =
-            this?.let { project ->
-                "${project.name}@${System.identityHashCode(project)}" +
-                    "(default=${project.isDefault},disposed=${project.isDisposed})"
-            } ?: "<none>"
-
-        private fun FileType?.diagnosticLabel(): String =
-            this?.let { fileType ->
-                "${fileType.name}[class=${fileType.javaClass.name},extension=${fileType.defaultExtension}]"
-            } ?: "<none>"
-
-        private fun ProjectLanguageVerdict?.diagnosticLabel(): String =
-            when (this) {
-                is ProjectLanguageVerdict.Detected -> "Detected(languageId=$languageId)"
-                is ProjectLanguageVerdict.NoWinner -> "NoWinner(languages=${weights.keys.sorted()})"
-                ProjectLanguageVerdict.Cold -> "Cold"
-                ProjectLanguageVerdict.Empty -> "Empty"
-                ProjectLanguageVerdict.Unavailable -> "Unavailable"
-                null -> "<none>"
-            }
+        fun readSelectedFileType(project: Project): FileType? =
+            FileEditorManager
+                .getInstance(project)
+                .selectedFiles
+                .firstOrNull()
+                ?.fileType
     }
 }
