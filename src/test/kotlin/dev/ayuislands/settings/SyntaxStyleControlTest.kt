@@ -178,6 +178,51 @@ class SyntaxStyleControlTest {
         assertFalse(checkBoxes.single { it.text == "Italic" }.isSelected)
     }
 
+    @Test
+    fun `unavailable style control closes popup and exposes the reason`() {
+        val popup = stubPopup()
+        var changeCount = 0
+        val control =
+            SyntaxStyleControl(
+                category = PrimitiveCategory.FUNCTION_DECL,
+                language = { "Swift" },
+                emphasis = { FontEmphasis.BOLD },
+                onEmphasisChanged = { changeCount += 1 },
+            )
+        control.component.doClick()
+
+        control.setAvailable(false, "Swift highlighter does not expose Function declaration")
+
+        assertFalse(control.component.isEnabled)
+        assertEquals(
+            "Swift highlighter does not expose Function declaration",
+            control.component.toolTipText,
+        )
+        assertEquals(0, changeCount)
+        verify(exactly = 1) { popup.cancel() }
+    }
+
+    @Test
+    fun `available style control restores additive accessibility description`() {
+        val control =
+            SyntaxStyleControl(
+                category = PrimitiveCategory.FUNCTION_DECL,
+                language = { "Swift" },
+                emphasis = { null },
+                onEmphasisChanged = {},
+            )
+
+        control.setAvailable(false, "Unavailable")
+        control.setAvailable(true, null)
+
+        assertTrue(control.component.isEnabled)
+        assertNull(control.component.toolTipText)
+        assertEquals(
+            "Adds bold or italic emphasis to the inherited syntax style.",
+            control.component.accessibleContext.accessibleDescription,
+        )
+    }
+
     private fun stubPopup(
         contentSlot: CapturingSlot<JComponent> = slot(),
         listenerSlot: CapturingSlot<JBPopupListener> = slot(),

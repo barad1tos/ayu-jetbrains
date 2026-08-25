@@ -40,8 +40,17 @@ internal class SyntaxStyleControl(
         component.icon = presentationIcon(current)
         component.accessibleContext.accessibleName =
             "Font style — ${category.displayName}, ${language()}"
-        component.accessibleContext.accessibleDescription =
-            "Adds bold or italic emphasis to the inherited syntax style."
+        component.accessibleContext.accessibleDescription = EMPHASIS_DESCRIPTION
+    }
+
+    fun setAvailable(
+        isAvailable: Boolean,
+        unavailableReason: String?,
+    ) {
+        if (!isAvailable) closePopup()
+        component.isEnabled = isAvailable
+        component.toolTipText = unavailableReason
+        component.accessibleContext.accessibleDescription = unavailableReason ?: EMPHASIS_DESCRIPTION
     }
 
     fun rebind() {
@@ -138,6 +147,9 @@ internal class SyntaxStyleControl(
     }
 
     internal companion object {
+        private const val EMPHASIS_DESCRIPTION =
+            "Adds bold or italic emphasis to the inherited syntax style."
+
         fun glyphFor(emphasis: FontEmphasis?): String =
             when (emphasis) {
                 null -> "Aa"
