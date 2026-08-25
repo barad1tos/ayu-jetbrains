@@ -146,6 +146,13 @@ class SyntaxOverlayLoaderTest {
     }
 
     @Test
+    fun `baseAttributes relationship survives independently of key registration order`() {
+        val fallbacks = loader().fallbacksFor("Mirage")
+
+        assertEquals("JAVA_KEYWORD", fallbacks["FAKE_KEY_WITH_BASE_REF"])
+    }
+
+    @Test
     fun `production overlays leave Java visibility attributes undefined`() {
         val productionLoader = SyntaxOverlayLoader()
 

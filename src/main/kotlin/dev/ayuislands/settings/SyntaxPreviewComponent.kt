@@ -12,6 +12,7 @@ import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
@@ -397,7 +398,19 @@ internal class SyntaxPreviewComponent(
             sample: PreviewSample,
         ): FileType? =
             standardFileType(sample)
+                ?: associatedFileType(sample)
                 ?: registeredLanguageFileType(language)
+
+        private fun associatedFileType(sample: PreviewSample): FileType? =
+            try {
+                FileTypeManager
+                    .getInstance()
+                    .getFileTypeByFileName(sample.fileName)
+                    .takeUnless { it === UnknownFileType.INSTANCE || it === PlainTextFileType.INSTANCE }
+            } catch (exception: RuntimeException) {
+                LOG.debug("File association lookup failed for syntax preview '${sample.fileName}'", exception)
+                null
+            }
 
         private fun standardFileType(sample: PreviewSample): FileType? {
             val standardName = sample.standardFileTypeName ?: return null

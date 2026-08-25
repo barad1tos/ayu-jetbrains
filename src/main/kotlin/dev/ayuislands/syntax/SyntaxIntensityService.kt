@@ -335,6 +335,7 @@ class SyntaxIntensityService {
         val loader = SyntaxOverlayLoader.getInstance()
         val baseline = loader.loadBaselineForVariant(variantTag)
         val overlay = loader.loadOverlayForVariant(variantTag)
+        val fallbacks = loader.fallbacksFor(variantTag)
         val request =
             SyntaxIntensityApplicator.Request(
                 preset = context.preset,
@@ -347,6 +348,7 @@ class SyntaxIntensityService {
                 customStyles = context.customStyles,
                 readabilityOptions = context.readabilityOptions,
                 customEmphasis = context.customEmphasis,
+                fallbacks = fallbacks,
             )
         val computed = SyntaxIntensityApplicator.compute(request)
         capabilitiesByVariant[variantTag] =
@@ -361,7 +363,8 @@ class SyntaxIntensityService {
             computed.keys
                 .filterTo(linkedSetOf()) { key ->
                     val source = overlay[key] ?: baseline[key]
-                    source?.foregroundColor == null && key.fallbackAttributeKey != null
+                    source?.foregroundColor == null &&
+                        (key.externalName in fallbacks || key.fallbackAttributeKey != null)
                 }.mapTo(linkedSetOf()) { it.externalName }
         return SchemeComputation(computed, materializedKeys)
     }

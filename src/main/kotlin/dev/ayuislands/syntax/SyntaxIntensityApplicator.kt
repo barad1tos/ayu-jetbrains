@@ -100,6 +100,7 @@ object SyntaxIntensityApplicator {
         val customStyles: Map<String, Map<String, Int>> = emptyMap(),
         val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
         val customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
+        val fallbacks: Map<String, String> = emptyMap(),
     )
 
     fun compute(request: Request): Map<TextAttributesKey, TextAttributes> {
@@ -121,7 +122,7 @@ object SyntaxIntensityApplicator {
                 customEmphasis = request.customEmphasis,
                 editorBg = request.editorBg,
             )
-        val sources = AttributeSources(baseline, overlay)
+        val sources = AttributeSources(baseline, overlay, request.fallbacks)
         val keys = LinkedHashSet<TextAttributesKey>()
         keys.addAll(baseline.keys)
         keys.addAll(overlay.keys)
@@ -187,6 +188,7 @@ object SyntaxIntensityApplicator {
     private data class AttributeSources(
         val baseline: Map<TextAttributesKey, TextAttributes>,
         val overlay: Map<TextAttributesKey, TextAttributes>,
+        val fallbacks: Map<String, String>,
     )
 
     private data class CascadeSource(
@@ -274,15 +276,27 @@ object SyntaxIntensityApplicator {
         key: TextAttributesKey,
         sources: AttributeSources,
     ): TextAttributes? {
-        val visited = mutableSetOf<TextAttributesKey>()
-        var fallback = key.fallbackAttributeKey
-        while (fallback != null && visited.add(fallback)) {
-            val attributes = sources.overlay[fallback] ?: sources.baseline[fallback]
+        val visited = mutableSetOf<String>()
+        var fallbackName = sources.fallbacks[key.externalName] ?: key.fallbackAttributeKey?.externalName
+        while (fallbackName != null && visited.add(fallbackName)) {
+            val fallback = findKey(fallbackName, sources)
+            val attributes = sourceAttributes(fallbackName, sources)
             if (attributes?.foregroundColor != null) return attributes
-            fallback = fallback.fallbackAttributeKey
+            fallbackName = sources.fallbacks[fallbackName] ?: fallback.fallbackAttributeKey?.externalName
         }
         return null
     }
+
+    private fun sourceAttributes(
+        keyName: String,
+        sources: AttributeSources,
+    ): TextAttributes? =
+        sources.overlay.entries
+            .firstOrNull { it.key.externalName == keyName }
+            ?.value
+            ?: sources.baseline.entries
+                .firstOrNull { it.key.externalName == keyName }
+                ?.value
 
     private fun materializeCascadeTargets(
         cascadeSource: CascadeSource,

@@ -773,6 +773,31 @@ class SyntaxIntensityApplicatorTest {
         assertEquals(fallback.foregroundColor?.rgb, output.foregroundColor?.rgb)
     }
 
+    @Test
+    fun `explicit XML fallback styles a Swift key registered before its language plugin`() {
+        val defaultBraces = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACES")
+        val earlySwiftBrackets = TextAttributesKey.find("SWIFT.ORDERING_BRACKETS")
+        TextAttributesKey.createTextAttributesKey("SWIFT.ORDERING_BRACKETS", defaultBraces)
+        val fallback = attrsWithFg(Color(0xCC, 0xCA, 0xC2)).apply { fontType = Font.ITALIC }
+
+        val result =
+            SyntaxIntensityApplicator.compute(
+                SyntaxIntensityApplicator.Request(
+                    preset = SyntaxPreset.CUSTOM,
+                    variantName = "Mirage",
+                    editorBg = Color(0x1F, 0x24, 0x30),
+                    baseline = linkedMapOf(defaultBraces to fallback, earlySwiftBrackets to TextAttributes()),
+                    overlay = emptyMap(),
+                    customStyles = mapOf("Swift" to mapOf("OPERATOR" to Font.PLAIN)),
+                    fallbacks = mapOf("SWIFT.ORDERING_BRACKETS" to "DEFAULT_BRACES"),
+                ),
+            )
+
+        val output = assertNotNull(result[earlySwiftBrackets])
+        assertEquals(Font.PLAIN, output.fontType)
+        assertEquals(fallback.foregroundColor?.rgb, output.foregroundColor?.rgb)
+    }
+
     // --- Test 15 — Signed chroma intent resolver -------------------------
 
     @Test
