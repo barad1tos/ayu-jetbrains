@@ -138,8 +138,6 @@ class SyntaxLanguageResolverTest {
         every { language.id } returns languageId
         return mockk<LanguageFileType> {
             every { this@mockk.language } returns language
-            every { name } returns languageId
-            every { defaultExtension } returns languageId.lowercase()
         }
     }
 }
