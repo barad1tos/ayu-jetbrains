@@ -80,7 +80,7 @@ class SyntaxIntensityService {
     private val skippedForeignActiveSchemeLogged = ConcurrentHashMap.newKeySet<String>()
     private val capabilitiesByVariant =
         ConcurrentHashMap<String, Map<String, Set<PrimitiveCategory>>>()
-    private val missingCapabilitySnapshotsLogged = ConcurrentHashMap.newKeySet<String>()
+    private val loggedCapabilityMisses = ConcurrentHashMap.newKeySet<String>()
     private val unlicensedCustomLogged = AtomicBoolean(false)
 
     fun apply(
@@ -163,7 +163,7 @@ class SyntaxIntensityService {
             }
         return capabilitiesByVariant[variantName]
             ?: run {
-                if (missingCapabilitySnapshotsLogged.add(variantName)) {
+                if (loggedCapabilityMisses.add(variantName)) {
                     log.warn(
                         "Syntax capability snapshot for '$variantName' is unavailable — " +
                             "keeping all controls enabled",
@@ -322,7 +322,7 @@ class SyntaxIntensityService {
             )
         val computed = SyntaxIntensityApplicator.compute(request)
         capabilitiesByVariant[variantTag] = SyntaxIntensityApplicator.tunableCategories(computed.keys)
-        missingCapabilitySnapshotsLogged.remove(variantTag)
+        loggedCapabilityMisses.remove(variantTag)
         return computed
     }
 
