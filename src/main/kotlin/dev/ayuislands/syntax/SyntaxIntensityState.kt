@@ -29,6 +29,12 @@ enum class FontStyleOverride(
     BOLD_ITALIC(Font.BOLD or Font.ITALIC),
     ;
 
+    val isBold: Boolean
+        get() = fontType and Font.BOLD != 0
+
+    val isItalic: Boolean
+        get() = fontType and Font.ITALIC != 0
+
     companion object {
         /**
          * Tamper-safe decode: an unknown / tampered string yields `null` so the
@@ -37,6 +43,17 @@ enum class FontStyleOverride(
          * throws — a bad XML value degrades to "inherit the source style".
          */
         fun fromName(raw: String?): FontStyleOverride? = entries.firstOrNull { it.name == raw }
+
+        fun fromFlags(
+            isBold: Boolean,
+            isItalic: Boolean,
+        ): FontStyleOverride =
+            when {
+                isBold && isItalic -> BOLD_ITALIC
+                isBold -> BOLD
+                isItalic -> ITALIC
+                else -> PLAIN
+            }
     }
 }
 
@@ -141,12 +158,12 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
             selectedPreset = state.selectedPreset ?: "AMBIENT",
             subordinatePreset = state.subordinatePreset ?: "AMBIENT",
             // Intensity slider cells: flat "language|category" -> "0..100".
-            customOverrides = reshapeFlatMap(state.customOverrides) { it.toIntOrNull() },
+            customOverrides = decodeSyntaxCells(state.customOverrides) { it.toIntOrNull() },
             // Font-style cells: flat "language|category" -> FontStyleOverride
             // name. Decoded to the java.awt.Font bitmask the applicator writes
             // into TextAttributes.fontType; a tampered token decodes to null
             // and the cell is dropped, mirroring the toIntOrNull discipline.
-            customStyles = reshapeFlatMap(state.customStyles) { FontStyleOverride.fromName(it)?.fontType },
+            customStyles = decodeSyntaxCells(state.customStyles) { FontStyleOverride.fromName(it)?.fontType },
             readabilityOptions =
                 SyntaxReadabilityOptions(
                     dimComments = state.dimComments,
@@ -154,35 +171,8 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
                     quietOperators = state.quietOperators,
                     emphasizeDeclarations = state.emphasizeDeclarations,
                 ),
-            customEmphasis = reshapeFlatMap(state.customEmphasis) { FontEmphasis.fromName(it)?.fontType },
+            customEmphasis = decodeSyntaxCells(state.customEmphasis) { FontEmphasis.fromName(it)?.fontType },
         )
-
-    /**
-     * Reshape a persisted flat composite-key `Map<String, String>` into the
-     * nested `language -> category -> Int` map the applicator consumes.
-     *
-     * Shared by the intensity-slider and font-style bridges so both apply the
-     * SAME `|`-split and skip-on-bad-key guard. [decodeValue] returns `null`
-     * for a tampered / unparseable value, in which case the cell is dropped
-     * (tamper-safe — no `runCatching`, no broad `catch`). Keys missing the
-     * separator, with an empty language ("|X"), or an empty category ("X|")
-     * are skipped before [decodeValue] is consulted.
-     */
-    private fun reshapeFlatMap(
-        flat: Map<String, String>,
-        decodeValue: (String) -> Int?,
-    ): Map<String, Map<String, Int>> {
-        val nested = mutableMapOf<String, MutableMap<String, Int>>()
-        for ((compositeKey, valueStr) in flat) {
-            val pipeIdx = compositeKey.indexOf('|')
-            if (pipeIdx <= 0 || pipeIdx == compositeKey.length - 1) continue
-            val language = compositeKey.substring(0, pipeIdx)
-            val category = compositeKey.substring(pipeIdx + 1)
-            val decoded = decodeValue(valueStr) ?: continue
-            nested.getOrPut(language) { mutableMapOf() }[category] = decoded
-        }
-        return nested
-    }
 
     companion object {
         fun getInstance(): SyntaxIntensityState {

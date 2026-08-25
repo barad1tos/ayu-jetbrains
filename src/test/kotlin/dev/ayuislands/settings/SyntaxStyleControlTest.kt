@@ -7,6 +7,7 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
 import com.intellij.openapi.ui.popup.LightweightWindowEvent
 import dev.ayuislands.syntax.FontEmphasis
+import dev.ayuislands.syntax.FontStyleOverride
 import dev.ayuislands.syntax.PrimitiveCategory
 import io.mockk.CapturingSlot
 import io.mockk.every
@@ -47,6 +48,11 @@ class SyntaxStyleControlTest {
         assertEquals("B", SyntaxStyleControl.glyphFor(FontEmphasis.BOLD))
         assertEquals("I", SyntaxStyleControl.glyphFor(FontEmphasis.ITALIC))
         assertEquals("BI", SyntaxStyleControl.glyphFor(FontEmphasis.BOLD_ITALIC))
+        assertEquals(
+            "BI",
+            SyntaxStyleControl.glyphFor(FontStyleOverride.BOLD, FontEmphasis.ITALIC),
+            "legacy replacement and additive emphasis must present their effective combined style",
+        )
     }
 
     @Test
@@ -72,7 +78,7 @@ class SyntaxStyleControlTest {
 
         val content = contentSlot.captured as DialogPanel
         val checkBoxes = findCheckBoxes(content)
-        assertEquals(listOf("Bold", "Italic"), checkBoxes.map { it.text })
+        assertEquals(listOf("Replace inherited style", "Bold", "Italic"), checkBoxes.map { it.text })
 
         checkBoxes.single { it.text == "Bold" }.doClick()
         assertEquals(FontEmphasis.BOLD, changed.single())
@@ -87,6 +93,69 @@ class SyntaxStyleControlTest {
         assertNull(changed.last())
         verify(exactly = 1) { popup.showUnderneathOf(control.component) }
         verify(exactly = 0) { popup.cancel() }
+    }
+
+    @Test
+    fun `replace mode converts unchecked styles to an explicit regular override`() {
+        val contentSlot = slot<JComponent>()
+        stubPopup(contentSlot = contentSlot)
+        var emphasis: FontEmphasis? = null
+        var styleOverride: FontStyleOverride? = null
+        val styleChanges = mutableListOf<FontStyleOverride?>()
+        val emphasisChanges = mutableListOf<FontEmphasis?>()
+        val control =
+            SyntaxStyleControl(
+                category = PrimitiveCategory.OPERATOR,
+                language = { "Swift" },
+                emphasis = { emphasis },
+                onEmphasisChanged = {
+                    emphasis = it
+                    emphasisChanges += it
+                },
+                styleOverride = { styleOverride },
+                onStyleOverrideChanged = {
+                    styleOverride = it
+                    styleChanges += it
+                },
+            )
+
+        control.component.doClick()
+        val checkBoxes = findCheckBoxes(contentSlot.captured)
+        checkBoxes.single { it.text == "Replace inherited style" }.doClick()
+
+        assertEquals(FontStyleOverride.PLAIN, styleChanges.last())
+        assertNull(emphasisChanges.last())
+
+        checkBoxes.single { it.text == "Bold" }.doClick()
+        assertEquals(FontStyleOverride.BOLD, styleChanges.last())
+
+        checkBoxes.single { it.text == "Replace inherited style" }.doClick()
+        assertNull(styleChanges.last())
+        assertEquals(FontEmphasis.BOLD, emphasisChanges.last())
+    }
+
+    @Test
+    fun `popup presents combined legacy replacement and additive emphasis without rewriting either`() {
+        val contentSlot = slot<JComponent>()
+        stubPopup(contentSlot = contentSlot)
+        var changeCount = 0
+        val control =
+            SyntaxStyleControl(
+                category = PrimitiveCategory.OPERATOR,
+                language = { "Swift" },
+                emphasis = { FontEmphasis.ITALIC },
+                onEmphasisChanged = { changeCount += 1 },
+                styleOverride = { FontStyleOverride.BOLD },
+                onStyleOverrideChanged = { changeCount += 1 },
+            )
+
+        control.component.doClick()
+
+        val checkBoxes = findCheckBoxes(contentSlot.captured)
+        assertTrue(checkBoxes.single { it.text == "Replace inherited style" }.isSelected)
+        assertTrue(checkBoxes.single { it.text == "Bold" }.isSelected)
+        assertTrue(checkBoxes.single { it.text == "Italic" }.isSelected)
+        assertEquals(0, changeCount, "opening the popup must not migrate or normalize stored style layers")
     }
 
     @Test
@@ -117,7 +186,7 @@ class SyntaxStyleControlTest {
         verify(exactly = 1) { popup.cancel() }
         assertEquals("Font style — Function declaration, Java", control.component.accessibleContext.accessibleName)
         assertEquals(
-            "Adds bold or italic emphasis to the inherited syntax style.",
+            "Adds emphasis or replaces inherited bold and italic styling.",
             control.component.accessibleContext.accessibleDescription,
         )
     }
@@ -218,7 +287,7 @@ class SyntaxStyleControlTest {
         assertTrue(control.component.isEnabled)
         assertNull(control.component.toolTipText)
         assertEquals(
-            "Adds bold or italic emphasis to the inherited syntax style.",
+            "Adds emphasis or replaces inherited bold and italic styling.",
             control.component.accessibleContext.accessibleDescription,
         )
     }

@@ -10,17 +10,20 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.syntax.FontEmphasis
+import dev.ayuislands.syntax.FontStyleOverride
 import dev.ayuislands.syntax.PrimitiveCategory
 import java.awt.Font
 import java.awt.event.ActionListener
 import javax.swing.JCheckBox
 
-/** Compact selector for additive font emphasis on one syntax category. */
+/** Compact selector for additive or exact font styling on one syntax category. */
 internal class SyntaxStyleControl(
     private val category: PrimitiveCategory,
     private val language: () -> String,
     private val emphasis: () -> FontEmphasis?,
     private val onEmphasisChanged: (FontEmphasis?) -> Unit,
+    private val styleOverride: () -> FontStyleOverride? = { null },
+    private val onStyleOverrideChanged: (FontStyleOverride?) -> Unit = {},
 ) {
     private var popup: JBPopup? = null
 
@@ -36,8 +39,7 @@ internal class SyntaxStyleControl(
     }
 
     fun refreshPresentation() {
-        val current = emphasis()
-        component.icon = presentationIcon(current)
+        component.icon = presentationIcon()
         component.accessibleContext.accessibleName =
             "Font style — ${category.displayName}, ${language()}"
         component.accessibleContext.accessibleDescription = EMPHASIS_DESCRIPTION
@@ -64,44 +66,65 @@ internal class SyntaxStyleControl(
 
     private fun showPopup() {
         closePopup()
-        val current = emphasis()
+        val currentOverride = styleOverride()
+        val currentEmphasis = emphasis()
+        val currentFontType = combinedFontType(currentOverride, currentEmphasis)
+        lateinit var replaceCheckBox: JCheckBox
         lateinit var boldCheckBox: JCheckBox
         lateinit var italicCheckBox: JCheckBox
         val content =
             panel {
                 row {
+                    replaceCheckBox =
+                        checkBox("Replace inherited style").component.apply {
+                            isSelected = currentOverride != null
+                        }
+                }
+                row {
                     boldCheckBox =
                         checkBox("Bold").component.apply {
-                            isSelected = current?.isBold == true
+                            isSelected = currentFontType and Font.BOLD != 0
                         }
                 }
                 row {
                     italicCheckBox =
                         checkBox("Italic").component.apply {
-                            isSelected = current?.isItalic == true
+                            isSelected = currentFontType and Font.ITALIC != 0
                             font = font.deriveFont(Font.ITALIC)
                         }
                 }
-                row { comment("Adds to the inherited style.") }
+                row { comment("Replace lets unchecked styles become regular.") }
             }
 
         val publish =
             ActionListener {
-                onEmphasisChanged(
-                    FontEmphasis.fromFlags(
-                        isBold = boldCheckBox.isSelected,
-                        isItalic = italicCheckBox.isSelected,
-                    ),
-                )
+                if (replaceCheckBox.isSelected) {
+                    onEmphasisChanged(null)
+                    onStyleOverrideChanged(
+                        FontStyleOverride.fromFlags(
+                            isBold = boldCheckBox.isSelected,
+                            isItalic = italicCheckBox.isSelected,
+                        ),
+                    )
+                } else {
+                    onStyleOverrideChanged(null)
+                    onEmphasisChanged(
+                        FontEmphasis.fromFlags(
+                            isBold = boldCheckBox.isSelected,
+                            isItalic = italicCheckBox.isSelected,
+                        ),
+                    )
+                }
                 refreshPresentation()
             }
+        replaceCheckBox.addActionListener(publish)
         boldCheckBox.addActionListener(publish)
         italicCheckBox.addActionListener(publish)
 
         val created =
             JBPopupFactory
                 .getInstance()
-                .createComponentPopupBuilder(content, boldCheckBox)
+                .createComponentPopupBuilder(content, replaceCheckBox)
                 .setTitle(category.displayName)
                 .setRequestFocus(true)
                 .setCancelOnClickOutside(true)
@@ -127,11 +150,14 @@ internal class SyntaxStyleControl(
         openPopup.cancel()
     }
 
-    private fun presentationIcon(current: FontEmphasis? = emphasis()): StyleGlyphIcon {
-        val isActive = current != null
+    private fun presentationIcon(): StyleGlyphIcon {
+        val currentOverride = styleOverride()
+        val currentEmphasis = emphasis()
+        val fontType = combinedFontType(currentOverride, currentEmphasis)
+        val isActive = currentOverride != null || currentEmphasis != null
         return StyleGlyphIcon(
-            glyph = glyphFor(current),
-            glyphStyle = current?.fontType ?: Font.PLAIN,
+            glyph = glyphFor(currentOverride, currentEmphasis),
+            glyphStyle = fontType,
             foreground = if (isActive) UIUtil.getLabelForeground() else UIUtil.getContextHelpForeground(),
             background = if (isActive) JBUI.CurrentTheme.ActionButton.pressedBackground() else null,
             border =
@@ -148,14 +174,26 @@ internal class SyntaxStyleControl(
 
     internal companion object {
         private const val EMPHASIS_DESCRIPTION =
-            "Adds bold or italic emphasis to the inherited syntax style."
+            "Adds emphasis or replaces inherited bold and italic styling."
 
-        fun glyphFor(emphasis: FontEmphasis?): String =
-            when (emphasis) {
-                null -> "Aa"
-                FontEmphasis.BOLD -> "B"
-                FontEmphasis.ITALIC -> "I"
-                FontEmphasis.BOLD_ITALIC -> "BI"
+        fun glyphFor(emphasis: FontEmphasis?): String = glyphFor(null, emphasis)
+
+        fun glyphFor(
+            styleOverride: FontStyleOverride?,
+            emphasis: FontEmphasis?,
+        ): String {
+            if (styleOverride == null && emphasis == null) return "Aa"
+            return when (combinedFontType(styleOverride, emphasis)) {
+                Font.PLAIN -> "R"
+                Font.BOLD -> "B"
+                Font.ITALIC -> "I"
+                else -> "BI"
             }
+        }
+
+        private fun combinedFontType(
+            styleOverride: FontStyleOverride?,
+            emphasis: FontEmphasis?,
+        ): Int = (styleOverride?.fontType ?: Font.PLAIN) or (emphasis?.fontType ?: Font.PLAIN)
     }
 }

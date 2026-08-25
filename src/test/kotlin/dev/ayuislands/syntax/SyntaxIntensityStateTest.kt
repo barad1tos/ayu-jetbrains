@@ -264,6 +264,14 @@ class SyntaxIntensityStateTest {
         )
     }
 
+    @Test
+    fun `FontStyleOverride flags include explicit regular replacement`() {
+        assertSame(FontStyleOverride.PLAIN, FontStyleOverride.fromFlags(isBold = false, isItalic = false))
+        assertSame(FontStyleOverride.BOLD, FontStyleOverride.fromFlags(isBold = true, isItalic = false))
+        assertSame(FontStyleOverride.ITALIC, FontStyleOverride.fromFlags(isBold = false, isItalic = true))
+        assertSame(FontStyleOverride.BOLD_ITALIC, FontStyleOverride.fromFlags(isBold = true, isItalic = true))
+    }
+
     // --- Test 16 - toPresetConfig style bridge ----------------------------
 
     @Test

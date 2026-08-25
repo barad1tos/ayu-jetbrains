@@ -9,11 +9,14 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.theme.EditorSchemeChange
+import dev.ayuislands.theme.EditorSchemeOverrides
+import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
 import java.awt.Font
 import java.util.concurrent.ConcurrentHashMap
@@ -40,6 +43,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    key logs WARN and the next key still gets written. The single
  *    publish still fires once per apply. `CancellationException` propagates
  *    unconditionally.
+ *  - Inherited-key ownership: Custom may materialize a language key whose
+ *    color normally comes from a registered fallback. [EditorSchemeOverrides]
+ *    snapshots the exact direct attribute before the first write, restores it
+ *    when the sparse cell disappears, and relinquishes ownership if the user
+ *    changes that attribute while the overlay is active.
  *  - R-1 caller-side fallback: the applicator takes `editorBg` as a
  *    parameter and only emits a WARN when a dark variant arrives with
  *    `Color.WHITE`. This service is the canonical fallback site:
@@ -136,14 +144,17 @@ class SyntaxIntensityService {
                     context = context,
                 )
             writeSchemeAttributes(
-                scheme,
-                applyIgnorePluginPreference(computed, context, overlayVariant),
-                schemeName,
+                SchemeWrite(
+                    scheme,
+                    applyIgnorePluginPreference(computed.attributes, context, overlayVariant),
+                    schemeName,
+                    computed.materializedKeys,
+                ),
                 retirement,
             )
             touched.add(scheme)
         }
-        writeActiveSchemeIfNotTouched(context, touched, retirement)
+        writeActiveScheme(context, touched, retirement)
         retirement.commitRepaired()
         publishSchemeChange()
     }
@@ -181,6 +192,18 @@ class SyntaxIntensityService {
         val readabilityOptions: SyntaxReadabilityOptions,
         val customEmphasis: Map<String, Map<String, Int>>,
         val ignorePluginSyntaxColorsEnabled: Boolean,
+    )
+
+    private data class SchemeComputation(
+        val attributes: Map<TextAttributesKey, TextAttributes>,
+        val materializedKeys: Set<String>,
+    )
+
+    private data class SchemeWrite(
+        val scheme: EditorColorsScheme,
+        val attributes: Map<TextAttributesKey, TextAttributes>,
+        val label: String,
+        val materializedKeys: Set<String>,
     )
 
     /**
@@ -269,7 +292,7 @@ class SyntaxIntensityService {
      * identity dedup comparison stays sound without threading the manager
      * instance through.
      */
-    private fun writeActiveSchemeIfNotTouched(
+    private fun writeActiveScheme(
         context: ApplyContext,
         touched: Set<EditorColorsScheme>,
         retirement: RetirementPass,
@@ -294,9 +317,12 @@ class SyntaxIntensityService {
                 context = context,
             )
         writeSchemeAttributes(
-            active,
-            applyIgnorePluginPreference(computed, context, variant),
-            active.name,
+            SchemeWrite(
+                active,
+                applyIgnorePluginPreference(computed.attributes, context, variant),
+                active.name,
+                computed.materializedKeys,
+            ),
             retirement,
         )
     }
@@ -305,15 +331,17 @@ class SyntaxIntensityService {
         scheme: EditorColorsScheme,
         variantTag: String,
         context: ApplyContext,
-    ): Map<TextAttributesKey, TextAttributes> {
+    ): SchemeComputation {
         val loader = SyntaxOverlayLoader.getInstance()
+        val baseline = loader.loadBaselineForVariant(variantTag)
+        val overlay = loader.loadOverlayForVariant(variantTag)
         val request =
             SyntaxIntensityApplicator.Request(
                 preset = context.preset,
                 variantName = variantTag,
                 editorBg = resolveEditorBg(scheme, variantTag),
-                baseline = loader.loadBaselineForVariant(variantTag),
-                overlay = loader.loadOverlayForVariant(variantTag),
+                baseline = baseline,
+                overlay = overlay,
                 customOverrides = context.customOverrides,
                 subordinatePreset = context.subordinatePreset,
                 customStyles = context.customStyles,
@@ -321,9 +349,21 @@ class SyntaxIntensityService {
                 customEmphasis = context.customEmphasis,
             )
         val computed = SyntaxIntensityApplicator.compute(request)
-        capabilitiesByVariant[variantTag] = SyntaxIntensityApplicator.tunableCategories(computed.keys)
+        capabilitiesByVariant[variantTag] =
+            SyntaxIntensityApplicator.tunableCategories(
+                LinkedHashSet<TextAttributesKey>().apply {
+                    addAll(baseline.keys)
+                    addAll(overlay.keys)
+                },
+            )
         loggedCapabilityMisses.remove(variantTag)
-        return computed
+        val materializedKeys =
+            computed.keys
+                .filterTo(linkedSetOf()) { key ->
+                    val source = overlay[key] ?: baseline[key]
+                    source?.foregroundColor == null && key.fallbackAttributeKey != null
+                }.mapTo(linkedSetOf()) { it.externalName }
+        return SchemeComputation(computed, materializedKeys)
     }
 
     private fun applyIgnorePluginPreference(
@@ -368,20 +408,51 @@ class SyntaxIntensityService {
     }
 
     private fun writeSchemeAttributes(
-        scheme: EditorColorsScheme,
-        computed: Map<TextAttributesKey, TextAttributes>,
-        schemeLabel: String,
+        write: SchemeWrite,
         retirement: RetirementPass,
     ) {
-        retireKeys(scheme, schemeLabel, retirement)
-        for ((key, attrs) in computed) {
+        restoreSyntaxOverrides(write.scheme, write.label, write.materializedKeys)
+        retireKeys(write.scheme, write.label, retirement)
+        for ((key, attrs) in write.attributes) {
             try {
-                scheme.setAttributes(key, attrs)
+                if (key.externalName in write.materializedKeys) {
+                    EditorSchemeOverrides.writeAttributes(
+                        write.scheme,
+                        EditorSchemeOwner.Syntax,
+                        key,
+                        attrs,
+                    )
+                } else {
+                    write.scheme.setAttributes(key, attrs)
+                }
+            } catch (cancellation: ProcessCanceledException) {
+                throw cancellation
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
             } catch (runtime: RuntimeException) {
-                log.warn("setAttributes failed on $schemeLabel for key ${key.externalName}", runtime)
+                log.warn("setAttributes failed on ${write.label} for key ${key.externalName}", runtime)
             }
+        }
+    }
+
+    private fun restoreSyntaxOverrides(
+        scheme: EditorColorsScheme,
+        schemeLabel: String,
+        activeKeyNames: Set<String>,
+    ) {
+        try {
+            EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+            EditorSchemeOverrides.rearm(
+                EditorSchemeOwner.Syntax,
+                listOf(scheme),
+                mapOf(scheme to activeKeyNames),
+            )
+        } catch (cancellation: ProcessCanceledException) {
+            throw cancellation
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (runtime: RuntimeException) {
+            log.warn("Failed to restore syntax attributes on $schemeLabel", runtime)
         }
     }
 

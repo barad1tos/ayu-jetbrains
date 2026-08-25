@@ -21,6 +21,8 @@ internal sealed interface EditorSchemeOwner {
 
     data object AlwaysOn : EditorSchemeOwner
 
+    data object Syntax : EditorSchemeOwner
+
     data object Vcs : EditorSchemeOwner
 }
 
@@ -201,16 +203,29 @@ internal object EditorSchemeOverrides {
     fun rearm(
         owner: EditorSchemeOwner,
         schemes: Iterable<EditorColorsScheme>,
-    ) = synchronized(lock) {
-        schemes.forEach(::hydrate)
-        for ((scheme, schemeStates) in states) {
-            schemeStates.entries.removeIf { (entry, state) ->
-                val shouldRemove = state is OverrideState.Relinquished && state.owner == owner
-                if (shouldRemove) scheme.metaProperties.remove(entry.metadataKey)
-                shouldRemove
+        activeAttributes: Map<EditorColorsScheme, Set<String>> = emptyMap(),
+    ) {
+        synchronized(lock) {
+            schemes.forEach(::hydrate)
+            val isTargeted = activeAttributes.isNotEmpty()
+            for ((scheme, schemeStates) in states) {
+                if (isTargeted && scheme !in activeAttributes) continue
+                schemeStates.entries.removeIf { (entry, state) ->
+                    val activeKeyNames = activeAttributes[scheme]
+                    val shouldRemove =
+                        state is OverrideState.Relinquished &&
+                            state.owner == owner &&
+                            (
+                                activeKeyNames == null ||
+                                    entry !is SchemeEntry.AttributesEntry ||
+                                    entry.key.externalName !in activeKeyNames
+                            )
+                    if (shouldRemove) scheme.metaProperties.remove(entry.metadataKey)
+                    shouldRemove
+                }
             }
+            states.entries.removeIf { (_, schemeStates) -> schemeStates.isEmpty() }
         }
-        states.entries.removeIf { (_, schemeStates) -> schemeStates.isEmpty() }
     }
 
     fun hasState(
@@ -365,6 +380,7 @@ internal object EditorSchemeOverrides {
             when (stateOwner) {
                 is EditorSchemeOwner.Element -> "E:${stateOwner.id.name}"
                 EditorSchemeOwner.AlwaysOn -> "A"
+                EditorSchemeOwner.Syntax -> "S"
                 EditorSchemeOwner.Vcs -> "V"
             }
         return when (state) {
@@ -380,6 +396,7 @@ internal object EditorSchemeOverrides {
         val owner =
             when (val encodedOwner = parts[1]) {
                 "A" -> EditorSchemeOwner.AlwaysOn
+                "S" -> EditorSchemeOwner.Syntax
                 "V" -> EditorSchemeOwner.Vcs
                 else -> EditorSchemeOwner.Element(AccentElementId.valueOf(encodedOwner.removePrefix("E:")))
             }

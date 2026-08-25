@@ -698,6 +698,81 @@ class SyntaxIntensityApplicatorTest {
         assertEquals(expected, actual)
     }
 
+    @Test
+    fun `custom intensity resolves an inherited Swift operator without mutating its sources`() {
+        val inheritedForeground = Color(0xCC, 0xCA, 0xC2)
+        val defaultBrackets = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.createTextAttributesKey("SWIFT.BRACKETS", defaultBrackets)
+        val defaultAttributes = attrsWithFg(inheritedForeground).apply { fontType = Font.ITALIC }
+        val inheritedAttributes = TextAttributes()
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = mapOf("Swift" to mapOf("OPERATOR" to 75)),
+                baseline =
+                    linkedMapOf(
+                        defaultBrackets to defaultAttributes,
+                        swiftBrackets to inheritedAttributes,
+                    ),
+                overlay = emptyMap(),
+            )
+
+        val output = assertNotNull(result[swiftBrackets], "A tuned inherited Swift token must be materialized")
+        assertNotNull(output.foregroundColor, "The slider must transform the fallback foreground")
+        assertEquals(Font.ITALIC, output.fontType, "Intensity-only tuning must preserve the fallback font style")
+        assertEquals(inheritedForeground.rgb, defaultAttributes.foregroundColor?.rgb)
+        assertEquals(null, inheritedAttributes.foregroundColor, "The inherited source must stay sparse")
+    }
+
+    @Test
+    fun `custom emphasis on an inherited Swift operator preserves the resolved Ayu color`() {
+        val defaultBrackets = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.createTextAttributesKey("SWIFT.BRACKETS", defaultBrackets)
+        val inheritedForeground = Color(0xCC, 0xCA, 0xC2)
+        val fallback = attrsWithFg(inheritedForeground).apply { fontType = Font.ITALIC }
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = linkedMapOf(defaultBrackets to fallback, swiftBrackets to TextAttributes()),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customEmphasis = mapOf("Swift" to mapOf("OPERATOR" to Font.BOLD)),
+                    ),
+            )
+
+        val output = assertNotNull(result[swiftBrackets], "A styled inherited Swift token must be materialized")
+        assertEquals(
+            inheritedForeground.rgb,
+            output.foregroundColor?.rgb,
+            "An explicit style must clone the Ayu fallback color instead of falling through to editor gray",
+        )
+        assertEquals(Font.BOLD or Font.ITALIC, output.fontType)
+    }
+
+    @Test
+    fun `explicit regular style removes inherited italic from a Swift operator`() {
+        val defaultBrackets = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.createTextAttributesKey("SWIFT.BRACKETS", defaultBrackets)
+        val fallback = attrsWithFg(Color(0xCC, 0xCA, 0xC2)).apply { fontType = Font.ITALIC }
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = linkedMapOf(defaultBrackets to fallback, swiftBrackets to TextAttributes()),
+                overlay = emptyMap(),
+                options = ComputeOptions(customStyles = mapOf("Swift" to mapOf("OPERATOR" to Font.PLAIN))),
+            )
+
+        val output = assertNotNull(result[swiftBrackets])
+        assertEquals(Font.PLAIN, output.fontType)
+        assertEquals(fallback.foregroundColor?.rgb, output.foregroundColor?.rgb)
+    }
+
     // --- Test 15 — Signed chroma intent resolver -------------------------
 
     @Test
