@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Native XML preview -->
+<preview:card xmlns:preview="urn:ayu:preview" count="42">
+    <preview:title>Ayu &amp; Islands</preview:title>
+    <preview:code><![CDATA[syntax <preview>]]></preview:code>
+</preview:card>

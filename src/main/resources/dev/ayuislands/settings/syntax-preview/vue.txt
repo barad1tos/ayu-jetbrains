@@ -1,0 +1,15 @@
+<template>
+  <section v-if="count > 0" :data-count="count" @click="select">
+    {{ label }}
+  </section>
+</template>
+
+<script setup lang="ts">
+const count: number = 42
+const label = `Ayu ${count}`
+const select = (): void => console.log(label)
+</script>
+
+<style scoped>
+section { color: #ffcc66; }
+</style>

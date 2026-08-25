@@ -1,0 +1,15 @@
+---@class Preview
+---@field prefix string
+local Preview = {}
+Preview.__index = Preview
+
+---@param prefix string
+function Preview:new(prefix)
+    return setmetatable({ prefix = prefix }, self)
+end
+
+function Preview:render(value)
+    local count = 42
+    if count > 0 then return self.prefix .. ": " .. value end
+    return "none"
+end

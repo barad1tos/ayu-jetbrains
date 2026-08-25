@@ -1,0 +1,5 @@
+# Native dotenv values
+PREVIEW_NAME="Ayu Islands"
+PREVIEW_COUNT=42
+PREVIEW_ENABLED=true
+PREVIEW_PATH=${HOME}/ayu-preview

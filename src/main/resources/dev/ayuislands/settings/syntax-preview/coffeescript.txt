@@ -1,0 +1,11 @@
+### Renders values for preview. ###
+class Preview
+  @limit: 42
+
+  constructor: (@prefix = "Ayu") ->
+
+  render: (value) ->
+    result = "#{@prefix}: #{value}"
+    if result.length > 0 then result else "none"
+
+export default Preview

@@ -1,0 +1,10 @@
+## Native Velocity preview
+#set($limit = 42)
+#macro(render $value)
+  #if($value && $limit > 0)
+    <span class="preview">$value</span>
+  #else
+    none
+  #end
+#end
+#render("Ayu")

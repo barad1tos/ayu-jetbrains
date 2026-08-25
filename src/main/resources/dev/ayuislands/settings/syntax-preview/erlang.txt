@@ -1,0 +1,11 @@
+-module(preview).
+-export([render/1]).
+-type preview() :: #{prefix := string(), count := integer()}.
+
+%% Render a non-empty preview value.
+-spec render(string()) -> string().
+render(Value) when length(Value) > 0 ->
+    Prefix = "Ayu",
+    Prefix ++ ": " ++ Value;
+render(_) ->
+    "none".
