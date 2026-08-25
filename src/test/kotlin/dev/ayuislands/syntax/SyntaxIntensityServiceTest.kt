@@ -168,7 +168,7 @@ class SyntaxIntensityServiceTest {
         every {
             SyntaxIntensityApplicator.compute(any())
         } returns payload
-        every { SyntaxIntensityApplicator.tunableCategories(any()) } returns emptyMap()
+        every { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) } returns emptyMap()
 
         every { mockApp.getService(SyntaxIntensityService::class.java) } returns SyntaxIntensityService()
         every { mockApp.getService(AyuIslandsSettings::class.java) } returns ayuSettings
@@ -257,7 +257,7 @@ class SyntaxIntensityServiceTest {
     @Test
     fun `tunable categories return effective map without scheme writes or publication`() {
         val expected = mapOf("Swift" to setOf(PrimitiveCategory.FUNCTION_DECL))
-        every { SyntaxIntensityApplicator.tunableCategories(any()) } returns expected
+        every { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) } returns expected
         val service = SyntaxIntensityService()
         service.apply(SyntaxPreset.AMBIENT, emptyMap())
         clearMocks(loader, mockMirage, mockDark, mockLight, answers = false, recordedCalls = true)
@@ -270,7 +270,7 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 0) { loader.loadBaselineForVariant(any()) }
         verify(exactly = 0) { loader.loadOverlayForVariant(any()) }
         verify(exactly = 0) { SyntaxIntensityApplicator.compute(any()) }
-        verify(exactly = 0) { SyntaxIntensityApplicator.tunableCategories(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) }
         verify(exactly = 0) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
         verify(exactly = 0) { mockDark.setAttributes(any(), any<TextAttributes>()) }
         verify(exactly = 0) { mockLight.setAttributes(any(), any<TextAttributes>()) }
@@ -286,8 +286,9 @@ class SyntaxIntensityServiceTest {
                 TextAttributesKey.find(PAYLOAD_KEY_NAME) to TextAttributes(),
                 inheritedSwiftKey to inheritedSwiftAttributes,
             )
-        every { SyntaxIntensityApplicator.tunableCategories(any()) } answers {
-            capabilitySnapshots += firstArg<Iterable<TextAttributesKey>>().map { key -> key.externalName }
+        every { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) } answers {
+            capabilitySnapshots +=
+                firstArg<Map<TextAttributesKey, TextAttributes>>().keys.map { key -> key.externalName }
             emptyMap()
         }
 
@@ -393,7 +394,7 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 0) { loader.loadBaselineForVariant(any()) }
         verify(exactly = 0) { loader.loadOverlayForVariant(any()) }
         verify(exactly = 0) { SyntaxIntensityApplicator.compute(any()) }
-        verify(exactly = 0) { SyntaxIntensityApplicator.tunableCategories(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) }
         verify(exactly = 0) { EditorSchemeChange.publish() }
     }
 

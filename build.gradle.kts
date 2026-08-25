@@ -29,6 +29,16 @@ val integrationPlugins =
         "indent-rainbow.indent-rainbow" to "2.2.0",
     )
 
+val syntaxPreviewTestPlugins =
+    listOf(
+        "com.intellij.modules.json",
+        "com.intellij.properties",
+        "com.jetbrains.sh",
+        "org.intellij.plugins.markdown",
+        "org.jetbrains.kotlin",
+        "org.jetbrains.plugins.yaml",
+    )
+
 kotlin {
     jvmToolchain(21)
 }
@@ -52,6 +62,7 @@ dependencies {
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
         testBundledPlugin("org.intellij.groovy")
+        syntaxPreviewTestPlugins.forEach(::testBundledPlugin)
     }
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:${providers.gradleProperty("mockkVersion").get()}")

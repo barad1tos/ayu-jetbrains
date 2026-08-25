@@ -18,14 +18,12 @@ import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxOverlayLoader
-import dev.ayuislands.syntax.SyntaxPreset
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import org.junit.jupiter.api.assertAll
-import java.awt.Color
 import java.awt.Container
 import java.awt.Dimension
 import java.awt.image.BufferedImage
@@ -485,7 +483,8 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
-    fun `preview categories equal effective unions for every declared language`() {
+    fun `preview category claims equal Ayu capability unions for every declared language`() {
+        // Native emission is verified separately at the IntelliJ fixture boundary.
         val effectiveCategories = effectiveCategoryUnions()
         val categoryAssertions: List<() -> Unit> =
             SyntaxPreviewComponent.catalogLanguagesForTest().map { language ->
@@ -659,25 +658,17 @@ class SyntaxPreviewComponentTest {
     private fun effectiveCategoryUnions(): Map<String, Set<PrimitiveCategory>> {
         val loader = SyntaxOverlayLoader()
         val categories = linkedMapOf<String, MutableSet<PrimitiveCategory>>()
-        val editorBackgrounds =
-            mapOf(
-                "Mirage" to Color(0x1F, 0x24, 0x30),
-                "Dark" to Color(0x0D, 0x10, 0x17),
-                "Light" to Color(0xFC, 0xFC, 0xFC),
-            )
-        for ((variant, background) in editorBackgrounds) {
-            val effective =
-                SyntaxIntensityApplicator.compute(
-                    SyntaxIntensityApplicator.Request(
-                        preset = SyntaxPreset.AMBIENT,
-                        variantName = variant,
-                        editorBg = background,
-                        baseline = loader.loadBaselineForVariant(variant),
-                        overlay = loader.loadOverlayForVariant(variant),
-                    ),
+        for (variant in listOf("Mirage", "Dark", "Light")) {
+            val baseline = loader.loadBaselineForVariant(variant)
+            val overlay = loader.loadOverlayForVariant(variant)
+            val variantCategories =
+                SyntaxIntensityApplicator.tunableCategories(
+                    baseline = baseline,
+                    overlay = overlay,
+                    fallbacks = loader.fallbacksFor(variant),
                 )
-            for ((language, variantCategories) in SyntaxIntensityApplicator.tunableCategories(effective.keys)) {
-                categories.getOrPut(language) { linkedSetOf() }.addAll(variantCategories)
+            for ((language, availableCategories) in variantCategories) {
+                categories.getOrPut(language) { linkedSetOf() }.addAll(availableCategories)
             }
         }
         return categories.mapValues { (_, values) -> values.toSet() }

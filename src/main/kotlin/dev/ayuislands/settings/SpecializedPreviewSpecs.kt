@@ -22,7 +22,6 @@ internal object SpecializedPreviewSpecs {
                 "bash.txt",
                 FUNCTION_DECL,
                 OPERATOR,
-                COMMENT,
                 LOCAL_VAR,
                 STRING_LITERAL,
             ),
@@ -89,7 +88,6 @@ internal object SpecializedPreviewSpecs {
                 "preview.hcl",
                 previewFileType("HCL", "hcl"),
                 "hcl.txt",
-                COMMENT,
                 LOCAL_VAR,
                 INSTANCE_FIELD,
             ),
@@ -176,6 +174,7 @@ internal object SpecializedPreviewSpecs {
                 "regexp.txt",
                 STRING_LITERAL,
                 CLASS_DECL,
+                OPERATOR,
             ),
             syntaxPreviewSpec(
                 "TIL",

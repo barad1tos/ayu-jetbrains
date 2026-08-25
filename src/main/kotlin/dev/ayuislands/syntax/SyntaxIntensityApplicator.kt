@@ -162,9 +162,18 @@ object SyntaxIntensityApplicator {
         return result
     }
 
-    internal fun tunableCategories(keys: Iterable<TextAttributesKey>): Map<String, Set<PrimitiveCategory>> {
+    internal fun tunableCategories(
+        baseline: Map<TextAttributesKey, TextAttributes>,
+        overlay: Map<TextAttributesKey, TextAttributes>,
+        fallbacks: Map<String, String>,
+    ): Map<String, Set<PrimitiveCategory>> {
+        val sources = AttributeSources(baseline, overlay, fallbacks)
+        val keys = LinkedHashSet<TextAttributesKey>()
+        keys.addAll(baseline.keys)
+        keys.addAll(overlay.keys)
         val categories = linkedMapOf<String, MutableSet<PrimitiveCategory>>()
         for (key in keys) {
+            if (!hasTunableForeground(key, sources)) continue
             val language = SyntaxLanguageRegistry.classify(key.externalName)
             if (language.bucket != SyntaxLanguageRegistry.Bucket.LANGUAGE) continue
             val category = SyntaxCategoryRegistry.classify(key.externalName)
@@ -174,6 +183,13 @@ object SyntaxIntensityApplicator {
         }
         return categories.mapValues { (_, values) -> values.toSet() }
     }
+
+    private fun hasTunableForeground(
+        key: TextAttributesKey,
+        sources: AttributeSources,
+    ): Boolean =
+        sourceAttributes(key.externalName, sources)?.foregroundColor != null ||
+            resolveFallbackAttributes(key, sources)?.foregroundColor != null
 
     private data class TransformContext(
         val preset: SyntaxPreset,

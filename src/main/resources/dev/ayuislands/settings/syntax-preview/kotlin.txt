@@ -1,6 +1,8 @@
 /** Renders values for preview. */
 interface Previewing<T> { fun render(value: T): String }
 
+typealias PreviewLabel = String
+
 class Preview<T>(private val prefix: String) : Previewing<T> {
     companion object {
         const val LIMIT = 42

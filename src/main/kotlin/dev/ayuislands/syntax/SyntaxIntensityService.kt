@@ -371,10 +371,9 @@ class SyntaxIntensityService {
         val computed = SyntaxIntensityApplicator.compute(request)
         capabilitiesByVariant[variantTag] =
             SyntaxIntensityApplicator.tunableCategories(
-                LinkedHashSet<TextAttributesKey>().apply {
-                    addAll(baseline.keys)
-                    addAll(overlay.keys)
-                },
+                baseline = baseline,
+                overlay = overlay,
+                fallbacks = fallbacks,
             )
         loggedCapabilityMisses.remove(variantTag)
         val materializedKeys =

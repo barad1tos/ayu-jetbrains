@@ -24,7 +24,7 @@ import kotlin.test.assertNotNull
  *  3.  Saturation lower clamp [0f].
  *  4.  Lightness lower clamp [0.10f].
  *  5.  Lightness upper clamp [0.95f].
- *  6.  Hue invariant under every preset / language / category.
+ *  6.  Hue invariant for representative Java and Kotlin keys under every preset.
  *  7.  Pattern B clone discipline — baseline `TextAttributes` instances are
  *      never mutated, and the output value is a distinct instance.
  *  8.  H10 non-null contract — every emitted `TextAttributes` is non-null.
@@ -196,11 +196,11 @@ class SyntaxIntensityApplicatorTest {
     // --- Test 6 — Hue invariant ------------------------------------------
 
     @Test
-    fun `hue is invariant under every preset and category for a colored baseline`() {
+    fun `hue is invariant for representative Java and Kotlin keys across every preset`() {
         val coloredFg = Color(0xE6, 0xB6, 0x73) // ayu orange-yellow, hue ~36
         val baselineHsl = HslColor.fromColor(coloredFg)
         for (preset in SyntaxPreset.entries) {
-            for ((key, _) in CATEGORY_KEYS) {
+            for (key in REPRESENTATIVE_HUE_KEYS) {
                 val baseline = mapOf(key to attrsWithFg(coloredFg))
                 val result =
                     compute(
@@ -1423,8 +1423,12 @@ class SyntaxIntensityApplicatorTest {
                 overlay = emptyMap(),
             )
 
-        val effective = SyntaxIntensityApplicator.compute(request)
-        val categories = SyntaxIntensityApplicator.tunableCategories(effective.keys)
+        val categories =
+            SyntaxIntensityApplicator.tunableCategories(
+                baseline = request.baseline,
+                overlay = request.overlay,
+                fallbacks = mapOf("SWIFT_STRING" to "DEFAULT_STRING"),
+            )
 
         assertEquals(
             setOf(PrimitiveCategory.FUNCTION_DECL, PrimitiveCategory.STRING_LITERAL),
@@ -1432,6 +1436,39 @@ class SyntaxIntensityApplicatorTest {
         )
         assertEquals(setOf(PrimitiveCategory.STRING_LITERAL), categories["JSON"])
         assertFalse(categories.containsKey("Default"), "cascade source buckets are not user-selectable languages")
+    }
+
+    @Test
+    fun `tunable categories exclude background-only keys and retain inherited foregrounds`() {
+        val markdownCodeSpan = TextAttributesKey.find("MARKDOWN_CODE_SPAN")
+        val swiftBrackets = TextAttributesKey.find("SWIFT.BRACKETS")
+        val defaultBrackets = TextAttributesKey.find("DEFAULT_BRACKETS")
+        val backgroundOnly =
+            TextAttributes().also { attributes ->
+                attributes.backgroundColor = Color(0x24, 0x29, 0x36)
+            }
+        val baseline =
+            linkedMapOf(
+                markdownCodeSpan to backgroundOnly,
+                swiftBrackets to TextAttributes(),
+                defaultBrackets to attrsWithFg(Color(0xCC, 0xCA, 0xC2)),
+            )
+
+        val categories =
+            SyntaxIntensityApplicator.tunableCategories(
+                baseline = baseline,
+                overlay = emptyMap(),
+                fallbacks = mapOf("SWIFT.BRACKETS" to "DEFAULT_BRACKETS"),
+            )
+
+        assertFalse(
+            PrimitiveCategory.STRING_LITERAL in categories["Markdown"].orEmpty(),
+            "A background-only key must not expose a foreground intensity slider",
+        )
+        assertTrue(
+            PrimitiveCategory.OPERATOR in categories["Swift"].orEmpty(),
+            "An inherited key with an Ayu foreground fallback must remain tunable",
+        )
     }
 
     // --- Helpers ---------------------------------------------------------
@@ -1556,13 +1593,11 @@ class SyntaxIntensityApplicatorTest {
         // FontStyleOverride.BOLD_ITALIC.fontType — the combined java.awt.Font bitmask (3).
         private const val BOLD_ITALIC_MASK = 3
 
-        // Map of TextAttributesKey -> expected (language, category) so the hue
-        // invariant test exercises a variety of category buckets.
-        private val CATEGORY_KEYS: List<Pair<TextAttributesKey, Pair<String, PrimitiveCategory>>> =
+        private val REPRESENTATIVE_HUE_KEYS: List<TextAttributesKey> =
             listOf(
-                TextAttributesKey.createTextAttributesKey("JAVA_KEYWORD") to ("Java" to PrimitiveCategory.KEYWORD),
-                TextAttributesKey.createTextAttributesKey("JAVA_LINE_COMMENT") to ("Java" to PrimitiveCategory.COMMENT),
-                TextAttributesKey.createTextAttributesKey("KOTLIN_KEYWORD") to ("Kotlin" to PrimitiveCategory.KEYWORD),
+                TextAttributesKey.createTextAttributesKey("JAVA_KEYWORD"),
+                TextAttributesKey.createTextAttributesKey("JAVA_LINE_COMMENT"),
+                TextAttributesKey.createTextAttributesKey("KOTLIN_KEYWORD"),
             )
     }
 }
