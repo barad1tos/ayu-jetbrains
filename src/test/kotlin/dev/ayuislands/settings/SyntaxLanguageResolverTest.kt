@@ -50,6 +50,26 @@ class SyntaxLanguageResolverTest {
     }
 
     @Test
+    fun `active Noctule Swift file opens Swift tuning without a cached verdict`() {
+        val swiftPreviewType = editorFixture.mockFileType("NoctuleSwift", "swift")
+        every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns swiftPreviewType
+        val resolver =
+            SyntaxLanguageResolver(
+                selectedFileType = { languageFileType("NoctuleSwift") },
+                projectVerdict = { ProjectLanguageVerdict.Cold },
+            )
+
+        val selected =
+            resolver.resolve(
+                project = project,
+                fallbackLanguage = "Kotlin",
+                supportedLanguages = supportedLanguages(),
+            )
+
+        assertEquals("Swift", selected)
+    }
+
+    @Test
     fun `cached project language wins when active language is unsupported`() {
         val swiftPreviewType = editorFixture.mockFileType("Swift", "swift")
         every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns swiftPreviewType
