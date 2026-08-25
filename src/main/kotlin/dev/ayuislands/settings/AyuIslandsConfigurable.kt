@@ -80,11 +80,12 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
         val pluginVersion = resolvePluginVersion()
         val variant = AyuVariant.detect()
         val nextSession = SettingsSession(::refreshGlow)
+        val contextProject = AccentApplicator.resolveFocusedProject(shouldLogDiagnostics = true)
         val contentTabs =
             AyuSettingsComposition(
                 variant = variant,
                 session = nextSession,
-                contextProject = AccentApplicator.resolveFocusedProject(),
+                contextProject = contextProject,
             ).buildContentTabs()
         session = nextSession
 
