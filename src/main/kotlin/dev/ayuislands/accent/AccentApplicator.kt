@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.ide.impl.ProjectUtil
 import com.intellij.notification.Notification
 import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
@@ -415,22 +416,26 @@ object AccentApplicator {
      * [RequiresEdt] so accidental off-EDT callers surface through IntelliJ's threading
      * checker rather than deadlocking or throwing deep inside the platform.
      *
-     *  1. First `WindowManager.allProjectFrames` whose ancestor window reports
+     *  1. [ProjectUtil.getActiveProject] maps the active AWT window back through its owner
+     *     chain to the project frame. This keeps project-modal dialogs such as Settings
+     *     bound to the project that opened them even while the owner frame itself is inactive.
+     *  2. First `WindowManager.allProjectFrames` whose ancestor window reports
      *     `Window.isActive`. Iterates all project frames, calls
      *     `SwingUtilities.getWindowAncestor(frame.component)`, and matches where
      *     `window.isActive` is true. (The sibling swap-service uses the same frame
      *     enumeration but matches by reference equality against a listener-provided
      *     window — identical iteration, different predicate.)
-     *  2. [IdeFocusManager.lastFocusedFrame]'s project — fallback when the OS-active
+     *  3. [IdeFocusManager.lastFocusedFrame]'s project — fallback when the OS-active
      *     scan returns null for any reason: the IDE is alt-tabbed out, the window
      *     ancestor lookup is temporarily unavailable, or `WindowManager` itself is
      *     null during startup / shutdown.
-     *  3. First non-default non-disposed open project — pre-focus-manager startup or
+     *  4. First non-default non-disposed open project — pre-focus-manager startup or
      *     shutdown edge cases.
-     *  4. `null` — no project open; resolver will return the global accent.
+     *  5. `null` — no project open; resolver will return the global accent.
      */
     @RequiresEdt
     internal fun resolveFocusedProject(): com.intellij.openapi.project.Project? {
+        ProjectUtil.getActiveProject()?.takeIf { it.isUsable() }?.let { return it }
         osActiveProjectFrame()?.let { return it }
         IdeFocusManager
             .getGlobalInstance()
