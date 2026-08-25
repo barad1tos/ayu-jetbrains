@@ -1,0 +1,1 @@
+SELECT user FROM App\Entity\User user WHERE user.id = :id

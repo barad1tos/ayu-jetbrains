@@ -1,0 +1,4 @@
+SHELL=/bin/bash
+# Weekday preview every fifteen minutes
+*/15 9-17 * * MON-FRI /usr/bin/env echo "Ayu preview"
+0,30 * * * * /usr/bin/logger ayu-preview

@@ -1,0 +1,9 @@
+# Native protobuf text-format values
+preview {
+  name: "Ayu"
+  count: 42
+  enabled: true
+  status: STATUS_READY
+  tags: ["syntax", "islands"]
+  metadata { owner: "preview" }
+}

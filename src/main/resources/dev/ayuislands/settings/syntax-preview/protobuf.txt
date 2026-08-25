@@ -1,0 +1,11 @@
+syntax = "proto3";
+package preview;
+import "google/protobuf/empty.proto";
+option java_multiple_files = true;
+
+// Native Protobuf declarations
+message Preview { string name = 1; int32 count = 2; repeated string tags = 3; }
+enum Status { STATUS_UNSPECIFIED = 0; STATUS_READY = 1; }
+service PreviewService {
+  rpc GetPreview(google.protobuf.Empty) returns (Preview);
+}

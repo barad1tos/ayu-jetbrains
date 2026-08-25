@@ -1,0 +1,14 @@
+# @summary Renders a syntax preview.
+class preview(
+  String $name = 'Ayu',
+  Integer $count = 42,
+) {
+  $message = $count > 0 ? {
+    true    => "${name}: syntax",
+    default => 'none',
+  }
+  file { '/tmp/preview.txt':
+    ensure  => file,
+    content => $message,
+  }
+}

@@ -11,6 +11,7 @@ import com.intellij.ui.EditorTextField
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
+import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxOverlayLoader
 import dev.ayuislands.syntax.SyntaxPreset
 import io.mockk.every
@@ -180,59 +181,18 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
-    fun `core preview declarations equal effective three-variant category unions`() {
-        val effectiveCategories = effectiveCategoryUnions()
-        val coreLanguages =
-            setOf(
-                "CSS",
-                "Go",
-                "HTML",
-                "Java",
-                "JavaScript",
-                "JSON",
-                "Kotlin",
-                "Markdown",
-                "Python",
-                "Rust",
-                "Swift",
-                "TypeScript",
-                "YAML",
-            )
+    fun `preview catalog exactly covers every declared syntax language`() {
+        val supported = SyntaxLanguageRegistry.supportedLanguages().mapTo(linkedSetOf()) { it.displayName }
 
-        val categoryAssertions: List<() -> Unit> =
-            coreLanguages.map { language ->
-                {
-                    val expected = effectiveCategories[language].orEmpty()
-                    val declared = SyntaxPreviewComponent.categoriesForTest(language)
-                    assertEquals(
-                        expected,
-                        declared,
-                        "$language preview categories differ: effective=$expected declared=$declared",
-                    )
-                }
-            }
-        assertAll(categoryAssertions)
+        assertEquals(supported, SyntaxPreviewComponent.catalogLanguagesForTest())
     }
 
     @Test
-    fun `general web template and data previews are complete and capability exact`() {
+    fun `preview categories equal effective unions for every declared language`() {
         val effectiveCategories = effectiveCategoryUnions()
-        val catalogLanguages = SyntaxPreviewComponent.catalogLanguagesForTest()
-        val resources = SyntaxPreviewComponent.resourceNamesForTest()
-
-        assertTrue(
-            catalogLanguages.containsAll(GENERAL_PREVIEW_LANGUAGES),
-            "Missing languages: ${GENERAL_PREVIEW_LANGUAGES - catalogLanguages}",
-        )
-        assertEquals(catalogLanguages.size, resources.size, "Every catalog language must own one unique resource.")
-
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
-        val previewAssertions: List<() -> Unit> =
-            GENERAL_PREVIEW_LANGUAGES.map { language ->
+        val categoryAssertions: List<() -> Unit> =
+            SyntaxPreviewComponent.catalogLanguagesForTest().map { language ->
                 {
-                    component.updatePreview(AyuVariant.MIRAGE, language)
-                    assertFalse(component.sampleFileNameForTest() == "Preview.txt", language)
-                    assertTrue(component.sampleCodeForTest().isNotBlank(), "$language sample must be nonblank.")
                     assertEquals(
                         effectiveCategories[language].orEmpty(),
                         SyntaxPreviewComponent.categoriesForTest(language),
@@ -240,7 +200,39 @@ class SyntaxPreviewComponentTest {
                     )
                 }
             }
-        assertAll(previewAssertions)
+
+        assertAll(categoryAssertions)
+    }
+
+    @Test
+    fun `preview resources are unique complete and nonblank`() {
+        val languages = SyntaxPreviewComponent.catalogLanguagesForTest()
+        val resources = SyntaxPreviewComponent.resourceNamesForTest()
+
+        assertEquals(languages.size, resources.size, "Every declared language must own one unique resource.")
+        resources.forEach { resource ->
+            val path = "/dev/ayuislands/settings/syntax-preview/$resource"
+            val url = assertNotNull(SyntaxPreviewComponent::class.java.getResource(path), path)
+            assertTrue(url.readText().isNotBlank(), "$path must be nonblank.")
+        }
+    }
+
+    @Test
+    fun `every declared language preserves its native sample through fallback`() {
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val sampleAssertions: List<() -> Unit> =
+            SyntaxPreviewComponent.catalogLanguagesForTest().map { language ->
+                {
+                    component.updatePreview(AyuVariant.MIRAGE, language)
+                    assertFalse(component.sampleFileNameForTest() == "Preview.txt", language)
+                    assertFalse(
+                        component.sampleCodeForTest().contains("class Preview {\n    value = \"hello\""),
+                        language,
+                    )
+                }
+            }
+
+        assertAll(sampleAssertions)
     }
 
     @Test
@@ -375,43 +367,5 @@ class SyntaxPreviewComponentTest {
             }
         }
         return categories.mapValues { (_, values) -> values.toSet() }
-    }
-
-    private companion object {
-        val GENERAL_PREVIEW_LANGUAGES =
-            setOf(
-                "Angular",
-                "Apple plist",
-                "C# (ReSharper)",
-                "CodeQL",
-                "CoffeeScript",
-                "CSS",
-                "Dart",
-                "Django",
-                "dotenv",
-                "Erlang",
-                "FreeMarker",
-                "GraphQL",
-                "Groovy",
-                "HAML",
-                "HTML",
-                "JSON",
-                "JSONPath",
-                "Lua",
-                "Markdown",
-                "Objective-C",
-                "PHP",
-                "PowerShell",
-                "Properties files",
-                "Qute",
-                "Ruby",
-                "Sass",
-                "Scala",
-                "Slim",
-                "Velocity",
-                "Vue",
-                "XML",
-                "YAML",
-            )
     }
 }

@@ -1,0 +1,16 @@
+package preview
+import java.lang.String
+
+// Native Drools rule preview
+declare Preview
+    name : String
+    count : int
+end
+
+rule "Ayu preview"
+when
+    $preview : Preview(count > 0, name == "Ayu")
+then
+    String result = $preview.getName();
+    System.out.println(result);
+end

@@ -1,0 +1,8 @@
+# syntax=docker/dockerfile:1
+ARG BASE=alpine:3.20
+FROM ${BASE} AS preview
+ENV PREVIEW_COUNT=42
+WORKDIR /app
+COPY . .
+RUN test "$PREVIEW_COUNT" -gt 0 && echo "Ayu Islands"
+ENTRYPOINT ["sh", "-c", "echo $PREVIEW_COUNT"]
