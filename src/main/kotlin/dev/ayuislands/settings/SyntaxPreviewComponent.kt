@@ -3,14 +3,20 @@ package dev.ayuislands.settings
 import com.intellij.lang.Language
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
@@ -25,6 +31,7 @@ import java.awt.Rectangle
 import java.awt.RenderingHints
 import java.util.Locale
 import javax.swing.JComponent
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Live preview of syntax-intensity colors rendered as a compact IDE scene.
@@ -32,15 +39,22 @@ import javax.swing.JComponent
  * The project tree is a lightweight frame, while the code pane is a native
  * [EditorTextField] so syntax colors come from the active IntelliJ editor
  * highlighter and color scheme instead of a hand-painted token imitation.
+ * The highlighter receives an in-memory file with the sample's real name and
+ * type, allowing language plugins to select the same lexer they use for files
+ * in the main editor.
  */
 internal class SyntaxPreviewComponent(
     private var variant: AyuVariant,
     private var language: String = DEFAULT_LANGUAGE,
+    private val previewFileFactory: (String, FileType, CharSequence) -> VirtualFile = ::createPreviewFile,
 ) : JComponent(),
     Disposable {
     private var previewSample: PreviewSample = sampleFor(language)
     private var fileTypeResolution: PreviewFileType = resolvePreviewFileType(language, previewSample)
     private val editorField: EditorTextField = createEditorField()
+    private val failedFactoryLanguages = mutableSetOf<String>()
+    private val failedNativeLanguages = mutableSetOf<String>()
+    private val failedPlainLanguages = mutableSetOf<String>()
     private var isDisposed = false
 
     init {
@@ -74,7 +88,55 @@ internal class SyntaxPreviewComponent(
 
     private fun refreshEditorColorsScheme() {
         val editor = editorField.getEditor(false) ?: return
-        editor.colorsScheme = previewColorsScheme(editor.colorsScheme)
+        refreshEditor(editor)
+    }
+
+    private fun refreshEditor(editor: EditorEx) {
+        val previewScheme = previewColorsScheme(editor.colorsScheme)
+        editor.colorsScheme = previewScheme
+        installPreviewHighlighter(editor, previewScheme)
+    }
+
+    private fun installPreviewHighlighter(
+        editor: EditorEx,
+        scheme: EditorColorsScheme,
+    ) {
+        val project = editorField.project ?: return
+        val previewFile =
+            previewFileFactory(
+                previewSample.fileName,
+                fileTypeResolution.fileType,
+                previewSample.code,
+            )
+        val factory =
+            try {
+                EditorHighlighterFactory.getInstance()
+            } catch (runtime: RuntimeException) {
+                propagateCancellation(runtime)
+                if (failedFactoryLanguages.add(language)) {
+                    LOG.warn("Syntax highlighter service failed for preview language '$language'", runtime)
+                }
+                return
+            }
+        val highlighter =
+            try {
+                factory.createEditorHighlighter(previewFile, scheme, project)
+            } catch (runtime: RuntimeException) {
+                propagateCancellation(runtime)
+                if (failedNativeLanguages.add(language)) {
+                    LOG.warn("Native syntax highlighter failed for preview language '$language'", runtime)
+                }
+                try {
+                    factory.createEditorHighlighter(PlainTextFileType.INSTANCE, scheme, project)
+                } catch (fallbackFailure: RuntimeException) {
+                    propagateCancellation(fallbackFailure)
+                    if (failedPlainLanguages.add(language)) {
+                        LOG.warn("Plain-text highlighter failed for preview language '$language'", fallbackFailure)
+                    }
+                    return
+                }
+            }
+        editor.highlighter = highlighter
     }
 
     private fun previewColorsScheme(currentScheme: EditorColorsScheme): EditorColorsScheme {
@@ -130,11 +192,16 @@ internal class SyntaxPreviewComponent(
     }
 
     private fun createEditorField(): EditorTextField =
-        EditorTextField(
+        object : EditorTextField(
             previewSample.code,
             ProjectManager.getInstance().defaultProject,
             fileTypeResolution.fileType,
-        ).apply {
+        ) {
+            override fun onEditorAdded(editor: Editor) {
+                super.onEditorAdded(editor)
+                if (editor is EditorEx) refreshEditor(editor)
+            }
+        }.apply {
             isViewer = true
             setDisposedWith(this@SyntaxPreviewComponent)
             background = editorSurface()
@@ -263,6 +330,12 @@ internal class SyntaxPreviewComponent(
 
         private fun fixedColor(rgb: Int): JBColor = JBColor(rgb, rgb)
 
+        private fun createPreviewFile(
+            name: String,
+            fileType: FileType,
+            content: CharSequence,
+        ): VirtualFile = LightVirtualFile(name, fileType, content)
+
         @TestOnly
         internal fun catalogLanguagesForTest(): Set<String> = SyntaxPreviewCatalog.languages()
 
@@ -361,4 +434,8 @@ internal class SyntaxPreviewComponent(
                 null
             }
     }
+}
+
+private fun propagateCancellation(failure: RuntimeException) {
+    if (failure is ProcessCanceledException || failure is CancellationException) throw failure
 }

@@ -8,12 +8,15 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.theme.EditorSchemeChange
+import dev.ayuislands.theme.EditorSchemeOverrides
+import dev.ayuislands.theme.EditorSchemeOwner
 import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -120,6 +123,12 @@ class SyntaxIntensityServiceTest {
 
         mockkObject(EditorSchemeChange)
         every { EditorSchemeChange.publish() } returns Unit
+        mockkObject(EditorSchemeOverrides)
+        every { EditorSchemeOverrides.restore(any(), EditorSchemeOwner.Syntax) } returns Unit
+        every { EditorSchemeOverrides.rearm(EditorSchemeOwner.Syntax, any(), any()) } returns Unit
+        every {
+            EditorSchemeOverrides.writeAttributes(any(), EditorSchemeOwner.Syntax, any(), any())
+        } returns Unit
 
         loader = mockk(relaxed = true)
         val payload =
@@ -235,6 +244,115 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 0) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
         verify(exactly = 0) { mockDark.setAttributes(any(), any<TextAttributes>()) }
         verify(exactly = 0) { mockLight.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `capabilities include inherited language keys omitted from computed writes`() {
+        val inheritedSwiftKey = TextAttributesKey.find("SWIFT.BRACKETS")
+        val inheritedSwiftAttributes = TextAttributes()
+        val capabilitySnapshots = mutableListOf<List<String>>()
+        every { loader.loadBaselineForVariant("Mirage") } returns
+            mapOf(
+                TextAttributesKey.find(PAYLOAD_KEY_NAME) to TextAttributes(),
+                inheritedSwiftKey to inheritedSwiftAttributes,
+            )
+        every { SyntaxIntensityApplicator.tunableCategories(any()) } answers {
+            capabilitySnapshots += firstArg<Iterable<TextAttributesKey>>().map { key -> key.externalName }
+            emptyMap()
+        }
+
+        SyntaxIntensityService().apply(SyntaxPreset.AMBIENT, emptyMap())
+
+        assertTrue(capabilitySnapshots.any { "SWIFT.BRACKETS" in it })
+    }
+
+    @Test
+    fun `apply restores syntax-owned attributes before writing the current pass`() {
+        SyntaxIntensityService().apply(SyntaxPreset.AMBIENT, emptyMap())
+
+        verify(exactly = 1) { EditorSchemeOverrides.restore(mockMirage, EditorSchemeOwner.Syntax) }
+        verify(exactly = 1) { EditorSchemeOverrides.restore(mockDark, EditorSchemeOwner.Syntax) }
+        verify(exactly = 1) { EditorSchemeOverrides.restore(mockLight, EditorSchemeOwner.Syntax) }
+    }
+
+    @Test
+    fun `inherited materialization uses exact-restoration ownership instead of a direct write`() {
+        val swiftFallback = TextAttributesKey.find("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.find("SWIFT.BRACKETS")
+        every { swiftBrackets.fallbackAttributeKey } returns swiftFallback
+        every { loader.loadBaselineForVariant("Mirage") } returns mapOf(swiftBrackets to TextAttributes())
+        every { loader.loadOverlayForVariant("Mirage") } returns emptyMap()
+        every { SyntaxIntensityApplicator.compute(any()) } answers {
+            val request = firstArg<SyntaxIntensityApplicator.Request>()
+            if (request.variantName == "Mirage") {
+                mapOf(swiftBrackets to TextAttributes().apply { foregroundColor = Color(0xCC, 0xCA, 0xC2) })
+            } else {
+                emptyMap()
+            }
+        }
+
+        SyntaxIntensityService().apply(SyntaxPreset.CUSTOM, emptyMap())
+
+        verify(exactly = 1) {
+            EditorSchemeOverrides.writeAttributes(
+                mockMirage,
+                EditorSchemeOwner.Syntax,
+                swiftBrackets,
+                any<TextAttributes>(),
+            )
+        }
+        verify(exactly = 0) { mockMirage.setAttributes(swiftBrackets, any<TextAttributes>()) }
+        verify(exactly = 1) {
+            EditorSchemeOverrides.rearm(
+                EditorSchemeOwner.Syntax,
+                listOf(mockMirage),
+                mapOf(mockMirage to setOf("SWIFT.BRACKETS")),
+            )
+        }
+    }
+
+    @Test
+    fun `syntax ownership restore propagates platform cancellation`() {
+        every {
+            EditorSchemeOverrides.restore(mockMirage, EditorSchemeOwner.Syntax)
+        } throws ProcessCanceledException()
+
+        assertFailsWith<ProcessCanceledException> {
+            SyntaxIntensityService().apply(SyntaxPreset.AMBIENT, emptyMap())
+        }
+
+        verify(exactly = 0) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `syntax ownership write propagates platform cancellation`() {
+        val swiftFallback = TextAttributesKey.find("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.find("SWIFT.BRACKETS")
+        every { swiftBrackets.fallbackAttributeKey } returns swiftFallback
+        every { loader.loadBaselineForVariant("Mirage") } returns mapOf(swiftBrackets to TextAttributes())
+        every { loader.loadOverlayForVariant("Mirage") } returns emptyMap()
+        every { SyntaxIntensityApplicator.compute(any()) } answers {
+            val request = firstArg<SyntaxIntensityApplicator.Request>()
+            if (request.variantName == "Mirage") {
+                mapOf(swiftBrackets to TextAttributes())
+            } else {
+                emptyMap()
+            }
+        }
+        every {
+            EditorSchemeOverrides.writeAttributes(
+                mockMirage,
+                EditorSchemeOwner.Syntax,
+                swiftBrackets,
+                any(),
+            )
+        } throws ProcessCanceledException()
+
+        assertFailsWith<ProcessCanceledException> {
+            SyntaxIntensityService().apply(SyntaxPreset.CUSTOM, emptyMap())
+        }
+
+        verify(exactly = 0) { EditorSchemeChange.publish() }
     }
 
     @Test

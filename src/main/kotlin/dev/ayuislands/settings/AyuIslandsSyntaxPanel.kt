@@ -26,6 +26,7 @@ import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
+import dev.ayuislands.syntax.decodeSyntaxCells
 import org.jetbrains.annotations.TestOnly
 import java.awt.Dimension
 import java.awt.GridLayout
@@ -337,6 +338,12 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
                         )
                     },
                     onEmphasisChanged = { emphasis -> onEmphasisChanged(category, emphasis) },
+                    styleOverride = {
+                        FontStyleOverride.fromName(
+                            pendingStyles[compositeKey(currentLanguage, category)],
+                        )
+                    },
+                    onStyleOverrideChanged = { style -> onStyleOverrideChanged(category, style) },
                 )
             styleControls[category] = styleControl
             val sliderAndStyle =
@@ -432,13 +439,20 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     private fun onEmphasisChanged(
         category: PrimitiveCategory,
         emphasis: FontEmphasis?,
+    ) = updateFontStyleCell(category, pendingEmphasis, emphasis?.name)
+
+    private fun onStyleOverrideChanged(
+        category: PrimitiveCategory,
+        style: FontStyleOverride?,
+    ) = updateFontStyleCell(category, pendingStyles, style?.name)
+
+    private fun updateFontStyleCell(
+        category: PrimitiveCategory,
+        store: MutableMap<String, String>,
+        value: String?,
     ) {
         val key = compositeKey(currentLanguage, category)
-        if (emphasis == null) {
-            pendingEmphasis.remove(key)
-        } else {
-            pendingEmphasis[key] = emphasis.name
-        }
+        if (value == null) store.remove(key) else store[key] = value
         styleControls[category]?.refreshPresentation()
         refreshResetVisibility(category)
         refreshMasterResetButton()
@@ -693,41 +707,10 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
             else -> "0"
         }
 
-    /**
-     * Reshape a flat composite-key store into the nested
-     * `language → category → Int` shape [SyntaxIntensityService.apply] consumes.
-     * Shared by the slider-override and font-style bridges (each passes its own
-     * [decode]) so both apply the SAME `|`-split + skip-on-bad-key guard as
-     * [SyntaxIntensityState.toPresetConfig]:
-     *  - slider overrides decode via [String.toIntOrNull] (raw 0..100 value);
-     *  - font styles decode via `FontStyleOverride.fromName(v)?.fontType` to the
-     *    `java.awt.Font` bitmask the applicator writes into
-     *    `TextAttributes.fontType`.
-     *
-     * Keys with an empty language half, an empty category half, or a value that
-     * [decode] rejects (`null`) are silently skipped — tamper-safe, no
-     * `runCatching`, no broad `catch` (Pattern B).
-     */
-    private fun buildNested(
-        flat: Map<String, String>,
-        decode: (String) -> Int?,
-    ): Map<String, Map<String, Int>> {
-        val nested = mutableMapOf<String, MutableMap<String, Int>>()
-        for ((compositeKey, valueStr) in flat) {
-            val pipeIdx = compositeKey.indexOf('|')
-            if (pipeIdx <= 0 || pipeIdx == compositeKey.length - 1) continue
-            val language = compositeKey.substring(0, pipeIdx)
-            val category = compositeKey.substring(pipeIdx + 1)
-            val decoded = decode(valueStr) ?: continue
-            nested.getOrPut(language) { mutableMapOf() }[category] = decoded
-        }
-        return nested
-    }
-
     private fun preview() {
-        val nestedOverrides = buildNested(pendingOverrides) { it.toIntOrNull() }
-        val nestedStyles = buildNested(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
-        val nestedEmphasis = buildNested(pendingEmphasis) { FontEmphasis.fromName(it)?.fontType }
+        val nestedOverrides = decodeSyntaxCells(pendingOverrides) { it.toIntOrNull() }
+        val nestedStyles = decodeSyntaxCells(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
+        val nestedEmphasis = decodeSyntaxCells(pendingEmphasis) { FontEmphasis.fromName(it)?.fontType }
         SyntaxIntensityService
             .getInstance()
             .apply(

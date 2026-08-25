@@ -62,9 +62,11 @@ import kotlin.math.abs
  * H10 fix carried forward: no `null` is ever emitted as a value — the
  * platform's `EditorColorsSchemeImpl.setAttributes(key, attrs)` declares
  * the second parameter `@NotNull`. The applicator's emit path always uses
- * the cloned (non-null) TextAttributes; keys that don't classify into a
- * [PrimitiveCategory] or whose source has no foreground simply don't get
- * an entry in the result map (skip-vs-null write).
+ * the cloned (non-null) TextAttributes. Keys that don't classify into a
+ * [PrimitiveCategory] are skipped. A source without its own foreground stays
+ * skipped unless Custom contains an explicit cell for it; that opt-in path
+ * resolves and clones the registered [TextAttributesKey.fallbackAttributeKey]
+ * from the Ayu source maps before changing the requested foreground/style.
  *
  * R-1 caller contract (D-09, RB-4): the applicator takes `editorBg: Color`
  * as a parameter — it does NOT call [dev.ayuislands.syntax.RgbBlend.fallbackEditorBgFor]
@@ -130,7 +132,11 @@ object SyntaxIntensityApplicator {
             val language = langTag.displayName
             val curve = resolveCurve(preset, language, category, customOverrides, subordinatePreset)
             val transformed =
-                transformedAttributes(source, curve, context, language, category)
+                transformedAttributes(
+                    TokenInput(key, source, curve, language, category),
+                    context,
+                    sources,
+                )
                     ?: continue
             result[key] = transformed
             if (langTag.bucket == SyntaxLanguageRegistry.Bucket.CASCADE &&
@@ -189,34 +195,93 @@ object SyntaxIntensityApplicator {
         val attributes: TextAttributes,
     )
 
+    private data class TokenInput(
+        val key: TextAttributesKey,
+        val source: TextAttributes,
+        val curve: CategoryCurve,
+        val language: String,
+        val category: PrimitiveCategory,
+    )
+
     private fun transformedAttributes(
-        source: TextAttributes,
-        curve: CategoryCurve,
+        input: TokenInput,
         context: TransformContext,
-        language: String,
-        category: PrimitiveCategory,
+        sources: AttributeSources,
     ): TextAttributes? {
-        val sourceForeground = source.foregroundColor ?: return null
-        val clone = source.clone()
+        val sourceForeground = input.source.foregroundColor
+        if (sourceForeground == null) {
+            return transformInherited(input, context, sources)
+        }
+        val clone = input.source.clone()
         clone.foregroundColor =
             transformForeground(
                 fg = sourceForeground,
-                curve = curve,
+                curve = input.curve,
                 readabilityOptions = context.readabilityOptions,
-                category = category,
+                category = input.category,
                 editorBg = context.editorBg,
             )
         // The legacy per-category style remains a replacement. Additive
         // emphasis is layered over that resolved style only for Custom.
         if (context.preset == SyntaxPreset.CUSTOM) {
-            context.customStyles[language]?.get(category.name)?.let { legacyStyle ->
+            context.customStyles[input.language]?.get(input.category.name)?.let { legacyStyle ->
                 clone.fontType = legacyStyle
             }
-            context.customEmphasis[language]?.get(category.name)?.let { emphasis ->
+            context.customEmphasis[input.language]?.get(input.category.name)?.let { emphasis ->
                 clone.fontType = clone.fontType or emphasis
             }
         }
         return clone
+    }
+
+    private fun transformInherited(
+        input: TokenInput,
+        context: TransformContext,
+        sources: AttributeSources,
+    ): TextAttributes? {
+        if (context.preset != SyntaxPreset.CUSTOM) return null
+        val intensity = context.customOverrides[input.language]?.get(input.category.name)
+        val legacyStyle = context.customStyles[input.language]?.get(input.category.name)
+        val emphasis = context.customEmphasis[input.language]?.get(input.category.name)
+        if (intensity == null && legacyStyle == null && emphasis == null) return null
+
+        val inherited = resolveFallbackAttributes(input.key, sources) ?: return null
+        val output = inherited.clone()
+        var hasOverride = false
+        if (intensity != null) {
+            inherited.foregroundColor?.let { foreground ->
+                output.foregroundColor =
+                    transformForeground(
+                        fg = foreground,
+                        curve = input.curve,
+                        readabilityOptions = context.readabilityOptions,
+                        category = input.category,
+                        editorBg = context.editorBg,
+                    )
+                output.fontType = inherited.fontType
+                hasOverride = true
+            }
+        }
+        if (legacyStyle != null || emphasis != null) {
+            val resolvedStyle = legacyStyle ?: inherited.fontType
+            output.fontType = resolvedStyle or (emphasis ?: 0)
+            hasOverride = true
+        }
+        return output.takeIf { hasOverride }
+    }
+
+    private fun resolveFallbackAttributes(
+        key: TextAttributesKey,
+        sources: AttributeSources,
+    ): TextAttributes? {
+        val visited = mutableSetOf<TextAttributesKey>()
+        var fallback = key.fallbackAttributeKey
+        while (fallback != null && visited.add(fallback)) {
+            val attributes = sources.overlay[fallback] ?: sources.baseline[fallback]
+            if (attributes?.foregroundColor != null) return attributes
+            fallback = fallback.fallbackAttributeKey
+        }
+        return null
     }
 
     private fun materializeCascadeTargets(
@@ -240,11 +305,15 @@ object SyntaxIntensityApplicator {
                 )
             val transformed =
                 transformedAttributes(
-                    cascadeSource.attributes,
-                    curve,
+                    TokenInput(
+                        targetKey,
+                        cascadeSource.attributes,
+                        curve,
+                        language,
+                        cascadeSource.category,
+                    ),
                     context,
-                    language,
-                    cascadeSource.category,
+                    sources,
                 )
                     ?: continue
             result[targetKey] = transformed

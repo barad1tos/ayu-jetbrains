@@ -17,6 +17,7 @@ import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.FontEmphasis
+import dev.ayuislands.syntax.FontStyleOverride
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxIntensityBaseState
@@ -1515,6 +1516,39 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
+    fun `regular style override stays pending until Apply and previews as exact plain`() {
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customStyles["Kotlin|KEYWORD"] = "BOLD"
+        val syntaxPanel = panelWithLoadedState()
+        writeCurrentLanguage(syntaxPanel, "Swift")
+
+        try {
+            invokeOnStyleOverrideChanged(syntaxPanel, PrimitiveCategory.OPERATOR, FontStyleOverride.PLAIN)
+
+            assertEquals("PLAIN", readPendingStyles(syntaxPanel)["Swift|OPERATOR"])
+            assertEquals("BOLD", readPendingStyles(syntaxPanel)["Kotlin|KEYWORD"])
+            assertFalse(stateBase.customStyles.containsKey("Swift|OPERATOR"))
+
+            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            invokePreview(syntaxPanel)
+            val previewConfig = io.mockk.slot<SyntaxPresetConfig>()
+            verify(exactly = 1) { intensityService.apply(capture(previewConfig)) }
+            assertEquals(
+                Font.PLAIN,
+                previewConfig.captured.customStyles["Swift"]?.get("OPERATOR"),
+            )
+            assertFalse(stateBase.customStyles.containsKey("Swift|OPERATOR"))
+
+            syntaxPanel.apply()
+
+            assertEquals("PLAIN", stateBase.customStyles["Swift|OPERATOR"])
+            assertEquals("BOLD", stateBase.customStyles["Kotlin|KEYWORD"])
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
     fun `clearing emphasis returns to inherited state without clearing legacy style`() {
         // Break caught: reaching Aa must remove only the additive sparse cell, never the legacy customStyles token.
         stateBase.selectedPreset = "CUSTOM"
@@ -2094,6 +2128,21 @@ class AyuIslandsSyntaxPanelTest {
             )
         method.isAccessible = true
         method.invoke(panel, category, emphasis)
+    }
+
+    private fun invokeOnStyleOverrideChanged(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+        style: FontStyleOverride?,
+    ) {
+        val method =
+            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
+                "onStyleOverrideChanged",
+                PrimitiveCategory::class.java,
+                FontStyleOverride::class.java,
+            )
+        method.isAccessible = true
+        method.invoke(panel, category, style)
     }
 
     private fun invokeOnResetCurrentLanguage(panel: AyuIslandsSyntaxPanel) {

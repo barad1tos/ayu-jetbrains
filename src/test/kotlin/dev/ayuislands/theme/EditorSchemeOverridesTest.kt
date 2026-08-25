@@ -199,6 +199,127 @@ class EditorSchemeOverridesTest {
     }
 
     @Test
+    fun `syntax ownership restores exact direct attributes after runtime state is lost`() {
+        val syntaxKey = TextAttributesKey.find("TEST_SYNTAX_ATTRIBUTES")
+        val original = fullAttributes(Color.RED)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to original)
+        val scheme = scheme(attributes = attributes)
+
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.ORANGE),
+        )
+        EditorSchemeOverrides.reset()
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+
+        assertEquals(original, attributes[syntaxKey])
+    }
+
+    @Test
+    fun `inactive syntax cell rearms after reset without overwriting an active external edit`() {
+        val syntaxKey = TextAttributesKey.find("TEST_REARMED_SYNTAX_ATTRIBUTES")
+        val original = fullAttributes(Color.RED)
+        val external = fullAttributes(Color.GREEN)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to original)
+        val scheme = scheme(attributes = attributes)
+
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.ORANGE),
+        )
+        attributes[syntaxKey] = external
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.YELLOW),
+        )
+        EditorSchemeOverrides.rearm(
+            EditorSchemeOwner.Syntax,
+            listOf(scheme),
+            mapOf(scheme to setOf(syntaxKey.externalName)),
+        )
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.BLUE),
+        )
+        assertEquals(external, attributes[syntaxKey], "an active external edit must retain ownership")
+
+        EditorSchemeOverrides.rearm(
+            EditorSchemeOwner.Syntax,
+            listOf(scheme),
+            mapOf(scheme to emptySet()),
+        )
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.BLUE),
+        )
+        assertEquals(Color.BLUE, attributes[syntaxKey]?.foregroundColor)
+
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+        assertEquals(external, attributes[syntaxKey], "re-added tuning must restore the post-edit user value")
+    }
+
+    @Test
+    fun `targeted syntax rearm leaves other schemes relinquished`() {
+        val syntaxKey = TextAttributesKey.find("TEST_TARGETED_REARM_ATTRIBUTES")
+        val firstExternal = fullAttributes(Color.GREEN)
+        val secondExternal = fullAttributes(Color.CYAN)
+        val firstAttributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to fullAttributes(Color.RED))
+        val secondAttributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to fullAttributes(Color.BLUE))
+        val firstScheme = scheme(name = "First", attributes = firstAttributes)
+        val secondScheme = scheme(name = "Second", attributes = secondAttributes)
+
+        listOf(firstScheme, secondScheme).forEach { scheme ->
+            EditorSchemeOverrides.writeAttributes(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                syntaxKey,
+                fullAttributes(Color.ORANGE),
+            )
+        }
+        firstAttributes[syntaxKey] = firstExternal
+        secondAttributes[syntaxKey] = secondExternal
+        listOf(firstScheme, secondScheme).forEach { scheme ->
+            EditorSchemeOverrides.writeAttributes(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                syntaxKey,
+                fullAttributes(Color.YELLOW),
+            )
+        }
+
+        EditorSchemeOverrides.rearm(
+            EditorSchemeOwner.Syntax,
+            listOf(firstScheme),
+            mapOf(firstScheme to emptySet()),
+        )
+        EditorSchemeOverrides.writeAttributes(
+            firstScheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.MAGENTA),
+        )
+        EditorSchemeOverrides.writeAttributes(
+            secondScheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.MAGENTA),
+        )
+
+        assertEquals(Color.MAGENTA, firstAttributes[syntaxKey]?.foregroundColor)
+        assertEquals(secondExternal, secondAttributes[syntaxKey])
+    }
+
+    @Test
     fun `editable copy inherits the canonical restoration ledger`() {
         val canonicalColors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
         val canonical = scheme(name = "Ayu Islands Mirage", colors = canonicalColors)

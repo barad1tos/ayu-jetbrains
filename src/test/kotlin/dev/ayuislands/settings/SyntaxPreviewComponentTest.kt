@@ -2,11 +2,16 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.FontPreferences
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.highlighter.EditorHighlighter
+import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.ui.EditorTextField
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.syntax.PrimitiveCategory
@@ -53,7 +58,8 @@ class SyntaxPreviewComponentTest {
 
     @Test
     fun `component embeds a native editor text field for syntax highlighting`() {
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val previewFile = mockk<VirtualFile>(relaxed = true)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
 
         val editor = findEditorTextField(component)
 
@@ -97,11 +103,19 @@ class SyntaxPreviewComponentTest {
         every { currentScheme.editorFontSize } returns 12
         every { currentScheme.lineSpacing } returns 1.1f
         every { currentScheme.isUseLigatures } returns true
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val previewFile = mockk<VirtualFile>(relaxed = true)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
         val editorField = findEditorTextField(component)
         val editor = mockk<EditorEx>(relaxed = true)
         every { editor.colorsScheme } returns currentScheme
         installEditor(editorField, editor)
+        val highlighterFactory = mockk<EditorHighlighterFactory>()
+        every {
+            ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
+        } returns highlighterFactory
+        every {
+            highlighterFactory.createEditorHighlighter(any<VirtualFile>(), previewScheme, editorFixture.previewProject)
+        } returns mockk(relaxed = true)
 
         component.updatePreview(AyuVariant.MIRAGE)
 
@@ -124,6 +138,275 @@ class SyntaxPreviewComponentTest {
         assertNotNull(editor, "Syntax preview must keep the native editor when switching languages.")
         assertEquals("Java", component.languageForTest(), "Syntax preview must track the selected language.")
         assertEquals(editorFixture.javaFileType, editor.fileType, "Java tuning must render through the Java file type.")
+    }
+
+    @Test
+    fun `updatePreview installs a virtual-file highlighter for the selected language`() {
+        val swiftFileType = editorFixture.mockFileType("Swift", "swift")
+        every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns swiftFileType
+        val colorsManager = mockk<EditorColorsManager>()
+        val currentScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val fontPreferences = mockk<FontPreferences>(relaxed = true)
+        every { currentScheme.fontPreferences } returns fontPreferences
+        every { currentScheme.editorFontName } returns "Preview Font"
+        every { currentScheme.editorFontSize } returns 12
+        every { currentScheme.lineSpacing } returns 1.0f
+        every { currentScheme.isUseLigatures } returns false
+        every { colorsManager.globalScheme } returns globalScheme
+        every { globalScheme.clone() } returns previewScheme
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colorsManager
+        val highlighterFactory = mockk<EditorHighlighterFactory>()
+        val highlighter = mockk<EditorHighlighter>(relaxed = true)
+        every {
+            ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
+        } returns highlighterFactory
+        every {
+            highlighterFactory.createEditorHighlighter(any<VirtualFile>(), previewScheme, editorFixture.previewProject)
+        } returns highlighter
+        val previewFile = mockk<VirtualFile>()
+        every { previewFile.name } returns "Preview.swift"
+        every { previewFile.fileType } returns swiftFileType
+        val component =
+            SyntaxPreviewComponent(AyuVariant.MIRAGE, "Swift") { name, fileType, _ ->
+                assertEquals("Preview.swift", name)
+                assertSame(swiftFileType, fileType)
+                previewFile
+            }
+        val editorField = findEditorTextField(component)
+        val editor = mockk<EditorEx>(relaxed = true)
+        every { editor.colorsScheme } returns currentScheme
+        installEditor(editorField, editor)
+
+        component.updatePreview(AyuVariant.MIRAGE, "Swift")
+
+        verify(exactly = 1) {
+            highlighterFactory.createEditorHighlighter(
+                previewFile,
+                previewScheme,
+                editorFixture.previewProject,
+            )
+        }
+        verify(exactly = 1) { editor.highlighter = highlighter }
+    }
+
+    @Test
+    fun `native highlighter failure replaces stale highlighting with plain text`() {
+        val colorsManager = mockk<EditorColorsManager>()
+        val currentScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
+        every { currentScheme.fontPreferences } returns mockk(relaxed = true)
+        every { currentScheme.editorFontName } returns "Preview Font"
+        every { currentScheme.editorFontSize } returns 12
+        every { currentScheme.lineSpacing } returns 1.0f
+        every { currentScheme.isUseLigatures } returns false
+        every { colorsManager.globalScheme } returns globalScheme
+        every { globalScheme.clone() } returns previewScheme
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colorsManager
+        val highlighterFactory = mockk<EditorHighlighterFactory>()
+        val plainHighlighter = mockk<EditorHighlighter>(relaxed = true)
+        every {
+            ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
+        } returns highlighterFactory
+        val previewFile = mockk<VirtualFile>(relaxed = true)
+        every {
+            highlighterFactory.createEditorHighlighter(previewFile, previewScheme, editorFixture.previewProject)
+        } throws RuntimeException("native highlighter failed")
+        every {
+            highlighterFactory.createEditorHighlighter(
+                PlainTextFileType.INSTANCE,
+                previewScheme,
+                editorFixture.previewProject,
+            )
+        } returns plainHighlighter
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val editorField = findEditorTextField(component)
+        val editor = mockk<EditorEx>(relaxed = true)
+        every { editor.colorsScheme } returns currentScheme
+        installEditor(editorField, editor)
+
+        component.updatePreview(AyuVariant.MIRAGE)
+
+        verify(exactly = 1) { editor.highlighter = plainHighlighter }
+    }
+
+    @Test
+    fun `highlighter factory lookup failure leaves settings usable`() {
+        val colorsManager = mockk<EditorColorsManager>()
+        val currentScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
+        every { currentScheme.fontPreferences } returns mockk(relaxed = true)
+        every { currentScheme.editorFontName } returns "Preview Font"
+        every { currentScheme.editorFontSize } returns 12
+        every { currentScheme.lineSpacing } returns 1.0f
+        every { currentScheme.isUseLigatures } returns false
+        every { colorsManager.globalScheme } returns globalScheme
+        every { globalScheme.clone() } returns previewScheme
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colorsManager
+        every {
+            ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
+        } throws RuntimeException("highlighter service unavailable")
+        val previewFile = mockk<VirtualFile>(relaxed = true)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val editorField = findEditorTextField(component)
+        val editor = mockk<EditorEx>(relaxed = true)
+        every { editor.colorsScheme } returns currentScheme
+        installEditor(editorField, editor)
+
+        component.updatePreview(AyuVariant.MIRAGE)
+
+        verify(exactly = 0) { editor.highlighter = any() }
+    }
+
+    @Test
+    fun `highlighter factory lookup propagates platform cancellation`() {
+        val colorsManager = mockk<EditorColorsManager>()
+        val currentScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
+        every { currentScheme.fontPreferences } returns mockk(relaxed = true)
+        every { currentScheme.editorFontName } returns "Preview Font"
+        every { currentScheme.editorFontSize } returns 12
+        every { currentScheme.lineSpacing } returns 1.0f
+        every { currentScheme.isUseLigatures } returns false
+        every { colorsManager.globalScheme } returns globalScheme
+        every { globalScheme.clone() } returns previewScheme
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colorsManager
+        every {
+            ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
+        } throws ProcessCanceledException()
+        val previewFile = mockk<VirtualFile>(relaxed = true)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val editorField = findEditorTextField(component)
+        val editor = mockk<EditorEx>(relaxed = true)
+        every { editor.colorsScheme } returns currentScheme
+        installEditor(editorField, editor)
+
+        kotlin.test.assertFailsWith<ProcessCanceledException> {
+            component.updatePreview(AyuVariant.MIRAGE)
+        }
+    }
+
+    @Test
+    fun `factory and native failures keep independent log latches`() {
+        val colorsManager = mockk<EditorColorsManager>()
+        val currentScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
+        every { currentScheme.fontPreferences } returns mockk(relaxed = true)
+        every { currentScheme.editorFontName } returns "Preview Font"
+        every { currentScheme.editorFontSize } returns 12
+        every { currentScheme.lineSpacing } returns 1.0f
+        every { currentScheme.isUseLigatures } returns false
+        every { colorsManager.globalScheme } returns globalScheme
+        every { globalScheme.clone() } returns previewScheme
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colorsManager
+        val highlighterFactory = mockk<EditorHighlighterFactory>()
+        every {
+            ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
+        } throws RuntimeException("highlighter service unavailable") andThen highlighterFactory
+        val previewFile = mockk<VirtualFile>(relaxed = true)
+        every {
+            highlighterFactory.createEditorHighlighter(previewFile, previewScheme, editorFixture.previewProject)
+        } throws RuntimeException("native highlighter failed")
+        every {
+            highlighterFactory.createEditorHighlighter(
+                PlainTextFileType.INSTANCE,
+                previewScheme,
+                editorFixture.previewProject,
+            )
+        } returns mockk(relaxed = true)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val editorField = findEditorTextField(component)
+        val editor = mockk<EditorEx>(relaxed = true)
+        every { editor.colorsScheme } returns currentScheme
+        installEditor(editorField, editor)
+
+        component.updatePreview(AyuVariant.MIRAGE)
+        component.updatePreview(AyuVariant.MIRAGE)
+
+        val factoryFailures = SyntaxPreviewComponent::class.java.getDeclaredField("failedFactoryLanguages")
+        factoryFailures.isAccessible = true
+        val nativeFailures = SyntaxPreviewComponent::class.java.getDeclaredField("failedNativeLanguages")
+        nativeFailures.isAccessible = true
+        assertEquals(setOf("Kotlin"), factoryFailures.get(component))
+        assertEquals(setOf("Kotlin"), nativeFailures.get(component))
+    }
+
+    @Test
+    fun `native highlighter creation propagates platform cancellation`() {
+        val colorsManager = mockk<EditorColorsManager>()
+        val currentScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
+        every { currentScheme.fontPreferences } returns mockk(relaxed = true)
+        every { currentScheme.editorFontName } returns "Preview Font"
+        every { currentScheme.editorFontSize } returns 12
+        every { currentScheme.lineSpacing } returns 1.0f
+        every { currentScheme.isUseLigatures } returns false
+        every { colorsManager.globalScheme } returns globalScheme
+        every { globalScheme.clone() } returns previewScheme
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colorsManager
+        val highlighterFactory = mockk<EditorHighlighterFactory>()
+        every {
+            ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
+        } returns highlighterFactory
+        val previewFile = mockk<VirtualFile>(relaxed = true)
+        every {
+            highlighterFactory.createEditorHighlighter(previewFile, previewScheme, editorFixture.previewProject)
+        } throws ProcessCanceledException()
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val editorField = findEditorTextField(component)
+        val editor = mockk<EditorEx>(relaxed = true)
+        every { editor.colorsScheme } returns currentScheme
+        installEditor(editorField, editor)
+
+        kotlin.test.assertFailsWith<ProcessCanceledException> {
+            component.updatePreview(AyuVariant.MIRAGE)
+        }
+    }
+
+    @Test
+    fun `editor lifecycle installs the virtual-file highlighter before user interaction`() {
+        val colorsManager = mockk<EditorColorsManager>()
+        val currentScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
+        every { colorsManager.globalScheme } returns globalScheme
+        every { globalScheme.clone() } returns previewScheme
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colorsManager
+        val highlighterFactory = mockk<EditorHighlighterFactory>()
+        val highlighter = mockk<EditorHighlighter>(relaxed = true)
+        every {
+            ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
+        } returns highlighterFactory
+        val previewFile = mockk<VirtualFile>(relaxed = true)
+        every {
+            highlighterFactory.createEditorHighlighter(previewFile, previewScheme, editorFixture.previewProject)
+        } returns highlighter
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val editorField = assertNotNull(findEditorTextField(component))
+        val editor = mockk<EditorEx>(relaxed = true)
+        every { editor.colorsScheme } returns currentScheme
+        val onEditorAdded = editorField.javaClass.getDeclaredMethod("onEditorAdded", Editor::class.java)
+        onEditorAdded.isAccessible = true
+
+        onEditorAdded.invoke(editorField, editor)
+
+        verify(exactly = 1) {
+            highlighterFactory.createEditorHighlighter(previewFile, previewScheme, editorFixture.previewProject)
+        }
+        verify(exactly = 1) { editor.highlighter = highlighter }
     }
 
     @Test
