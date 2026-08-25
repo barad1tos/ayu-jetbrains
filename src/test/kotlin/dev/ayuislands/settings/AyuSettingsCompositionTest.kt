@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
 import io.mockk.mockk
@@ -14,7 +15,8 @@ class AyuSettingsCompositionTest {
     fun `Ayu theme builds every tab and participant in lifecycle order`() {
         val session = SettingsSession()
         val panels = settingsPanels()
-        val composition = AyuSettingsComposition(AyuVariant.MIRAGE, session, panels)
+        val contextProject = mockk<Project>()
+        val composition = AyuSettingsComposition(AyuVariant.MIRAGE, session, panels, contextProject)
 
         val tabs = composition.buildContentTabs()
 
@@ -29,7 +31,7 @@ class AyuSettingsCompositionTest {
         verify(exactly = 1) {
             panels.font.buildPanel(any())
             panels.effects.buildPanel(any())
-            panels.syntax.buildPanel(any(), AyuVariant.MIRAGE)
+            panels.syntax.buildPanel(any(), AyuVariant.MIRAGE, contextProject)
             panels.vcs.buildPanel(any(), AyuVariant.MIRAGE)
             panels.workspace.buildPanel(any())
             panels.plugins.buildPanel(any())

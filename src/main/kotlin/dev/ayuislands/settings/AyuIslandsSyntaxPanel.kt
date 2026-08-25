@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
+import com.intellij.openapi.project.Project
 import com.intellij.ui.InplaceButton
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.AlignX
@@ -69,6 +70,7 @@ import javax.swing.Timer
  */
 @Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
 class AyuIslandsSyntaxPanel : SettingsParticipant {
+    private val languageResolver = SyntaxLanguageResolver()
     private var pendingPreset: SyntaxPreset = SyntaxPreset.AMBIENT
     private var storedPreset: SyntaxPreset = SyntaxPreset.AMBIENT
     private var suppressListeners: Boolean = false
@@ -147,12 +149,13 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
+        contextProject: Project? = null,
     ) {
         this.variant = variant
         categoryAvailability.refreshCapabilities(variant)
         loadStateIntoPending()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
-        currentLanguage = preferredInitialLanguage()
+        currentLanguage = preferredInitialLanguage(contextProject)
         with(panel) {
             buildPresetBlock()
 
@@ -208,7 +211,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     /** Build the premium Custom drill-down as two grouped, aligned columns. */
     private fun Panel.buildCustomFoldOut() {
         val languages = SyntaxLanguageRegistry.supportedLanguages().map { it.displayName }
-        currentLanguage = currentLanguage.takeIf { it in languages } ?: preferredInitialLanguage(languages)
+        currentLanguage = currentLanguage.takeIf { it in languages } ?: preferredInitialLanguage()
         row("Language:") {
             val combo = comboBox(languages).component
             combo.selectedItem = currentLanguage
@@ -746,12 +749,11 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         )
     }
 
-    private fun preferredInitialLanguage(
-        languages: List<String> =
-            SyntaxLanguageRegistry.supportedLanguages().map {
-                it.displayName
-            },
-    ): String = SyntaxPreviewComponent.preferredAvailableLanguage(languages, DEFAULT_PREVIEW_LANGUAGE)
+    private fun preferredInitialLanguage(contextProject: Project? = null): String =
+        languageResolver.resolve(
+            project = contextProject,
+            fallbackLanguage = DEFAULT_PREVIEW_LANGUAGE,
+        )
 
     private fun readabilityOptions(): SyntaxReadabilityOptions =
         SyntaxReadabilityOptions(

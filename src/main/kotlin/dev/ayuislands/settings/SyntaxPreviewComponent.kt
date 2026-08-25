@@ -385,10 +385,19 @@ internal class SyntaxPreviewComponent(
         internal fun preferredAvailableLanguage(
             languages: List<String>,
             preferred: String,
+        ): String = preferredAvailableLanguage(languages, listOf(preferred))
+
+        internal fun preferredAvailableLanguage(
+            languages: List<String>,
+            preferred: List<String>,
         ): String =
-            languages.firstOrNull { it == preferred && hasFileType(it) }
+            preferred.firstNotNullOfOrNull { candidate ->
+                languages.firstOrNull { it == candidate && hasFileType(it) }
+            }
                 ?: languages.firstOrNull(::hasFileType)
-                ?: languages.firstOrNull { it == preferred }
+                ?: preferred.firstNotNullOfOrNull { candidate ->
+                    languages.firstOrNull { it == candidate }
+                }
                 ?: languages.firstOrNull().orEmpty()
 
         private fun hasFileType(language: String): Boolean = availableFileType(language, sampleFor(language)) != null

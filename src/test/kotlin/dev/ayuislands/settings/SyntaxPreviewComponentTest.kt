@@ -585,6 +585,23 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
+    fun `tries contextual languages in priority order before the default fallback`() {
+        val unavailableFileType = editorFixture.mockFileType("Unavailable", "txt")
+        val kotlinFileType = editorFixture.mockFileType("Kotlin", "kt")
+        every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns unavailableFileType
+        every { editorFixture.fileTypeManager.getStdFileType("Kotlin") } returns kotlinFileType
+
+        assertEquals(
+            "Kotlin",
+            SyntaxPreviewComponent.preferredAvailableLanguage(
+                languages = listOf("Java", "Kotlin", "Swift"),
+                preferred = listOf("Swift", "Kotlin"),
+            ),
+            "An unavailable active-file language must fall through to the cached project language.",
+        )
+    }
+
+    @Test
     fun `preferred size is non-zero`() {
         val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
         val preferred = component.preferredSize
