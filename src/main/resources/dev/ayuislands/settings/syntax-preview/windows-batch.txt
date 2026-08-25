@@ -1,0 +1,11 @@
+@echo off
+rem Native Windows Batch preview
+set "COUNT=42"
+set "NAME=Ayu"
+if %COUNT% GTR 0 call :render "%NAME%"
+exit /b 0
+
+:render
+set "VALUE=%~1"
+echo %VALUE% %COUNT%
+exit /b 0

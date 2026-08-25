@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Render one syntax-preview value.
+render() {
+    local value="${1:-Ayu}"
+    local count=42
+    if [[ -n "$value" && $count -gt 0 ]]; then
+        printf '%s: %d\n' "$value" "$count"
+    fi
+}
+render "Islands"

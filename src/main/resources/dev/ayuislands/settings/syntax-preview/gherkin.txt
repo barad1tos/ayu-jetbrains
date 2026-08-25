@@ -1,0 +1,12 @@
+@syntax
+Feature: Preview syntax colors
+  Background:
+    Given the preview name is "Ayu"
+
+  Scenario Outline: Render a positive count
+    When the count is <count>
+    Then the result should be "visible"
+
+    Examples:
+      | count |
+      | 42    |

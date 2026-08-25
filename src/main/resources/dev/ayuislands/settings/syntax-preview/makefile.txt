@@ -1,0 +1,12 @@
+# Native Makefile preview
+NAME := Ayu
+COUNT ?= 42
+FILES := $(wildcard src/*)
+.PHONY: preview
+
+preview: build/output.txt
+	@echo "$(NAME) $(COUNT) $@ $(FILES)"
+
+build/output.txt:
+	@mkdir -p $(@D)
+	@printf '%s\n' "$(NAME)" > "$@"

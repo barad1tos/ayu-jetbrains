@@ -27,7 +27,7 @@ internal data class SyntaxPreviewSpec(
     val demonstratedCategories: Set<PrimitiveCategory>,
 )
 
-private data class PreviewFileTypeHint(
+internal data class FileTypeHint(
     val standardName: String,
     val extension: String,
 )
@@ -35,10 +35,10 @@ private data class PreviewFileTypeHint(
 internal object SyntaxPreviewCatalog {
     private val specifications =
         listOf(
-            spec(
+            syntaxPreviewSpec(
                 "Kotlin",
                 "PresetPreview.kt",
-                fileType("Kotlin", "kt"),
+                previewFileType("Kotlin", "kt"),
                 "kotlin.txt",
                 COMMENT,
                 DOCUMENTATION,
@@ -54,10 +54,10 @@ internal object SyntaxPreviewCatalog {
                 NUMBER_LITERAL,
                 TYPE_REF,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Java",
                 "PresetPreview.java",
-                fileType("JAVA", "java"),
+                previewFileType("JAVA", "java"),
                 "java.txt",
                 COMMENT,
                 DOCUMENTATION,
@@ -74,10 +74,10 @@ internal object SyntaxPreviewCatalog {
                 NUMBER_LITERAL,
                 STATIC_FIELD,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Python",
                 "preset_preview.py",
-                fileType("Python", "py"),
+                previewFileType("Python", "py"),
                 "python.txt",
                 ANNOTATION,
                 OPERATOR,
@@ -92,10 +92,10 @@ internal object SyntaxPreviewCatalog {
                 LOCAL_VAR,
                 GENERICS,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "JavaScript",
                 "preset-preview.js",
-                fileType("JavaScript", "js"),
+                previewFileType("JavaScript", "js"),
                 "javascript.txt",
                 COMMENT,
                 DOCUMENTATION,
@@ -112,10 +112,10 @@ internal object SyntaxPreviewCatalog {
                 OPERATOR,
                 FUNCTION_DECL,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "TypeScript",
                 "preset-preview.ts",
-                fileType("TypeScript", "ts"),
+                previewFileType("TypeScript", "ts"),
                 "typescript.txt",
                 COMMENT,
                 DOCUMENTATION,
@@ -130,10 +130,10 @@ internal object SyntaxPreviewCatalog {
                 ANNOTATION,
                 INSTANCE_FIELD,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Go",
                 "preset_preview.go",
-                fileType("Go", "go"),
+                previewFileType("Go", "go"),
                 "go.txt",
                 COMMENT,
                 NUMBER_LITERAL,
@@ -149,10 +149,10 @@ internal object SyntaxPreviewCatalog {
                 ANNOTATION,
                 OPERATOR,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Rust",
                 "preset_preview.rs",
-                fileType("Rust", "rs"),
+                previewFileType("Rust", "rs"),
                 "rust.txt",
                 COMMENT,
                 DOCUMENTATION,
@@ -169,10 +169,10 @@ internal object SyntaxPreviewCatalog {
                 LOCAL_VAR,
                 STATIC_FIELD,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "CSS",
                 "preview.css",
-                fileType("CSS", "css"),
+                previewFileType("CSS", "css"),
                 "css.txt",
                 OPERATOR,
                 CLASS_DECL,
@@ -182,14 +182,45 @@ internal object SyntaxPreviewCatalog {
                 ANNOTATION,
                 LOCAL_VAR,
             ),
-            spec("HTML", "preview.html", fileType("HTML", "html"), "html.txt", ANNOTATION, STRING_LITERAL, KEYWORD),
-            spec("JSON", "preview.json", fileType("JSON", "json"), "json.txt", NUMBER_LITERAL, STRING_LITERAL),
-            spec("YAML", "preview.yaml", fileType("YAML", "yaml"), "yaml.txt", STRING_LITERAL, ANNOTATION, OPERATOR),
-            spec("Markdown", "preview.md", fileType("Markdown", "md"), "markdown.txt", KEYWORD, DOCUMENTATION, COMMENT),
-            spec(
+            syntaxPreviewSpec(
+                "HTML",
+                "preview.html",
+                previewFileType("HTML", "html"),
+                "html.txt",
+                ANNOTATION,
+                STRING_LITERAL,
+                KEYWORD,
+            ),
+            syntaxPreviewSpec(
+                "JSON",
+                "preview.json",
+                previewFileType("JSON", "json"),
+                "json.txt",
+                NUMBER_LITERAL,
+                STRING_LITERAL,
+            ),
+            syntaxPreviewSpec(
+                "YAML",
+                "preview.yaml",
+                previewFileType("YAML", "yaml"),
+                "yaml.txt",
+                STRING_LITERAL,
+                ANNOTATION,
+                OPERATOR,
+            ),
+            syntaxPreviewSpec(
+                "Markdown",
+                "preview.md",
+                previewFileType("Markdown", "md"),
+                "markdown.txt",
+                KEYWORD,
+                DOCUMENTATION,
+                COMMENT,
+            ),
+            syntaxPreviewSpec(
                 "Swift",
                 "Preview.swift",
-                fileType("Swift", "swift"),
+                previewFileType("Swift", "swift"),
                 "swift.txt",
                 CLASS_DECL,
                 PARAMETER,
@@ -207,28 +238,28 @@ internal object SyntaxPreviewCatalog {
                 STATIC_FIELD,
                 DOCUMENTATION,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Angular",
                 "Preview.component.html",
-                fileType("HTML", "html"),
+                previewFileType("HTML", "html"),
                 "angular.txt",
                 ANNOTATION,
                 OPERATOR,
                 LOCAL_VAR,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Apple plist",
                 "Info.plist",
-                fileType("XML", "plist"),
+                previewFileType("XML", "plist"),
                 "apple-plist.txt",
                 KEYWORD,
                 NUMBER_LITERAL,
                 OPERATOR,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "C# (ReSharper)",
                 "Preview.cs",
-                fileType("C#", "cs"),
+                previewFileType("C#", "cs"),
                 "csharp-resharper.txt",
                 COMMENT,
                 DOCUMENTATION,
@@ -240,10 +271,10 @@ internal object SyntaxPreviewCatalog {
                 OPERATOR,
                 STATIC_FIELD,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "CodeQL",
                 "preview.ql",
-                fileType("CodeQL", "ql"),
+                previewFileType("CodeQL", "ql"),
                 "codeql.txt",
                 KEYWORD,
                 CLASS_DECL,
@@ -256,10 +287,10 @@ internal object SyntaxPreviewCatalog {
                 TYPE_REF,
                 OPERATOR,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "CoffeeScript",
                 "preview.coffee",
-                fileType("CoffeeScript", "coffee"),
+                previewFileType("CoffeeScript", "coffee"),
                 "coffeescript.txt",
                 CLASS_DECL,
                 FUNCTION_DECL,
@@ -268,10 +299,10 @@ internal object SyntaxPreviewCatalog {
                 PARAMETER,
                 STRING_LITERAL,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Dart",
                 "preview.dart",
-                fileType("Dart", "dart"),
+                previewFileType("Dart", "dart"),
                 "dart.txt",
                 ANNOTATION,
                 CLASS_DECL,
@@ -285,23 +316,45 @@ internal object SyntaxPreviewCatalog {
                 PARAMETER,
                 LOCAL_VAR,
             ),
-            spec("Django", "preview.html", fileType("Django Template", "html"), "django.txt", COMMENT, KEYWORD),
-            spec("dotenv", ".env", fileType("dotenv", "env"), "dotenv.txt", INSTANCE_FIELD, STRING_LITERAL, OPERATOR),
-            spec("Erlang", "preview.erl", fileType("Erlang", "erl"), "erlang.txt", FUNCTION_DECL, KEYWORD),
-            spec(
+            syntaxPreviewSpec(
+                "Django",
+                "preview.html",
+                previewFileType("Django Template", "html"),
+                "django.txt",
+                COMMENT,
+                KEYWORD,
+            ),
+            syntaxPreviewSpec(
+                "dotenv",
+                ".env",
+                previewFileType("dotenv", "env"),
+                "dotenv.txt",
+                INSTANCE_FIELD,
+                STRING_LITERAL,
+                OPERATOR,
+            ),
+            syntaxPreviewSpec(
+                "Erlang",
+                "preview.erl",
+                previewFileType("Erlang", "erl"),
+                "erlang.txt",
+                FUNCTION_DECL,
+                KEYWORD,
+            ),
+            syntaxPreviewSpec(
                 "FreeMarker",
                 "preview.ftl",
-                fileType("FreeMarker", "ftl"),
+                previewFileType("FreeMarker", "ftl"),
                 "freemarker.txt",
                 KEYWORD,
                 TYPE_REF,
                 NUMBER_LITERAL,
                 STRING_LITERAL,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "GraphQL",
                 "preview.graphql",
-                fileType("GraphQL", "graphql"),
+                previewFileType("GraphQL", "graphql"),
                 "graphql.txt",
                 ANNOTATION,
                 KEYWORD,
@@ -310,10 +363,10 @@ internal object SyntaxPreviewCatalog {
                 CLASS_DECL,
                 OPERATOR,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Groovy",
                 "Preview.groovy",
-                fileType("Groovy", "groovy"),
+                previewFileType("Groovy", "groovy"),
                 "groovy.txt",
                 FUNCTION_DECL,
                 LOCAL_VAR,
@@ -322,30 +375,30 @@ internal object SyntaxPreviewCatalog {
                 DOCUMENTATION,
                 STRING_LITERAL,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "HAML",
                 "preview.haml",
-                fileType("HAML", "haml"),
+                previewFileType("HAML", "haml"),
                 "haml.txt",
                 CLASS_DECL,
                 COMMENT,
                 OPERATOR,
                 STRING_LITERAL,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "JSONPath",
                 "preview.jsonpath",
-                fileType("JSONPath", "jsonpath"),
+                previewFileType("JSONPath", "jsonpath"),
                 "jsonpath.txt",
                 KEYWORD,
                 LOCAL_VAR,
                 NUMBER_LITERAL,
                 FUNCTION_DECL,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Lua",
                 "preview.lua",
-                fileType("Lua", "lua"),
+                previewFileType("Lua", "lua"),
                 "lua.txt",
                 FUNCTION_DECL,
                 LOCAL_VAR,
@@ -357,20 +410,20 @@ internal object SyntaxPreviewCatalog {
                 PARAMETER,
                 DOCUMENTATION,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Objective-C",
                 "Preview.m",
-                fileType("Objective-C", "m"),
+                previewFileType("Objective-C", "m"),
                 "objective-c.txt",
                 KEYWORD,
                 FUNCTION_DECL,
                 OPERATOR,
                 TYPE_REF,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "PHP",
                 "preview.php",
-                fileType("PHP", "php"),
+                previewFileType("PHP", "php"),
                 "php.txt",
                 COMMENT,
                 DOCUMENTATION,
@@ -388,10 +441,10 @@ internal object SyntaxPreviewCatalog {
                 STATIC_FIELD,
                 TYPE_REF,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "PowerShell",
                 "preview.ps1",
-                fileType("PowerShell", "ps1"),
+                previewFileType("PowerShell", "ps1"),
                 "powershell.txt",
                 KEYWORD,
                 NUMBER_LITERAL,
@@ -401,18 +454,18 @@ internal object SyntaxPreviewCatalog {
                 TYPE_REF,
                 OPERATOR,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Properties files",
                 "preview.properties",
-                fileType("Properties", "properties"),
+                previewFileType("Properties", "properties"),
                 "properties.txt",
                 STRING_LITERAL,
                 OPERATOR,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Qute",
                 "preview.html",
-                fileType("Qute", "html"),
+                previewFileType("Qute", "html"),
                 "qute.txt",
                 KEYWORD,
                 OPERATOR,
@@ -420,10 +473,10 @@ internal object SyntaxPreviewCatalog {
                 LOCAL_VAR,
                 STRING_LITERAL,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Ruby",
                 "preview.rb",
-                fileType("Ruby", "rb"),
+                previewFileType("Ruby", "rb"),
                 "ruby.txt",
                 COMMENT,
                 LOCAL_VAR,
@@ -436,10 +489,10 @@ internal object SyntaxPreviewCatalog {
                 INSTANCE_FIELD,
                 INTERFACE_DECL,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Sass",
                 "preview.scss",
-                fileType("SCSS", "scss"),
+                previewFileType("SCSS", "scss"),
                 "sass.txt",
                 COMMENT,
                 KEYWORD,
@@ -448,10 +501,10 @@ internal object SyntaxPreviewCatalog {
                 STRING_LITERAL,
                 LOCAL_VAR,
             ),
-            spec(
+            syntaxPreviewSpec(
                 "Scala",
                 "Preview.scala",
-                fileType("Scala", "scala"),
+                previewFileType("Scala", "scala"),
                 "scala.txt",
                 DOCUMENTATION,
                 NUMBER_LITERAL,
@@ -466,20 +519,36 @@ internal object SyntaxPreviewCatalog {
                 PARAMETER,
                 ANNOTATION,
             ),
-            spec("Slim", "preview.slim", fileType("Slim", "slim"), "slim.txt", CLASS_DECL, COMMENT, STRING_LITERAL),
-            spec(
+            syntaxPreviewSpec(
+                "Slim",
+                "preview.slim",
+                previewFileType("Slim", "slim"),
+                "slim.txt",
+                CLASS_DECL,
+                COMMENT,
+                STRING_LITERAL,
+            ),
+            syntaxPreviewSpec(
                 "Velocity",
                 "preview.vm",
-                fileType("Velocity", "vm"),
+                previewFileType("Velocity", "vm"),
                 "velocity.txt",
                 KEYWORD,
                 TYPE_REF,
                 NUMBER_LITERAL,
                 STRING_LITERAL,
             ),
-            spec("Vue", "Preview.vue", fileType("Vue", "vue"), "vue.txt", OPERATOR),
-            spec("XML", "preview.xml", fileType("XML", "xml"), "xml.txt", ANNOTATION, STRING_LITERAL, KEYWORD),
-        ).associateBy(SyntaxPreviewSpec::language)
+            syntaxPreviewSpec("Vue", "Preview.vue", previewFileType("Vue", "vue"), "vue.txt", OPERATOR),
+            syntaxPreviewSpec(
+                "XML",
+                "preview.xml",
+                previewFileType("XML", "xml"),
+                "xml.txt",
+                ANNOTATION,
+                STRING_LITERAL,
+                KEYWORD,
+            ),
+        ).plus(SpecializedPreviewSpecs.entries).associateBy(SyntaxPreviewSpec::language)
 
     fun find(language: String): SyntaxPreviewSpec? = specifications[language]
 
@@ -489,25 +558,25 @@ internal object SyntaxPreviewCatalog {
         specifications[language]?.demonstratedCategories.orEmpty()
 
     fun resourceNames(): Set<String> = specifications.values.mapTo(linkedSetOf(), SyntaxPreviewSpec::resourceName)
-
-    private fun spec(
-        language: String,
-        fileName: String,
-        fileTypeHint: PreviewFileTypeHint,
-        resourceName: String,
-        vararg categories: PrimitiveCategory,
-    ): SyntaxPreviewSpec =
-        SyntaxPreviewSpec(
-            language,
-            fileName,
-            fileTypeHint.standardName,
-            fileTypeHint.extension,
-            resourceName,
-            categories.toSet(),
-        )
-
-    private fun fileType(
-        standardName: String,
-        extension: String,
-    ): PreviewFileTypeHint = PreviewFileTypeHint(standardName, extension)
 }
+
+internal fun syntaxPreviewSpec(
+    language: String,
+    fileName: String,
+    fileTypeHint: FileTypeHint,
+    resourceName: String,
+    vararg categories: PrimitiveCategory,
+): SyntaxPreviewSpec =
+    SyntaxPreviewSpec(
+        language,
+        fileName,
+        fileTypeHint.standardName,
+        fileTypeHint.extension,
+        resourceName,
+        categories.toSet(),
+    )
+
+internal fun previewFileType(
+    standardName: String,
+    extension: String,
+): FileTypeHint = FileTypeHint(standardName, extension)

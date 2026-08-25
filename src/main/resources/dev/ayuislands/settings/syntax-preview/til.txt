@@ -1,0 +1,11 @@
+variable "image_id" { default = "ami-123456" }
+
+resource "aws_instance" "preview" {
+  ami   = "${var.image_id}"
+  count = 2
+  tags  = { Name = "Ayu-${count.index}" }
+}
+
+output "preview_id" {
+  value = "${aws_instance.preview.id}"
+}
