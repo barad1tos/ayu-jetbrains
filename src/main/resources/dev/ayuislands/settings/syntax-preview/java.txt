@@ -1,10 +1,14 @@
-public final class Greeter {
-    private static final String MSG = "hello";
-    // print greeting
-    /** Greet the user */
-    public void greet(String name) {
-        if (!MSG.isEmpty()) {
-            System.out.println(name);
-        }
+/** Renders values for preview. */
+interface Previewing<T> { String render(T value); }
+
+@Deprecated
+public final class Preview<T> implements Previewing<T> {
+    private static final int LIMIT = 42;
+    private final String prefix = "Ayu";
+
+    /** Formats one value. */
+    public String render(T value) {
+        String result = prefix + ": " + value; // tuned local
+        return result.isEmpty() ? "none" : result;
     }
 }

@@ -9,11 +9,17 @@ import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.ui.EditorTextField
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.SyntaxIntensityApplicator
+import dev.ayuislands.syntax.SyntaxOverlayLoader
+import dev.ayuislands.syntax.SyntaxPreset
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import org.junit.jupiter.api.assertAll
+import java.awt.Color
 import java.awt.Container
 import java.awt.Dimension
 import java.awt.image.BufferedImage
@@ -21,6 +27,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -135,34 +142,120 @@ class SyntaxPreviewComponentTest {
             "Python preview must use its curated sample.",
         )
         assertTrue(
-            component.sampleCodeForTest().contains("def greet"),
+            component.sampleCodeForTest().contains("def render"),
             "Python preview must load the curated resource code.",
         )
         assertEquals(pythonFileType, editor.fileType, "Python tuning must render through the Python file type.")
     }
 
     @Test
-    fun `component falls back to plain text when standard file type mismatches the sample`() {
-        every { editorFixture.fileTypeManager.getStdFileType("Kotlin") } returns
-            editorFixture.mockFileType("NotKotlin", "txt")
+    fun `core catalog includes Swift with a native representative sample`() {
+        val expected =
+            setOf(
+                "CSS",
+                "Go",
+                "HTML",
+                "Java",
+                "JavaScript",
+                "JSON",
+                "Kotlin",
+                "Markdown",
+                "Python",
+                "Rust",
+                "Swift",
+                "TypeScript",
+                "YAML",
+            )
+        assertTrue(SyntaxPreviewComponent.catalogLanguagesForTest().containsAll(expected))
 
         val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        component.updatePreview(AyuVariant.MIRAGE, "Swift")
+
+        assertEquals("Preview.swift", component.sampleFileNameForTest())
+        assertTrue(component.sampleCodeForTest().contains("protocol Previewing"))
+        assertTrue(component.sampleCodeForTest().contains("final class Preview<Value>"))
+        assertTrue(component.sampleCodeForTest().contains("@MainActor"))
+        assertTrue(component.sampleCodeForTest().contains("static let"))
+        assertTrue(component.sampleCodeForTest().contains("///"))
+    }
+
+    @Test
+    fun `core preview declarations equal effective three-variant category unions`() {
+        val effectiveCategories = effectiveCategoryUnions()
+        val coreLanguages =
+            setOf(
+                "CSS",
+                "Go",
+                "HTML",
+                "Java",
+                "JavaScript",
+                "JSON",
+                "Kotlin",
+                "Markdown",
+                "Python",
+                "Rust",
+                "Swift",
+                "TypeScript",
+                "YAML",
+            )
+
+        val categoryAssertions: List<() -> Unit> =
+            coreLanguages.map { language ->
+                {
+                    val expected = effectiveCategories[language].orEmpty()
+                    val declared = SyntaxPreviewComponent.categoriesForTest(language)
+                    assertEquals(
+                        expected,
+                        declared,
+                        "$language preview categories differ: effective=$expected declared=$declared",
+                    )
+                }
+            }
+        assertAll(categoryAssertions)
+    }
+
+    @Test
+    fun `core preview resources are unique`() {
+        val resources = SyntaxPreviewComponent.resourceNamesForTest()
+
+        assertEquals(13, resources.size)
+        assertFalse(resources.any { it.isBlank() })
+    }
+
+    @Test
+    fun `component falls back to plain text when standard file type mismatches the sample`() {
+        every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns
+            editorFixture.mockFileType("NotSwift", "txt")
+
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        component.updatePreview(AyuVariant.MIRAGE, "Swift")
 
         val editor = findEditorTextField(component)
         assertNotNull(editor, "Syntax preview must still build when the expected file type is unavailable.")
         assertSame(PlainTextFileType.INSTANCE, editor.fileType)
+        assertEquals("Preview.swift", component.sampleFileNameForTest())
+        assertTrue(component.sampleCodeForTest().contains("protocol Previewing"))
+        assertTrue(component.toolTipText.contains("Swift"))
+        assertTrue(component.toolTipText.contains("this IDE"))
+        assertFalse(component.sampleCodeForTest().contains("// tune syntax colors"))
     }
 
     @Test
     fun `component falls back to plain text when standard file type lookup fails`() {
-        every { editorFixture.fileTypeManager.getStdFileType("Kotlin") } throws
-            RuntimeException("missing Kotlin plugin")
+        every { editorFixture.fileTypeManager.getStdFileType("Swift") } throws
+            RuntimeException("missing Swift plugin")
 
         val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        component.updatePreview(AyuVariant.MIRAGE, "Swift")
 
         val editor = findEditorTextField(component)
         assertNotNull(editor, "Syntax preview must still build when file type lookup throws.")
         assertSame(PlainTextFileType.INSTANCE, editor.fileType)
+        assertEquals("Preview.swift", component.sampleFileNameForTest())
+        assertTrue(component.sampleCodeForTest().contains("protocol Previewing"))
+        assertTrue(component.toolTipText.contains("Swift"))
+        assertTrue(component.toolTipText.contains("this IDE"))
+        assertFalse(component.sampleCodeForTest().contains("// tune syntax colors"))
     }
 
     @Test
@@ -234,5 +327,32 @@ class SyntaxPreviewComponentTest {
         val editorFieldBackingField = EditorTextField::class.java.getDeclaredField("myEditor")
         editorFieldBackingField.isAccessible = true
         editorFieldBackingField.set(editorField, editor)
+    }
+
+    private fun effectiveCategoryUnions(): Map<String, Set<PrimitiveCategory>> {
+        val loader = SyntaxOverlayLoader()
+        val categories = linkedMapOf<String, MutableSet<PrimitiveCategory>>()
+        val editorBackgrounds =
+            mapOf(
+                "Mirage" to Color(0x1F, 0x24, 0x30),
+                "Dark" to Color(0x0D, 0x10, 0x17),
+                "Light" to Color(0xFC, 0xFC, 0xFC),
+            )
+        for ((variant, background) in editorBackgrounds) {
+            val effective =
+                SyntaxIntensityApplicator.compute(
+                    SyntaxIntensityApplicator.Request(
+                        preset = SyntaxPreset.AMBIENT,
+                        variantName = variant,
+                        editorBg = background,
+                        baseline = loader.loadBaselineForVariant(variant),
+                        overlay = loader.loadOverlayForVariant(variant),
+                    ),
+                )
+            for ((language, variantCategories) in SyntaxIntensityApplicator.tunableCategories(effective.keys)) {
+                categories.getOrPut(language) { linkedSetOf() }.addAll(variantCategories)
+            }
+        }
+        return categories.mapValues { (_, values) -> values.toSet() }
     }
 }

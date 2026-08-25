@@ -1,4 +1,9 @@
-name: Ayu Islands
-enabled: true
-count: 42
-# tune keys and values
+# Tuned YAML primitives
+defaults: &defaults
+  theme: "Ayu Islands"
+  count: 42
+  enabled: true
+
+preview:
+  <<: *defaults
+  tags: [dark, syntax]
