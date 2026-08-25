@@ -100,10 +100,19 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     private val storedStyles: MutableMap<String, String> = mutableMapOf()
     private val pendingEmphasis: MutableMap<String, String> = mutableMapOf()
     private val storedEmphasis: MutableMap<String, String> = mutableMapOf()
+    private val categoryLabels: MutableMap<PrimitiveCategory, JLabel> = mutableMapOf()
     private val sliders: MutableMap<PrimitiveCategory, JSlider> = mutableMapOf()
     private val sliderLabels: MutableMap<PrimitiveCategory, JLabel> = mutableMapOf()
     private val resetButtons: MutableMap<PrimitiveCategory, InplaceButton> = mutableMapOf()
     private val styleControls: MutableMap<PrimitiveCategory, SyntaxStyleControl> = mutableMapOf()
+    private val categoryAvailability =
+        SyntaxCategoryAvailability(
+            categoryLabels = categoryLabels,
+            sliders = sliders,
+            sliderLabels = sliderLabels,
+            resetButtons = resetButtons,
+            styleControls = styleControls,
+        )
     private var dimCommentsCheckbox: JCheckBox? = null
     private var softenDocumentationCheckbox: JCheckBox? = null
     private var quietOperatorsCheckbox: JCheckBox? = null
@@ -139,6 +148,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         variant: AyuVariant,
     ) {
         this.variant = variant
+        categoryAvailability.refreshCapabilities(variant)
         loadStateIntoPending()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
         currentLanguage = preferredInitialLanguage()
@@ -309,13 +319,14 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
 
     private fun Panel.categoryRow(category: PrimitiveCategory) {
         row {
-            cell(
+            val categoryLabel =
                 JLabel(category.displayName).apply {
                     val width = labelColumnWidth
                     preferredSize = Dimension(width, preferredSize.height)
                     minimumSize = Dimension(width, preferredSize.height)
-                },
-            ).gap(RightGap.SMALL)
+                }
+            categoryLabels[category] = categoryLabel
+            cell(categoryLabel).gap(RightGap.SMALL)
             val styleControl =
                 SyntaxStyleControl(
                     category = category,
@@ -629,6 +640,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         } finally {
             suppressSliderListeners = false
         }
+        categoryAvailability.refreshRows(language)
     }
 
     /**
@@ -728,6 +740,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
                     customEmphasis = nestedEmphasis,
                 ),
             )
+        variant?.let { categoryAvailability.refreshCapabilities(it) }
+        categoryAvailability.refreshRows(currentLanguage)
         refreshPreview()
     }
 

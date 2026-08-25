@@ -1602,6 +1602,143 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
+    fun `language capability rebind disables only unavailable controls and preserves every sparse store`() {
+        every { intensityService.tunableCategories(AyuVariant.MIRAGE) } returns
+            mapOf("Swift" to setOf(PrimitiveCategory.FUNCTION_DECL))
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customOverrides["Swift|KEYWORD"] = "82"
+        stateBase.customStyles["Swift|KEYWORD"] = "ITALIC"
+        stateBase.customEmphasis["Swift|KEYWORD"] = "BOLD"
+        val persistedOverrides = stateBase.customOverrides.toMap()
+        val persistedStyles = stateBase.customStyles.toMap()
+        val persistedEmphasis = stateBase.customEmphasis.toMap()
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            val pendingOverrides = readPendingOverrides(syntaxPanel)
+            val pendingStyles = readPendingStyles(syntaxPanel)
+            val pendingEmphasis = readPendingEmphasis(syntaxPanel)
+            val storedOverrides = readStoredOverrides(syntaxPanel)
+            val storedStyles = readStoredStyles(syntaxPanel)
+            val storedEmphasis = readStoredEmphasis(syntaxPanel)
+
+            writeCurrentLanguage(syntaxPanel, "Swift")
+            invokeRebind(syntaxPanel, "Swift")
+            invokeRefreshMasterResetButton(syntaxPanel)
+
+            assertTrue(readSlider(syntaxPanel, PrimitiveCategory.FUNCTION_DECL).isEnabled)
+            assertFalse(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
+            assertFalse(readStyleControl(syntaxPanel, PrimitiveCategory.KEYWORD).component.isEnabled)
+            assertFalse(readCategoryLabel(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
+            assertTrue(readMasterResetButton(syntaxPanel).isVisible)
+            assertEquals(pendingOverrides, readPendingOverrides(syntaxPanel))
+            assertEquals(pendingStyles, readPendingStyles(syntaxPanel))
+            assertEquals(pendingEmphasis, readPendingEmphasis(syntaxPanel))
+            assertEquals(storedOverrides, readStoredOverrides(syntaxPanel))
+            assertEquals(storedStyles, readStoredStyles(syntaxPanel))
+            assertEquals(storedEmphasis, readStoredEmphasis(syntaxPanel))
+            assertEquals(persistedOverrides, stateBase.customOverrides)
+            assertEquals(persistedStyles, stateBase.customStyles)
+            assertEquals(persistedEmphasis, stateBase.customEmphasis)
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `capability discovery failure keeps every existing row enabled`() {
+        every { intensityService.tunableCategories(AyuVariant.MIRAGE) } returns null
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+
+            PrimitiveCategory.entries.forEach { category ->
+                assertTrue(readSlider(syntaxPanel, category).isEnabled, "$category must fail open")
+                assertTrue(
+                    readStyleControl(syntaxPanel, category).component.isEnabled,
+                    "$category style must fail open",
+                )
+            }
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `language capability rebind restores controls without losing preserved values`() {
+        every { intensityService.tunableCategories(AyuVariant.MIRAGE) } returns
+            mapOf(
+                "Swift" to setOf(PrimitiveCategory.FUNCTION_DECL),
+                "Kotlin" to PrimitiveCategory.entries.toSet(),
+            )
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customOverrides["Swift|KEYWORD"] = "82"
+        stateBase.customStyles["Swift|KEYWORD"] = "ITALIC"
+        stateBase.customEmphasis["Swift|KEYWORD"] = "BOLD"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            val beforeOverrides = readPendingOverrides(syntaxPanel)
+            val beforeStyles = readPendingStyles(syntaxPanel)
+            val beforeEmphasis = readPendingEmphasis(syntaxPanel)
+
+            writeCurrentLanguage(syntaxPanel, "Swift")
+            invokeRebind(syntaxPanel, "Swift")
+            assertFalse(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
+            assertFalse(readStyleControl(syntaxPanel, PrimitiveCategory.KEYWORD).component.isEnabled)
+
+            writeCurrentLanguage(syntaxPanel, "Kotlin")
+            invokeRebind(syntaxPanel, "Kotlin")
+
+            assertTrue(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
+            assertTrue(readStyleControl(syntaxPanel, PrimitiveCategory.KEYWORD).component.isEnabled)
+            assertEquals(beforeOverrides, readPendingOverrides(syntaxPanel))
+            assertEquals(beforeStyles, readPendingStyles(syntaxPanel))
+            assertEquals(beforeEmphasis, readPendingEmphasis(syntaxPanel))
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `preview adopts a new capability snapshot without changing sparse stores`() {
+        val restricted = mapOf("Swift" to setOf(PrimitiveCategory.FUNCTION_DECL))
+        every { intensityService.tunableCategories(AyuVariant.MIRAGE) } returnsMany listOf(null, restricted)
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customOverrides["Swift|KEYWORD"] = "82"
+        stateBase.customStyles["Swift|KEYWORD"] = "ITALIC"
+        stateBase.customEmphasis["Swift|KEYWORD"] = "BOLD"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            writeCurrentLanguage(syntaxPanel, "Swift")
+            invokeRebind(syntaxPanel, "Swift")
+            val beforeOverrides = readPendingOverrides(syntaxPanel)
+            val beforeStyles = readPendingStyles(syntaxPanel)
+            val beforeEmphasis = readPendingEmphasis(syntaxPanel)
+            assertTrue(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
+
+            invokePreview(syntaxPanel)
+
+            assertFalse(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
+            assertFalse(readStyleControl(syntaxPanel, PrimitiveCategory.KEYWORD).component.isEnabled)
+            assertEquals(beforeOverrides, readPendingOverrides(syntaxPanel))
+            assertEquals(beforeStyles, readPendingStyles(syntaxPanel))
+            assertEquals(beforeEmphasis, readPendingEmphasis(syntaxPanel))
+            assertEquals("82", stateBase.customOverrides["Swift|KEYWORD"])
+            assertEquals("ITALIC", stateBase.customStyles["Swift|KEYWORD"])
+            assertEquals("BOLD", stateBase.customEmphasis["Swift|KEYWORD"])
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
     fun `every category keeps slider and style paired before readout and reset`() {
         // Break caught: the Aa glyph must stay paired with its slider, exactly 8px away, before readout and reset.
         stateBase.selectedPreset = "CUSTOM"
@@ -1868,6 +2005,9 @@ class AyuIslandsSyntaxPanelTest {
             (key as String) to (value as String)
         }
 
+    private fun readStoredOverrides(panel: AyuIslandsSyntaxPanel): Map<String, String> =
+        readStringMapField(panel, "storedOverrides")
+
     private fun seedPendingOverride(
         panel: AyuIslandsSyntaxPanel,
         key: String,
@@ -1892,6 +2032,9 @@ class AyuIslandsSyntaxPanelTest {
             (key as String) to (value as String)
         }
 
+    private fun readStoredStyles(panel: AyuIslandsSyntaxPanel): Map<String, String> =
+        readStringMapField(panel, "storedStyles")
+
     private fun seedPendingStyle(
         panel: AyuIslandsSyntaxPanel,
         key: String,
@@ -1912,6 +2055,21 @@ class AyuIslandsSyntaxPanelTest {
         pendingEmphasisField(panel).entries.associate { (key, value) ->
             (key as String) to (value as String)
         }
+
+    private fun readStoredEmphasis(panel: AyuIslandsSyntaxPanel): Map<String, String> =
+        readStringMapField(panel, "storedEmphasis")
+
+    private fun readStringMapField(
+        panel: AyuIslandsSyntaxPanel,
+        fieldName: String,
+    ): Map<String, String> {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField(fieldName)
+        field.isAccessible = true
+        val values = field.get(panel) as Map<*, *>
+        return values.entries.associate { (key, value) ->
+            (key as String) to (value as String)
+        }
+    }
 
     private fun seedPendingEmphasis(
         panel: AyuIslandsSyntaxPanel,
@@ -2046,6 +2204,16 @@ class AyuIslandsSyntaxPanelTest {
         return sliders[category] as JSlider
     }
 
+    private fun readCategoryLabel(
+        panel: AyuIslandsSyntaxPanel,
+        category: PrimitiveCategory,
+    ): JLabel {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("categoryLabels")
+        field.isAccessible = true
+        val labels = field.get(panel) as Map<*, *>
+        return labels[category] as JLabel
+    }
+
     private fun readSliderLabel(
         panel: AyuIslandsSyntaxPanel,
         category: PrimitiveCategory,
@@ -2066,6 +2234,12 @@ class AyuIslandsSyntaxPanelTest {
         return buttons[category] as InplaceButton
     }
 
+    private fun readMasterResetButton(panel: AyuIslandsSyntaxPanel): JButton {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("masterResetButton")
+        field.isAccessible = true
+        return field.get(panel) as JButton
+    }
+
     private data class SeededWidgets(
         val slider: JSlider,
         val label: JLabel,
@@ -2074,10 +2248,16 @@ class AyuIslandsSyntaxPanelTest {
     )
 
     private fun invokeRebindSlidersForJava(panel: AyuIslandsSyntaxPanel) {
-        val method =
-            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("rebindSlidersFor", String::class.java)
+        invokeRebind(panel, "Java")
+    }
+
+    private fun invokeRebind(
+        panel: AyuIslandsSyntaxPanel,
+        language: String,
+    ) {
+        val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("rebindSlidersFor", String::class.java)
         method.isAccessible = true
-        method.invoke(panel, "Java")
+        method.invoke(panel, language)
     }
 
     private fun invokeApplyReadout(
