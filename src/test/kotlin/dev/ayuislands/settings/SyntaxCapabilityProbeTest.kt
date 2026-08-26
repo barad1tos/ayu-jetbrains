@@ -78,6 +78,26 @@ class SyntaxCapabilityProbeTest {
     }
 
     @Test
+    fun `assessment rejects global fallback keys as per-language capability evidence`() {
+        val specification = swiftSpecification()
+
+        val result =
+            SyntaxProbeAssessment.assess(
+                specification,
+                generation = 7,
+                evidence =
+                    listOf(
+                        highlightEvidence(KEYWORD, "SWIFT.KEYWORD"),
+                        highlightEvidence(OPERATOR, "DEFAULT_OPERATION_SIGN"),
+                    ),
+            )
+
+        val mismatch = assertIs<SyntaxProbeResult.Mismatch>(result)
+        assertEquals(setOf(KEYWORD), mismatch.confirmedCells)
+        assertEquals(listOf(CapabilityMismatch(OPERATOR, "No native preview span")), mismatch.mismatches)
+    }
+
+    @Test
     fun `missing plugin result carries exact generic recovery instruction`() {
         val result =
             SyntaxProbeResult.MissingPlugin(

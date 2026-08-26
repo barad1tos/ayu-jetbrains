@@ -26,11 +26,29 @@ internal sealed interface EditorSchemeOwner {
     data object Vcs : EditorSchemeOwner
 }
 
+internal enum class OverrideWriteResult {
+    APPLIED,
+    RELINQUISHED,
+    SKIPPED,
+}
+
 internal object EditorSchemeOverrides {
     private val log = logger<EditorSchemeOverrides>()
     private val lock = Any()
     private val states = IdentityHashMap<EditorColorsScheme, MutableMap<SchemeEntry, OverrideState>>()
     private val elementEnabled = EnumMap<AccentElementId, Boolean>(AccentElementId::class.java)
+    val checkpoints = AttributeCheckpoints()
+
+    internal data class AttributesCheckpoint(
+        val scheme: EditorColorsScheme,
+        val entries: Map<SchemeEntry, CheckpointEntry>,
+    )
+
+    internal data class CheckpointEntry(
+        val directValue: SchemeValue,
+        val overrideState: OverrideState?,
+        val metadataValue: String?,
+    )
 
     fun writeColor(
         scheme: EditorColorsScheme,
@@ -46,14 +64,13 @@ internal object EditorSchemeOverrides {
         owner: EditorSchemeOwner,
         key: TextAttributesKey,
         value: TextAttributes?,
-    ) {
+    ): OverrideWriteResult =
         write(
             scheme,
             owner,
             SchemeEntry.AttributesEntry(key),
             SchemeValue.AttributesValue(value?.clone()),
         )
-    }
 
     fun restore(
         scheme: EditorColorsScheme,
@@ -93,24 +110,90 @@ internal object EditorSchemeOverrides {
         }
     }
 
+    internal class AttributeCheckpoints {
+        fun capture(
+            scheme: EditorColorsScheme,
+            owner: EditorSchemeOwner,
+            keys: Set<TextAttributesKey>,
+        ): AttributesCheckpoint =
+            synchronized(lock) {
+                hydrate(scheme)
+                val schemeStates = states[scheme].orEmpty()
+                val entries =
+                    buildSet {
+                        keys.mapTo(this) { key -> SchemeEntry.AttributesEntry(key) }
+                        schemeStates
+                            .filterValues { state -> state.owner == owner }
+                            .keys
+                            .filterIsInstanceTo<SchemeEntry.AttributesEntry, _>(this)
+                    }
+                AttributesCheckpoint(
+                    scheme = scheme,
+                    entries =
+                        entries.associateWith { entry ->
+                            CheckpointEntry(
+                                directValue = read(scheme, entry, isBaseline = true).snapshot(),
+                                overrideState = schemeStates[entry]?.snapshot(),
+                                metadataValue = scheme.metaProperties.getProperty(entry.metadataKey),
+                            )
+                        },
+                )
+            }
+
+        fun rollback(checkpoint: AttributesCheckpoint): List<RuntimeException> =
+            synchronized(lock) {
+                val failures = mutableListOf<RuntimeException>()
+                val schemeStates = states.getOrPut(checkpoint.scheme) { mutableMapOf() }
+                checkpoint.entries.forEach { (entry, saved) ->
+                    try {
+                        writeValue(checkpoint.scheme, entry, saved.directValue)
+                    } catch (failure: RuntimeException) {
+                        failures += failure
+                    }
+                    try {
+                        val state = saved.overrideState
+                        if (state == null) {
+                            schemeStates.remove(entry)
+                        } else {
+                            schemeStates[entry] = state.snapshot()
+                        }
+                        val metadata = saved.metadataValue
+                        if (metadata == null) {
+                            checkpoint.scheme.metaProperties.remove(entry.metadataKey)
+                        } else {
+                            checkpoint.scheme.metaProperties.setProperty(entry.metadataKey, metadata)
+                        }
+                    } catch (failure: RuntimeException) {
+                        failures += failure
+                    }
+                }
+                if (schemeStates.isEmpty()) states.remove(checkpoint.scheme)
+                failures
+            }
+    }
+
     private fun write(
         scheme: EditorColorsScheme,
         owner: EditorSchemeOwner,
         entry: SchemeEntry,
         value: SchemeValue,
-    ) {
+    ): OverrideWriteResult {
         synchronized(lock) {
             val schemeStates = states.getOrPut(scheme) { mutableMapOf() }
             hydrate(scheme, entry)
-            when (val state = schemeStates[entry]) {
+            return when (val state = schemeStates[entry]) {
                 null -> {
                     val original = read(scheme, entry, isBaseline = true)
                     writeValue(scheme, entry, value)
                     schemeStates[entry] = OverrideState.Owned(owner, original, value.snapshot())
-                    scheme.metaProperties.setProperty(entry.metadataKey, encodeState(schemeStates.getValue(entry)))
+                    scheme.metaProperties.setProperty(
+                        entry.metadataKey,
+                        OverrideCodec.encode(schemeStates.getValue(entry)),
+                    )
+                    OverrideWriteResult.APPLIED
                 }
 
-                is OverrideState.Relinquished -> Unit
+                is OverrideState.Relinquished -> OverrideWriteResult.RELINQUISHED
                 is OverrideState.Owned -> updateOwned(scheme, owner, entry, value, state)
             }
         }
@@ -122,20 +205,21 @@ internal object EditorSchemeOverrides {
         entry: SchemeEntry,
         value: SchemeValue,
         state: OverrideState.Owned,
-    ) {
+    ): OverrideWriteResult {
         val schemeStates = states.getValue(scheme)
         if (state.owner != owner) {
             log.warn("Skipping editor scheme override because $entry is already owned by ${state.owner}")
-            return
+            return OverrideWriteResult.SKIPPED
         }
         if (read(scheme, entry) != state.lastWritten) {
             schemeStates[entry] = OverrideState.Relinquished(owner)
-            scheme.metaProperties.setProperty(entry.metadataKey, encodeState(schemeStates.getValue(entry)))
-            return
+            scheme.metaProperties.setProperty(entry.metadataKey, OverrideCodec.encode(schemeStates.getValue(entry)))
+            return OverrideWriteResult.RELINQUISHED
         }
         writeValue(scheme, entry, value)
         schemeStates[entry] = state.copy(lastWritten = value.snapshot())
-        scheme.metaProperties.setProperty(entry.metadataKey, encodeState(schemeStates.getValue(entry)))
+        scheme.metaProperties.setProperty(entry.metadataKey, OverrideCodec.encode(schemeStates.getValue(entry)))
+        return OverrideWriteResult.APPLIED
     }
 
     private fun read(
@@ -257,7 +341,7 @@ internal object EditorSchemeOverrides {
                     is OverrideState.Relinquished -> state
                 }
             targetStates[entry] = inherited
-            target.metaProperties.setProperty(entry.metadataKey, encodeState(inherited))
+            target.metaProperties.setProperty(entry.metadataKey, OverrideCodec.encode(inherited))
         }
     }
 
@@ -271,7 +355,7 @@ internal object EditorSchemeOverrides {
         if (state.owner != owner || state !is OverrideState.Owned) return null
         if (read(scheme, entry) != state.lastWritten) {
             schemeStates[entry] = OverrideState.Relinquished(owner)
-            scheme.metaProperties.setProperty(entry.metadataKey, encodeState(schemeStates.getValue(entry)))
+            scheme.metaProperties.setProperty(entry.metadataKey, OverrideCodec.encode(schemeStates.getValue(entry)))
             return null
         }
         return try {
@@ -303,10 +387,10 @@ internal object EditorSchemeOverrides {
         scheme.metaProperties
             .getProperty(entry.metadataKey)
             .takeIf { it?.contains(';') == true }
-            ?.let { encoded -> schemeStates[entry] = decodeState(encoded) }
+            ?.let { encoded -> schemeStates[entry] = OverrideCodec.decode(encoded) }
     }
 
-    private sealed interface SchemeEntry {
+    internal sealed interface SchemeEntry {
         val metadataKey: String
 
         data class ColorEntry(
@@ -336,7 +420,7 @@ internal object EditorSchemeOverrides {
         }
     }
 
-    private sealed interface SchemeValue {
+    internal sealed interface SchemeValue {
         fun snapshot(): SchemeValue
 
         data class ColorValue(
@@ -360,7 +444,7 @@ internal object EditorSchemeOverrides {
         }
     }
 
-    private sealed interface OverrideState {
+    internal sealed interface OverrideState {
         val owner: EditorSchemeOwner
 
         data class Owned(
@@ -374,80 +458,93 @@ internal object EditorSchemeOverrides {
         ) : OverrideState
     }
 
-    private fun encodeState(state: OverrideState): String {
-        val stateOwner = state.owner
-        val owner =
-            when (stateOwner) {
-                is EditorSchemeOwner.Element -> "E:${stateOwner.id.name}"
-                EditorSchemeOwner.AlwaysOn -> "A"
-                EditorSchemeOwner.Syntax -> "S"
-                EditorSchemeOwner.Vcs -> "V"
-            }
-        return when (state) {
+    private fun OverrideState.snapshot(): OverrideState =
+        when (this) {
             is OverrideState.Owned ->
-                listOf("O", owner, encodeValue(state.original), encodeValue(state.lastWritten))
-                    .joinToString(";")
-            is OverrideState.Relinquished -> "R;$owner"
+                copy(
+                    original = original.snapshot(),
+                    lastWritten = lastWritten.snapshot(),
+                )
+            is OverrideState.Relinquished -> this
         }
-    }
 
-    private fun decodeState(encoded: String): OverrideState {
-        val parts = encoded.split(';')
-        val owner =
-            when (val encodedOwner = parts[1]) {
-                "A" -> EditorSchemeOwner.AlwaysOn
-                "S" -> EditorSchemeOwner.Syntax
-                "V" -> EditorSchemeOwner.Vcs
-                else -> EditorSchemeOwner.Element(AccentElementId.valueOf(encodedOwner.removePrefix("E:")))
+    private object OverrideCodec {
+        fun encode(state: OverrideState): String {
+            val stateOwner = state.owner
+            val owner =
+                when (stateOwner) {
+                    is EditorSchemeOwner.Element -> "E:${stateOwner.id.name}"
+                    EditorSchemeOwner.AlwaysOn -> "A"
+                    EditorSchemeOwner.Syntax -> "S"
+                    EditorSchemeOwner.Vcs -> "V"
+                }
+            return when (state) {
+                is OverrideState.Owned ->
+                    listOf("O", owner, encodeValue(state.original), encodeValue(state.lastWritten))
+                        .joinToString(";")
+                is OverrideState.Relinquished -> "R;$owner"
             }
-        return if (parts[0] == "R") {
-            OverrideState.Relinquished(owner)
-        } else {
-            OverrideState.Owned(
-                owner,
-                decodeValue(parts[STATE_PAYLOAD_INDEX]),
-                decodeValue(parts.last()),
-            )
-        }
-    }
-
-    private fun encodeValue(value: SchemeValue): String =
-        when (value) {
-            is SchemeValue.ColorValue -> "C,${value.value?.rgb?.toString().orEmpty()}"
-            is SchemeValue.AttributesValue ->
-                value.value?.let { attributes ->
-                    val element = Element("attributes")
-                    attributes.writeExternal(element)
-                    "A,${Base64.getEncoder().encodeToString(JDOMUtil.writeElement(element).encodeToByteArray())}"
-                } ?: "N"
-            SchemeValue.InheritedColor -> "IC"
-            SchemeValue.InheritedAttributes -> "IA"
         }
 
-    private fun decodeValue(encoded: String): SchemeValue =
-        when (encoded) {
-            "IC" -> SchemeValue.InheritedColor
-            "IA" -> SchemeValue.InheritedAttributes
-            else -> {
-                when (encoded.first()) {
-                    'C' ->
-                        SchemeValue.ColorValue(
-                            encoded
-                                .substringAfter(',')
-                                .takeIf(String::isNotEmpty)
-                                ?.toInt()
-                                ?.let { Color(it, true) },
-                        )
-                    'N' -> SchemeValue.AttributesValue(null)
-                    else -> {
-                        val xml = Base64.getDecoder().decode(encoded.substringAfter(',')).decodeToString()
-                        SchemeValue.AttributesValue(TextAttributes(JDOMUtil.load(xml)))
+        fun decode(encoded: String): OverrideState {
+            val parts = encoded.split(';')
+            val owner =
+                when (val encodedOwner = parts[1]) {
+                    "A" -> EditorSchemeOwner.AlwaysOn
+                    "S" -> EditorSchemeOwner.Syntax
+                    "V" -> EditorSchemeOwner.Vcs
+                    else -> EditorSchemeOwner.Element(AccentElementId.valueOf(encodedOwner.removePrefix("E:")))
+                }
+            return if (parts[0] == "R") {
+                OverrideState.Relinquished(owner)
+            } else {
+                OverrideState.Owned(
+                    owner,
+                    decodeValue(parts[STATE_PAYLOAD_INDEX]),
+                    decodeValue(parts.last()),
+                )
+            }
+        }
+
+        private fun encodeValue(value: SchemeValue): String =
+            when (value) {
+                is SchemeValue.ColorValue -> "C,${value.value?.rgb?.toString().orEmpty()}"
+                is SchemeValue.AttributesValue ->
+                    value.value?.let { attributes ->
+                        val element = Element("attributes")
+                        attributes.writeExternal(element)
+                        "A,${Base64.getEncoder().encodeToString(JDOMUtil.writeElement(element).encodeToByteArray())}"
+                    } ?: "N"
+                SchemeValue.InheritedColor -> "IC"
+                SchemeValue.InheritedAttributes -> "IA"
+            }
+
+        private fun decodeValue(encoded: String): SchemeValue =
+            when (encoded) {
+                "IC" -> SchemeValue.InheritedColor
+                "IA" -> SchemeValue.InheritedAttributes
+                else -> {
+                    when (encoded.first()) {
+                        'C' ->
+                            SchemeValue.ColorValue(
+                                encoded
+                                    .substringAfter(',')
+                                    .takeIf(String::isNotEmpty)
+                                    ?.toInt()
+                                    ?.let { Color(it, true) },
+                            )
+                        'N' -> SchemeValue.AttributesValue(null)
+                        else -> {
+                            val xml = Base64.getDecoder().decode(encoded.substringAfter(',')).decodeToString()
+                            SchemeValue.AttributesValue(TextAttributes(JDOMUtil.load(xml)))
+                        }
                     }
                 }
             }
-        }
 
-    private const val STATE_PAYLOAD_INDEX = 2
+        private const val STATE_PAYLOAD_INDEX = 2
+    }
+
     private const val METADATA_PREFIX = "dev.ayuislands.override.v1."
     private const val COLOR_KIND = "color"
     private const val ATTRIBUTES_KIND = "attributes"

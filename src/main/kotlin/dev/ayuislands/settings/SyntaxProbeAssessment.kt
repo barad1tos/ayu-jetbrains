@@ -2,6 +2,8 @@ package dev.ayuislands.settings
 
 import dev.ayuislands.syntax.LanguageSpecification
 import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.SyntaxKeyRole
+import dev.ayuislands.syntax.SyntaxKeyRoleRegistry
 
 internal object SyntaxProbeAssessment {
     fun assess(
@@ -49,6 +51,13 @@ internal object SyntaxProbeAssessment {
             .asSequence()
             .filter { it.languageId == languageId }
             .flatMap { it.keysByPrimitive.asSequence() }
-            .groupBy({ it.key }, { it.value })
+            .mapNotNull { (primitive, keyNames) ->
+                val ownedKeys =
+                    keyNames.filterTo(linkedSetOf()) { keyName ->
+                        val role = SyntaxKeyRoleRegistry.classify(keyName)
+                        role is SyntaxKeyRole.Tunable && role.languageId == languageId
+                    }
+                (primitive to ownedKeys).takeIf { ownedKeys.isNotEmpty() }
+            }.groupBy({ it.first }, { it.second })
             .mapValues { (_, keySets) -> keySets.flatten().toSet() }
 }

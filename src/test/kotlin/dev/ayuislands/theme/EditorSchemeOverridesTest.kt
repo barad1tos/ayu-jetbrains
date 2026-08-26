@@ -21,6 +21,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class EditorSchemeOverridesTest {
     private val editorColorsManager = mockk<EditorColorsManager>()
@@ -337,6 +338,45 @@ class EditorSchemeOverridesTest {
 
         assertEquals(Color.MAGENTA, firstAttributes[syntaxKey]?.foregroundColor)
         assertEquals(secondExternal, secondAttributes[syntaxKey])
+    }
+
+    @Test
+    fun `syntax checkpoint restores direct values and ownership metadata`() {
+        val ownedKey = TextAttributesKey.find("TEST_CHECKPOINT_OWNED_ATTRIBUTES")
+        val directKey = TextAttributesKey.find("TEST_CHECKPOINT_DIRECT_ATTRIBUTES")
+        val originalOwned = fullAttributes(Color.RED)
+        val appliedOwned = fullAttributes(Color.ORANGE)
+        val originalDirect = fullAttributes(Color.GREEN)
+        val attributes =
+            mutableMapOf<TextAttributesKey, TextAttributes?>(
+                ownedKey to originalOwned,
+                directKey to originalDirect,
+            )
+        val scheme = scheme(attributes = attributes)
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            ownedKey,
+            appliedOwned,
+        )
+        val checkpoint =
+            EditorSchemeOverrides.checkpoints.capture(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                setOf(ownedKey, directKey),
+            )
+
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+        scheme.setAttributes(directKey, fullAttributes(Color.YELLOW))
+        val rollbackFailures = EditorSchemeOverrides.checkpoints.rollback(checkpoint)
+
+        assertEquals(emptyList(), rollbackFailures)
+        assertEquals(appliedOwned, attributes[ownedKey])
+        assertEquals(originalDirect, attributes[directKey])
+        assertTrue(EditorSchemeOverrides.hasState(scheme, EditorSchemeOwner.Syntax))
+
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+        assertEquals(originalOwned, attributes[ownedKey])
     }
 
     @Test

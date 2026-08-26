@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.highlighter.EditorHighlighter
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.editor.highlighter.HighlighterIterator
+import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.LanguageFileType
 import com.intellij.openapi.fileTypes.PlainTextFileType
@@ -19,11 +20,18 @@ import dev.ayuislands.settings.HighlightEvidence
 import dev.ayuislands.settings.HighlightEvidenceCollector
 import dev.ayuislands.settings.IdePreviewInspector
 import dev.ayuislands.settings.SyntaxProbeResult
+import dev.ayuislands.syntax.FontEmphasis
+import dev.ayuislands.syntax.FontStyleOverride
 import dev.ayuislands.syntax.LanguageSpecification
 import dev.ayuislands.syntax.NativeProfile
 import dev.ayuislands.syntax.PreviewFileSpec
 import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.SyntaxIntensityApplicator
+import dev.ayuislands.syntax.SyntaxKeyRole
+import dev.ayuislands.syntax.SyntaxKeyRoleRegistry
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
+import dev.ayuislands.syntax.SyntaxOverlayLoader
+import dev.ayuislands.syntax.SyntaxPreset
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -143,6 +151,157 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
         )
     }
 
+    @Test
+    fun `every installed language-owned preview key actuates all cell dimensions`() {
+        val results =
+            SyntaxLanguageRegistry
+                .specifications()
+                .sortedBy(LanguageSpecification::storageId)
+                .flatMap { specification ->
+                    specification.preview.files.map { previewFile -> inspectPreview(specification, previewFile) }
+                }.filterIsInstance<NativePreviewResult.Verified>()
+        val failures =
+            buildList {
+                results.forEach { result -> verifyActuation(result, this) }
+            }
+
+        assertTrue(
+            failures.isEmpty(),
+            failures.joinToString(prefix = "Native actuation failures:\n", separator = "\n"),
+        )
+    }
+
+    private fun verifyActuation(
+        result: NativePreviewResult.Verified,
+        failures: MutableList<String>,
+    ) {
+        val languageId = result.specification.storageId
+        result.previewFile.demonstratedCategories.forEach { category ->
+            val keys =
+                result.evidence.keysByPrimitive[category].orEmpty().filter { keyName ->
+                    val role = SyntaxKeyRoleRegistry.classify(keyName)
+                    role is SyntaxKeyRole.Tunable && role.languageId == languageId
+                }
+            if (keys.isEmpty()) {
+                failures += "$languageId/$category has no language-owned native key"
+                return@forEach
+            }
+            VARIANTS.forEach { variant ->
+                keys.forEach { keyName ->
+                    verifyKeyActuation(languageId, category, keyName, variant, failures)
+                }
+            }
+        }
+    }
+
+    private fun verifyKeyActuation(
+        languageId: String,
+        category: PrimitiveCategory,
+        keyName: String,
+        variant: String,
+        failures: MutableList<String>,
+    ) {
+        val loader = SyntaxOverlayLoader()
+        val fixture =
+            ActuationFixture(
+                variant = variant,
+                baseline = loader.loadBaselineForVariant(variant),
+                overlay = loader.loadOverlayForVariant(variant),
+                fallbacks = loader.fallbacksFor(variant),
+            )
+        val key = TextAttributesKey.find(keyName)
+        val resolvedSource = resolveAttributes(keyName, fixture.baseline, fixture.overlay, fixture.fallbacks)
+        if (resolvedSource?.foregroundColor == null) {
+            failures += "$variant/$languageId/$category/$keyName has no resolvable Ayu foreground"
+            return
+        }
+        val intensities =
+            INTENSITIES.mapNotNull { intensity ->
+                computeCell(
+                    fixture,
+                    customOverrides = mapOf(languageId to mapOf(category.name to intensity)),
+                )[key]
+            }
+        if (intensities.size != INTENSITIES.size) {
+            failures += "$variant/$languageId/$category/$keyName misses intensity outputs"
+            return
+        }
+        if (intensities.first().foregroundColor == intensities.last().foregroundColor) {
+            failures += "$variant/$languageId/$category/$keyName has inert intensity endpoints"
+        }
+        intensities.forEach { attributes ->
+            if (!preservesNonFontAttributes(attributes, resolvedSource)) {
+                failures += "$variant/$languageId/$category/$keyName changes unrelated attributes"
+            }
+        }
+        FontStyleOverride.entries.forEach { style ->
+            val output =
+                computeCell(
+                    fixture,
+                    customStyles = mapOf(languageId to mapOf(category.name to style.fontType)),
+                )[key]
+            if (output?.fontType != style.fontType) {
+                failures += "$variant/$languageId/$category/$keyName cannot apply ${style.name}"
+            }
+        }
+        FontEmphasis.entries.forEach { emphasis ->
+            val output =
+                computeCell(
+                    fixture,
+                    customStyles = mapOf(languageId to mapOf(category.name to FontStyleOverride.PLAIN.fontType)),
+                    customEmphasis = mapOf(languageId to mapOf(category.name to emphasis.fontType)),
+                )[key]
+            if (output?.fontType != emphasis.fontType) {
+                failures += "$variant/$languageId/$category/$keyName cannot add ${emphasis.name}"
+            }
+        }
+    }
+
+    private fun computeCell(
+        fixture: ActuationFixture,
+        customOverrides: Map<String, Map<String, Int>> = emptyMap(),
+        customStyles: Map<String, Map<String, Int>> = emptyMap(),
+        customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
+    ): Map<TextAttributesKey, TextAttributes> =
+        SyntaxIntensityApplicator.compute(
+            SyntaxIntensityApplicator.Request(
+                preset = SyntaxPreset.CUSTOM,
+                variantName = fixture.variant,
+                editorBg = EditorColorsManager.getInstance().globalScheme.defaultBackground,
+                baseline = fixture.baseline,
+                overlay = fixture.overlay,
+                customOverrides = customOverrides,
+                customStyles = customStyles,
+                customEmphasis = customEmphasis,
+                fallbacks = fixture.fallbacks,
+            ),
+        )
+
+    private fun preservesNonFontAttributes(
+        actual: TextAttributes,
+        expected: TextAttributes,
+    ): Boolean =
+        actual.backgroundColor == expected.backgroundColor &&
+            actual.effectColor == expected.effectColor &&
+            actual.effectType == expected.effectType &&
+            actual.errorStripeColor == expected.errorStripeColor
+
+    private fun resolveAttributes(
+        keyName: String,
+        baseline: Map<TextAttributesKey, TextAttributes>,
+        overlay: Map<TextAttributesKey, TextAttributes>,
+        fallbacks: Map<String, String>,
+    ): TextAttributes? {
+        val byName = (baseline + overlay).entries.associate { it.key.externalName to it.value }
+        val visited = mutableSetOf<String>()
+        var current: String? = keyName
+        while (current != null && visited.add(current)) {
+            byName[current]?.takeIf { it.foregroundColor != null }?.let { return it }
+            current = fallbacks[current] ?: TextAttributesKey.find(current).fallbackAttributeKey?.externalName
+        }
+        return null
+    }
+
     private fun inspectPreview(
         specification: LanguageSpecification,
         previewFile: PreviewFileSpec,
@@ -229,8 +388,18 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 "semantic=${result.evidence.semanticKeys}"
     }
 
+    private data class ActuationFixture(
+        val variant: String,
+        val baseline: Map<TextAttributesKey, TextAttributes>,
+        val overlay: Map<TextAttributesKey, TextAttributes>,
+        val fallbacks: Map<String, String>,
+    )
+
     private companion object {
         private const val AUTO_DETECTED_FILE_TYPE = "AUTO_DETECTED"
+
+        private val VARIANTS = listOf("Mirage", "Dark", "Light")
+        private val INTENSITIES = listOf(0, 25, 50, 75, 100)
 
         private val REQUIRED_NATIVE_LANGUAGES =
             setOf(

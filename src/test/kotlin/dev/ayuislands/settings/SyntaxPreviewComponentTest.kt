@@ -501,16 +501,23 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
-    fun `preview category claims equal Ayu capability unions for every declared language`() {
-        // Native emission is verified separately at the IntelliJ fixture boundary.
-        val effectiveCategories = effectiveCategoryUnions()
+    fun `preview category claims are mapped identically by every Ayu variant`() {
+        // Native ownership and actuation are verified separately at the IntelliJ fixture boundary.
+        val categoriesByVariant = effectiveCategoriesByVariant()
         val categoryAssertions: List<() -> Unit> =
             SyntaxPreviewComponent.catalogLanguagesForTest().map { language ->
                 {
+                    val declared = SyntaxPreviewComponent.categoriesForTest(language)
+                    val variantCategories = categoriesByVariant.mapValues { (_, values) -> values[language].orEmpty() }
                     assertEquals(
-                        effectiveCategories[language].orEmpty(),
-                        SyntaxPreviewComponent.categoriesForTest(language),
-                        "$language preview categories must equal the effective three-variant union.",
+                        1,
+                        variantCategories.values.distinct().size,
+                        "$language mappings must not drift between Ayu variants: $variantCategories",
+                    )
+                    assertTrue(
+                        variantCategories.values.all { available -> available.containsAll(declared) },
+                        "$language preview claims must be mapped in every Ayu variant: " +
+                            "declared=$declared, variants=$variantCategories",
                     )
                 }
             }
@@ -640,22 +647,16 @@ class SyntaxPreviewComponentTest {
         editorFieldBackingField.set(editorField, editor)
     }
 
-    private fun effectiveCategoryUnions(): Map<String, Set<PrimitiveCategory>> {
+    private fun effectiveCategoriesByVariant(): Map<String, Map<String, Set<PrimitiveCategory>>> {
         val loader = SyntaxOverlayLoader()
-        val categories = linkedMapOf<String, MutableSet<PrimitiveCategory>>()
-        for (variant in listOf("Mirage", "Dark", "Light")) {
+        return listOf("Mirage", "Dark", "Light").associateWith { variant ->
             val baseline = loader.loadBaselineForVariant(variant)
             val overlay = loader.loadOverlayForVariant(variant)
-            val variantCategories =
-                SyntaxIntensityApplicator.tunableCategories(
-                    baseline = baseline,
-                    overlay = overlay,
-                    fallbacks = loader.fallbacksFor(variant),
-                )
-            for ((language, availableCategories) in variantCategories) {
-                categories.getOrPut(language) { linkedSetOf() }.addAll(availableCategories)
-            }
+            SyntaxIntensityApplicator.tunableCategories(
+                baseline = baseline,
+                overlay = overlay,
+                fallbacks = loader.fallbacksFor(variant),
+            )
         }
-        return categories.mapValues { (_, values) -> values.toSet() }
     }
 }

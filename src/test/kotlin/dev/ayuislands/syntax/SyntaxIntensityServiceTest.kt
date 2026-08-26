@@ -17,6 +17,7 @@ import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.theme.EditorSchemeChange
 import dev.ayuislands.theme.EditorSchemeOverrides
 import dev.ayuislands.theme.EditorSchemeOwner
+import dev.ayuislands.theme.OverrideWriteResult
 import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -74,6 +75,7 @@ class SyntaxIntensityServiceTest {
     private lateinit var ayuSettings: AyuIslandsSettings
     private lateinit var ayuState: AyuIslandsState
     private lateinit var props: PropertiesComponent
+    private lateinit var overrideCheckpoints: EditorSchemeOverrides.AttributeCheckpoints
     private val keyCache = mutableMapOf<String, TextAttributesKey>()
 
     @BeforeTest
@@ -124,11 +126,17 @@ class SyntaxIntensityServiceTest {
         mockkObject(EditorSchemeChange)
         every { EditorSchemeChange.publish() } returns Unit
         mockkObject(EditorSchemeOverrides)
+        overrideCheckpoints = mockk()
+        every { EditorSchemeOverrides.checkpoints } returns overrideCheckpoints
         every { EditorSchemeOverrides.restore(any(), EditorSchemeOwner.Syntax) } returns Unit
         every { EditorSchemeOverrides.rearm(EditorSchemeOwner.Syntax, any(), any()) } returns Unit
         every {
+            overrideCheckpoints.capture(any(), EditorSchemeOwner.Syntax, any())
+        } returns mockk(relaxed = true)
+        every { overrideCheckpoints.rollback(any()) } returns emptyList()
+        every {
             EditorSchemeOverrides.writeAttributes(any(), EditorSchemeOwner.Syntax, any(), any())
-        } returns Unit
+        } returns OverrideWriteResult.APPLIED
 
         loader = mockk(relaxed = true)
         val payload =
@@ -520,15 +528,25 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 1) { mockMirage.setAttributes(payloadKey, any<TextAttributes>()) }
     }
 
-    // ---------- Test 9: Pattern B per-key write isolation ----------
+    // Atomic scheme writes.
 
     @Test
-    fun `Pattern B - apply continues after RuntimeException on one scheme write`() {
-        every { mockMirage.setAttributes(any(), any<TextAttributes>()) } throws RuntimeException("simulated")
-        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
-        verify(atLeast = 1) { mockDark.setAttributes(any(), any<TextAttributes>()) }
-        verify(atLeast = 1) { mockLight.setAttributes(any(), any<TextAttributes>()) }
-        verify(exactly = 1) { EditorSchemeChange.publish() }
+    fun `apply rolls back every target and publishes nothing after a write failure`() {
+        every { props.getList(RETIREMENT_FLAG_KEY) } returns
+            listOf("Ayu Islands Mirage", "Ayu Islands Dark", "Ayu Islands Light")
+        val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
+        every {
+            mockMirage.setAttributes(payloadKey, any<TextAttributes>())
+        } throws RuntimeException("simulated")
+
+        assertFailsWith<RuntimeException> {
+            SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+        }
+
+        verify(exactly = 3) { overrideCheckpoints.rollback(any()) }
+        verify(exactly = 0) { mockDark.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 0) { mockLight.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 0) { EditorSchemeChange.publish() }
     }
 
     @Test
