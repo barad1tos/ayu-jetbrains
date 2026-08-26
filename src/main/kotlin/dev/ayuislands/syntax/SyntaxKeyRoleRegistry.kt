@@ -3,34 +3,53 @@ package dev.ayuislands.syntax
 import com.intellij.openapi.diagnostic.logger
 import java.util.concurrent.ConcurrentHashMap
 
+sealed interface SyntaxKeyRole {
+    sealed interface LanguageOwned : SyntaxKeyRole {
+        val languageId: String
+    }
+
+    data class Tunable(
+        override val languageId: String,
+        val primitive: PrimitiveCategory,
+    ) : LanguageOwned
+
+    data class Excluded(
+        override val languageId: String,
+        val reason: String,
+    ) : LanguageOwned
+
+    data class OutsideLanguageScope(
+        val reason: String,
+        val renderingPrimitive: PrimitiveCategory? = null,
+    ) : SyntaxKeyRole
+
+    data class Unknown(
+        val keyName: String,
+    ) : SyntaxKeyRole
+}
+
+internal val SyntaxKeyRole.effectivePrimitive: PrimitiveCategory?
+    get() =
+        when (this) {
+            is SyntaxKeyRole.Tunable -> primitive
+            is SyntaxKeyRole.OutsideLanguageScope -> renderingPrimitive
+            is SyntaxKeyRole.Excluded,
+            is SyntaxKeyRole.Unknown,
+            -> null
+        }
+
 /**
- * Classifies a `TextAttributesKey.externalName` to a [PrimitiveCategory] using
- * a language-aware two-step (D-06, INTENSITY-05):
+ * Total classifier for `TextAttributesKey.externalName` values.
  *
- *  1. Delegate to [SyntaxLanguageRegistry.classify] so its bucket inference
- *     and latched unknown-prefix logging fire for every key this method sees.
- *     The returned tag is intentionally discarded — the applicator caller
- *     (Plan 50-04) consults [SyntaxLanguageRegistry] itself when it needs the
- *     language tag for per-language preset-curve lookup. This step exists so
- *     CASCADE-bucket keys (`DEFAULT_STRING`, `DEFAULT_LINE_COMMENT`, …) still
- *     classify via the suffix rule and OTHER-bucket keys are NOT auto-null.
- *  2. Match the `keyName` against an ordered suffix-rule table. First match
- *     wins — more-specific suffixes (`DOC_COMMENT`, `STATIC_FIELD`) MUST come
- *     before less-specific ones (`COMMENT`, `KEYWORD`).
- *
- * Unknown suffixes return `null` and log INFO exactly once per (suffix,
- * session) via a Pattern A `ConcurrentHashMap.newKeySet` latch — never spam.
- *
- * Pure-compute object (no `@Service`, no IDE state). Thread-safe by
- * construction: immutable rule list + `ConcurrentHashMap`-backed latch.
- * No exception-handling primitives appear in this file because the classifier
- * does no I/O; the only operations are regex matching and set membership,
- * neither of which can fail in a recoverable way (Pattern B compliance).
+ * Language-owned keys become tunable or explicitly excluded. Known suffixes
+ * outside a language remain available to preset rendering but never become
+ * per-language controls. Unknown keys are retained as an explicit role and
+ * logged once per suffix.
  */
-object SyntaxCategoryRegistry {
+object SyntaxKeyRoleRegistry {
     private const val SUFFIX_LATCH_MAX_CHARS = 24
 
-    private val log = logger<SyntaxCategoryRegistry>()
+    private val log = logger<SyntaxKeyRoleRegistry>()
     private val warnedUnknownSuffixes = ConcurrentHashMap.newKeySet<String>()
 
     /**
@@ -270,35 +289,53 @@ object SyntaxCategoryRegistry {
         patterns.forEach { pattern -> add(Regex(pattern) to category) }
     }
 
-    /**
-     * Classify a `TextAttributesKey` external name into a [PrimitiveCategory].
-     *
-     * Returns `null` for unknown suffixes; logs INFO once per (suffix, session)
-     * via the Pattern A latch.
-     */
-    fun classify(keyName: String): PrimitiveCategory? {
-        // Step 1: language-aware delegation. Result is discarded — the
-        // applicator calls SyntaxLanguageRegistry itself when it needs the
-        // tag. We invoke it here so the unknown-prefix latched logging fires
-        // for the same set of keys this classifier processes (D-06 contract).
-        SyntaxLanguageRegistry.classify(keyName)
+    /** Declared tunable roles keyed by stable primitive storage ID. */
+    fun rolesFor(languageId: String): Map<String, SyntaxKeyRole.LanguageOwned> {
+        val specification = SyntaxLanguageRegistry.findByStorageId(languageId) ?: return emptyMap()
+        return specification.preview.files
+            .flatMap { it.demonstratedCategories }
+            .distinct()
+            .associate { primitive ->
+                primitive.specification.storageId to SyntaxKeyRole.Tunable(languageId, primitive)
+            }
+    }
 
-        // Step 2: ordered suffix-rule match.
-        for ((regex, category) in suffixRules) {
-            if (regex.containsMatchIn(keyName)) return category
+    fun classify(keyName: String): SyntaxKeyRole {
+        val language = SyntaxLanguageRegistry.classify(keyName)
+        val primitive = primitiveFor(keyName)
+        if (language.bucket == SyntaxLanguageRegistry.Bucket.LANGUAGE) {
+            return if (primitive == null) {
+                SyntaxKeyRole.Excluded(language.displayName, "No supported primitive role")
+            } else {
+                SyntaxKeyRole.Tunable(language.displayName, primitive)
+            }
+        }
+        if (primitive != null) {
+            return SyntaxKeyRole.OutsideLanguageScope(
+                reason = "${language.bucket} keys are not per-language controls",
+                renderingPrimitive = primitive,
+            )
+        }
+        if (language.bucket != SyntaxLanguageRegistry.Bucket.OTHER) {
+            return SyntaxKeyRole.OutsideLanguageScope("${language.bucket} key")
+        }
+        logUnknownSuffix(keyName)
+        return SyntaxKeyRole.Unknown(keyName)
+    }
+
+    private fun primitiveFor(keyName: String): PrimitiveCategory? =
+        suffixRules.firstNotNullOfOrNull { (regex, category) ->
+            category.takeIf { regex.containsMatchIn(keyName) }
         }
 
+    private fun logUnknownSuffix(keyName: String) {
         val suffix =
             keyName
                 .substringAfterLast('_')
                 .substringAfterLast('.')
                 .take(SUFFIX_LATCH_MAX_CHARS)
         if (warnedUnknownSuffixes.add(suffix)) {
-            log.info(
-                "Unknown TextAttributesKey suffix '$suffix' for key '$keyName' — " +
-                    "preset will skip this key",
-            )
+            log.info("Unknown TextAttributesKey suffix '$suffix' for key '$keyName'")
         }
-        return null
     }
 }

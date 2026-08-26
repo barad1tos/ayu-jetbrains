@@ -43,6 +43,17 @@ import kotlin.math.abs
  */
 class SyntaxPresetCurvesTest {
     @Test
+    fun `every preset base declares every primitive explicitly`() {
+        for (preset in SyntaxPreset.entries) {
+            assertEquals(
+                PrimitiveCategory.entries.toSet(),
+                SyntaxPresetCurves.definedCategories(preset),
+                "$preset must remain total when the primitive catalog expands",
+            )
+        }
+    }
+
+    @Test
     fun `CategoryCurve has saturationDelta and lightnessDelta Float fields`() {
         val curve = CategoryCurve(saturationDelta = 0.1f, lightnessDelta = -0.2f)
         assertEquals(0.1f, curve.saturationDelta)

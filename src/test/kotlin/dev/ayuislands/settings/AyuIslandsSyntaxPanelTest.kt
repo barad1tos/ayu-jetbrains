@@ -906,45 +906,13 @@ class AyuIslandsSyntaxPanelTest {
     // ---------- Test 21b - documented compromise: grouped two-column Custom grid ----------
 
     @Test
-    fun `panel source renders grouped semantic categories in two stable columns (documented compromise)`() {
-        // Documented compromise: the two-column grouped layout lives in the
-        // UI DSL `buildCustomFoldOut` / `buildCategoryGroup` build path. A
-        // refactor back to the single unbroken table or to the deleted
-        // master/detail JBList would be a visible regression. Verifying the
-        // actual two column-level panels requires materialising the
-        // DialogPanel under a live IntelliJ application.
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("private val CUSTOM_COLUMN_GROUPS: List<List<CategoryGroup>>"),
-            "The Custom layout must declare stable grouped column assignments.",
-        )
-        assertTrue(
-            source.contains("listOf(CATEGORY_GROUPS[0], CATEGORY_GROUPS[3])") &&
-                source.contains("listOf(CATEGORY_GROUPS[1], CATEGORY_GROUPS[2])"),
-            "The left column must hold Declarations + Keywords, and the right column Identifiers + Literals.",
-        )
-        assertTrue(
-            source.contains("private fun Panel.buildCategoryGroup(") &&
-                source.contains("group(categoryGroup.title)") &&
-                source.contains("for (category in categoryGroup.categories)"),
-            "The Custom UI must render named semantic groups rather than one unbroken table.",
-        )
-        assertTrue(
-            source.contains("for (categoryGroup in CUSTOM_COLUMN_GROUPS.first())") &&
-                source.contains("for (categoryGroup in CUSTOM_COLUMN_GROUPS.last())"),
-            "The Custom UI must use two column-level panels.",
-        )
-        assertFalse(
-            source.contains("RightGap.COLUMNS"),
-            "The Custom matrix must not use the 60px platform column gap; the default adjacent-cell gap is enough.",
-        )
-        assertFalse(
-            source.contains("CATEGORY_TABLE_ORDER") || source.contains("categoryHeaderRow()"),
-            "The single table layout must stay gone.",
-        )
-        assertFalse(
-            source.contains("JBList<PrimitiveCategory>") || source.contains("JBScrollPane(list)"),
-            "The nested master/detail category list must stay gone.",
+    fun `primitive presentation catalog keeps semantic groups in two stable columns`() {
+        assertEquals(
+            listOf(
+                listOf("Declarations", "Keywords & Docs"),
+                listOf("Identifiers & Members", "Literals"),
+            ),
+            readCategoryColumns(),
         )
     }
 
@@ -1338,6 +1306,37 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
+    @Test
+    fun `language reset removes only confirmed visible cells and preserves opaque entries`() {
+        every { intensityService.tunableCategories(AyuVariant.MIRAGE) } returns
+            mapOf("Swift" to setOf(PrimitiveCategory.KEYWORD, PrimitiveCategory.OPERATOR))
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customOverrides["Swift|KEYWORD"] = "75"
+        stateBase.customOverrides["Swift|STATIC_FIELD"] = "35"
+        stateBase.customOverrides["Swift|FUTURE_PRIMITIVE"] = "19"
+        stateBase.customStyles["Swift|KEYWORD"] = "BOLD"
+        stateBase.customStyles["Swift|STATIC_FIELD"] = "ITALIC"
+        stateBase.customEmphasis["Swift|FUTURE_PRIMITIVE"] = "BOLD"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            writeCurrentLanguage(syntaxPanel, "Swift")
+            invokeRebind(syntaxPanel, "Swift")
+
+            invokeOnResetCurrentLanguage(syntaxPanel)
+
+            assertFalse(readPendingOverrides(syntaxPanel).containsKey("Swift|KEYWORD"))
+            assertFalse(readPendingStyles(syntaxPanel).containsKey("Swift|KEYWORD"))
+            assertEquals("35", readPendingOverrides(syntaxPanel)["Swift|STATIC_FIELD"])
+            assertEquals("ITALIC", readPendingStyles(syntaxPanel)["Swift|STATIC_FIELD"])
+            assertEquals("19", readPendingOverrides(syntaxPanel)["Swift|FUTURE_PRIMITIVE"])
+            assertEquals("BOLD", readPendingEmphasis(syntaxPanel)["Swift|FUTURE_PRIMITIVE"])
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
     // ---------- Part B Test 32 - buildNested decodes styles and skips bad cells (via apply) ----------
 
     @Test
@@ -1665,7 +1664,10 @@ class AyuIslandsSyntaxPanelTest {
             assertFalse(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
             assertFalse(readStyleControl(syntaxPanel, PrimitiveCategory.KEYWORD).component.isEnabled)
             assertFalse(readCategoryLabel(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
-            assertTrue(readMasterResetButton(syntaxPanel).isVisible)
+            assertFalse(
+                readMasterResetButton(syntaxPanel).isVisible,
+                "Hidden sparse cells must survive without exposing a reset action that cannot affect them",
+            )
             assertEquals(pendingOverrides, readPendingOverrides(syntaxPanel))
             assertEquals(pendingStyles, readPendingStyles(syntaxPanel))
             assertEquals(pendingEmphasis, readPendingEmphasis(syntaxPanel))
@@ -1694,6 +1696,30 @@ class AyuIslandsSyntaxPanelTest {
                 assertTrue(
                     readStyleControl(syntaxPanel, category).component.isEnabled,
                     "$category style must fail open",
+                )
+            }
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `capability snapshot without active language keeps every row unavailable`() {
+        every { intensityService.tunableCategories(AyuVariant.MIRAGE) } returns
+            mapOf("Kotlin" to PrimitiveCategory.entries.toSet())
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            writeCurrentLanguage(syntaxPanel, "Swift")
+            invokeRebind(syntaxPanel, "Swift")
+
+            PrimitiveCategory.entries.forEach { category ->
+                assertFalse(readSlider(syntaxPanel, category).isEnabled, "$category must remain unavailable")
+                assertFalse(
+                    readStyleControl(syntaxPanel, category).component.isEnabled,
+                    "$category style must remain unavailable",
                 )
             }
         } finally {
@@ -2358,6 +2384,20 @@ class AyuIslandsSyntaxPanelTest {
             val categories =
                 (categoriesMethod.invoke(group) as List<*>).map { it as PrimitiveCategory }
             title to categories
+        }
+    }
+
+    private fun readCategoryColumns(): List<List<String>> {
+        val columnsField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("CUSTOM_COLUMN_GROUPS")
+        columnsField.isAccessible = true
+        val columns = columnsField.get(null) as List<*>
+        return columns.map { column ->
+            (column as List<*>).map { group ->
+                requireNotNull(group)
+                val titleMethod = group.javaClass.getDeclaredMethod("getTitle")
+                titleMethod.isAccessible = true
+                titleMethod.invoke(group) as String
+            }
         }
     }
 

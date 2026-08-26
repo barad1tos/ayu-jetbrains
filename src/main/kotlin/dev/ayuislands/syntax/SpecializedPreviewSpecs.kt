@@ -1,4 +1,4 @@
-package dev.ayuislands.settings
+package dev.ayuislands.syntax
 
 import dev.ayuislands.syntax.PrimitiveCategory.CLASS_DECL
 import dev.ayuislands.syntax.PrimitiveCategory.COMMENT
@@ -45,7 +45,13 @@ internal object SpecializedPreviewSpecs {
                 OPERATOR,
                 TYPE_REF,
             ),
-            syntaxPreviewSpec("DQL", "preview.dql", previewFileType("DQL", "dql"), "dql.txt"),
+            syntaxPreviewSpec(
+                "DQL",
+                "preview.dql",
+                previewFileType("DQL", "dql"),
+                "dql.txt",
+                LOCAL_VAR,
+            ),
             syntaxPreviewSpec(
                 "Drools",
                 "preview.drl",

@@ -298,8 +298,10 @@ object SyntaxPresetCurves {
         category: PrimitiveCategory,
     ): CategoryCurve {
         LANGUAGE_OVERRIDES[preset]?.get(language)?.get(category)?.let { return it }
-        return baseFor(preset)[category] ?: CategoryCurve.IDENTITY
+        return baseFor(preset).getValue(category)
     }
+
+    internal fun definedCategories(preset: SyntaxPreset): Set<PrimitiveCategory> = baseFor(preset).keys
 
     /**
      * Map a Custom drill-down slider position `0..100` to a [CategoryCurve].

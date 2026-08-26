@@ -158,12 +158,12 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
             selectedPreset = state.selectedPreset ?: "AMBIENT",
             subordinatePreset = state.subordinatePreset ?: "AMBIENT",
             // Intensity slider cells: flat "language|category" -> "0..100".
-            customOverrides = decodeSyntaxCells(state.customOverrides) { it.toIntOrNull() },
+            customOverrides = SyntaxCellCodec.decode(state.customOverrides) { it.toIntOrNull() },
             // Font-style cells: flat "language|category" -> FontStyleOverride
             // name. Decoded to the java.awt.Font bitmask the applicator writes
             // into TextAttributes.fontType; a tampered token decodes to null
             // and the cell is dropped, mirroring the toIntOrNull discipline.
-            customStyles = decodeSyntaxCells(state.customStyles) { FontStyleOverride.fromName(it)?.fontType },
+            customStyles = SyntaxCellCodec.decode(state.customStyles) { FontStyleOverride.fromName(it)?.fontType },
             readabilityOptions =
                 SyntaxReadabilityOptions(
                     dimComments = state.dimComments,
@@ -171,7 +171,7 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
                     quietOperators = state.quietOperators,
                     emphasizeDeclarations = state.emphasizeDeclarations,
                 ),
-            customEmphasis = decodeSyntaxCells(state.customEmphasis) { FontEmphasis.fromName(it)?.fontType },
+            customEmphasis = SyntaxCellCodec.decode(state.customEmphasis) { FontEmphasis.fromName(it)?.fontType },
         )
 
     companion object {

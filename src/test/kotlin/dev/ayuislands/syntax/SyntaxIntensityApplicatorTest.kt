@@ -322,7 +322,7 @@ class SyntaxIntensityApplicatorTest {
         // "FOOBAR_GARBAGE_SUFFIX_NEVERMATCHES" must not match any suffix rule.
         val unknownKey = TextAttributesKey.createTextAttributesKey("FOOBAR_NEVERMATCHES_XYZZY")
         // Sanity — confirm the classifier returns null for this key.
-        assertEquals(null, SyntaxCategoryRegistry.classify(unknownKey.externalName))
+        assertEquals(null, SyntaxKeyRoleRegistry.classify(unknownKey.externalName).effectivePrimitive)
 
         val baseline =
             mapOf(

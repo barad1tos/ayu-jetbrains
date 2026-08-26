@@ -23,9 +23,9 @@ internal class SyntaxCategoryAvailability(
     }
 
     fun refreshRows(language: String) {
-        val knownCategories = tunableCategories
+        val availableCategories = availableFor(language)
         for (category in PrimitiveCategory.entries) {
-            val isAvailable = knownCategories == null || category in knownCategories[language].orEmpty()
+            val isAvailable = category in availableCategories
             val reason =
                 if (isAvailable) {
                     null
@@ -38,6 +38,11 @@ internal class SyntaxCategoryAvailability(
             applyAvailability(resetButtons[category], isAvailable, reason)
             styleControls[category]?.setAvailable(isAvailable, reason)
         }
+    }
+
+    fun availableFor(language: String): Set<PrimitiveCategory> {
+        val capabilities = tunableCategories ?: return PrimitiveCategory.entries.toSet()
+        return capabilities[language].orEmpty()
     }
 
     private fun applyAvailability(

@@ -3,6 +3,38 @@ package dev.ayuislands.syntax
 import com.intellij.openapi.diagnostic.logger
 import java.util.concurrent.ConcurrentHashMap
 
+data class LanguageSpecification(
+    val storageId: String,
+    val displayName: String,
+    val aliases: Set<String>,
+    val nativeProfiles: List<NativeProfile>,
+    val preview: PreviewBundle,
+    val pluginRequirement: PluginRequirement?,
+    val verificationRuntimeId: String,
+)
+
+data class NativeProfile(
+    val id: String,
+    val fileTypeNames: Set<String>,
+    val languageIds: Set<String>,
+)
+
+data class PreviewBundle(
+    val files: List<PreviewFileSpec>,
+)
+
+data class PreviewFileSpec(
+    val fileName: String,
+    val resourceName: String,
+    val profileId: String,
+    val demonstratedCategories: Set<PrimitiveCategory>,
+)
+
+data class PluginRequirement(
+    val pluginId: String,
+    val displayName: String,
+)
+
 /**
  * Prefix-based classifier for syntax `TextAttributesKey.externalName` strings.
  *
@@ -123,6 +155,25 @@ object SyntaxLanguageRegistry {
 
     private val cascadeTargetsMap: Map<String, Map<String, String>> = buildCascadeTargets()
 
+    private val languageSpecifications: List<LanguageSpecification> by lazy(::buildLanguageSpecifications)
+
+    private val specificationsById: Map<String, LanguageSpecification> by lazy {
+        languageSpecifications.associateBy(LanguageSpecification::storageId)
+    }
+
+    private val specificationsByAlias: Map<String, LanguageSpecification> by lazy {
+        buildMap {
+            for (specification in languageSpecifications) {
+                for (alias in specification.aliases) {
+                    val previous = put(alias.lowercase(), specification)
+                    check(previous == null || previous == specification) {
+                        "Language alias '$alias' belongs to both ${previous?.storageId} and ${specification.storageId}"
+                    }
+                }
+            }
+        }
+    }
+
     fun classify(keyName: String): LangTag {
         if (keyName in diagnosticsKeys) {
             return LangTag(keyName, keyName, Bucket.DIAGNOSTICS)
@@ -157,6 +208,12 @@ object SyntaxLanguageRegistry {
             .filter { it.bucket == Bucket.LANGUAGE }
             .sortedBy { it.displayName }
 
+    fun specifications(): List<LanguageSpecification> = languageSpecifications
+
+    fun findByStorageId(storageId: String): LanguageSpecification? = specificationsById[storageId]
+
+    fun resolveAlias(alias: String): LanguageSpecification? = specificationsByAlias[alias.lowercase()]
+
     fun cascadeTargets(
         languageTag: String,
         defaultCascadeKey: String,
@@ -174,6 +231,50 @@ object SyntaxLanguageRegistry {
         }
 
     fun cascadeKeysInScope(): Set<String> = cascadeKeysInScopeSet
+
+    private fun buildLanguageSpecifications(): List<LanguageSpecification> {
+        val previews = SyntaxPreviewCatalog.entries().associateBy(SyntaxPreviewSpec::language)
+        return supportedLanguages().map { language ->
+            val preview =
+                checkNotNull(previews[language.displayName]) {
+                    "Missing preview declaration for ${language.displayName}"
+                }
+            val profileId = "${language.displayName}:default"
+            val aliases =
+                buildSet {
+                    add(language.tag)
+                    add(language.displayName)
+                    if (language.tag == SWIFT_STORAGE_ID) add(NOCTULE_SWIFT_ALIAS)
+                }
+            LanguageSpecification(
+                storageId = language.displayName,
+                displayName = language.displayName,
+                aliases = aliases,
+                nativeProfiles =
+                    listOf(
+                        NativeProfile(
+                            id = profileId,
+                            fileTypeNames = setOf(preview.standardFileTypeName),
+                            languageIds = aliases,
+                        ),
+                    ),
+                preview =
+                    PreviewBundle(
+                        files =
+                            listOf(
+                                PreviewFileSpec(
+                                    fileName = preview.fileName,
+                                    resourceName = preview.resourceName,
+                                    profileId = profileId,
+                                    demonstratedCategories = preview.demonstratedCategories,
+                                ),
+                            ),
+                    ),
+                pluginRequirement = null,
+                verificationRuntimeId = language.tag,
+            )
+        }
+    }
 
     private fun buildPrefixRules(): List<Pair<Regex, LangTag>> =
         spaceSeparatedRules() + pluginNamespacedRules() + dotNamespacedRules() + underscoreRules()
@@ -225,6 +326,7 @@ object SyntaxLanguageRegistry {
             Regex("^RUBY_") to LangTag("Ruby", "Ruby", Bucket.LANGUAGE),
             Regex("^SWIFT_") to LangTag("Swift", "Swift", Bucket.LANGUAGE),
             Regex("^MARKDOWN_") to LangTag("Markdown", "Markdown", Bucket.LANGUAGE),
+            Regex("^DQL_") to LangTag("DQL", "DQL", Bucket.LANGUAGE),
             Regex("^LUA_") to LangTag("Lua", "Lua", Bucket.LANGUAGE),
             Regex("^RBS_") to LangTag("Ruby", "Ruby", Bucket.LANGUAGE),
             Regex("^SCALA_") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
@@ -350,4 +452,7 @@ object SyntaxLanguageRegistry {
                     "DEFAULT_LINE_COMMENT" to "BASH.LINE_COMMENT",
                 ),
         )
+
+    private const val SWIFT_STORAGE_ID = "Swift"
+    private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
 }

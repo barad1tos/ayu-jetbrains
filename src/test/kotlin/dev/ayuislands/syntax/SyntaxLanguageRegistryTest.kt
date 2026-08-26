@@ -52,6 +52,7 @@ class SyntaxLanguageRegistryTest {
             Row("CSS.PROPERTY", "CSS", "CSS", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("BASH.KEYWORD", "Bash", "Bash", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("HCL.IDENTIFIER", "HCL", "HCL", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("DQL_PLACEHOLDER", "DQL", "DQL", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("JSON.PROPERTY_KEY", "JSON", "JSON", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             // Space-separated bucket — verifies space-rule fires before underscore-rule
             Row("Scala Line comment", "Scala", "Scala", SyntaxLanguageRegistry.Bucket.LANGUAGE),
@@ -235,5 +236,25 @@ class SyntaxLanguageRegistryTest {
             SyntaxLanguageRegistry.supportedLanguages().any { it.bucket == SyntaxLanguageRegistry.Bucket.OTHER },
             "OTHER must never leak into supportedLanguages",
         )
+    }
+
+    @Test
+    fun `language specifications have unique stable ids aliases profiles and previews`() {
+        val specifications = SyntaxLanguageRegistry.specifications()
+
+        assertEquals(
+            specifications.size,
+            specifications.map { it.storageId }.toSet().size,
+            "Language storage IDs must be unique",
+        )
+        for (language in specifications) {
+            assertEquals(language, SyntaxLanguageRegistry.findByStorageId(language.storageId))
+            assertTrue(language.aliases.isNotEmpty(), "${language.storageId} must declare at least one alias")
+            assertTrue(language.nativeProfiles.isNotEmpty(), "${language.storageId} must declare a native profile")
+            assertTrue(language.preview.files.isNotEmpty(), "${language.storageId} must declare preview evidence")
+            for (alias in language.aliases) {
+                assertEquals(language, SyntaxLanguageRegistry.resolveAlias(alias), "alias $alias")
+            }
+        }
     }
 }

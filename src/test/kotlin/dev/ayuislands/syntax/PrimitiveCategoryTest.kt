@@ -93,4 +93,45 @@ class PrimitiveCategoryTest {
             )
         }
     }
+
+    @Test
+    fun `primitive storage ids preserve every existing persisted enum name`() {
+        val expected = PrimitiveCategory.entries.associate { it.name to it.name }
+        val actual = PrimitiveCategory.entries.associate { it.name to it.specification.storageId }
+
+        assertEquals(expected, actual)
+    }
+
+    @Test
+    fun `enum iteration order remains compatible with the legacy catalog`() {
+        assertEquals(
+            listOf(
+                "FUNCTION_DECL",
+                "CLASS_DECL",
+                "INTERFACE_DECL",
+                "KEYWORD",
+                "PARAMETER",
+                "LOCAL_VAR",
+                "STRING_LITERAL",
+                "NUMBER_LITERAL",
+                "COMMENT",
+                "ANNOTATION",
+                "OPERATOR",
+                "TYPE_REF",
+                "STATIC_FIELD",
+                "INSTANCE_FIELD",
+                "GENERICS",
+                "DOCUMENTATION",
+            ),
+            PrimitiveCategory.entries.map(PrimitiveCategory::name),
+        )
+    }
+
+    @Test
+    fun `primitive specifications have stable presentation order within each group`() {
+        for ((group, categories) in PrimitiveCategory.entries.groupBy { it.specification.group }) {
+            val orders = categories.map { it.specification.order }
+            assertEquals(orders.size, orders.toSet().size, "$group contains duplicate presentation orders")
+        }
+    }
 }

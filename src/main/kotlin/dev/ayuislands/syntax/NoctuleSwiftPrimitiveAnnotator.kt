@@ -103,6 +103,6 @@ private fun swiftOperatorKeys(element: PsiElement): Array<TextAttributesKey> {
     return highlighter
         .getTokenHighlights(node.elementType)
         .filter { key ->
-            SyntaxCategoryRegistry.classify(key.externalName) == PrimitiveCategory.OPERATOR
+            SyntaxKeyRoleRegistry.classify(key.externalName).effectivePrimitive == PrimitiveCategory.OPERATOR
         }.toTypedArray()
 }

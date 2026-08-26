@@ -4,7 +4,8 @@ import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.highlighter.EditorHighlighter
 import dev.ayuislands.syntax.PrimitiveCategory
-import dev.ayuislands.syntax.SyntaxCategoryRegistry
+import dev.ayuislands.syntax.SyntaxKeyRoleRegistry
+import dev.ayuislands.syntax.effectivePrimitive
 
 internal data class PreviewEvidence(
     val language: String,
@@ -23,7 +24,9 @@ internal object PreviewHighlightProbe {
         val semanticKeys = semanticKeys(highlightInfos)
         val categories =
             (lexicalKeys + semanticKeys)
-                .mapNotNullTo(linkedSetOf(), SyntaxCategoryRegistry::classify)
+                .mapNotNullTo(linkedSetOf()) { keyName ->
+                    SyntaxKeyRoleRegistry.classify(keyName).effectivePrimitive
+                }
 
         return PreviewEvidence(
             language = language,

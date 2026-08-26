@@ -2,12 +2,13 @@ package dev.ayuislands.syntax
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * RED → GREEN coverage for [SyntaxCategoryRegistry]. Pins:
+ * RED → GREEN coverage for [SyntaxKeyRoleRegistry]. Pins:
  *  - per-suffix classification across Java / Kotlin / Python / JS / TS keys
  *  - language-aware composition lock (D-06, Codex MEDIUM #8): the registry
  *    MUST delegate to [SyntaxLanguageRegistry.classify] before applying its
@@ -23,14 +24,40 @@ import kotlin.test.assertTrue
  * convention. No `LightPlatformTestCase` setup is required because the
  * registry is a plain object with no IDE-state dependency.
  */
-class SyntaxCategoryRegistryTest {
+class SyntaxKeyRoleRegistryTest {
+    private fun classifyPrimitive(keyName: String): PrimitiveCategory? =
+        SyntaxKeyRoleRegistry.classify(keyName).effectivePrimitive
+
+    @Test
+    fun `every advertised language has declared tunable roles`() {
+        for (language in SyntaxLanguageRegistry.specifications()) {
+            val roles = SyntaxKeyRoleRegistry.rolesFor(language.storageId)
+
+            assertTrue(roles.isNotEmpty(), language.storageId)
+            roles.forEach { (roleId, role) ->
+                assertEquals(language.storageId, role.languageId, "${language.storageId}: $roleId")
+            }
+        }
+    }
+
+    @Test
+    fun `classifier returns a total role instead of nullable category`() {
+        val keyword = assertIs<SyntaxKeyRole.Tunable>(SyntaxKeyRoleRegistry.classify("JAVA_KEYWORD"))
+        assertEquals("Java", keyword.languageId)
+        assertEquals(PrimitiveCategory.KEYWORD, keyword.primitive)
+
+        assertIs<SyntaxKeyRole.OutsideLanguageScope>(SyntaxKeyRoleRegistry.classify("WARNING_ATTRIBUTES"))
+        assertIs<SyntaxKeyRole.OutsideLanguageScope>(SyntaxKeyRoleRegistry.classify("DEFAULT_STRING"))
+        assertIs<SyntaxKeyRole.Unknown>(SyntaxKeyRoleRegistry.classify("ACME_FUTURE_PRIMITIVE"))
+    }
+
     // ---------------------------------------------------------------------
     // Suffix-rule coverage — per-language probes
     // ---------------------------------------------------------------------
 
     @Test
     fun `JAVA_KEYWORD classifies to KEYWORD`() {
-        assertEquals(PrimitiveCategory.KEYWORD, SyntaxCategoryRegistry.classify("JAVA_KEYWORD"))
+        assertEquals(PrimitiveCategory.KEYWORD, classifyPrimitive("JAVA_KEYWORD"))
         assertEquals(
             SyntaxLanguageRegistry.Bucket.LANGUAGE,
             SyntaxLanguageRegistry.classify("JAVA_KEYWORD").bucket,
@@ -40,41 +67,41 @@ class SyntaxCategoryRegistryTest {
 
     @Test
     fun `KOTLIN_KEYWORD classifies to KEYWORD`() {
-        assertEquals(PrimitiveCategory.KEYWORD, SyntaxCategoryRegistry.classify("KOTLIN_KEYWORD"))
+        assertEquals(PrimitiveCategory.KEYWORD, classifyPrimitive("KOTLIN_KEYWORD"))
         assertEquals("Kotlin", SyntaxLanguageRegistry.classify("KOTLIN_KEYWORD").tag)
     }
 
     @Test
     fun `PY_KEYWORD (dot-namespaced) classifies to KEYWORD`() {
-        assertEquals(PrimitiveCategory.KEYWORD, SyntaxCategoryRegistry.classify("PY.KEYWORD"))
+        assertEquals(PrimitiveCategory.KEYWORD, classifyPrimitive("PY.KEYWORD"))
         assertEquals("Python", SyntaxLanguageRegistry.classify("PY.KEYWORD").tag)
     }
 
     @Test
     fun `JAVA_STRING classifies to STRING_LITERAL`() {
-        assertEquals(PrimitiveCategory.STRING_LITERAL, SyntaxCategoryRegistry.classify("JAVA_STRING"))
+        assertEquals(PrimitiveCategory.STRING_LITERAL, classifyPrimitive("JAVA_STRING"))
     }
 
     @Test
     fun `JAVA_NUMBER classifies to NUMBER_LITERAL`() {
-        assertEquals(PrimitiveCategory.NUMBER_LITERAL, SyntaxCategoryRegistry.classify("JAVA_NUMBER"))
+        assertEquals(PrimitiveCategory.NUMBER_LITERAL, classifyPrimitive("JAVA_NUMBER"))
     }
 
     @Test
     fun `JAVA_LINE_COMMENT classifies to COMMENT`() {
-        assertEquals(PrimitiveCategory.COMMENT, SyntaxCategoryRegistry.classify("JAVA_LINE_COMMENT"))
+        assertEquals(PrimitiveCategory.COMMENT, classifyPrimitive("JAVA_LINE_COMMENT"))
     }
 
     @Test
     fun `JAVA_BLOCK_COMMENT classifies to COMMENT`() {
-        assertEquals(PrimitiveCategory.COMMENT, SyntaxCategoryRegistry.classify("JAVA_BLOCK_COMMENT"))
+        assertEquals(PrimitiveCategory.COMMENT, classifyPrimitive("JAVA_BLOCK_COMMENT"))
     }
 
     @Test
     fun `JAVA_DOC_COMMENT classifies to DOCUMENTATION (more-specific suffix wins)`() {
         assertEquals(
             PrimitiveCategory.DOCUMENTATION,
-            SyntaxCategoryRegistry.classify("JAVA_DOC_COMMENT"),
+            classifyPrimitive("JAVA_DOC_COMMENT"),
             "DOC_COMMENT must beat COMMENT — order of suffix rules matters",
         )
     }
@@ -83,25 +110,25 @@ class SyntaxCategoryRegistryTest {
     fun `KOTLIN_FUNCTION_DECLARATION classifies to FUNCTION_DECL`() {
         assertEquals(
             PrimitiveCategory.FUNCTION_DECL,
-            SyntaxCategoryRegistry.classify("KOTLIN_FUNCTION_DECLARATION"),
+            classifyPrimitive("KOTLIN_FUNCTION_DECLARATION"),
         )
     }
 
     @Test
     fun `JAVA_CLASS_NAME classifies to CLASS_DECL (decl + name fold to CLASS_DECL at this granularity)`() {
-        assertEquals(PrimitiveCategory.CLASS_DECL, SyntaxCategoryRegistry.classify("JAVA_CLASS_NAME"))
+        assertEquals(PrimitiveCategory.CLASS_DECL, classifyPrimitive("JAVA_CLASS_NAME"))
     }
 
     @Test
     fun `JAVA_PARAMETER classifies to PARAMETER`() {
-        assertEquals(PrimitiveCategory.PARAMETER, SyntaxCategoryRegistry.classify("JAVA_PARAMETER"))
+        assertEquals(PrimitiveCategory.PARAMETER, classifyPrimitive("JAVA_PARAMETER"))
     }
 
     @Test
     fun `JAVA_LOCAL_VARIABLE classifies to LOCAL_VAR`() {
         assertEquals(
             PrimitiveCategory.LOCAL_VAR,
-            SyntaxCategoryRegistry.classify("JAVA_LOCAL_VARIABLE"),
+            classifyPrimitive("JAVA_LOCAL_VARIABLE"),
         )
     }
 
@@ -109,7 +136,7 @@ class SyntaxCategoryRegistryTest {
     fun `JAVA_OPERATION_SIGN classifies to OPERATOR`() {
         assertEquals(
             PrimitiveCategory.OPERATOR,
-            SyntaxCategoryRegistry.classify("JAVA_OPERATION_SIGN"),
+            classifyPrimitive("JAVA_OPERATION_SIGN"),
         )
     }
 
@@ -147,7 +174,7 @@ class SyntaxCategoryRegistryTest {
             )
 
         for ((key, expected) in expectedCategories) {
-            assertEquals(expected, SyntaxCategoryRegistry.classify(key), "$key category")
+            assertEquals(expected, classifyPrimitive(key), "$key category")
         }
     }
 
@@ -155,7 +182,7 @@ class SyntaxCategoryRegistryTest {
     fun `JAVA_ANNOTATION classifies to ANNOTATION`() {
         assertEquals(
             PrimitiveCategory.ANNOTATION,
-            SyntaxCategoryRegistry.classify("JAVA_ANNOTATION"),
+            classifyPrimitive("JAVA_ANNOTATION"),
         )
     }
 
@@ -163,7 +190,7 @@ class SyntaxCategoryRegistryTest {
     fun `JAVA_STATIC_FIELD_IMPORTED_ATTRIBUTES classifies to STATIC_FIELD`() {
         assertEquals(
             PrimitiveCategory.STATIC_FIELD,
-            SyntaxCategoryRegistry.classify("JAVA_STATIC_FIELD_IMPORTED_ATTRIBUTES"),
+            classifyPrimitive("JAVA_STATIC_FIELD_IMPORTED_ATTRIBUTES"),
         )
     }
 
@@ -171,7 +198,7 @@ class SyntaxCategoryRegistryTest {
     fun `JAVA_INSTANCE_FIELD_ATTRIBUTES classifies to INSTANCE_FIELD`() {
         assertEquals(
             PrimitiveCategory.INSTANCE_FIELD,
-            SyntaxCategoryRegistry.classify("JAVA_INSTANCE_FIELD_ATTRIBUTES"),
+            classifyPrimitive("JAVA_INSTANCE_FIELD_ATTRIBUTES"),
         )
     }
 
@@ -179,7 +206,7 @@ class SyntaxCategoryRegistryTest {
     fun `KOTLIN_GENERICS classifies to GENERICS`() {
         assertEquals(
             PrimitiveCategory.GENERICS,
-            SyntaxCategoryRegistry.classify("KOTLIN_GENERICS"),
+            classifyPrimitive("KOTLIN_GENERICS"),
         )
     }
 
@@ -331,7 +358,7 @@ class SyntaxCategoryRegistryTest {
             )
 
         for ((key, expected) in expectedCategories) {
-            assertEquals(expected, SyntaxCategoryRegistry.classify(key), "$key category")
+            assertEquals(expected, classifyPrimitive(key), "$key category")
             assertEquals("Swift", SyntaxLanguageRegistry.classify(key).tag, "$key language tag")
         }
     }
@@ -354,7 +381,7 @@ class SyntaxCategoryRegistryTest {
         for ((key, expected) in expectedCategories) {
             assertEquals(
                 expected,
-                SyntaxCategoryRegistry.classify(key),
+                classifyPrimitive(key),
                 "$key must classify so Syntax presets can transform .ignore plugin colors.",
             )
             assertEquals(
@@ -372,7 +399,7 @@ class SyntaxCategoryRegistryTest {
     @Test
     fun `unknown suffix returns null`() {
         assertNull(
-            SyntaxCategoryRegistry.classify("UNKNOWN_FOO_BAR"),
+            classifyPrimitive("UNKNOWN_FOO_BAR"),
             "Unknown suffixes must return null so the applicator can skip them safely",
         )
     }
@@ -391,7 +418,7 @@ class SyntaxCategoryRegistryTest {
 
         for (keyName in visibilityKeys) {
             assertNull(
-                SyntaxCategoryRegistry.classify(keyName),
+                classifyPrimitive(keyName),
                 "$keyName must stay unclassified: Java merges visibility attributes over the role " +
                     "colour of a reference, so classifying it lets the intensity applicator write a " +
                     "foreground and flatten Java class, field and annotation colours (issue #290)",
@@ -416,13 +443,13 @@ class SyntaxCategoryRegistryTest {
         val uniqueSuffix = "UNIQUE_${System.nanoTime()}"
         val keyName = "ACME_$uniqueSuffix"
 
-        assertNull(SyntaxCategoryRegistry.classify(keyName))
+        assertNull(classifyPrimitive(keyName))
         // Second invocation hits the latched-already branch and still must
         // return null. If the latch logic regressed (e.g., wrote to the
         // set before checking add(), or threw on duplicates), this call
         // would fail.
-        assertNull(SyntaxCategoryRegistry.classify(keyName))
-        assertNull(SyntaxCategoryRegistry.classify(keyName))
+        assertNull(classifyPrimitive(keyName))
+        assertNull(classifyPrimitive(keyName))
     }
 
     // ---------------------------------------------------------------------
@@ -455,8 +482,8 @@ class SyntaxCategoryRegistryTest {
         }
 
         val total = keyNames.size
-        val classified = keyNames.count { SyntaxCategoryRegistry.classify(it) != null }
-        val unclassified = keyNames.filter { SyntaxCategoryRegistry.classify(it) == null }
+        val classified = keyNames.count { classifyPrimitive(it) != null }
+        val unclassified = keyNames.filter { classifyPrimitive(it) == null }
         val ratio = classified.toFloat() / total.toFloat()
 
         if (ratio < 0.95f) {
@@ -488,7 +515,7 @@ class SyntaxCategoryRegistryTest {
         )
         assertEquals(
             PrimitiveCategory.COMMENT,
-            SyntaxCategoryRegistry.classify("DEFAULT_LINE_COMMENT"),
+            classifyPrimitive("DEFAULT_LINE_COMMENT"),
             "CASCADE-bucket keys must still classify via the suffix rule",
         )
     }
@@ -501,7 +528,7 @@ class SyntaxCategoryRegistryTest {
         )
         assertEquals(
             PrimitiveCategory.STRING_LITERAL,
-            SyntaxCategoryRegistry.classify("DEFAULT_STRING"),
+            classifyPrimitive("DEFAULT_STRING"),
         )
     }
 
@@ -517,7 +544,7 @@ class SyntaxCategoryRegistryTest {
         assertNotNull(langTag, "SyntaxLanguageRegistry must always return a tag")
         assertEquals(
             PrimitiveCategory.KEYWORD,
-            SyntaxCategoryRegistry.classify("RECTANGLE_TEXT_KEYWORD"),
+            classifyPrimitive("RECTANGLE_TEXT_KEYWORD"),
             "OTHER-bucket keys are NOT auto-null — the suffix rule still applies",
         )
     }

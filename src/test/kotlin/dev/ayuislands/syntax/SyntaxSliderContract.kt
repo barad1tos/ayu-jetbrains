@@ -117,7 +117,7 @@ internal object SyntaxSliderContract {
 
     private fun TextAttributesKey.belongsTo(cell: TuningCell): Boolean {
         val language = SyntaxLanguageRegistry.classify(externalName)
-        val category = SyntaxCategoryRegistry.classify(externalName)
+        val category = SyntaxKeyRoleRegistry.classify(externalName).effectivePrimitive
         return language.displayName == cell.language && category == cell.category
     }
 

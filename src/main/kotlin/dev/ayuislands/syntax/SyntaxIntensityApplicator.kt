@@ -128,9 +128,10 @@ object SyntaxIntensityApplicator {
         keys.addAll(overlay.keys)
         for (key in keys) {
             val source = overlay[key] ?: baseline[key] ?: continue
-            val category = SyntaxCategoryRegistry.classify(key.externalName) ?: continue
+            val role = SyntaxKeyRoleRegistry.classify(key.externalName)
+            val category = role.effectivePrimitive ?: continue
             val langTag = SyntaxLanguageRegistry.classify(key.externalName)
-            val language = langTag.displayName
+            val language = (role as? SyntaxKeyRole.Tunable)?.languageId ?: langTag.displayName
             val curve = resolveCurve(preset, language, category, customOverrides, subordinatePreset)
             val transformed =
                 transformedAttributes(
@@ -174,11 +175,9 @@ object SyntaxIntensityApplicator {
         val categories = linkedMapOf<String, MutableSet<PrimitiveCategory>>()
         for (key in keys) {
             if (!hasTunableForeground(key, sources)) continue
-            val language = SyntaxLanguageRegistry.classify(key.externalName)
-            if (language.bucket != SyntaxLanguageRegistry.Bucket.LANGUAGE) continue
-            val category = SyntaxCategoryRegistry.classify(key.externalName)
-            if (category != null) {
-                categories.getOrPut(language.displayName) { linkedSetOf() }.add(category)
+            val role = SyntaxKeyRoleRegistry.classify(key.externalName)
+            if (role is SyntaxKeyRole.Tunable) {
+                categories.getOrPut(role.languageId) { linkedSetOf() }.add(role.primitive)
             }
         }
         return categories.mapValues { (_, values) -> values.toSet() }
