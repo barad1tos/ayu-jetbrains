@@ -131,6 +131,26 @@ class EditorSchemeOverridesTest {
     }
 
     @Test
+    fun `restore preserves a key edited externally after Ayu acquired it`() {
+        val syntaxKey = TextAttributesKey.find("TEST_EXTERNALLY_EDITED_SYNTAX_ATTRIBUTES")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes)
+
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.ORANGE),
+        )
+        val external = fullAttributes(Color.GREEN)
+        attributes[syntaxKey] = external
+
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+
+        assertEquals(external, attributes[syntaxKey])
+    }
+
+    @Test
     fun `inherited attributes remain inherited after restore`() {
         val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
         val inheritedAttributes = mutableMapOf(attributesKey to fullAttributes(Color.RED))

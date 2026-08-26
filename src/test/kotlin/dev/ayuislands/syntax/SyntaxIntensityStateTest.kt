@@ -396,6 +396,28 @@ class SyntaxIntensityStateTest {
     }
 
     @Test
+    fun `legacy and future syntax cells survive XML round trip without normalization`() {
+        val original =
+            SyntaxIntensityBaseState().apply {
+                selectedPreset = "CUSTOM"
+                customOverrides["Swift|OPERATOR"] = "73"
+                customOverrides["Future Language|FUTURE_PRIMITIVE"] = "19"
+                customStyles["Swift|OPERATOR"] = "PLAIN"
+                customEmphasis["Kotlin|KEYWORD"] = "ITALIC"
+            }
+        val serialized = XmlSerializer.serialize(original)
+        val reloaded = SyntaxIntensityState()
+
+        reloaded.loadState(XmlSerializer.deserialize(serialized, SyntaxIntensityBaseState::class.java))
+
+        assertEquals("CUSTOM", reloaded.state.selectedPreset)
+        assertEquals("73", reloaded.state.customOverrides["Swift|OPERATOR"])
+        assertEquals("19", reloaded.state.customOverrides["Future Language|FUTURE_PRIMITIVE"])
+        assertEquals("PLAIN", reloaded.state.customStyles["Swift|OPERATOR"])
+        assertEquals("ITALIC", reloaded.state.customEmphasis["Kotlin|KEYWORD"])
+    }
+
+    @Test
     fun `schema 3 XML preserves legacy state and leaves emphasis empty`() {
         val saved =
             XmlSerializer.deserialize(
