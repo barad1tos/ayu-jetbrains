@@ -176,6 +176,23 @@ class SettingsSessionTest {
     }
 
     @Test
+    fun `cancel restores participants in reverse order and isolates failures`() {
+        val calls = mutableListOf<String>()
+        val first = RecordingParticipant("First", calls)
+        val second = RecordingParticipant("Second", calls)
+        val third = RecordingParticipant("Third", calls)
+        val failure = IllegalStateException("second cancel failed")
+        second.cancelFailure = failure
+        val session = openSession(first, second, third)
+
+        val failures = session.cancel()
+
+        assertEquals(listOf("cancel:Third", "cancel:Second", "cancel:First"), calls)
+        assertEquals(listOf(SettingsCleanupFailure("Second", failure)), failures)
+        assertFalse(session.isClosed)
+    }
+
+    @Test
     fun `close disposes in reverse order isolates failures and is idempotent`() {
         val calls = mutableListOf<String>()
         val first = RecordingParticipant("First", calls)
@@ -371,6 +388,7 @@ class SettingsSessionTest {
         var shouldReportModified = false
         var applyFailure: Throwable? = null
         var resetFailure: Throwable? = null
+        var cancelFailure: Throwable? = null
         var disposeFailure: Throwable? = null
 
         override fun isModified(): Boolean {
@@ -386,6 +404,11 @@ class SettingsSessionTest {
         override fun reset() {
             calls += "reset:$name"
             resetFailure?.let { throw it }
+        }
+
+        override fun cancel() {
+            calls += "cancel:$name"
+            cancelFailure?.let { throw it }
         }
 
         override fun dispose() {

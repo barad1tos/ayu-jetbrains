@@ -387,6 +387,9 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     }
 
     private fun closeSession() {
+        session?.cancel()?.forEach { failure ->
+            log.warn("Settings cancel failed for ${failure.participant}", failure.cause)
+        }
         session?.close()?.forEach { failure ->
             log.warn("Settings cleanup failed for ${failure.participant}", failure.cause)
         }

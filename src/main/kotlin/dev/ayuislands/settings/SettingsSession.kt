@@ -111,6 +111,11 @@ internal class SettingsSession(
         participants.forEach { it.participant.reset() }
     }
 
+    fun cancel(): List<SettingsCleanupFailure> {
+        requireOpen()
+        return cleanUp(participants, SettingsParticipant::cancel)
+    }
+
     fun close(): List<SettingsCleanupFailure> {
         if (phase == Phase.CLOSED) return emptyList()
 
@@ -122,13 +127,19 @@ internal class SettingsSession(
         }
     }
 
-    private fun dispose(entries: List<NamedSettingsParticipant>): List<SettingsCleanupFailure> {
+    private fun dispose(entries: List<NamedSettingsParticipant>): List<SettingsCleanupFailure> =
+        cleanUp(entries, SettingsParticipant::dispose)
+
+    private fun cleanUp(
+        entries: List<NamedSettingsParticipant>,
+        operation: (SettingsParticipant) -> Unit,
+    ): List<SettingsCleanupFailure> {
         val failures = mutableListOf<SettingsCleanupFailure>()
         var cancellation: Throwable? = null
 
         for (entry in entries.asReversed()) {
             try {
-                runCatchingPreservingCancellation { entry.participant.dispose() }
+                runCatchingPreservingCancellation { operation(entry.participant) }
                     .exceptionOrNull()
                     ?.let { failures += SettingsCleanupFailure(entry.name, it) }
             } catch (failure: ProcessCanceledException) {
