@@ -10,7 +10,6 @@ import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -74,7 +73,6 @@ class IndentRainbowSyncTest {
     @AfterTest
     fun tearDown() {
         unmockkAll()
-        clearAllMocks()
     }
 
     @Test
