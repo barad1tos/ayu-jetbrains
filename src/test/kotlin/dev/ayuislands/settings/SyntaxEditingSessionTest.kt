@@ -5,6 +5,7 @@ import dev.ayuislands.syntax.SyntaxTransactionResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 
 class SyntaxEditingSessionTest {
     @Test
@@ -18,6 +19,67 @@ class SyntaxEditingSessionTest {
         assertEquals(listOf(config(70)), runtime.previews)
         assertEquals(emptyList(), persisted)
         assertEquals(true, session.isModified())
+    }
+
+    @Test
+    fun `presentation refresh follows only successful runtime changes`() {
+        val runtime = RecordingRuntime()
+        val refreshed = mutableListOf<SyntaxPresetConfig>()
+        val session =
+            SyntaxEditingSession(
+                initialCheckpoint = config(50),
+                runtime = runtime,
+                persist = {},
+                onRuntimeApplied = refreshed::add,
+                debounceFactory = { callback -> RecordingDebounce().also { it.callback = callback } },
+            )
+
+        session.editDiscrete(config(70))
+        runtime.previewResult = SyntaxTransactionResult.Failed(IllegalStateException("preview"), emptyList())
+        session.editDiscrete(config(80))
+
+        assertEquals(listOf(config(70)), refreshed)
+    }
+
+    @Test
+    fun `runtime failure is reported without changing the pending config`() {
+        val runtime = RecordingRuntime()
+        val failures = mutableListOf<RuntimeException>()
+        val session =
+            SyntaxEditingSession(
+                initialCheckpoint = config(50),
+                runtime = runtime,
+                persist = {},
+                onRuntimeFailed = { failures += it },
+                debounceFactory = { callback -> RecordingDebounce().also { it.callback = callback } },
+            )
+        val failure = IllegalStateException("preview")
+        runtime.previewResult = SyntaxTransactionResult.Failed(failure, emptyList())
+
+        session.editDiscrete(config(80))
+
+        assertEquals(1, failures.size)
+        assertSame(failure, failures.single())
+        assertEquals(config(80), session.pendingConfig())
+    }
+
+    @Test
+    fun `successful restore refreshes presentation with checkpoint`() {
+        val runtime = RecordingRuntime()
+        val refreshed = mutableListOf<SyntaxPresetConfig>()
+        val session =
+            SyntaxEditingSession(
+                initialCheckpoint = config(50),
+                runtime = runtime,
+                persist = {},
+                onRuntimeApplied = refreshed::add,
+                debounceFactory = { callback -> RecordingDebounce().also { it.callback = callback } },
+            )
+        session.editDiscrete(config(70))
+
+        session.reset()
+
+        assertEquals(listOf(config(70), config(50)), refreshed)
     }
 
     @Test
@@ -251,6 +313,29 @@ class SyntaxEditingSessionTest {
     }
 
     @Test
+    fun `active Ayu switch previews latest pending config`() {
+        val runtime = RecordingRuntime()
+        val session = editingSession(config(50), runtime, mutableListOf())
+        session.editDiscrete(config(70))
+        runtime.previews.clear()
+
+        session.activeAyuSchemeChanged()
+
+        assertEquals(listOf(config(70)), runtime.previews)
+    }
+
+    @Test
+    fun `foreign switch reports status without a runtime write`() {
+        val runtime = RecordingRuntime()
+        val session = editingSession(config(50), runtime, mutableListOf())
+
+        session.foreignSchemeActivated()
+
+        assertEquals(1, runtime.foreignSchemeReports)
+        assertEquals(emptyList(), runtime.previews)
+    }
+
+    @Test
     fun `repeated cancel after close is idempotent`() {
         val closed = SyntaxSessionState.Closed
 
@@ -286,6 +371,7 @@ class SyntaxEditingSessionTest {
         var materializeResult: SyntaxTransactionResult = applied()
         var restoreResult: SyntaxTransactionResult = applied()
         var advances = 0
+        var foreignSchemeReports = 0
 
         override fun preview(config: SyntaxPresetConfig): SyntaxTransactionResult {
             previews += config
@@ -310,6 +396,10 @@ class SyntaxEditingSessionTest {
             config: SyntaxPresetConfig,
             failure: RuntimeException,
         ) = Unit
+
+        override fun showForeignScheme() {
+            foreignSchemeReports++
+        }
 
         private fun applied(): SyntaxTransactionResult = SyntaxTransactionResult.Applied(emptySet(), emptySet())
     }

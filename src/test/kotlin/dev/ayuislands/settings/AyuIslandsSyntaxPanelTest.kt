@@ -6,6 +6,8 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.ui.DialogPanel
@@ -27,6 +29,7 @@ import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
+import dev.ayuislands.syntax.SyntaxTransactionResult
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkClass
@@ -63,16 +66,15 @@ import kotlin.test.assertTrue
  *
  * Coverage:
  *  - Default preset on null / unknown persisted name = `AMBIENT` (D-23).
- *  - Pill selection invokes [SyntaxIntensityService.apply] and persists
- *    `state.selectedPreset` (apply-on-click, no Apply button).
- *  - Apply-FIRST persist-SECOND ordering (Anti-Pattern #4 / Phase 40.4):
- *    a service throw leaves `state.selectedPreset` untouched.
+ *  - Pill and custom-control changes preview without mutating persisted state.
+ *  - Apply materializes runtime schemes before persisting pending settings.
+ *    A runtime failure leaves `state.selectedPreset` untouched.
  *  - Custom rejection for unlicensed users: `LicenseChecker.requestLicense`
  *    is invoked, pending stays at the previous preset, no service call,
  *    no state mutation.
- *  - Custom accepted for licensed users: pill selection routes through the
- *    same apply path as the four named pills.
- *  - `reset()` reverts the pending buffer to the stored value.
+ *  - Custom accepted for licensed users: selection uses the same live session
+ *    as the four named pills.
+ *  - `reset()` restores runtime state and reloads the stored buffer.
  *
  * Plain kotlin.test + MockK. The Kotlin UI DSL requires EDT-managed
  * `DialogPanel` lifecycle, so the tests exercise apply / reset / isModified
@@ -97,19 +99,28 @@ class AyuIslandsSyntaxPanelTest {
     private lateinit var stateBase: SyntaxIntensityBaseState
     private lateinit var stateService: SyntaxIntensityState
     private lateinit var intensityService: SyntaxIntensityService
+    private lateinit var runtimeSession: SyntaxIntensityService.SyntaxRuntimeSession
     private lateinit var syntaxPreviewEditorFixture: SyntaxPreviewEditorFixture
+    private var schemeName = "Ayu Islands Mirage"
 
     @BeforeTest
     fun setUp() {
         stateBase = SyntaxIntensityBaseState()
+        schemeName = "Ayu Islands Mirage"
         stateService = mockk(relaxed = true)
         every { stateService.state } returns stateBase
         mockkObject(SyntaxIntensityState.Companion)
         every { SyntaxIntensityState.getInstance() } returns stateService
 
         intensityService = mockk(relaxed = true)
+        runtimeSession = mockk(relaxed = true)
         mockkObject(SyntaxIntensityService.Companion)
         every { SyntaxIntensityService.getInstance() } returns intensityService
+        every { intensityService.openRuntimeSession() } returns runtimeSession
+        val applied = SyntaxTransactionResult.Applied(emptySet(), emptySet())
+        every { runtimeSession.preview(any()) } returns applied
+        every { runtimeSession.materialize(any()) } returns applied
+        every { runtimeSession.restore() } returns applied
 
         mockkObject(LicenseChecker)
         // Default: licensed. Individual tests override to false where needed.
@@ -119,6 +130,8 @@ class AyuIslandsSyntaxPanelTest {
         mockkStatic(ApplicationManager::class)
         val appMock = mockk<Application>(relaxed = true)
         val actionManagerMock = mockk<ActionManagerEx>(relaxed = true)
+        val editorColorsManager = mockk<EditorColorsManager>()
+        val editorScheme = mockk<EditorColorsScheme>()
         mockkStatic(ActionManager::class)
         every { ActionManager.getInstance() } returns actionManagerMock
         every { ApplicationManager.getApplication() } returns appMock
@@ -126,6 +139,9 @@ class AyuIslandsSyntaxPanelTest {
         every { appMock.getService(ActionManager::class.java) } returns actionManagerMock
         every { appMock.getService(ActionManagerEx::class.java) } returns actionManagerMock
         every { appMock.getServiceIfCreated(ActionManager::class.java) } returns actionManagerMock
+        every { appMock.getService(EditorColorsManager::class.java) } returns editorColorsManager
+        every { editorColorsManager.globalScheme } returns editorScheme
+        every { editorScheme.name } answers { schemeName }
         every { actionManagerMock.getAction(any()) } returns null
 
         @Suppress("UNCHECKED_CAST")
@@ -333,10 +349,10 @@ class AyuIslandsSyntaxPanelTest {
         assertTrue(stateBase.emphasizeDeclarations)
     }
 
-    // ---------- Test 2 - pill selection applies + persists ----------
+    // ---------- Test 2 - pill selection previews without persistence ----------
 
     @Test
-    fun `pill selection invokes SyntaxIntensityService apply with empty overrides`() {
+    fun `pill selection previews complete config without persistence`() {
         // Break caught: named preset clicks must preview through the complete configuration boundary.
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
@@ -344,7 +360,7 @@ class AyuIslandsSyntaxPanelTest {
         invokeOnPresetChosen(panel, SyntaxPreset.NEON)
 
         verify(exactly = 1) {
-            intensityService.apply(
+            runtimeSession.preview(
                 SyntaxPresetConfig(
                     selectedPreset = SyntaxPreset.NEON.name,
                     customOverrides = emptyMap(),
@@ -355,23 +371,28 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `pill selection persists selectedPreset to state`() {
+    fun `pill selection keeps selectedPreset pending until Apply`() {
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
 
         invokeOnPresetChosen(panel, SyntaxPreset.WHISPER)
 
-        assertEquals("WHISPER", stateBase.selectedPreset)
+        assertEquals("AMBIENT", stateBase.selectedPreset)
+        assertSame(SyntaxPreset.WHISPER, readPendingPreset(panel))
+        assertTrue(panel.isModified())
     }
 
     @Test
-    fun `pill selection updates stored buffer so subsequent isModified returns false`() {
+    fun `Apply persists a previewed pill and advances the stored buffer`() {
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
 
         invokeOnPresetChosen(panel, SyntaxPreset.CYBERPUNK)
 
-        assertFalse(panel.isModified(), "after pill click stored == pending so isModified is false")
+        assertTrue(panel.isModified())
+        panel.apply()
+        assertEquals("CYBERPUNK", stateBase.selectedPreset)
+        assertFalse(panel.isModified())
     }
 
     // ---------- Test 3 - apply-FIRST persist-SECOND ordering ----------
@@ -386,7 +407,7 @@ class AyuIslandsSyntaxPanelTest {
         panel.apply()
 
         verifyOrder {
-            intensityService.apply(any<SyntaxPresetConfig>())
+            runtimeSession.materialize(any())
             stateService.state
         }
     }
@@ -409,7 +430,7 @@ class AyuIslandsSyntaxPanelTest {
         val initialEmphasis = stateBase.customEmphasis.toMap()
         val panel = panelWithLoadedState()
         writePendingPreset(panel, SyntaxPreset.NEON)
-        writePendingSubordinate(panel, SyntaxPreset.CYBERPUNK)
+        setSubordinateCyberpunk(panel)
         seedPendingOverride(panel, "Java|KEYWORD", "90")
         seedPendingOverride(panel, "Kotlin|COMMENT", "30")
         seedPendingStyle(panel, "Java|COMMENT", "BOLD")
@@ -418,9 +439,8 @@ class AyuIslandsSyntaxPanelTest {
         writePendingBoolean(panel, "pendingSoftenDocumentation", true)
         writePendingBoolean(panel, "pendingQuietOperators", false)
         writePendingBoolean(panel, "pendingEmphasizeDeclarations", true)
-        every {
-            intensityService.apply(any<SyntaxPresetConfig>())
-        } throws RuntimeException("simulated apply failure")
+        every { runtimeSession.materialize(any()) } returns
+            SyntaxTransactionResult.Failed(RuntimeException("simulated apply failure"), emptyList())
 
         assertFailsWith<RuntimeException> { panel.apply() }
 
@@ -450,7 +470,8 @@ class AyuIslandsSyntaxPanelTest {
         verify(exactly = 1) {
             LicenseChecker.requestLicense("Unlock per-language syntax customization")
         }
-        verify(exactly = 0) { intensityService.apply(any<SyntaxPresetConfig>()) }
+        verify(exactly = 0) { runtimeSession.preview(any()) }
+        verify(exactly = 0) { runtimeSession.materialize(any()) }
         assertEquals("AMBIENT", stateBase.selectedPreset)
         assertSame(SyntaxPreset.AMBIENT, readPendingPreset(panel))
     }
@@ -458,8 +479,8 @@ class AyuIslandsSyntaxPanelTest {
     // ---------- Test 5 - Custom accepted for licensed users ----------
 
     @Test
-    fun `Custom pill accepted for licensed users - apply with empty overrides + persist`() {
-        // Break caught: an authorized Custom selection must use the configuration overload and persist.
+    fun `Custom pill previews for licensed users and persists on Apply`() {
+        // Break caught: an authorized Custom selection must stay pending until the framework applies it.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "AMBIENT"
         val panel = panelWithLoadedState()
@@ -467,13 +488,16 @@ class AyuIslandsSyntaxPanelTest {
         invokeOnPresetChosen(panel, SyntaxPreset.CUSTOM)
 
         verify(exactly = 1) {
-            intensityService.apply(
+            runtimeSession.preview(
                 SyntaxPresetConfig(
                     selectedPreset = SyntaxPreset.CUSTOM.name,
                     customOverrides = emptyMap(),
                 ),
             )
         }
+        assertEquals("AMBIENT", stateBase.selectedPreset)
+        panel.apply()
+        verify(exactly = 1) { runtimeSession.materialize(any()) }
         assertEquals("CUSTOM", stateBase.selectedPreset)
         verify(exactly = 0) { LicenseChecker.requestLicense(any()) }
     }
@@ -521,7 +545,7 @@ class AyuIslandsSyntaxPanelTest {
         panel.apply()
 
         verifyOrder {
-            intensityService.apply(
+            runtimeSession.materialize(
                 SyntaxPresetConfig(
                     selectedPreset = SyntaxPreset.AMBIENT.name,
                     customOverrides = emptyMap(),
@@ -562,12 +586,12 @@ class AyuIslandsSyntaxPanelTest {
         try {
             val component = buildSyntaxPanel(panel)
             val dimComments = findDimCommentsCheckBox(component)
-            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)
 
             dimComments.doClick()
 
             verify(exactly = 1) {
-                intensityService.apply(
+                runtimeSession.preview(
                     SyntaxPresetConfig(
                         selectedPreset = SyntaxPreset.AMBIENT.name,
                         customOverrides = emptyMap(),
@@ -577,16 +601,11 @@ class AyuIslandsSyntaxPanelTest {
             }
             assertTrue(panel.isModified(), "toggling the real checkbox must dirty the syntax panel")
 
-            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)
             panel.reset()
 
             verify(exactly = 1) {
-                intensityService.apply(
-                    SyntaxPresetConfig(
-                        selectedPreset = SyntaxPreset.AMBIENT.name,
-                        customOverrides = emptyMap(),
-                    ),
-                )
+                runtimeSession.restore()
             }
             assertFalse(dimComments.isSelected, "reset must return the visible checkbox to stored state")
             assertFalse(panel.isModified(), "reset must leave pending and stored readability in sync")
@@ -617,11 +636,11 @@ class AyuIslandsSyntaxPanelTest {
                 assertFalse(checkbox.isSelected, "${checkbox.text} must not expose persisted premium state")
             }
 
-            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)
             findDimCommentsCheckBox(component).doClick()
 
             verify(exactly = 0) {
-                intensityService.apply(any<SyntaxPresetConfig>())
+                runtimeSession.preview(any())
             }
             assertFalse(panel.isModified(), "disabled readability controls must not dirty the panel")
         } finally {
@@ -644,7 +663,7 @@ class AyuIslandsSyntaxPanelTest {
                 readabilityControls
                     .map { checkbox ->
                         val point =
-                            javax.swing.SwingUtilities.convertPoint(
+                            SwingUtilities.convertPoint(
                                 checkbox.parent,
                                 checkbox.location,
                                 component,
@@ -680,28 +699,22 @@ class AyuIslandsSyntaxPanelTest {
             assertTrue(dimComments.isEnabled, "licensed users can edit readability controls")
 
             every { LicenseChecker.isLicensedOrGrace() } returns false
-            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)
 
             panel.reset()
 
             assertFalse(dimComments.isEnabled, "reset must disable readability after license loss")
             assertFalse(dimComments.isSelected, "reset must hide persisted premium readability after license loss")
 
-            verify(exactly = 1) {
-                intensityService.apply(
-                    SyntaxPresetConfig(
-                        selectedPreset = SyntaxPreset.AMBIENT.name,
-                        customOverrides = emptyMap(),
-                        readabilityOptions = SyntaxReadabilityOptions(dimComments = true),
-                    ),
-                )
+            verify(exactly = 0) {
+                runtimeSession.restore()
             }
-            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)
 
             dimComments.doClick()
 
             verify(exactly = 0) {
-                intensityService.apply(any<SyntaxPresetConfig>())
+                runtimeSession.preview(any())
             }
             assertFalse(panel.isModified(), "disabled readability controls must not dirty the panel")
         } finally {
@@ -836,12 +849,15 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `signedReadout maps stored value to signed delta from identity`() {
-        val panel = AyuIslandsSyntaxPanel()
-        assertEquals("0", invokeSignedReadout(panel, 50), "identity (50) reads as 0")
-        assertEquals("+25", invokeSignedReadout(panel, 75), "above identity reads +N")
-        assertEquals("\u221220", invokeSignedReadout(panel, 30), "below identity reads \u2212N with U+2212 minus")
-        assertEquals("+50", invokeSignedReadout(panel, 100), "max reads +50")
-        assertEquals("\u221250", invokeSignedReadout(panel, 0), "min reads \u221250")
+        assertEquals("0", SyntaxIntensityReadout.signed(50, 50), "identity (50) reads as 0")
+        assertEquals("+25", SyntaxIntensityReadout.signed(75, 50), "above identity reads +N")
+        assertEquals(
+            "\u221220",
+            SyntaxIntensityReadout.signed(30, 50),
+            "below identity reads \u2212N with U+2212 minus",
+        )
+        assertEquals("+50", SyntaxIntensityReadout.signed(100, 50), "max reads +50")
+        assertEquals("\u221250", SyntaxIntensityReadout.signed(0, 50), "min reads \u221250")
     }
 
     // ---------- Test 21 - CATEGORY_GROUPS coverage invariant ----------
@@ -895,12 +911,11 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `applyReadout leaves identity visually empty and strengthens a moved readout`() {
-        val panel = AyuIslandsSyntaxPanel()
         val identityLabel = JLabel()
         val movedLabel = JLabel()
 
-        invokeApplyReadout(panel, identityLabel, 50)
-        invokeApplyReadout(panel, movedLabel, 75)
+        SyntaxIntensityReadout.apply(identityLabel, 50, 50)
+        SyntaxIntensityReadout.apply(movedLabel, 75, 50)
 
         assertEquals("", identityLabel.text, "identity readout is visually empty")
         assertEquals("+25", movedLabel.text, "moved readout text is the signed delta")
@@ -913,12 +928,11 @@ class AyuIslandsSyntaxPanelTest {
 
     @Test
     fun `applyReadout below identity is also rendered in the moved foreground`() {
-        val panel = AyuIslandsSyntaxPanel()
         val identityLabel = JLabel()
         val belowLabel = JLabel()
 
-        invokeApplyReadout(panel, identityLabel, 50)
-        invokeApplyReadout(panel, belowLabel, 30)
+        SyntaxIntensityReadout.apply(identityLabel, 50, 50)
+        SyntaxIntensityReadout.apply(belowLabel, 30, 50)
 
         assertEquals("\u221220", belowLabel.text, "below identity reads \u2212N with U+2212 minus")
         assertNotEquals(
@@ -1063,7 +1077,7 @@ class AyuIslandsSyntaxPanelTest {
             invokePreview(panel)
 
             verify(exactly = 1) {
-                intensityService.apply(
+                runtimeSession.preview(
                     SyntaxPresetConfig(
                         selectedPreset = SyntaxPreset.CUSTOM.name,
                         customOverrides = mapOf("Java" to mapOf("KEYWORD" to 80)),
@@ -1141,7 +1155,7 @@ class AyuIslandsSyntaxPanelTest {
         panel.apply()
 
         verify(exactly = 1) {
-            intensityService.apply(
+            runtimeSession.materialize(
                 SyntaxPresetConfig(
                     selectedPreset = SyntaxPreset.CUSTOM.name,
                     customOverrides = mapOf("Java" to mapOf("KEYWORD" to 75)),
@@ -1301,7 +1315,7 @@ class AyuIslandsSyntaxPanelTest {
         panel.apply()
 
         verify(exactly = 1) {
-            intensityService.apply(
+            runtimeSession.materialize(
                 SyntaxPresetConfig(
                     selectedPreset = SyntaxPreset.CUSTOM.name,
                     customOverrides = emptyMap(),
@@ -1402,7 +1416,7 @@ class AyuIslandsSyntaxPanelTest {
 
         verifyOrder {
             // Service call first.
-            intensityService.apply(any<SyntaxPresetConfig>())
+            runtimeSession.materialize(any())
             // Then the persistence reads state.
             stateService.state
         }
@@ -1423,7 +1437,7 @@ class AyuIslandsSyntaxPanelTest {
         writeCurrentLanguage(syntaxPanel, "Kotlin")
 
         try {
-            invokeOnEmphasisChanged(syntaxPanel, PrimitiveCategory.FUNCTION_DECL, FontEmphasis.ITALIC)
+            setFunctionEmphasis(syntaxPanel, FontEmphasis.ITALIC)
 
             assertEquals(
                 mapOf("Kotlin|FUNCTION_DECL" to "ITALIC"),
@@ -1433,10 +1447,10 @@ class AyuIslandsSyntaxPanelTest {
             assertEquals(mapOf("Kotlin|FUNCTION_DECL" to "BOLD"), stateBase.customStyles)
             assertTrue(stateBase.customEmphasis.isEmpty(), "pending checkbox edits must not persist before Apply")
 
-            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)
             invokePreview(syntaxPanel)
             val previewConfig = io.mockk.slot<SyntaxPresetConfig>()
-            verify(exactly = 1) { intensityService.apply(capture(previewConfig)) }
+            verify(exactly = 1) { runtimeSession.preview(capture(previewConfig)) }
             assertEquals(
                 mapOf("Kotlin" to mapOf("FUNCTION_DECL" to Font.BOLD)),
                 previewConfig.captured.customStyles,
@@ -1465,16 +1479,16 @@ class AyuIslandsSyntaxPanelTest {
         writeCurrentLanguage(syntaxPanel, "Swift")
 
         try {
-            invokeOnStyleOverrideChanged(syntaxPanel, PrimitiveCategory.OPERATOR, FontStyleOverride.PLAIN)
+            setPlainOperatorStyle(syntaxPanel)
 
             assertEquals("PLAIN", readPendingStyles(syntaxPanel)["Swift|OPERATOR"])
             assertEquals("BOLD", readPendingStyles(syntaxPanel)["Kotlin|KEYWORD"])
             assertFalse(stateBase.customStyles.containsKey("Swift|OPERATOR"))
 
-            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)
             invokePreview(syntaxPanel)
             val previewConfig = io.mockk.slot<SyntaxPresetConfig>()
-            verify(exactly = 1) { intensityService.apply(capture(previewConfig)) }
+            verify(exactly = 1) { runtimeSession.preview(capture(previewConfig)) }
             assertEquals(
                 Font.PLAIN,
                 previewConfig.captured.customStyles["Swift"]?.get("OPERATOR"),
@@ -1500,7 +1514,7 @@ class AyuIslandsSyntaxPanelTest {
         writeCurrentLanguage(syntaxPanel, "Kotlin")
 
         try {
-            invokeOnEmphasisChanged(syntaxPanel, PrimitiveCategory.FUNCTION_DECL, null)
+            setFunctionEmphasis(syntaxPanel, null)
 
             assertFalse(readPendingEmphasis(syntaxPanel).containsKey("Kotlin|FUNCTION_DECL"))
             assertEquals("BOLD", readPendingStyles(syntaxPanel)["Kotlin|FUNCTION_DECL"])
@@ -1520,13 +1534,13 @@ class AyuIslandsSyntaxPanelTest {
 
         try {
             buildFullSyntaxPanel(syntaxPanel)
-            invokeOnEmphasisChanged(syntaxPanel, PrimitiveCategory.FUNCTION_DECL, FontEmphasis.ITALIC)
-            assertEquals("I", readStyleGlyph(syntaxPanel, PrimitiveCategory.FUNCTION_DECL))
+            setFunctionEmphasis(syntaxPanel, FontEmphasis.ITALIC)
+            assertEquals("I", functionStyleGlyph(syntaxPanel))
 
             syntaxPanel.reset()
 
             assertEquals("BOLD", readPendingEmphasis(syntaxPanel)["Kotlin|FUNCTION_DECL"])
-            assertEquals("B", readStyleGlyph(syntaxPanel, PrimitiveCategory.FUNCTION_DECL))
+            assertEquals("B", functionStyleGlyph(syntaxPanel))
             assertFalse(syntaxPanel.isModified())
         } finally {
             syntaxPanel.dispose()
@@ -1606,7 +1620,7 @@ class AyuIslandsSyntaxPanelTest {
             assertTrue(readSlider(syntaxPanel, PrimitiveCategory.FUNCTION_DECL).isEnabled)
             assertFalse(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
             assertFalse(readStyleControl(syntaxPanel, PrimitiveCategory.KEYWORD).component.isEnabled)
-            assertFalse(readCategoryLabel(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
+            assertFalse(keywordLabel(syntaxPanel).isEnabled)
             assertFalse(
                 readMasterResetButton(syntaxPanel).isVisible,
                 "Hidden sparse cells must survive without exposing a reset action that cannot affect them",
@@ -1736,6 +1750,27 @@ class AyuIslandsSyntaxPanelTest {
             assertEquals("82", stateBase.customOverrides["Swift|KEYWORD"])
             assertEquals("ITALIC", stateBase.customStyles["Swift|KEYWORD"])
             assertEquals("BOLD", stateBase.customEmphasis["Swift|KEYWORD"])
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `foreign scheme warning remains until an Ayu preview succeeds`() {
+        val syntaxPanel = panelWithLoadedState()
+        val status = readRuntimeStatus(syntaxPanel)
+
+        try {
+            schemeName = "Solarized Dark"
+            invokePreview(syntaxPanel)
+
+            assertTrue(status.isVisible)
+            assertTrue(status.text.contains("Select an Ayu scheme to resume"))
+
+            schemeName = "Ayu Islands Mirage"
+            invokePreview(syntaxPanel)
+
+            assertFalse(status.isVisible)
         } finally {
             syntaxPanel.dispose()
         }
@@ -1909,7 +1944,7 @@ class AyuIslandsSyntaxPanelTest {
     // ---------- Test 18 - debounce behavior (INTENSITY-13 / D-19, behavioral) ----------
 
     @Test
-    fun `applyTimer is a single-shot 100ms timer that previews without persisting`() {
+    fun `editing session uses one single-shot 100ms debounce without persisting`() {
         // Break caught: debounced edits must not call the runtime configuration boundary synchronously.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         stateBase.selectedPreset = "CUSTOM"
@@ -1918,17 +1953,17 @@ class AyuIslandsSyntaxPanelTest {
         seedWidgets(panel, PrimitiveCategory.KEYWORD)
 
         try {
-            val timer = readApplyTimer(panel)
+            val timer = readDebounceTimer(panel)
             assertFalse(timer.isRepeats, "D-19: the debounce timer must be single-shot.")
             assertEquals(100, timer.delay, "D-19: the debounce window must be exactly 100ms.")
 
             // Clear the apply call recorded by panelWithLoadedState() and any
             // earlier setup so we observe only the slider-change path.
-            io.mockk.clearMocks(intensityService, answers = false, recordedCalls = true)
+            io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)
             invokeOnJavaKeywordSliderChanged(panel, 80)
 
             verify(exactly = 0) {
-                intensityService.apply(any<SyntaxPresetConfig>())
+                runtimeSession.preview(any())
             }
             assertTrue(
                 timer.isRunning,
@@ -1953,9 +1988,12 @@ class AyuIslandsSyntaxPanelTest {
 
     private fun panelWithLoadedState(): AyuIslandsSyntaxPanel {
         val panel = AyuIslandsSyntaxPanel()
-        val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("loadStateIntoPending")
-        method.isAccessible = true
-        method.invoke(panel)
+        val load = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("loadStateIntoPending")
+        load.isAccessible = true
+        load.invoke(panel)
+        val open = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("openEditingSession")
+        open.isAccessible = true
+        open.invoke(panel)
         return panel
     }
 
@@ -2044,9 +2082,9 @@ class AyuIslandsSyntaxPanelTest {
         text: String,
     ): JLabel? =
         container.components.firstNotNullOfOrNull { component ->
-            when {
-                component is JLabel && component.text == text -> component
-                component is Container -> findLabel(component, text)
+            when (component) {
+                is JLabel -> component.takeIf { it.text == text }
+                is Container -> findLabel(component, text)
                 else -> null
             }
         }
@@ -2087,6 +2125,12 @@ class AyuIslandsSyntaxPanelTest {
         return field.get(panel) as SyntaxPreset
     }
 
+    private fun readRuntimeStatus(panel: AyuIslandsSyntaxPanel): JLabel {
+        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("runtimeStatus")
+        field.isAccessible = true
+        return (field.get(panel) as RuntimeStatus).component
+    }
+
     private fun readStoredPreset(panel: AyuIslandsSyntaxPanel): SyntaxPreset {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("storedPreset")
         field.isAccessible = true
@@ -2102,13 +2146,10 @@ class AyuIslandsSyntaxPanelTest {
         field.set(panel, preset)
     }
 
-    private fun writePendingSubordinate(
-        panel: AyuIslandsSyntaxPanel,
-        preset: SyntaxPreset,
-    ) {
+    private fun setSubordinateCyberpunk(panel: AyuIslandsSyntaxPanel) {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("pendingSubordinate")
         field.isAccessible = true
-        field.set(panel, preset)
+        field.set(panel, SyntaxPreset.CYBERPUNK)
     }
 
     private fun readPendingBoolean(
@@ -2227,9 +2268,8 @@ class AyuIslandsSyntaxPanelTest {
         putMethod.invoke(map, key, value)
     }
 
-    private fun invokeOnEmphasisChanged(
+    private fun setFunctionEmphasis(
         panel: AyuIslandsSyntaxPanel,
-        category: PrimitiveCategory,
         emphasis: FontEmphasis?,
     ) {
         val method =
@@ -2239,14 +2279,10 @@ class AyuIslandsSyntaxPanelTest {
                 FontEmphasis::class.java,
             )
         method.isAccessible = true
-        method.invoke(panel, category, emphasis)
+        method.invoke(panel, PrimitiveCategory.FUNCTION_DECL, emphasis)
     }
 
-    private fun invokeOnStyleOverrideChanged(
-        panel: AyuIslandsSyntaxPanel,
-        category: PrimitiveCategory,
-        style: FontStyleOverride?,
-    ) {
+    private fun setPlainOperatorStyle(panel: AyuIslandsSyntaxPanel) {
         val method =
             AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
                 "onStyleOverrideChanged",
@@ -2254,7 +2290,7 @@ class AyuIslandsSyntaxPanelTest {
                 FontStyleOverride::class.java,
             )
         method.isAccessible = true
-        method.invoke(panel, category, style)
+        method.invoke(panel, PrimitiveCategory.OPERATOR, FontStyleOverride.PLAIN)
     }
 
     private fun invokeOnResetCurrentLanguage(panel: AyuIslandsSyntaxPanel) {
@@ -2289,7 +2325,7 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     private fun invokePreview(panel: AyuIslandsSyntaxPanel) {
-        val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("preview")
+        val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("previewDiscrete")
         method.isAccessible = true
         method.invoke(panel)
     }
@@ -2345,11 +2381,8 @@ class AyuIslandsSyntaxPanelTest {
         return controls[category] as SyntaxStyleControl
     }
 
-    private fun readStyleGlyph(
-        panel: AyuIslandsSyntaxPanel,
-        category: PrimitiveCategory,
-    ): String {
-        val icon = readStyleControl(panel, category).component.icon as StyleGlyphIcon
+    private fun functionStyleGlyph(panel: AyuIslandsSyntaxPanel): String {
+        val icon = readStyleControl(panel, PrimitiveCategory.FUNCTION_DECL).component.icon as StyleGlyphIcon
         val glyphField = StyleGlyphIcon::class.java.getDeclaredField("glyph")
         glyphField.isAccessible = true
         return glyphField.get(icon) as String
@@ -2365,14 +2398,11 @@ class AyuIslandsSyntaxPanelTest {
         return sliders[category] as JSlider
     }
 
-    private fun readCategoryLabel(
-        panel: AyuIslandsSyntaxPanel,
-        category: PrimitiveCategory,
-    ): JLabel {
+    private fun keywordLabel(panel: AyuIslandsSyntaxPanel): JLabel {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("categoryLabels")
         field.isAccessible = true
         val labels = field.get(panel) as Map<*, *>
-        return labels[category] as JLabel
+        return labels[PrimitiveCategory.KEYWORD] as JLabel
     }
 
     private fun readSliderLabel(
@@ -2419,34 +2449,6 @@ class AyuIslandsSyntaxPanelTest {
         val method = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("rebindSlidersFor", String::class.java)
         method.isAccessible = true
         method.invoke(panel, language)
-    }
-
-    private fun invokeApplyReadout(
-        panel: AyuIslandsSyntaxPanel,
-        label: JLabel,
-        value: Int,
-    ) {
-        val method =
-            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
-                "applyReadout",
-                JLabel::class.java,
-                Int::class.javaPrimitiveType,
-            )
-        method.isAccessible = true
-        method.invoke(panel, label, value)
-    }
-
-    private fun invokeSignedReadout(
-        panel: AyuIslandsSyntaxPanel,
-        value: Int,
-    ): String {
-        val method =
-            AyuIslandsSyntaxPanel::class.java.getDeclaredMethod(
-                "signedReadout",
-                Int::class.javaPrimitiveType,
-            )
-        method.isAccessible = true
-        return method.invoke(panel, value) as String
     }
 
     /**
@@ -2524,9 +2526,18 @@ class AyuIslandsSyntaxPanelTest {
         method.invoke(panel, PrimitiveCategory.KEYWORD)
     }
 
-    private fun readApplyTimer(panel: AyuIslandsSyntaxPanel): Timer {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("applyTimer")
-        field.isAccessible = true
-        return field.get(panel) as Timer
+    private fun readDebounceTimer(panel: AyuIslandsSyntaxPanel): Timer {
+        val sessionField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("editingSession")
+        sessionField.isAccessible = true
+        val panelSession = checkNotNull(sessionField.get(panel))
+        val editingField = SyntaxPanelSession::class.java.getDeclaredField("editing")
+        editingField.isAccessible = true
+        val session = editingField.get(panelSession)
+        val debounceField = SyntaxEditingSession::class.java.getDeclaredField("debounce")
+        debounceField.isAccessible = true
+        val debounce = debounceField.get(session)
+        val timerField = debounce.javaClass.getDeclaredField("timer")
+        timerField.isAccessible = true
+        return timerField.get(debounce) as Timer
     }
 }

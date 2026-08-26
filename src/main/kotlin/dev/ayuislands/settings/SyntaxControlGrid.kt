@@ -26,6 +26,7 @@ internal class SyntaxControlGrid(
     private val identityValue: Int,
     private val createStyleControl: (PrimitiveCategory) -> SyntaxStyleControl,
     private val sliderChanged: (PrimitiveCategory, Int) -> Unit,
+    private val sliderReleased: (PrimitiveCategory) -> Unit,
     private val reset: (PrimitiveCategory) -> Unit,
     private val updateReadout: (JLabel, Int) -> Unit,
 ) {
@@ -90,6 +91,7 @@ internal class SyntaxControlGrid(
                 updateReadout(valueLabel, identityValue)
                 intensitySlider.addChangeListener {
                     sliderChanged(category, intensitySlider.value)
+                    if (!intensitySlider.valueIsAdjusting) sliderReleased(category)
                 }
                 cell(valueLabel).gap(RightGap.SMALL)
 
@@ -202,4 +204,34 @@ internal class SyntaxControlGrid(
                     }
                 }
     }
+}
+
+/** Formats the intensity delta and its matching accessible name. */
+internal object SyntaxIntensityReadout {
+    fun apply(
+        label: JLabel,
+        value: Int,
+        identity: Int,
+    ) {
+        val isIdentity = value == identity
+        label.text = if (isIdentity) "" else signed(value, identity)
+        label.foreground =
+            if (isIdentity) UIUtil.getContextHelpForeground() else UIUtil.getLabelForeground()
+    }
+
+    fun accessibleName(
+        category: PrimitiveCategory,
+        value: Int,
+        identity: Int,
+    ): String = "${category.displayName} intensity, ${signed(value, identity)} from default"
+
+    fun signed(
+        value: Int,
+        identity: Int,
+    ): String =
+        when {
+            value > identity -> "+${value - identity}"
+            value < identity -> "−${identity - value}"
+            else -> "0"
+        }
 }

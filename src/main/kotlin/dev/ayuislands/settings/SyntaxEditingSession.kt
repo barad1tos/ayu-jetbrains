@@ -66,6 +66,10 @@ internal sealed interface SyntaxSessionEvent {
         val pending: SyntaxPresetConfig,
     ) : Edit
 
+    data class Stage(
+        val pending: SyntaxPresetConfig,
+    ) : Edit
+
     data object DebounceElapsed : Edit
 
     data object SliderReleased : Edit
@@ -193,6 +197,8 @@ internal class SyntaxEditingSession(
     initialCheckpoint: SyntaxPresetConfig,
     private val runtime: SyntaxEditingRuntime,
     private val persist: (SyntaxPresetConfig) -> Unit,
+    private val onRuntimeApplied: (SyntaxPresetConfig) -> Unit = {},
+    private val onRuntimeFailed: (RuntimeException) -> Unit = {},
     debounceFactory: ((() -> Unit) -> SyntaxDebounce) = ::SwingSyntaxDebounce,
 ) {
     private var state: SyntaxSessionState = SyntaxSessionState.Synced(initialCheckpoint)
@@ -211,7 +217,16 @@ internal class SyntaxEditingSession(
         dispatch(SyntaxSessionEvent.SliderReleased)
     }
 
-    fun apply(): SyntaxCommitResult {
+    fun activeAyuSchemeChanged() {
+        dispatch(SyntaxSessionEvent.ActiveAyuSchemeChanged)
+    }
+
+    fun foreignSchemeActivated() {
+        dispatch(SyntaxSessionEvent.ForeignSchemeActivated)
+    }
+
+    fun apply(config: SyntaxPresetConfig = pendingConfig()): SyntaxCommitResult {
+        dispatch(SyntaxSessionEvent.Stage(config))
         dispatch(SyntaxSessionEvent.ApplyRequested)
         val failed = state as? SyntaxSessionState.Failed
         return if (failed == null) SyntaxCommitResult.Applied else SyntaxCommitResult.Failed(failed.failure)
@@ -241,8 +256,6 @@ internal class SyntaxEditingSession(
         if (state != SyntaxSessionState.Closed) cancel()
         debounce.dispose()
     }
-
-    internal fun stateForTest(): SyntaxSessionState = state
 
     private fun dispatch(event: SyntaxSessionEvent) {
         val transition = SyntaxSessionReducer.reduce(state, event)
@@ -278,7 +291,7 @@ internal class SyntaxEditingSession(
                 SyntaxSessionIntent.RESTORE_AND_CLOSE,
                 -> return
             }
-        dispatchResult(result, isRestore = false)
+        dispatchResult(result, effect.config, isRestore = false)
     }
 
     private fun persist(config: SyntaxPresetConfig) {
@@ -296,15 +309,17 @@ internal class SyntaxEditingSession(
     }
 
     private fun restore(config: SyntaxPresetConfig) {
-        dispatchResult(runtime.restore(config), isRestore = true)
+        dispatchResult(runtime.restore(config), config, isRestore = true)
     }
 
     private fun dispatchResult(
         result: SyntaxTransactionResult,
+        appliedConfig: SyntaxPresetConfig,
         isRestore: Boolean,
     ) {
         when (result) {
             is SyntaxTransactionResult.Applied -> {
+                onRuntimeApplied(appliedConfig)
                 result.relinquishedKeys.forEach { keyId ->
                     dispatch(SyntaxSessionEvent.KeyRelinquished(keyId))
                 }
@@ -313,6 +328,7 @@ internal class SyntaxEditingSession(
                 dispatch(event)
             }
             is SyntaxTransactionResult.Failed -> {
+                onRuntimeFailed(result.cause)
                 val event =
                     if (isRestore) {
                         SyntaxSessionEvent.RestoreFailed(result.cause)
@@ -376,6 +392,7 @@ private object EditTransitions {
         when (event) {
             is SyntaxSessionEvent.EditDiscrete -> editDiscrete(state, event.pending)
             is SyntaxSessionEvent.EditSlider -> editSlider(state, event.pending)
+            is SyntaxSessionEvent.Stage -> stage(state, event.pending)
             SyntaxSessionEvent.DebounceElapsed,
             SyntaxSessionEvent.SliderReleased,
             -> flushSlider(state)
@@ -398,6 +415,14 @@ private object EditTransitions {
             SyntaxSessionState.Pending(data.checkpoint, pending, data.lastApplied),
             listOf(SyntaxSessionEffect.RestartDebounce),
         )
+    }
+
+    private fun stage(
+        state: SyntaxSessionState,
+        pending: SyntaxPresetConfig,
+    ): SyntaxSessionTransition {
+        val data = state.data() ?: return SyntaxSessionTransition(state)
+        return SyntaxSessionTransition(SyntaxSessionState.Pending(data.checkpoint, pending, data.lastApplied))
     }
 
     private fun flushSlider(state: SyntaxSessionState): SyntaxSessionTransition {

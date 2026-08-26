@@ -8,8 +8,6 @@ import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
 import com.intellij.ui.dsl.builder.SegmentedButton.ItemPresentation
-import com.intellij.util.ui.JBUI
-import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.FontEmphasis
@@ -18,48 +16,32 @@ import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SYNTAX_INTENSITY_SCHEMA_VERSION
 import dev.ayuislands.syntax.SyntaxCellCodec
 import dev.ayuislands.syntax.SyntaxCellId
-import dev.ayuislands.syntax.SyntaxIntensityService
 import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import org.jetbrains.annotations.TestOnly
-import java.awt.FlowLayout
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JLabel
-import javax.swing.JPanel
 import javax.swing.JSlider
-import javax.swing.Timer
 
 /**
  * Settings tab — 5-pill preset row matching the Glow / VCS / Font franchise.
  *
- * Free tier: the 4 named pills (Whisper / Ambient / Neon / Cyberpunk) apply
- * immediately on click and persist to the syntax-intensity state. The Custom
- * pill is reserved for Pro — free users see it disabled with a Pro tooltip,
- * and any programmatic selection still reverts to the previous preset and
- * opens the upgrade flow.
+ * Every control previews immediately in the active Ayu editor scheme. Apply
+ * or OK materializes named schemes before persisting the pending settings;
+ * Cancel and Reset restore the session checkpoint without rewriting saved
+ * choices. The four named presets are free, while Custom is reserved for Pro.
  *
- * Apply-before-persist ordering follows Anti-Pattern #4 (Phase 40.4 lesson):
- * [SyntaxIntensityService.apply] runs FIRST so any failure surfaces before
- * the on-disk `selectedPreset` is mutated; persist runs SECOND so the next
- * `reapplyForActiveLaf` call sees a consistent preset name.
+ * [LicenseChecker] is consulted only while loading premium state, disabling
+ * premium controls, and rejecting Custom for free users.
  *
- * The free-pill apply path does not gate the four named presets. [LicenseChecker]
- * is consulted only while loading premium state, disabling premium controls,
- * and rejecting the Custom pill for free users.
- *
- * Custom drill-down layout: the 16 [PrimitiveCategory] controls are arranged
- * as four semantic groups in two column-level grids. Each row keeps the same
- * fixed cells — category, tick-free slider, signed readout, and a reset slot —
- * so controls line up without a long empty single table. The slider value
- * model (0..100, 50 = identity, sparse store keyed by
- * `language|category.name`) is unchanged — the signed string lives only in the
- * readout [JLabel] and is never parsed back. The legacy font-style sparse map
- * still threads through [apply] for stored configurations, while the compact
- * style selector owns a separate additive emphasis layer.
+ * Custom shows only primitives confirmed for the selected language. Rows keep
+ * fixed category, slider, readout, style, and reset cells. Sparse persisted
+ * maps remain additive: unknown or unavailable cells are preserved unchanged,
+ * and the readout [JLabel] is presentation-only.
  */
 @Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
 class AyuIslandsSyntaxPanel : SettingsParticipant {
@@ -101,8 +83,9 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
             identityValue = SLIDER_MID,
             createStyleControl = ::createStyleControl,
             sliderChanged = { category, value -> onSliderChanged(currentLanguage, category, value) },
+            sliderReleased = { onSliderReleased() },
             reset = ::resetCell,
-            updateReadout = ::applyReadout,
+            updateReadout = { label, value -> SyntaxIntensityReadout.apply(label, value, SLIDER_MID) },
         )
     private val categoryLabels: MutableMap<PrimitiveCategory, JLabel> = controlGrid.categoryLabels
     private val sliders: MutableMap<PrimitiveCategory, JSlider> = controlGrid.sliders
@@ -127,32 +110,16 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     private var variant: AyuVariant? = null
     private var syntaxPreview: SyntaxPreviewComponent? = null
     private var capabilityController: SyntaxCapabilityController? = null
-    private val capabilityMessage = JLabel()
-    private val capabilityAction = JButton()
-    private val capabilityStatus =
-        JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(CAPABILITY_GAP), 0)).apply {
-            isOpaque = false
-            isVisible = false
-            add(capabilityMessage)
-            add(capabilityAction)
-        }
-
-    // Single-shot debounce: a drag burst restarts the timer, so the preview
-    // fires once per 100ms pause rather than on every change event. The
-    // change listener never persists synchronously — it defers here.
-    private val applyTimer =
-        Timer(DEBOUNCE_MS, null).apply { isRepeats = false }
-
-    init {
-        applyTimer.addActionListener { preview() }
-        capabilityAction.addActionListener { capabilityController?.performRecoveryAction() }
-    }
+    private var editingSession: SyntaxPanelSession? = null
+    private val runtimeStatus = RuntimeStatus()
+    private val capabilityStatus = CapabilityStatus { capabilityController?.performRecoveryAction() }
 
     override fun dispose() {
+        editingSession?.dispose()
+        editingSession = null
         capabilityController?.dispose()
         styleControls.values.forEach(SyntaxStyleControl::dispose)
         styleControls.clear()
-        applyTimer.stop()
     }
 
     fun buildPanel(
@@ -165,6 +132,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         capabilityController = SyntaxCapabilityController(contextProject, ::renderCapability)
         categoryAvailability.refreshCapabilities(variant)
         loadStateIntoPending()
+        openEditingSession()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
         currentLanguage = preferredInitialLanguage(contextProject)
         with(panel) {
@@ -181,6 +149,10 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
             }
 
             buildReadabilityBlock()
+
+            row {
+                cell(runtimeStatus.component).align(AlignX.FILL)
+            }
 
             buildPreviewRow(variant)
             refreshPreview()
@@ -245,7 +217,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         }.visibleIf(customSelected)
 
         row {
-            cell(capabilityStatus).align(AlignX.FILL)
+            cell(capabilityStatus.component).align(AlignX.FILL)
         }.visibleIf(customSelected)
 
         controlGrid.build(this).visibleIf(customSelected)
@@ -294,7 +266,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         addActionListener {
             if (!isEnabled) return@addActionListener
             updatePending(isSelected)
-            preview()
+            previewDiscrete()
         }
     }
 
@@ -307,6 +279,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     @TestOnly
     internal fun buildReadabilityBlockForTest(panel: Panel) {
         loadStateIntoPending()
+        openEditingSession()
         panel.buildReadabilityBlock()
     }
 
@@ -353,40 +326,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         categoryAvailability.showCapability(state)
         syntaxPreview?.showCapability(state)
         refreshMasterResetButton()
-        renderCapabilityStatus(state)
+        capabilityStatus.render(state)
     }
-
-    private fun renderCapabilityStatus(state: SyntaxCapabilityState?) {
-        val presentation = capabilityPresentation(state)
-        capabilityStatus.isVisible = presentation != null
-        if (presentation == null) return
-        capabilityMessage.text = presentation.message
-        capabilityAction.text = presentation.action.orEmpty()
-        capabilityAction.isVisible = presentation.action != null
-        capabilityStatus.revalidate()
-        capabilityStatus.repaint()
-    }
-
-    private fun capabilityPresentation(state: SyntaxCapabilityState?): CapabilityPresentation? =
-        when (state) {
-            is SyntaxCapabilityState.Checking -> CapabilityPresentation("Checking language support…")
-            is SyntaxCapabilityState.PluginUnavailable ->
-                CapabilityPresentation(state.recovery.instruction, "Open Plugins")
-            is SyntaxCapabilityState.TemporarilyUnavailable -> CapabilityPresentation(state.reason, "Retry")
-            is SyntaxCapabilityState.Incompatible ->
-                CapabilityPresentation("Some language controls could not be verified.", "Retry")
-            is SyntaxCapabilityState.Confirmed ->
-                state.evidence.conditionalAbsences
-                    .takeIf { it.isNotEmpty() }
-                    ?.let {
-                        CapabilityPresentation(
-                            "Some controls need semantic highlighting. Enable it for ${state.languageId} " +
-                                "under Editor | Color Scheme, then return here.",
-                            "Open Highlighting Settings",
-                        )
-                    }
-            null -> null
-        }
 
     private fun refreshResetVisibility(category: PrimitiveCategory) {
         val key = syntaxCellKey(currentLanguage, category)
@@ -405,7 +346,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         styleControls[category]?.refreshPresentation()
         refreshResetVisibility(category)
         refreshMasterResetButton()
-        applyTimer.restart()
+        previewDiscrete()
     }
 
     private fun onSliderChanged(
@@ -413,8 +354,9 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         category: PrimitiveCategory,
         value: Int,
     ) {
-        sliderLabels[category]?.let { applyReadout(it, value) }
-        sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
+        sliderLabels[category]?.let { SyntaxIntensityReadout.apply(it, value, SLIDER_MID) }
+        sliders[category]?.accessibleContext?.accessibleName =
+            SyntaxIntensityReadout.accessibleName(category, value, SLIDER_MID)
         if (suppressSliderListeners) return
         syntaxPreview?.showPrimitive(category)
         val key = syntaxCellKey(language, category)
@@ -425,7 +367,11 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         }
         refreshResetVisibility(category)
         refreshMasterResetButton()
-        applyTimer.restart()
+        editingSession?.editSlider(pendingConfig())
+    }
+
+    private fun onSliderReleased() {
+        if (!suppressSliderListeners) editingSession?.sliderReleased()
     }
 
     private fun onEmphasisChanged(
@@ -449,25 +395,21 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         styleControls[category]?.refreshPresentation()
         refreshResetVisibility(category)
         refreshMasterResetButton()
-        applyTimer.restart()
+        previewDiscrete()
     }
 
     private fun resetCategorySlider(category: PrimitiveCategory) {
         suppressSliderListeners = true
         try {
             sliders[category]?.value = SLIDER_MID
-            sliderLabels[category]?.let { applyReadout(it, SLIDER_MID) }
-            sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, SLIDER_MID)
+            sliderLabels[category]?.let { SyntaxIntensityReadout.apply(it, SLIDER_MID, SLIDER_MID) }
+            sliders[category]?.accessibleContext?.accessibleName =
+                SyntaxIntensityReadout.accessibleName(category, SLIDER_MID, SLIDER_MID)
             refreshResetVisibility(category)
         } finally {
             suppressSliderListeners = false
         }
     }
-
-    private fun intensityAccessibleName(
-        category: PrimitiveCategory,
-        value: Int,
-    ): String = "${category.displayName} intensity, ${signedReadout(value)} from default"
 
     /**
      * Per-language master reset: wipe only the override AND style cells keyed
@@ -485,7 +427,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         SyntaxCellCodec.removeKnownCells(pendingEmphasis, visibleCells)
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
-        applyTimer.restart()
+        previewDiscrete()
     }
 
     private fun onPresetChosen(preset: SyntaxPreset) {
@@ -511,7 +453,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         }
         customSelected.set(preset == SyntaxPreset.CUSTOM)
         if (preset == SyntaxPreset.CUSTOM) selectCapabilityLanguage()
-        apply()
+        previewDiscrete()
     }
 
     override fun isModified(): Boolean =
@@ -527,16 +469,18 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
 
     override fun apply() {
         if (!isModified()) return
-        // Apply FIRST, persist SECOND (Anti-Pattern #4 / Phase 40.4 lesson).
-        // The service-layer Custom gate in SyntaxIntensityService is the
-        // canonical defense-in-depth; this panel rejects Custom up front
-        // in [onPresetChosen] for unlicensed users, so a Custom value only
-        // reaches this method when licensed. The slider overrides and the
-        // font-style overrides thread through the service call in parallel.
-        preview()
+        when (val result = editingSession?.apply(pendingConfig())) {
+            null,
+            SyntaxCommitResult.Applied,
+            -> Unit
+            is SyntaxCommitResult.Failed -> throw result.failure
+        }
+    }
+
+    private fun persist(config: SyntaxPresetConfig) {
         val state = SyntaxIntensityState.getInstance().state
-        state.selectedPreset = pendingPreset.name
-        state.subordinatePreset = pendingSubordinate.name
+        state.selectedPreset = config.selectedPreset
+        state.subordinatePreset = config.subordinatePreset
         state.customOverrides.clear()
         state.customOverrides.putAll(pendingOverrides)
         state.customStyles.clear()
@@ -561,6 +505,12 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     }
 
     override fun reset() {
+        when (val result = editingSession?.reset()) {
+            null,
+            SyntaxRestoreResult.Restored,
+            -> Unit
+            is SyntaxRestoreResult.Failed -> throw result.failure
+        }
         loadStateIntoPending()
         suppressListeners = true
         try {
@@ -573,7 +523,16 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         refreshPresetPillAffordance()
         rebindSlidersFor(currentLanguage)
         refreshMasterResetButton()
-        preview()
+        refreshAfterRuntimeChange()
+    }
+
+    override fun cancel() {
+        when (val result = editingSession?.cancel()) {
+            null,
+            SyntaxRestoreResult.Restored,
+            -> Unit
+            is SyntaxRestoreResult.Failed -> throw result.failure
+        }
     }
 
     private fun loadStateIntoPending() {
@@ -638,8 +597,9 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
             for (category in PrimitiveCategory.entries) {
                 val value = pendingOverrides[syntaxCellKey(language, category)]?.toIntOrNull() ?: SLIDER_MID
                 sliders[category]?.value = value
-                sliderLabels[category]?.let { applyReadout(it, value) }
-                sliders[category]?.accessibleContext?.accessibleName = intensityAccessibleName(category, value)
+                sliderLabels[category]?.let { SyntaxIntensityReadout.apply(it, value, SLIDER_MID) }
+                sliders[category]?.accessibleContext?.accessibleName =
+                    SyntaxIntensityReadout.accessibleName(category, value, SLIDER_MID)
                 styleControls[category]?.rebind()
                 refreshResetVisibility(category)
             }
@@ -669,55 +629,41 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         button.isEnabled = hasLanguageCustomizations
     }
 
-    /**
-     * Single update site for a readout [JLabel]'s text AND foreground so the
-     * three callers ([onSliderChanged], [resetCategorySlider], [rebindSlidersFor])
-     * stay in lock-step. At the [SLIDER_MID] identity the readout is visually
-     * empty and dimmed to reduce noise; once the cell diverges the signed delta
-     * switches to the stronger
-     * `getLabelForeground` to signal a moved value. Presentation-only — the
-     * value model is unaffected.
-     */
-    private fun applyReadout(
-        label: JLabel,
-        value: Int,
-    ) {
-        val isIdentity = value == SLIDER_MID
-        label.text = if (isIdentity) "" else signedReadout(value)
-        label.foreground =
-            if (isIdentity) UIUtil.getContextHelpForeground() else UIUtil.getLabelForeground()
-    }
-
-    /**
-     * Presentation-only signed-delta string for a stored 0..100 value: above
-     * the [SLIDER_MID] identity reads `+N`, below reads `−N` (U+2212 minus),
-     * and identity reads `0`. The signed string lives ONLY in the readout
-     * label / accessibility name and is never parsed back into the value
-     * model — `sliderToCurve` still consumes the raw int.
-     */
-    private fun signedReadout(value: Int): String =
-        when {
-            value > SLIDER_MID -> "+${value - SLIDER_MID}"
-            value < SLIDER_MID -> "−${SLIDER_MID - value}"
-            else -> "0"
-        }
-
-    private fun preview() {
+    private fun pendingConfig(): SyntaxPresetConfig {
         val nestedOverrides = SyntaxCellCodec.decode(pendingOverrides) { it.toIntOrNull() }
         val nestedStyles = SyntaxCellCodec.decode(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
         val nestedEmphasis = SyntaxCellCodec.decode(pendingEmphasis) { FontEmphasis.fromName(it)?.fontType }
-        SyntaxIntensityService
-            .getInstance()
-            .apply(
-                SyntaxPresetConfig(
-                    selectedPreset = pendingPreset.name,
-                    customOverrides = nestedOverrides,
-                    subordinatePreset = pendingSubordinate.name,
-                    customStyles = nestedStyles,
-                    readabilityOptions = readabilityOptions(),
-                    customEmphasis = nestedEmphasis,
-                ),
+        return SyntaxPresetConfig(
+            selectedPreset = pendingPreset.name,
+            customOverrides = nestedOverrides,
+            subordinatePreset = pendingSubordinate.name,
+            customStyles = nestedStyles,
+            readabilityOptions = readabilityOptions(),
+            customEmphasis = nestedEmphasis,
+        )
+    }
+
+    private fun openEditingSession() {
+        editingSession?.dispose()
+        editingSession =
+            SyntaxPanelSession(
+                initialCheckpoint = pendingConfig(),
+                persist = ::persist,
+                onRuntimeApplied = {
+                    runtimeStatus.applied()
+                    refreshAfterRuntimeChange()
+                },
+                onRuntimeFailed = runtimeStatus::failed,
+                onRelinquished = runtimeStatus::relinquished,
+                onForeignScheme = runtimeStatus::foreignScheme,
             )
+    }
+
+    private fun previewDiscrete() {
+        editingSession?.editDiscrete(pendingConfig())
+    }
+
+    private fun refreshAfterRuntimeChange() {
         variant?.let { categoryAvailability.refreshCapabilities(it) }
         categoryAvailability.refreshRows(currentLanguage)
         refreshPreview()
@@ -765,15 +711,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         return presentationMap[SyntaxPreset.CUSTOM] as? ItemPresentation
     }
 
-    private data class CapabilityPresentation(
-        val message: String,
-        val action: String? = null,
-    )
-
     private companion object {
-        private const val DEBOUNCE_MS = 100
         private const val SLIDER_MID = 50
-        private const val CAPABILITY_GAP = 8
         private const val PREMIUM_CONTROL_TOOLTIP = "Pro Feature"
         private const val DEFAULT_PREVIEW_LANGUAGE = "Kotlin"
         private const val SEGMENTED_PRESENTATIONS_METHOD =
