@@ -9,6 +9,7 @@ data class LanguageSpecification(
     val aliases: Set<String>,
     val nativeProfiles: List<NativeProfile>,
     val preview: PreviewBundle,
+    val semanticOnlyCategories: Set<PrimitiveCategory> = emptySet(),
     val pluginRequirement: PluginRequirement?,
     val verificationRuntimeId: String,
 )
@@ -245,6 +246,7 @@ object SyntaxLanguageRegistry {
                     add(language.tag)
                     add(language.displayName)
                     if (language.tag == SWIFT_STORAGE_ID) add(NOCTULE_SWIFT_ALIAS)
+                    if (language.tag == BASH_STORAGE_ID) add(SHELL_SCRIPT_ALIAS)
                 }
             LanguageSpecification(
                 storageId = language.displayName,
@@ -455,4 +457,6 @@ object SyntaxLanguageRegistry {
 
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
+    private const val BASH_STORAGE_ID = "Bash"
+    private const val SHELL_SCRIPT_ALIAS = "Shell Script"
 }

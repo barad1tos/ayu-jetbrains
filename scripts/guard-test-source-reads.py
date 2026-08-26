@@ -79,10 +79,6 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/main/kotlin/dev/ayuislands/accent/AccentResolutionChainBuilder.kt",
     ): Allowance(1, "documented unreachable-guard shape compromise (Pattern L)"),
     (
-        "src/test/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanelTest.kt",
-        "src/main/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanel.kt",
-    ): Allowance(1, "documented syntax panel static compromise"),
-    (
         "src/test/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherPremiumBlockGateTest.kt",
         "src/main/kotlin/dev/ayuislands/accent/toolbar/QuickSwitcherPopup.kt",
     ): Allowance(1, "documented premium copy guard"),

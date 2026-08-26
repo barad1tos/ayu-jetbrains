@@ -1,6 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.application.Application
@@ -8,7 +9,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.ui.DialogPanel
-import com.intellij.openapi.util.io.FileUtil
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.InplaceButton
 import com.intellij.ui.dsl.builder.panel
@@ -18,6 +18,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.FontEmphasis
 import dev.ayuislands.syntax.FontStyleOverride
+import dev.ayuislands.syntax.LanguageSpecification
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxIntensityBaseState
@@ -37,8 +38,8 @@ import io.mockk.verifyOrder
 import java.awt.Color
 import java.awt.Container
 import java.awt.Font
+import java.awt.GridLayout
 import java.awt.Point
-import java.io.File
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
@@ -78,35 +79,9 @@ import kotlin.test.assertTrue
  * on freshly constructed panels and drive the pill selection through the
  * private `onPresetChosen` seam via reflection.
  *
- * **Test-design note (documented compromise):** a handful of [readPanelSource]
- * source-regex checks remain in this suite and guard real user-facing bugs
- * that have no cheap unit-level behavioral substitute. Each one catches a
- * concrete regression:
- *
- *  - Two-column grouped layout (`CUSTOM_COLUMN_GROUPS` + `buildCategoryGroup`):
- *    a refactor back to the single unbroken table or to the deleted master /
- *    detail JBList would be a visible regression. Verifying the actual two
- *    column-level panels requires running the UI DSL with the platform.
- *  - Tick-free slider cell (`paintTicks = false` / `paintLabels = false`):
- *    visible tick marks across 64 sliders would be the Direction B
- *    regression we shipped to avoid. The DSL `slider()` cell is also
- *    platform-bound — bare `JSlider(...)` would bypass UI-DSL theming.
- *  - Binary-compat spacing-configuration ban: matches the documented
- *    `gotcha_platform_interface_delegation_binary_compat` lesson — a `by`
- *    delegation onto the platform `SpacingConfiguration` interface compiled
- *    against 2025.1 throws `AbstractMethodError` on newer runtime IDEs and
- *    hangs the settings page on "Loading…". Unit tests against the embedded
- *    SDK cannot reproduce the runtime failure.
- *  - `InplaceButton`-only trailing reset slot: `ActionButton` re-introduces
- *    the `ActionToolbar.updateUI` `SlowOperations SEVERE` crash documented in
- *    the project's `feedback_no_threshold_or_ignore_changes` lesson. The
- *    fixed-slot `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus
- *    `TRAILING_SLOT_*` constants are DSL-build internals — building the panel
- *    under unit tests requires a full IntelliJ platform.
- *
- * Do not delete these source-regex assertions in future "remove theater"
- * cleanup passes without first wiring a working `integrationTest` task that
- * actually builds the panel under a live IntelliJ application.
+ * Visual contracts are asserted against the materialized Swing tree rather
+ * than production source text, so refactors remain free to change the build
+ * mechanism while preserving observable behavior.
  */
 class AyuIslandsSyntaxPanelTest {
     private companion object {
@@ -204,7 +179,7 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `selects available preview language`() {
+    fun `preview plugin availability does not replace the persisted language`() {
         val unavailableFileType = syntaxPreviewEditorFixture.mockFileType("Unavailable", "txt")
         val javaScriptFileType = syntaxPreviewEditorFixture.mockFileType("JavaScript", "js")
         every { syntaxPreviewEditorFixture.fileTypeManager.getStdFileType("Kotlin") } returns unavailableFileType
@@ -225,8 +200,8 @@ class AyuIslandsSyntaxPanelTest {
                     "Syntax preview must embed EditorTextField for native syntax highlighting.",
                 )
 
-            assertEquals("JavaScript", preview.languageForTest())
-            assertEquals(javaScriptFileType, editor.fileType)
+            assertEquals("Kotlin", preview.languageForTest())
+            assertNotEquals(javaScriptFileType, editor.fileType)
         } finally {
             syntaxPanel.dispose()
         }
@@ -953,41 +928,27 @@ class AyuIslandsSyntaxPanelTest {
         )
     }
 
-    // ---------- Test 22 - documented compromise: Direction B DSL slider build ----------
+    // ---------- Test 22 - slider presentation contract ----------
 
     @Test
-    fun `panel slider cell is tick-free (documented compromise, Direction B)`() {
-        // Documented compromise: the DSL `slider()` cell's `paintTicks` /
-        // `paintLabels` properties are set during the UI-DSL build; a
-        // behavioral substitute requires the IntelliJ platform to materialise
-        // the DialogPanel. Visible tick marks across 64 sliders would be the
-        // Direction B regression we shipped to avoid.
-        val source = readPanelSource()
-        assertTrue(source.contains("paintTicks = false"), "Direction B: the slider must hide tick marks.")
-        assertTrue(source.contains("paintLabels = false"), "Direction B: the slider must hide tick labels.")
-    }
+    fun `every materialized slider is tick-free and uses the intensity range`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
 
-    @Test
-    fun `panel builds sliders via the UI DSL slider cell, never a bare JSlider constructor (documented compromise)`() {
-        // Break caught: the extracted slider helper must keep the native UI DSL range and zero-tick contract.
-        // Documented compromise: a bare `JSlider(...)` constructor bypasses
-        // UI-DSL theming and would look out-of-place against the surrounding
-        // settings rows. The DSL build site cannot be exercised without
-        // wiring the IntelliJ platform.
-        val source = readPanelSource()
-        // Allow the documentation code span `JSlider(...)` (backtick-quoted) but
-        // forbid a real constructor call: JSlider( preceded by neither an
-        // identifier char nor a backtick.
-        assertFalse(
-            Regex("""[^a-zA-Z_`]JSlider\(""").containsMatchIn(source),
-            "Direction B: sliders must be built via the UI-DSL slider() cell, never new JSlider(...).",
-        )
-        assertTrue(
-            source.contains("slider(minimum, maximum, 0, 0)") &&
-                source.contains("minimum = SLIDER_MIN") &&
-                source.contains("maximum = SLIDER_MAX"),
-            "Direction B: the tick-free slider helper must receive the declared range with zero tick spacing.",
-        )
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+
+            PrimitiveCategory.entries.forEach { category ->
+                val slider = readSlider(syntaxPanel, category)
+                assertFalse(slider.paintTicks, "${category.name} must hide tick marks")
+                assertFalse(slider.paintLabels, "${category.name} must hide tick labels")
+                assertFalse(slider.snapToTicks, "${category.name} must move continuously")
+                assertEquals(0, slider.minimum, "${category.name} must start at zero intensity")
+                assertEquals(100, slider.maximum, "${category.name} must end at full intensity")
+            }
+        } finally {
+            syntaxPanel.dispose()
+        }
     }
 
     // ---------- Test 22b - shared label column width behavior ----------
@@ -1007,27 +968,13 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `panel never delegates a platform SpacingConfiguration (documented compromise, binary-compat guard)`() {
-        // Documented compromise: matches the project's
-        // `gotcha_platform_interface_delegation_binary_compat` lesson — a
-        // `by` delegation onto the platform `SpacingConfiguration` interface
-        // compiled against 2025.1 throws `AbstractMethodError` on newer
-        // runtime IDEs and hangs the settings page on "Loading…". Unit
-        // tests run against the embedded SDK so they cannot reproduce the
-        // runtime failure; the source-regex check is the cheapest guard.
-        val source = readPanelSource()
-        val forbiddenSpacingSymbols =
-            listOf(
-                "SpacingConfiguration",
-                "customizeSpacingConfiguration",
-                "IntelliJSpacingConfiguration",
-                "tightenedSpacing",
-                "HALF_HORIZONTAL_GAP",
-            )
-        for (forbidden in forbiddenSpacingSymbols) {
+    fun `syntax controls do not implement platform spacing interfaces`() {
+        val runtimeTypes = listOf(AyuIslandsSyntaxPanel::class.java, SyntaxControlGrid::class.java)
+
+        runtimeTypes.forEach { runtimeType ->
             assertFalse(
-                source.contains(forbidden),
-                "binary-compat guard: '$forbidden' must not appear in the panel source.",
+                runtimeType.interfaces.any { it.simpleName == "SpacingConfiguration" },
+                "${runtimeType.simpleName} must not delegate a version-sensitive spacing interface",
             )
         }
     }
@@ -1371,26 +1318,35 @@ class AyuIslandsSyntaxPanelTest {
         }
     }
 
-    // ---------- Part B Test 33 - documented compromise: InplaceButton-only trailing reset ----------
+    // ---------- Part B Test 33 - stable trailing reset ----------
 
     @Test
-    fun `trailing reset uses InplaceButton, never ActionButton (documented compromise)`() {
-        // Documented compromise: `ActionButton` plus `updateComponentTreeUI`
-        // reproduce the `ActionToolbar.updateUI`
-        // `SlowOperations SEVERE` crash documented in the project's
-        // testing-philosophy notes. The fixed-slot
-        // `GridLayout(1, TRAILING_SLOT_COUNT, ...)` plus `TRAILING_SLOT_*`
-        // constants are DSL-build internals; a behavioral substitute would
-        // need to materialise the trailing zone JPanel via the platform.
-        val source = readPanelSource()
-        assertTrue(
-            source.contains("InplaceButton("),
-            "The trailing reset control must be InplaceButton.",
-        )
-        assertTrue(
-            source.contains("JPanel(GridLayout(1, TRAILING_SLOT_COUNT, 0, 0))"),
-            "The trailing reset zone must use a fixed slot so reset visibility never shifts the row.",
-        )
+    fun `trailing reset materializes as one stable lightweight slot`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            val resetButton = readResetButton(syntaxPanel, PrimitiveCategory.KEYWORD)
+            val resetSlot = resetButton.parent
+
+            assertEquals(
+                InplaceButton::class.java,
+                resetButton.javaClass,
+                "The reset control must remain a lightweight InplaceButton",
+            )
+            assertTrue(resetSlot.layout is GridLayout, "The reset control must occupy a stable grid slot")
+            assertEquals(1, resetSlot.componentCount, "The trailing zone must reserve exactly one slot")
+            assertSame(resetButton, resetSlot.getComponent(0), "The reset control must own the reserved slot")
+            assertEquals(
+                JBUI.scale(readPrivateConst("TRAILING_SLOT_SIDE")),
+                resetSlot.preferredSize.height,
+                "The reset slot height must remain stable",
+            )
+        } finally {
+            syntaxPanel.dispose()
+        }
+
         assertEquals(
             1,
             readPrivateConst("TRAILING_SLOT_COUNT"),
@@ -1400,19 +1356,6 @@ class AyuIslandsSyntaxPanelTest {
             20,
             readPrivateConst("TRAILING_SLOT_SIDE"),
             "the trailing reset slot must stay 20px so reset visibility never shifts the row.",
-        )
-        assertFalse(
-            source.contains("JToggleButton"),
-            "Part B: no bare JToggleButton - the reset is a lightweight InplaceButton.",
-        )
-        assertFalse(
-            Regex("""[^a-zA-Z_]ActionButton\b""").containsMatchIn(source.substringBefore("JBUI.CurrentTheme")) &&
-                source.contains("import com.intellij.openapi.actionSystem.impl.ActionButton"),
-            "Part B: no ActionButton - it trips the ActionToolbar.updateUI SlowOperations SEVERE.",
-        )
-        assertFalse(
-            source.contains("updateComponentTreeUI"),
-            "Part B: NEVER updateComponentTreeUI - SlowOperations SEVERE crash.",
         )
     }
 
@@ -1799,6 +1742,93 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
+    fun `confirmed native capability shows only verified rows and preserves sparse stores`() {
+        stateBase.selectedPreset = "CUSTOM"
+        stateBase.customOverrides["Kotlin|KEYWORD"] = "82"
+        stateBase.customStyles["Kotlin|KEYWORD"] = "ITALIC"
+        stateBase.customEmphasis["Kotlin|KEYWORD"] = "BOLD"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+
+        try {
+            buildFullSyntaxPanel(syntaxPanel)
+            val beforeOverrides = readPendingOverrides(syntaxPanel)
+            val beforeStyles = readPendingStyles(syntaxPanel)
+            val beforeEmphasis = readPendingEmphasis(syntaxPanel)
+
+            syntaxPanel.activateCapabilityForTest(confirmingProbe(setOf(PrimitiveCategory.FUNCTION_DECL)))
+
+            assertTrue(readSlider(syntaxPanel, PrimitiveCategory.FUNCTION_DECL).isVisible)
+            assertTrue(readSlider(syntaxPanel, PrimitiveCategory.FUNCTION_DECL).isEnabled)
+            assertFalse(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isVisible)
+            assertFalse(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isEnabled)
+            assertEquals(beforeOverrides, readPendingOverrides(syntaxPanel))
+            assertEquals(beforeStyles, readPendingStyles(syntaxPanel))
+            assertEquals(beforeEmphasis, readPendingEmphasis(syntaxPanel))
+            assertEquals("82", stateBase.customOverrides["Kotlin|KEYWORD"])
+            assertEquals("ITALIC", stateBase.customStyles["Kotlin|KEYWORD"])
+            assertEquals("BOLD", stateBase.customEmphasis["Kotlin|KEYWORD"])
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `missing plugin replaces plain preview with actionable recovery`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+        val dialogPanel = buildFullSyntaxPanel(syntaxPanel)
+
+        try {
+            syntaxPanel.activateCapabilityForTest(missingPluginProbe())
+
+            val preview = assertNotNull(findComponent(dialogPanel, SyntaxPreviewComponent::class.java))
+            val editor = assertNotNull(findComponent(preview, EditorTextField::class.java))
+            val recovery = assertNotNull(findLabel(preview, PLUGIN_INSTALL_INSTRUCTION))
+            assertFalse(editor.isVisible)
+            assertTrue(recovery.isVisible)
+            PrimitiveCategory.entries.forEach { category ->
+                assertFalse(readSlider(syntaxPanel, category).isVisible)
+            }
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `semantic-only absence gives recovery guidance without exposing the hidden row`() {
+        stateBase.selectedPreset = "CUSTOM"
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+        val dialogPanel = buildFullSyntaxPanel(syntaxPanel)
+
+        try {
+            syntaxPanel.activateCapabilityForTest(
+                confirmingProbe(
+                    categories = setOf(PrimitiveCategory.KEYWORD),
+                    conditionalAbsences =
+                        listOf(
+                            ConditionalAbsence(
+                                PrimitiveCategory.OPERATOR,
+                                "Requires semantic highlighting",
+                            ),
+                        ),
+                ),
+            )
+
+            assertTrue(readSlider(syntaxPanel, PrimitiveCategory.KEYWORD).isVisible)
+            assertFalse(readSlider(syntaxPanel, PrimitiveCategory.OPERATOR).isVisible)
+            assertNotNull(
+                findLabel(
+                    dialogPanel,
+                    "Some controls need semantic highlighting. Enable it for Kotlin " +
+                        "under Editor | Color Scheme, then return here.",
+                ),
+            )
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
     fun `every category keeps slider and style paired before readout and reset`() {
         // Break caught: the Aa glyph must stay paired with its slider, exactly 8px away, before readout and reset.
         stateBase.selectedPreset = "CUSTOM"
@@ -1963,6 +1993,62 @@ class AyuIslandsSyntaxPanelTest {
         container.components.flatMap { component ->
             val nested = if (component is Container) findCheckBoxes(component) else emptyList()
             if (component is JCheckBox) listOf(component) + nested else nested
+        }
+
+    private fun confirmingProbe(
+        categories: Set<PrimitiveCategory>,
+        conditionalAbsences: List<ConditionalAbsence> = emptyList(),
+    ): SyntaxCapabilityProbe =
+        object : SyntaxCapabilityProbe {
+            override fun start(
+                specification: LanguageSpecification,
+                generation: Long,
+                parent: Disposable,
+                completed: (SyntaxProbeResult) -> Unit,
+            ) {
+                completed(
+                    SyntaxProbeResult.Confirmed(
+                        languageId = specification.storageId,
+                        generation = generation,
+                        evidence =
+                            SyntaxCapabilityEvidence(
+                                languageId = specification.storageId,
+                                confirmedCells = categories,
+                                conditionalAbsences = conditionalAbsences,
+                            ),
+                    ),
+                )
+            }
+        }
+
+    private fun missingPluginProbe(): SyntaxCapabilityProbe =
+        object : SyntaxCapabilityProbe {
+            override fun start(
+                specification: LanguageSpecification,
+                generation: Long,
+                parent: Disposable,
+                completed: (SyntaxProbeResult) -> Unit,
+            ) {
+                completed(
+                    SyntaxProbeResult.MissingPlugin(
+                        languageId = specification.storageId,
+                        generation = generation,
+                        recovery = PluginRecovery(),
+                    ),
+                )
+            }
+        }
+
+    private fun findLabel(
+        container: Container,
+        text: String,
+    ): JLabel? =
+        container.components.firstNotNullOfOrNull { component ->
+            when {
+                component is JLabel && component.text == text -> component
+                component is Container -> findLabel(component, text)
+                else -> null
+            }
         }
 
     private fun <T> findComponent(
@@ -2371,7 +2457,7 @@ class AyuIslandsSyntaxPanelTest {
     private fun readCategoryGroups(): List<Pair<String, List<PrimitiveCategory>>> {
         // A private val on a private companion compiles to a private static
         // backing field on the OUTER class with no getter, so read it directly.
-        val groupsField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("CATEGORY_GROUPS")
+        val groupsField = SyntaxControlGrid::class.java.getDeclaredField("CATEGORY_GROUPS")
         groupsField.isAccessible = true
         val groups = groupsField.get(null) as List<*>
         return groups.map { group ->
@@ -2388,7 +2474,7 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     private fun readCategoryColumns(): List<List<String>> {
-        val columnsField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("CUSTOM_COLUMN_GROUPS")
+        val columnsField = SyntaxControlGrid::class.java.getDeclaredField("COLUMN_GROUPS")
         columnsField.isAccessible = true
         val columns = columnsField.get(null) as List<*>
         return columns.map { column ->
@@ -2402,9 +2488,12 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     private fun readLabelColumnWidth(panel: AyuIslandsSyntaxPanel): Int {
-        val getter = AyuIslandsSyntaxPanel::class.java.getDeclaredMethod("getLabelColumnWidth")
+        val gridField = AyuIslandsSyntaxPanel::class.java.getDeclaredField("controlGrid")
+        gridField.isAccessible = true
+        val grid = gridField.get(panel)
+        val getter = SyntaxControlGrid::class.java.getDeclaredMethod("getLabelColumnWidth")
         getter.isAccessible = true
-        return getter.invoke(panel) as Int
+        return getter.invoke(grid) as Int
     }
 
     /**
@@ -2413,14 +2502,14 @@ class AyuIslandsSyntaxPanelTest {
      * runtime width the readout cell is pinned to.
      */
     private fun readReadoutWidthScaled(): Int {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("READOUT_WIDTH")
+        val field = SyntaxControlGrid::class.java.getDeclaredField("READOUT_WIDTH")
         field.isAccessible = true
         return JBUI.scale(field.getInt(null))
     }
 
     /** Read any of the panel's private companion `Int` constants by name. */
     private fun readPrivateConst(name: String): Int {
-        val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField(name)
+        val field = SyntaxControlGrid::class.java.getDeclaredField(name)
         field.isAccessible = true
         return field.getInt(null)
     }
@@ -2439,10 +2528,5 @@ class AyuIslandsSyntaxPanelTest {
         val field = AyuIslandsSyntaxPanel::class.java.getDeclaredField("applyTimer")
         field.isAccessible = true
         return field.get(panel) as Timer
-    }
-
-    private fun readPanelSource(): String {
-        val sourceFile = File("src/main/kotlin/dev/ayuislands/settings/AyuIslandsSyntaxPanel.kt")
-        return FileUtil.loadFile(sourceFile)
     }
 }

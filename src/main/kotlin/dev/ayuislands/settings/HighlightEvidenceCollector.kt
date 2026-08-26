@@ -1,38 +1,32 @@
-package dev.ayuislands.integration
+package dev.ayuislands.settings
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.highlighter.EditorHighlighter
-import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxKeyRoleRegistry
 import dev.ayuislands.syntax.effectivePrimitive
 
-internal data class PreviewEvidence(
-    val language: String,
-    val lexicalKeys: Set<String>,
-    val semanticKeys: Set<String>,
-    val categories: Set<PrimitiveCategory>,
-)
-
-internal object PreviewHighlightProbe {
+internal object HighlightEvidenceCollector {
     fun collect(
-        language: String,
+        languageId: String,
         highlighter: EditorHighlighter,
         highlightInfos: List<HighlightInfo>,
-    ): PreviewEvidence {
+    ): HighlightEvidence {
         val lexicalKeys = lexicalKeys(highlighter)
         val semanticKeys = semanticKeys(highlightInfos)
-        val categories =
+        val keysByPrimitive =
             (lexicalKeys + semanticKeys)
-                .mapNotNullTo(linkedSetOf()) { keyName ->
-                    SyntaxKeyRoleRegistry.classify(keyName).effectivePrimitive
-                }
+                .mapNotNull { keyName ->
+                    val primitive = SyntaxKeyRoleRegistry.classify(keyName).effectivePrimitive
+                    primitive?.let { it to keyName }
+                }.groupBy({ it.first }, { it.second })
+                .mapValues { (_, keyNames) -> keyNames.toSet() }
 
-        return PreviewEvidence(
-            language = language,
+        return HighlightEvidence(
+            languageId = languageId,
             lexicalKeys = lexicalKeys,
             semanticKeys = semanticKeys,
-            categories = categories,
+            keysByPrimitive = keysByPrimitive,
         )
     }
 

@@ -139,6 +139,24 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
+    fun `primitive navigation reads each bundled sample at most once per component`() {
+        var loadCount = 0
+        val component =
+            SyntaxPreviewComponent(
+                variant = AyuVariant.MIRAGE,
+                previewCodeLoader = {
+                    loadCount += 1
+                    "fun cachedPreview() = 42"
+                },
+            )
+
+        component.showPrimitive(PrimitiveCategory.FUNCTION_DECL)
+        component.showPrimitive(PrimitiveCategory.FUNCTION_DECL)
+
+        assertEquals(1, loadCount)
+    }
+
+    @Test
     fun `Swift preview uses the registered file association when the standard name is unavailable`() {
         val noctuleSwift = editorFixture.mockFileType("NoctuleSwift", "swift")
         every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns
@@ -565,39 +583,6 @@ class SyntaxPreviewComponentTest {
         assertTrue(component.toolTipText.contains("Swift"))
         assertTrue(component.toolTipText.contains("this IDE"))
         assertFalse(component.sampleCodeForTest().contains("// tune syntax colors"))
-    }
-
-    @Test
-    fun `preserves language fallbacks without file types`() {
-        val unavailableFileType = editorFixture.mockFileType("Unavailable", "txt")
-        every { editorFixture.fileTypeManager.getStdFileType(any()) } returns unavailableFileType
-
-        assertEquals(
-            "Kotlin",
-            SyntaxPreviewComponent.preferredAvailableLanguage(listOf("Java", "Kotlin"), "Kotlin"),
-        )
-        assertEquals(
-            "Java",
-            SyntaxPreviewComponent.preferredAvailableLanguage(listOf("Java", "Python"), "Kotlin"),
-        )
-        assertEquals("", SyntaxPreviewComponent.preferredAvailableLanguage(emptyList(), "Kotlin"))
-    }
-
-    @Test
-    fun `tries contextual languages in priority order before the default fallback`() {
-        val unavailableFileType = editorFixture.mockFileType("Unavailable", "txt")
-        val kotlinFileType = editorFixture.mockFileType("Kotlin", "kt")
-        every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns unavailableFileType
-        every { editorFixture.fileTypeManager.getStdFileType("Kotlin") } returns kotlinFileType
-
-        assertEquals(
-            "Kotlin",
-            SyntaxPreviewComponent.preferredAvailableLanguage(
-                languages = listOf("Java", "Kotlin", "Swift"),
-                preferred = listOf("Swift", "Kotlin"),
-            ),
-            "An unavailable active-file language must fall through to the cached project language.",
-        )
     }
 
     @Test

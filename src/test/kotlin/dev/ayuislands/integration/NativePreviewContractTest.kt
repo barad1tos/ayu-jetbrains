@@ -3,6 +3,8 @@ package dev.ayuislands.integration
 import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType
 import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.highlighter.EditorHighlighter
@@ -13,25 +15,59 @@ import com.intellij.openapi.fileTypes.LanguageFileType
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixture4TestCase
-import dev.ayuislands.settings.SyntaxPreviewCatalog
-import dev.ayuislands.settings.SyntaxPreviewSpec
+import dev.ayuislands.settings.HighlightEvidence
+import dev.ayuislands.settings.HighlightEvidenceCollector
+import dev.ayuislands.settings.IdePreviewInspector
+import dev.ayuislands.settings.SyntaxProbeResult
+import dev.ayuislands.syntax.LanguageSpecification
+import dev.ayuislands.syntax.NativeProfile
+import dev.ayuislands.syntax.PreviewFileSpec
 import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import org.junit.Test
+import java.util.concurrent.Callable
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
+    @Test
+    fun `production inspector confirms bundled Java preview through native passes`() {
+        val specification = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Java"))
+
+        val result =
+            ApplicationManager
+                .getApplication()
+                .executeOnPooledThread(
+                    Callable {
+                        ReadAction.compute<SyntaxProbeResult, RuntimeException> {
+                            IdePreviewInspector(project).inspect(specification, generation = 12)
+                        }
+                    },
+                ).get()
+
+        val confirmed = assertIs<SyntaxProbeResult.Confirmed>(result)
+        assertEquals("Java", confirmed.languageId)
+        assertEquals(12, confirmed.generation)
+        assertEquals(
+            specification.preview.files
+                .single()
+                .demonstratedCategories,
+            confirmed.evidence.confirmedCells,
+        )
+    }
+
     @Test
     fun `lexical iterator contributes every attributes key without resolving colors`() {
         val keyword = TextAttributesKey.find("JAVA_KEYWORD")
         val operator = TextAttributesKey.find("JAVA_OPERATION_SIGN")
         val highlighter = highlighterWith(listOf(arrayOf(keyword), arrayOf(operator)))
 
-        val evidence = PreviewHighlightProbe.collect("Java", highlighter, emptyList())
+        val evidence = HighlightEvidenceCollector.collect("Java", highlighter, emptyList())
 
         assertEquals(setOf("JAVA_KEYWORD", "JAVA_OPERATION_SIGN"), evidence.lexicalKeys)
         assertEquals(setOf(PrimitiveCategory.KEYWORD, PrimitiveCategory.OPERATOR), evidence.categories)
@@ -59,7 +95,7 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 ).range(1, 2)
                 .createUnconditionally()
 
-        val evidence = PreviewHighlightProbe.collect("Swift", highlighter, listOf(forcedInfo, typedInfo))
+        val evidence = HighlightEvidenceCollector.collect("Swift", highlighter, listOf(forcedInfo, typedInfo))
 
         assertEquals(setOf("SWIFT.KEYWORD"), evidence.lexicalKeys)
         assertEquals(setOf("SWIFT.FUNCTION_DECLARATION", "SWIFT.PARAMETER"), evidence.semanticKeys)
@@ -72,17 +108,19 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
     @Test
     fun `installed native previews emit every claimed category`() {
         val results =
-            SyntaxPreviewCatalog
-                .languages()
-                .sorted()
-                .map { language -> inspectPreview(requireNotNull(SyntaxPreviewCatalog.find(language))) }
+            SyntaxLanguageRegistry
+                .specifications()
+                .sortedBy(LanguageSpecification::storageId)
+                .flatMap { specification ->
+                    specification.preview.files.map { previewFile -> inspectPreview(specification, previewFile) }
+                }
         val unavailable = results.filterIsInstance<NativePreviewResult.Unavailable>()
         val requiredUnavailable = unavailable.filter { result -> result.language in REQUIRED_NATIVE_LANGUAGES }
         val missingClaims =
             results
                 .filterIsInstance<NativePreviewResult.Verified>()
                 .mapNotNull { result ->
-                    val missing = result.spec.demonstratedCategories - result.evidence.categories
+                    val missing = result.previewFile.demonstratedCategories - result.evidence.categories
                     MissingClaims(result, missing).takeIf { it.categories.isNotEmpty() }
                 }
         val problems =
@@ -105,13 +143,17 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
         )
     }
 
-    private fun inspectPreview(spec: SyntaxPreviewSpec): NativePreviewResult {
-        val code = loadPreview(spec.resourceName)
-        myFixture.configureByText(spec.fileName, code)
+    private fun inspectPreview(
+        specification: LanguageSpecification,
+        previewFile: PreviewFileSpec,
+    ): NativePreviewResult {
+        val code = loadPreview(previewFile.resourceName)
+        myFixture.configureByText(previewFile.fileName, code)
         val fileType = myFixture.file.fileType
         val fileTypeIdentity = "${fileType.name} (${fileType.javaClass.name})"
-        if (!isExpectedNativeType(spec, fileType)) {
-            return NativePreviewResult.Unavailable(spec.language, fileTypeIdentity)
+        val profile = requireNotNull(specification.nativeProfiles.firstOrNull { it.id == previewFile.profileId })
+        if (!isExpectedNativeType(profile, fileType)) {
+            return NativePreviewResult.Unavailable(specification.storageId, fileTypeIdentity)
         }
 
         val scheme = EditorColorsManager.getInstance().globalScheme
@@ -121,29 +163,30 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 .createEditorHighlighter(myFixture.file.virtualFile, scheme, project)
         highlighter.setText(code)
         val highlightInfos = myFixture.doHighlighting()
-        val evidence = PreviewHighlightProbe.collect(spec.language, highlighter, highlightInfos)
-        return NativePreviewResult.Verified(spec, fileTypeIdentity, evidence)
+        val evidence = HighlightEvidenceCollector.collect(specification.storageId, highlighter, highlightInfos)
+        return NativePreviewResult.Verified(specification, previewFile, fileTypeIdentity, evidence)
     }
 
     private fun isExpectedNativeType(
-        spec: SyntaxPreviewSpec,
+        profile: NativeProfile,
         fileType: FileType,
     ): Boolean {
         if (fileType === PlainTextFileType.INSTANCE) return false
         if (fileType === UnknownFileType.INSTANCE) return false
         if (fileType.name == AUTO_DETECTED_FILE_TYPE) return false
         if (fileType !is LanguageFileType) return false
-        if (!fileType.name.equals(spec.standardFileTypeName, ignoreCase = true)) return false
-        return matchesLanguage(spec.language, fileType)
+        if (profile.fileTypeNames.none { it.equals(fileType.name, ignoreCase = true) }) return false
+        return matchesLanguage(profile, fileType)
     }
 
     private fun matchesLanguage(
-        expectedLanguage: String,
+        profile: NativeProfile,
         fileType: LanguageFileType,
-    ): Boolean {
-        val acceptedNames = LANGUAGE_ALIASES[expectedLanguage].orEmpty() + expectedLanguage
-        return acceptedNames.any { name -> fileType.language.displayName.equals(name, ignoreCase = true) }
-    }
+    ): Boolean =
+        profile.languageIds.any { name ->
+            fileType.language.id.equals(name, ignoreCase = true) ||
+                fileType.language.displayName.equals(name, ignoreCase = true)
+        }
 
     private fun loadPreview(resourceName: String): String {
         val path = "/dev/ayuislands/settings/syntax-preview/$resourceName"
@@ -164,9 +207,10 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
 
     private sealed interface NativePreviewResult {
         data class Verified(
-            val spec: SyntaxPreviewSpec,
+            val specification: LanguageSpecification,
+            val previewFile: PreviewFileSpec,
             val fileTypeName: String,
-            val evidence: PreviewEvidence,
+            val evidence: HighlightEvidence,
         ) : NativePreviewResult
 
         data class Unavailable(
@@ -180,19 +224,13 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
         val categories: Set<PrimitiveCategory>,
     ) {
         fun describe(): String =
-            "${result.spec.language}: missing=$categories, fileType=${result.fileTypeName}, " +
-                "resource=${result.spec.resourceName}, lexical=${result.evidence.lexicalKeys}, " +
+            "${result.specification.storageId}: missing=$categories, fileType=${result.fileTypeName}, " +
+                "resource=${result.previewFile.resourceName}, lexical=${result.evidence.lexicalKeys}, " +
                 "semantic=${result.evidence.semanticKeys}"
     }
 
     private companion object {
         private const val AUTO_DETECTED_FILE_TYPE = "AUTO_DETECTED"
-
-        private val LANGUAGE_ALIASES =
-            mapOf(
-                "Bash" to setOf("Shell Script"),
-                "Properties files" to setOf("Properties"),
-            )
 
         private val REQUIRED_NATIVE_LANGUAGES =
             setOf(
