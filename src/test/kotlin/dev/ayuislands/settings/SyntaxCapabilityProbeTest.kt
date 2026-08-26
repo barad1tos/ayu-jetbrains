@@ -135,7 +135,7 @@ class SyntaxCapabilityProbeTest {
         HighlightEvidence(
             languageId = "Swift",
             lexicalKeys = setOf(keyName),
-            semanticKeys = emptySet(),
+            supplementalKeys = emptySet(),
             keysByPrimitive = mapOf(primitive to setOf(keyName)),
         )
 }

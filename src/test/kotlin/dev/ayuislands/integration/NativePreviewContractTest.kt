@@ -1,20 +1,19 @@
 package dev.ayuislands.integration
 
-import com.intellij.codeInsight.daemon.impl.HighlightInfo
-import com.intellij.codeInsight.daemon.impl.HighlightInfoType
-import com.intellij.lang.annotation.HighlightSeverity
+import com.intellij.lexer.LexerBase
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.TextAttributesKey
-import com.intellij.openapi.editor.highlighter.EditorHighlighter
-import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
-import com.intellij.openapi.editor.highlighter.HighlighterIterator
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.LanguageFileType
 import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.fileTypes.SyntaxHighlighter
+import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory
 import com.intellij.openapi.fileTypes.UnknownFileType
+import com.intellij.psi.TokenType
+import com.intellij.psi.tree.IElementType
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixture4TestCase
 import dev.ayuislands.settings.HighlightEvidence
 import dev.ayuislands.settings.HighlightEvidenceCollector
@@ -32,40 +31,47 @@ import dev.ayuislands.syntax.SyntaxKeyRoleRegistry
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxOverlayLoader
 import dev.ayuislands.syntax.SyntaxPreset
-import io.mockk.Runs
-import io.mockk.every
-import io.mockk.just
-import io.mockk.mockk
+import dev.ayuislands.syntax.effectivePrimitive
 import org.junit.Test
+import java.nio.file.Path
 import java.util.concurrent.Callable
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
     @Test
-    fun `production inspector confirms bundled Java preview through native passes`() {
-        val specification = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Java"))
-
-        val result =
+    fun `production inspector confirms every bundled preview available in test runtime`() {
+        val specifications =
+            REQUIRED_NATIVE_LANGUAGES
+                .map { language -> requireNotNull(SyntaxLanguageRegistry.findByStorageId(language)) }
+                .sortedBy(LanguageSpecification::storageId)
+        val results =
             ApplicationManager
                 .getApplication()
                 .executeOnPooledThread(
                     Callable {
-                        ReadAction.compute<SyntaxProbeResult, RuntimeException> {
-                            IdePreviewInspector(project).inspect(specification, generation = 12)
+                        specifications.associateWith { specification ->
+                            ReadAction.compute<SyntaxProbeResult, RuntimeException> {
+                                IdePreviewInspector(project).inspect(specification, generation = 12)
+                            }
                         }
                     },
                 ).get()
+        val failures =
+            results.mapNotNull { (specification, result) ->
+                val expected =
+                    specification.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+                val confirmed = result as? SyntaxProbeResult.Confirmed
+                when {
+                    confirmed == null -> "${specification.storageId}: $result"
+                    confirmed.evidence.confirmedCells != expected ->
+                        "${specification.storageId}: expected=$expected, confirmed=${confirmed.evidence.confirmedCells}"
+                    else -> null
+                }
+            }
 
-        val confirmed = assertIs<SyntaxProbeResult.Confirmed>(result)
-        assertEquals("Java", confirmed.languageId)
-        assertEquals(12, confirmed.generation)
-        assertEquals(
-            specification.preview.files
-                .single()
-                .demonstratedCategories,
-            confirmed.evidence.confirmedCells,
+        assertTrue(
+            failures.isEmpty(),
+            failures.joinToString(prefix = "Production preview inspector failures:\n", separator = "\n"),
         )
     }
 
@@ -73,9 +79,14 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
     fun `lexical iterator contributes every attributes key without resolving colors`() {
         val keyword = TextAttributesKey.find("JAVA_KEYWORD")
         val operator = TextAttributesKey.find("JAVA_OPERATION_SIGN")
-        val highlighter = highlighterWith(listOf(arrayOf(keyword), arrayOf(operator)))
+        val highlighter =
+            object : SyntaxHighlighter {
+                override fun getHighlightingLexer() = FixedTokenLexer(TokenType.WHITE_SPACE)
 
-        val evidence = HighlightEvidenceCollector.collect("Java", highlighter, emptyList())
+                override fun getTokenHighlights(tokenType: IElementType) = arrayOf(keyword, operator)
+            }
+
+        val evidence = HighlightEvidenceCollector.collect("Java", highlighter, "token", emptySet())
 
         assertEquals(setOf("JAVA_KEYWORD", "JAVA_OPERATION_SIGN"), evidence.lexicalKeys)
         assertEquals(setOf(PrimitiveCategory.KEYWORD, PrimitiveCategory.OPERATOR), evidence.categories)
@@ -86,27 +97,15 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
         val keyword = TextAttributesKey.find("SWIFT.KEYWORD")
         val function = TextAttributesKey.find("SWIFT.FUNCTION_DECLARATION")
         val parameter = TextAttributesKey.find("SWIFT.PARAMETER")
-        val highlighter = highlighterWith(listOf(arrayOf(keyword)))
-        val forcedInfo =
-            HighlightInfo
-                .newHighlightInfo(HighlightInfoType.INFORMATION)
-                .range(0, 1)
-                .textAttributes(function)
-                .createUnconditionally()
-        val typedInfo =
-            HighlightInfo
-                .newHighlightInfo(
-                    HighlightInfoType.HighlightInfoTypeImpl(
-                        HighlightSeverity.INFORMATION,
-                        parameter,
-                    ),
-                ).range(1, 2)
-                .createUnconditionally()
-
-        val evidence = HighlightEvidenceCollector.collect("Swift", highlighter, listOf(forcedInfo, typedInfo))
+        val evidence =
+            HighlightEvidenceCollector.assemble(
+                languageId = "Swift",
+                lexicalKeys = setOf(keyword.externalName),
+                supplementalKeys = setOf(function.externalName, parameter.externalName),
+            )
 
         assertEquals(setOf("SWIFT.KEYWORD"), evidence.lexicalKeys)
-        assertEquals(setOf("SWIFT.FUNCTION_DECLARATION", "SWIFT.PARAMETER"), evidence.semanticKeys)
+        assertEquals(setOf("SWIFT.FUNCTION_DECLARATION", "SWIFT.PARAMETER"), evidence.supplementalKeys)
         assertEquals(
             setOf(PrimitiveCategory.KEYWORD, PrimitiveCategory.FUNCTION_DECL, PrimitiveCategory.PARAMETER),
             evidence.categories,
@@ -124,6 +123,8 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 }
         val unavailable = results.filterIsInstance<NativePreviewResult.Unavailable>()
         val requiredUnavailable = unavailable.filter { result -> result.language in REQUIRED_NATIVE_LANGUAGES }
+        val matrix = buildContractMatrix(results)
+        publishContractReport(matrix)
         val missingClaims =
             results
                 .filterIsInstance<NativePreviewResult.Verified>()
@@ -137,6 +138,9 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                     add("Required ${result.language} preview resolved to ${result.fileTypeName}")
                 }
                 missingClaims.forEach { failure -> add(failure.describe()) }
+                matrix.languages
+                    .filter(LanguageContract::hasStructuralGap)
+                    .forEach { language -> add("${language.language}: ${language.actions.joinToString(" ")}") }
             }
         val unavailableSummary =
             unavailable.joinToString { result -> "${result.language}=${result.fileTypeName}" }
@@ -171,6 +175,42 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
         )
     }
 
+    private fun buildContractMatrix(results: List<NativePreviewResult>): SyntaxContractMatrix {
+        val verified =
+            results
+                .filterIsInstance<NativePreviewResult.Verified>()
+                .groupBy(
+                    keySelector = { result -> result.specification.storageId },
+                    valueTransform = { result -> result.evidence.categories },
+                ).mapValues { (_, categories) -> categories.flatten().toSet() }
+        return SyntaxContractInventory.build(
+            specifications = SyntaxLanguageRegistry.specifications(),
+            existing = existingCategories(),
+            verified = verified,
+        )
+    }
+
+    private fun existingCategories(): Map<String, Set<PrimitiveCategory>> {
+        val loader = SyntaxOverlayLoader()
+        return VARIANTS
+            .flatMap { variant ->
+                SyntaxIntensityApplicator
+                    .tunableCategories(
+                        baseline = loader.loadBaselineForVariant(variant),
+                        overlay = loader.loadOverlayForVariant(variant),
+                        fallbacks = loader.fallbacksFor(variant),
+                    ).entries
+            }.groupBy(
+                keySelector = Map.Entry<String, Set<PrimitiveCategory>>::key,
+                valueTransform = Map.Entry<String, Set<PrimitiveCategory>>::value,
+            ).mapValues { (_, categories) -> categories.flatten().toSet() }
+    }
+
+    private fun publishContractReport(matrix: SyntaxContractMatrix) {
+        val outputDirectory = Path.of(System.getProperty(REPORT_DIRECTORY_PROPERTY, DEFAULT_REPORT_DIRECTORY))
+        SyntaxContractReport.write(matrix, outputDirectory)
+    }
+
     private fun verifyActuation(
         result: NativePreviewResult.Verified,
         failures: MutableList<String>,
@@ -183,7 +223,9 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                     role is SyntaxKeyRole.Tunable && role.languageId == languageId
                 }
             if (keys.isEmpty()) {
-                failures += "$languageId/$category has no language-owned native key"
+                failures +=
+                    "$languageId/$category has no language-owned native key; " +
+                    "observed=${result.evidence.keysByPrimitive[category].orEmpty()}"
                 return@forEach
             }
             VARIANTS.forEach { variant ->
@@ -315,14 +357,28 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
             return NativePreviewResult.Unavailable(specification.storageId, fileTypeIdentity)
         }
 
-        val scheme = EditorColorsManager.getInstance().globalScheme
         val highlighter =
-            EditorHighlighterFactory
-                .getInstance()
-                .createEditorHighlighter(myFixture.file.virtualFile, scheme, project)
-        highlighter.setText(code)
+            checkNotNull(SyntaxHighlighterFactory.getSyntaxHighlighter(fileType, project, myFixture.file.virtualFile)) {
+                "No syntax highlighter for ${previewFile.fileName}"
+            }
         val highlightInfos = myFixture.doHighlighting()
-        val evidence = HighlightEvidenceCollector.collect(specification.storageId, highlighter, highlightInfos)
+        val semanticKeys =
+            highlightInfos.mapTo(linkedSetOf()) { info ->
+                (info.forcedTextAttributesKey ?: info.type.attributesKey).externalName
+            }
+        val descriptorKeys =
+            HighlightEvidenceCollector
+                .descriptorKeys(highlighter)
+                .filterTo(linkedSetOf()) { keyName ->
+                    SyntaxKeyRoleRegistry.classify(keyName).effectivePrimitive in specification.semanticOnlyCategories
+                }
+        val evidence =
+            HighlightEvidenceCollector.collect(
+                specification.storageId,
+                highlighter,
+                code,
+                semanticKeys + descriptorKeys,
+            )
         return NativePreviewResult.Verified(specification, previewFile, fileTypeIdentity, evidence)
     }
 
@@ -353,17 +409,6 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
         return stream.bufferedReader(Charsets.UTF_8).use { reader -> reader.readText().trimIndent() }
     }
 
-    private fun highlighterWith(ranges: List<Array<TextAttributesKey>>): EditorHighlighter {
-        val iterator = mockk<HighlighterIterator>()
-        every { iterator.atEnd() } returnsMany List(ranges.size) { false } + true
-        every { iterator.textAttributesKeys } returnsMany ranges
-        every { iterator.advance() } just Runs
-
-        return mockk {
-            every { createIterator(0) } returns iterator
-        }
-    }
-
     private sealed interface NativePreviewResult {
         data class Verified(
             val specification: LanguageSpecification,
@@ -385,7 +430,7 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
         fun describe(): String =
             "${result.specification.storageId}: missing=$categories, fileType=${result.fileTypeName}, " +
                 "resource=${result.previewFile.resourceName}, lexical=${result.evidence.lexicalKeys}, " +
-                "semantic=${result.evidence.semanticKeys}"
+                "semantic=${result.evidence.supplementalKeys}"
     }
 
     private data class ActuationFixture(
@@ -397,6 +442,8 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
 
     private companion object {
         private const val AUTO_DETECTED_FILE_TYPE = "AUTO_DETECTED"
+        private const val REPORT_DIRECTORY_PROPERTY = "syntaxContractReportDir"
+        private const val DEFAULT_REPORT_DIRECTORY = "build/reports/syntax-contract"
 
         private val VARIANTS = listOf("Mirage", "Dark", "Light")
         private val INTENSITIES = listOf(0, 25, 50, 75, 100)
@@ -414,4 +461,41 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 "YAML",
             )
     }
+}
+
+private class FixedTokenLexer(
+    private val fixedType: IElementType,
+) : LexerBase() {
+    private var buffer: CharSequence = ""
+    private var startOffset = 0
+    private var endOffset = 0
+    private var hasToken = false
+
+    override fun start(
+        buffer: CharSequence,
+        startOffset: Int,
+        endOffset: Int,
+        initialState: Int,
+    ) {
+        this.buffer = buffer
+        this.startOffset = startOffset
+        this.endOffset = endOffset
+        hasToken = startOffset < endOffset
+    }
+
+    override fun getState(): Int = 0
+
+    override fun getTokenType(): IElementType? = fixedType.takeIf { hasToken }
+
+    override fun getTokenStart(): Int = startOffset
+
+    override fun getTokenEnd(): Int = endOffset
+
+    override fun advance() {
+        hasToken = false
+    }
+
+    override fun getBufferSequence(): CharSequence = buffer
+
+    override fun getBufferEnd(): Int = endOffset
 }

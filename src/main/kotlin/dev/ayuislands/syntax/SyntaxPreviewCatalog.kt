@@ -1,6 +1,5 @@
 package dev.ayuislands.syntax
 
-import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.PrimitiveCategory.ANNOTATION
 import dev.ayuislands.syntax.PrimitiveCategory.CLASS_DECL
 import dev.ayuislands.syntax.PrimitiveCategory.COMMENT
@@ -25,6 +24,7 @@ internal data class SyntaxPreviewSpec(
     val defaultExtension: String,
     val resourceName: String,
     val demonstratedCategories: Set<PrimitiveCategory>,
+    val semanticOnlyCategories: Set<PrimitiveCategory> = emptySet(),
 )
 
 internal data class FileTypeHint(
@@ -365,7 +365,7 @@ internal object SyntaxPreviewCatalog {
                 KEYWORD,
                 DOCUMENTATION,
                 STRING_LITERAL,
-            ),
+            ).copy(semanticOnlyCategories = setOf(DOCUMENTATION)),
             syntaxPreviewSpec(
                 "HAML",
                 "preview.haml",
@@ -548,8 +548,6 @@ internal object SyntaxPreviewCatalog {
 
     fun categories(language: String): Set<PrimitiveCategory> =
         specifications[language]?.demonstratedCategories.orEmpty()
-
-    fun resourceNames(): Set<String> = specifications.values.mapTo(linkedSetOf(), SyntaxPreviewSpec::resourceName)
 
     fun entries(): Collection<SyntaxPreviewSpec> = specifications.values
 }

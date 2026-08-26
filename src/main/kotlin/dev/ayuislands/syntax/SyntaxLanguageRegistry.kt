@@ -272,6 +272,7 @@ object SyntaxLanguageRegistry {
                                 ),
                             ),
                     ),
+                semanticOnlyCategories = preview.semanticOnlyCategories,
                 pluginRequirement = null,
                 verificationRuntimeId = language.tag,
             )

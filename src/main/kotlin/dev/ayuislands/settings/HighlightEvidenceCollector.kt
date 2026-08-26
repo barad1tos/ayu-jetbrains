@@ -1,21 +1,39 @@
 package dev.ayuislands.settings
 
-import com.intellij.codeInsight.daemon.impl.HighlightInfo
 import com.intellij.openapi.editor.colors.TextAttributesKey
-import com.intellij.openapi.editor.highlighter.EditorHighlighter
+import com.intellij.openapi.fileTypes.SyntaxHighlighter
+import com.intellij.openapi.options.colors.ColorSettingsPages
 import dev.ayuislands.syntax.SyntaxKeyRoleRegistry
 import dev.ayuislands.syntax.effectivePrimitive
 
 internal object HighlightEvidenceCollector {
+    fun descriptorKeys(highlighter: SyntaxHighlighter): Set<String> =
+        ColorSettingsPages
+            .getInstance()
+            .registeredPages
+            .asSequence()
+            .filter { page -> page.highlighter.javaClass == highlighter.javaClass }
+            .flatMap { page ->
+                (
+                    page.attributeDescriptors.map { descriptor -> descriptor.key } +
+                        page.additionalHighlightingTagToDescriptorMap.orEmpty().values
+                ).asSequence()
+            }.mapTo(linkedSetOf(), TextAttributesKey::getExternalName)
+
     fun collect(
         languageId: String,
-        highlighter: EditorHighlighter,
-        highlightInfos: List<HighlightInfo>,
+        highlighter: SyntaxHighlighter,
+        text: CharSequence,
+        supplementalKeys: Set<String>,
+    ): HighlightEvidence = assemble(languageId, lexicalKeys(highlighter, text), supplementalKeys)
+
+    fun assemble(
+        languageId: String,
+        lexicalKeys: Set<String>,
+        supplementalKeys: Set<String>,
     ): HighlightEvidence {
-        val lexicalKeys = lexicalKeys(highlighter)
-        val semanticKeys = semanticKeys(highlightInfos)
         val keysByPrimitive =
-            (lexicalKeys + semanticKeys)
+            (lexicalKeys + supplementalKeys)
                 .mapNotNull { keyName ->
                     val primitive = SyntaxKeyRoleRegistry.classify(keyName).effectivePrimitive
                     primitive?.let { it to keyName }
@@ -25,23 +43,22 @@ internal object HighlightEvidenceCollector {
         return HighlightEvidence(
             languageId = languageId,
             lexicalKeys = lexicalKeys,
-            semanticKeys = semanticKeys,
+            supplementalKeys = supplementalKeys,
             keysByPrimitive = keysByPrimitive,
         )
     }
 
-    private fun lexicalKeys(highlighter: EditorHighlighter): Set<String> {
+    private fun lexicalKeys(
+        highlighter: SyntaxHighlighter,
+        text: CharSequence,
+    ): Set<String> {
         val keys = linkedSetOf<String>()
-        val iterator = highlighter.createIterator(0)
-        while (!iterator.atEnd()) {
-            iterator.textAttributesKeys.mapTo(keys, TextAttributesKey::getExternalName)
-            iterator.advance()
+        val lexer = highlighter.highlightingLexer
+        lexer.start(text)
+        while (lexer.tokenType != null) {
+            highlighter.getTokenHighlights(lexer.tokenType).mapTo(keys, TextAttributesKey::getExternalName)
+            lexer.advance()
         }
         return keys
     }
-
-    private fun semanticKeys(highlightInfos: List<HighlightInfo>): Set<String> =
-        highlightInfos.mapTo(linkedSetOf()) { info ->
-            (info.forcedTextAttributesKey ?: info.type.attributesKey).externalName
-        }
 }

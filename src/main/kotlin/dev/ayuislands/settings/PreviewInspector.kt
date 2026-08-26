@@ -1,26 +1,14 @@
 package dev.ayuislands.settings
 
-import com.intellij.codeInsight.daemon.impl.DaemonProgressIndicator
-import com.intellij.codeInsight.daemon.impl.HighlightInfo
-import com.intellij.codeInsight.daemon.impl.HighlightInfoProcessor
-import com.intellij.codeInsight.daemon.impl.HighlightingSessionImpl
-import com.intellij.codeInsight.daemon.impl.TextEditorHighlightingPassRegistrarEx
-import com.intellij.codeInsight.multiverse.CodeInsightContextManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.LanguageFileType
 import com.intellij.openapi.fileTypes.PlainTextFileType
+import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory
 import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Computable
-import com.intellij.openapi.util.ProperTextRange
-import com.intellij.psi.PsiManager
 import com.intellij.testFramework.LightVirtualFile
 import dev.ayuislands.syntax.LanguageSpecification
 import dev.ayuislands.syntax.NativeProfile
@@ -81,46 +69,16 @@ internal class IdePreviewInspector(
         code: String,
     ): HighlightEvidence {
         val virtualFile = LightVirtualFile(previewFile.fileName, fileType, code)
-        val document =
-            checkNotNull(FileDocumentManager.getInstance().getDocument(virtualFile)) {
-                "No document for bundled syntax preview '${previewFile.fileName}'"
-            }
-        val psiFile =
-            checkNotNull(PsiManager.getInstance(project).findFile(virtualFile)) {
-                "No PSI for bundled syntax preview '${previewFile.fileName}'"
-            }
         val highlighter =
-            EditorHighlighterFactory
-                .getInstance()
-                .createEditorHighlighter(virtualFile, EditorColorsManager.getInstance().globalScheme, project)
-        highlighter.setText(code)
-        val indicator = DaemonProgressIndicator()
-        val scheme = EditorColorsManager.getInstance().globalScheme
-        val highlightInfos =
-            ProgressManager.getInstance().runProcess(
-                Computable {
-                    var collected = emptyList<HighlightInfo>()
-                    HighlightingSessionImpl.runInsideHighlightingSession(
-                        psiFile,
-                        CodeInsightContextManager.getInstance(project).getCodeInsightContext(psiFile.viewProvider),
-                        scheme,
-                        ProperTextRange(0, document.textLength),
-                        false,
-                    ) {
-                        collected =
-                            TextEditorHighlightingPassRegistrarEx
-                                .getInstanceEx(project)
-                                .instantiateMainPasses(psiFile, document, HighlightInfoProcessor.getEmpty())
-                                .flatMap { pass ->
-                                    pass.doCollectInformation(indicator)
-                                    pass.infos
-                                }
-                    }
-                    collected
-                },
-                indicator,
-            )
-        return HighlightEvidenceCollector.collect(languageId, highlighter, highlightInfos)
+            checkNotNull(SyntaxHighlighterFactory.getSyntaxHighlighter(fileType, project, virtualFile)) {
+                "No syntax highlighter for bundled preview '${previewFile.fileName}'"
+            }
+        return HighlightEvidenceCollector.collect(
+            languageId,
+            highlighter,
+            code,
+            HighlightEvidenceCollector.descriptorKeys(highlighter),
+        )
     }
 
     private fun resolveFileType(
