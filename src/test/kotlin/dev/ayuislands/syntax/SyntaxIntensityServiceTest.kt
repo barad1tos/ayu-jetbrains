@@ -34,6 +34,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -460,6 +461,90 @@ class SyntaxIntensityServiceTest {
         service.apply(SyntaxPreset.WHISPER, emptyMap())
 
         verify(exactly = 0) { solarizedScheme.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `runtime preview writes only the active Ayu scheme`() {
+        val runtime = SyntaxIntensityService().openRuntimeSession()
+
+        runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+
+        val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
+        verify(exactly = 1) { mockMirage.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 0) { mockDark.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 0) { mockLight.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 1) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `runtime preview skips a foreign active scheme without publishing`() {
+        val foreign: EditorColorsScheme =
+            mockk(relaxed = true) {
+                every { name } returns "Solarized"
+                every { defaultBackground } returns Color.WHITE
+            }
+        every { mockManager.globalScheme } returns foreign
+        val runtime = SyntaxIntensityService().openRuntimeSession()
+
+        val result =
+            runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+
+        assertIs<SyntaxTransactionResult.Applied>(result)
+        verify(exactly = 0) { foreign.setAttributes(any(), any<TextAttributes>()) }
+        verify(exactly = 0) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `runtime cancel restores retained active checkpoints once`() {
+        val runtime = SyntaxIntensityService().openRuntimeSession()
+        runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+
+        val result = runtime.restore()
+
+        assertIs<SyntaxTransactionResult.Applied>(result)
+        verify(exactly = 1) { overrideCheckpoints.rollback(any()) }
+        verify(exactly = 2) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `runtime cancel restores semantic font checkpoint`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        runtime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+
+        runtime.restore()
+
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `runtime materialization never runs legacy retirement outside its journal`() {
+        val runtime = SyntaxIntensityService().openRuntimeSession()
+
+        runtime.materialize(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+
+        for (keyName in RETIRED_KEY_NAMES) {
+            val retiredKey = TextAttributesKey.find(keyName)
+            verify(exactly = 0) {
+                mockMirage.setAttributes(retiredKey, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+                mockDark.setAttributes(retiredKey, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+                mockLight.setAttributes(retiredKey, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+            }
+        }
+        verify(exactly = 0) { props.setList(RETIREMENT_FLAG_KEY, any()) }
     }
 
     @Test

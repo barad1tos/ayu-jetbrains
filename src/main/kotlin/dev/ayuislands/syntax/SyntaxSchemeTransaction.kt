@@ -82,12 +82,46 @@ internal class IdeSyntaxSchemeWriter : SyntaxSchemeWriter {
     }
 
     override fun rollback(checkpoint: SyntaxSchemeCheckpoint): List<RuntimeException> {
-        val saved = checkpoints.remove(checkpoint) ?: return emptyList()
-        return EditorSchemeOverrides.checkpoints.rollback(saved)
+        val saved = checkpoints[checkpoint] ?: return emptyList()
+        val failures = EditorSchemeOverrides.checkpoints.rollback(saved)
+        if (failures.isEmpty()) checkpoints.remove(checkpoint)
+        return failures
     }
 
     override fun release(checkpoint: SyntaxSchemeCheckpoint) {
         checkpoints.remove(checkpoint)
+    }
+}
+
+/** Retains successful transaction checkpoints until Apply advances or Cancel restores them. */
+internal class SyntaxSchemeJournal {
+    private val checkpoints = mutableListOf<SyntaxSchemeCheckpoint>()
+
+    fun restore(
+        writer: SyntaxSchemeWriter,
+        publish: () -> Unit,
+    ): SyntaxTransactionResult {
+        if (checkpoints.isEmpty()) return SyntaxTransactionResult.Applied(emptySet(), emptySet())
+        val rollbackFailures = checkpoints.asReversed().flatMap(writer::rollback)
+        if (rollbackFailures.isNotEmpty()) {
+            return SyntaxTransactionResult.Failed(rollbackFailures.first(), rollbackFailures)
+        }
+        return try {
+            publish()
+            checkpoints.clear()
+            SyntaxTransactionResult.Applied(emptySet(), emptySet())
+        } catch (failure: RuntimeException) {
+            SyntaxTransactionResult.Failed(failure, emptyList())
+        }
+    }
+
+    fun advance(writer: SyntaxSchemeWriter) {
+        checkpoints.forEach(writer::release)
+        checkpoints.clear()
+    }
+
+    internal fun retain(retained: List<SyntaxSchemeCheckpoint>) {
+        checkpoints += retained
     }
 }
 
@@ -96,14 +130,17 @@ internal class SyntaxSchemeTransaction(
     private val writer: SyntaxSchemeWriter,
     private val publish: () -> Unit,
 ) {
-    fun apply(changes: List<SyntaxSchemeChange>): SyntaxTransactionResult {
+    fun apply(
+        changes: List<SyntaxSchemeChange>,
+        journal: SyntaxSchemeJournal? = null,
+    ): SyntaxTransactionResult {
         val checkpoints = mutableListOf<SyntaxSchemeCheckpoint>()
         return try {
             changes.forEach { change -> checkpoints += writer.checkpoint(change) }
             val relinquishedKeys =
                 changes.flatMapTo(linkedSetOf()) { change -> writer.write(change) }
             publish()
-            checkpoints.forEach(writer::release)
+            if (journal == null) checkpoints.forEach(writer::release) else journal.retain(checkpoints)
             SyntaxTransactionResult.Applied(
                 changedKeys =
                     changes.flatMapTo(linkedSetOf()) { change ->

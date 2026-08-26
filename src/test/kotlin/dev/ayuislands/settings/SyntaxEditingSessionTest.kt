@@ -32,7 +32,29 @@ class SyntaxEditingSessionTest {
         assertEquals(SyntaxCommitResult.Applied, result)
         assertEquals(listOf(config(70)), runtime.materializations)
         assertEquals(listOf(config(70)), persisted)
+        assertEquals(1, runtime.advances)
         assertEquals(false, session.isModified())
+    }
+
+    @Test
+    fun `failed persistence keeps runtime checkpoint restorable`() {
+        val runtime = RecordingRuntime()
+        val session =
+            SyntaxEditingSession(
+                initialCheckpoint = config(50),
+                runtime = runtime,
+                persist = { throw IllegalStateException("persist") },
+                debounceFactory = { callback -> RecordingDebounce().also { it.callback = callback } },
+            )
+        session.editDiscrete(config(70))
+
+        val result = session.apply()
+
+        val failed = assertIs<SyntaxCommitResult.Failed>(result)
+        assertEquals("persist", failed.failure.message)
+        assertEquals(0, runtime.advances)
+        session.cancel()
+        assertEquals(listOf(config(50)), runtime.restores)
     }
 
     @Test
@@ -263,6 +285,7 @@ class SyntaxEditingSessionTest {
         var previewResult: SyntaxTransactionResult = applied()
         var materializeResult: SyntaxTransactionResult = applied()
         var restoreResult: SyntaxTransactionResult = applied()
+        var advances = 0
 
         override fun preview(config: SyntaxPresetConfig): SyntaxTransactionResult {
             previews += config
@@ -277,6 +300,10 @@ class SyntaxEditingSessionTest {
         override fun restore(config: SyntaxPresetConfig): SyntaxTransactionResult {
             restores += config
             return restoreResult
+        }
+
+        override fun advance() {
+            advances++
         }
 
         override fun scheduleRecovery(

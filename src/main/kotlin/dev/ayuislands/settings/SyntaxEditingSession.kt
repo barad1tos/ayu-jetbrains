@@ -153,6 +153,8 @@ internal interface SyntaxEditingRuntime {
 
     fun restore(config: SyntaxPresetConfig): SyntaxTransactionResult
 
+    fun advance()
+
     fun scheduleRecovery(
         config: SyntaxPresetConfig,
         failure: RuntimeException,
@@ -282,6 +284,7 @@ internal class SyntaxEditingSession(
     private fun persist(config: SyntaxPresetConfig) {
         try {
             persist.invoke(config)
+            runtime.advance()
             dispatch(SyntaxSessionEvent.PersistenceSucceeded)
         } catch (cancellation: ProcessCanceledException) {
             throw cancellation

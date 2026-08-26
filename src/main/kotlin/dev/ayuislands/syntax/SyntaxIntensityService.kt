@@ -110,25 +110,45 @@ class SyntaxIntensityService {
     }
 
     fun apply(config: SyntaxPresetConfig) {
-        val preset = SyntaxPreset.fromName(config.selectedPreset)
-        val subordinatePreset = SyntaxPreset.fromName(config.subordinatePreset)
-        val effectivePreset = enforceCustomGate(preset)
-        val effectiveReadabilityOptions = enforceReadabilityGate(config.readabilityOptions)
-        val context =
-            ApplyContext(
-                preset = effectivePreset,
-                customOverrides = config.customOverrides,
-                subordinatePreset = subordinatePreset,
-                customStyles = config.customStyles,
-                readabilityOptions = effectiveReadabilityOptions,
-                customEmphasis = config.customEmphasis,
-                ignorePluginSyntaxColorsEnabled =
-                    AyuIslandsSettings.getInstance().state.ignorePluginSyntaxColorsEnabled,
-            )
+        val context = applyContext(config)
+        val changes = schemeChanges(context)
+        retireLegacyKeys(changes)
+        val result = applyChanges(context, changes, IdeSyntaxSchemeWriter(), journal = null)
+        if (result is SyntaxTransactionResult.Failed) {
+            result.rollbackFailures.forEach { failure ->
+                log.warn("Failed to roll back syntax scheme transaction", failure)
+            }
+            throw result.cause
+        }
+    }
+
+    internal fun openRuntimeSession(): SyntaxRuntimeSession = SyntaxRuntimeSession()
+
+    internal fun preview(
+        config: SyntaxPresetConfig,
+        writer: SyntaxSchemeWriter,
+        journal: SyntaxSchemeJournal,
+    ): SyntaxTransactionResult {
+        val context = applyContext(config)
+        val change =
+            activeSchemeChange(context, emptySet())
+                ?: return SyntaxTransactionResult.Applied(emptySet(), emptySet())
+        return applyChanges(context, listOf(change), writer, journal)
+    }
+
+    internal fun materialize(
+        config: SyntaxPresetConfig,
+        writer: SyntaxSchemeWriter,
+        journal: SyntaxSchemeJournal?,
+    ): SyntaxTransactionResult {
+        val context = applyContext(config)
+        return applyChanges(context, schemeChanges(context), writer, journal)
+    }
+
+    private fun schemeChanges(context: ApplyContext): List<SyntaxSchemeChange> {
         val manager = EditorColorsManager.getInstance()
         val touched = mutableSetOf<EditorColorsScheme>()
         val changes = mutableListOf<SyntaxSchemeChange>()
-        val retirement = RetirementPass(retiredSchemeNames())
         for ((schemeName, overlayVariant) in AYU_SCHEMES) {
             val scheme = manager.getScheme(schemeName)
             if (scheme == null) {
@@ -137,36 +157,67 @@ class SyntaxIntensityService {
                 }
                 continue
             }
-            val computed =
-                computeSchemeAttributes(
-                    scheme = scheme,
-                    variantTag = overlayVariant,
-                    context = context,
-                )
-            changes +=
-                SyntaxSchemeChange(
-                    scheme = scheme,
-                    label = schemeName,
-                    attributes = applyIgnorePluginPreference(computed.attributes, context, overlayVariant),
-                    materializedKeys = computed.materializedKeys,
-                )
+            changes += schemeChange(scheme, schemeName, overlayVariant, context)
             touched.add(scheme)
         }
         activeSchemeChange(context, touched)?.let(changes::add)
+        return changes
+    }
+
+    private fun retireLegacyKeys(changes: List<SyntaxSchemeChange>) {
+        val retirement = RetirementPass(retiredSchemeNames())
         changes.forEach { change -> retireKeys(change.scheme, change.label, retirement) }
         retirement.commitRepaired()
+    }
+
+    private fun applyContext(config: SyntaxPresetConfig): ApplyContext {
+        val preset = SyntaxPreset.fromName(config.selectedPreset)
+        val subordinatePreset = SyntaxPreset.fromName(config.subordinatePreset)
+        val effectivePreset = enforceCustomGate(preset)
+        val effectiveReadabilityOptions = enforceReadabilityGate(config.readabilityOptions)
+        return ApplyContext(
+            preset = effectivePreset,
+            customOverrides = config.customOverrides,
+            subordinatePreset = subordinatePreset,
+            customStyles = config.customStyles,
+            readabilityOptions = effectiveReadabilityOptions,
+            customEmphasis = config.customEmphasis,
+            ignorePluginSyntaxColorsEnabled =
+                AyuIslandsSettings.getInstance().state.ignorePluginSyntaxColorsEnabled,
+        )
+    }
+
+    private fun applyChanges(
+        context: ApplyContext,
+        changes: List<SyntaxSchemeChange>,
+        writer: SyntaxSchemeWriter,
+        journal: SyntaxSchemeJournal?,
+    ): SyntaxTransactionResult {
         val previousFonts = replacementFonts
         replacementFonts = context.replacementFonts()
-        when (val result = SyntaxSchemeTransaction(IdeSyntaxSchemeWriter(), ::publishSchemeChange).apply(changes)) {
-            is SyntaxTransactionResult.Applied -> Unit
+        val result = SyntaxSchemeTransaction(writer, ::publishSchemeChange).apply(changes, journal)
+        when (result) {
+            is SyntaxTransactionResult.Applied -> return result
             is SyntaxTransactionResult.Failed -> {
                 replacementFonts = previousFonts
-                result.rollbackFailures.forEach { failure ->
-                    log.warn("Failed to roll back syntax scheme transaction", failure)
-                }
-                throw result.cause
+                return result
             }
         }
+    }
+
+    private fun schemeChange(
+        scheme: EditorColorsScheme,
+        label: String,
+        variantTag: String,
+        context: ApplyContext,
+    ): SyntaxSchemeChange {
+        val computed = computeSchemeAttributes(scheme, variantTag, context)
+        return SyntaxSchemeChange(
+            scheme = scheme,
+            label = label,
+            attributes = applyIgnorePluginPreference(computed.attributes, context, variantTag),
+            materializedKeys = computed.materializedKeys,
+        )
     }
 
     fun reapplyForActiveLaf() {
@@ -494,6 +545,30 @@ class SyntaxIntensityService {
 
     private fun publishSchemeChange() {
         EditorSchemeChange.publish()
+    }
+
+    internal inner class SyntaxRuntimeSession(
+        private val writer: SyntaxSchemeWriter = IdeSyntaxSchemeWriter(),
+        private val journal: SyntaxSchemeJournal = SyntaxSchemeJournal(),
+    ) {
+        private var fontCheckpoint = replacementFonts
+
+        fun preview(config: SyntaxPresetConfig): SyntaxTransactionResult =
+            this@SyntaxIntensityService.preview(config, writer, journal)
+
+        fun materialize(config: SyntaxPresetConfig): SyntaxTransactionResult =
+            this@SyntaxIntensityService.materialize(config, writer, journal)
+
+        fun restore(): SyntaxTransactionResult {
+            val result = journal.restore(writer, EditorSchemeChange::publish)
+            if (result is SyntaxTransactionResult.Applied) replacementFonts = fontCheckpoint
+            return result
+        }
+
+        fun advance() {
+            journal.advance(writer)
+            fontCheckpoint = replacementFonts
+        }
     }
 
     companion object {
