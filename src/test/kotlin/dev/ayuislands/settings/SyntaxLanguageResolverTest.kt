@@ -4,6 +4,7 @@ import com.intellij.lang.Language
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.LanguageFileType
 import com.intellij.openapi.project.Project
+import dev.ayuislands.accent.ProjectLanguageVerdict
 import io.mockk.every
 import io.mockk.mockk
 import kotlin.test.Test
@@ -14,7 +15,11 @@ class SyntaxLanguageResolverTest {
 
     @Test
     fun `active supported file language wins over persisted fallback`() {
-        val resolver = SyntaxLanguageResolver(selectedFileType = { languageFileType("Swift") })
+        val resolver =
+            SyntaxLanguageResolver(
+                selectedFileType = { languageFileType("Swift") },
+                projectVerdict = { error("Project verdict must not be read for a supported active file") },
+            )
 
         val selected = resolver.resolve(project, fallbackLanguage = "Kotlin")
 
@@ -42,6 +47,24 @@ class SyntaxLanguageResolverTest {
     @Test
     fun `active catalog language survives unavailable native file type`() {
         val resolver = SyntaxLanguageResolver(selectedFileType = { languageFileType("Swift") })
+
+        val selected = resolver.resolve(project, fallbackLanguage = "Kotlin")
+
+        assertEquals("Swift", selected)
+    }
+
+    @Test
+    fun `cached dominant project language fills an unavailable active editor`() {
+        val resolver =
+            SyntaxLanguageResolver(
+                selectedFileType = { null },
+                projectVerdict = {
+                    ProjectLanguageVerdict.Detected(
+                        languageId = "noctuleswift",
+                        weights = mapOf("noctuleswift" to 1_000L),
+                    )
+                },
+            )
 
         val selected = resolver.resolve(project, fallbackLanguage = "Kotlin")
 
