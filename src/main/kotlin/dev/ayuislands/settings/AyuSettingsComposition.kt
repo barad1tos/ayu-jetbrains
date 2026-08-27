@@ -43,7 +43,7 @@ internal class AyuSettingsComposition(
                                 this,
                                 activeVariant,
                                 openContext.project,
-                                openContext.activeFileType,
+                                openContext.activeFile,
                             )
                         },
                     "VCS" to

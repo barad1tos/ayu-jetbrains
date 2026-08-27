@@ -1,6 +1,5 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.project.Project
 import com.intellij.ui.InplaceButton
@@ -47,7 +46,7 @@ import javax.swing.JSlider
  */
 @Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
 class AyuIslandsSyntaxPanel internal constructor(
-    resolveLanguage: (Project?, FileType?, String) -> String = SyntaxLanguageResolver()::resolve,
+    resolveLanguage: (Project?, ActiveFileContext?, String) -> String = SyntaxLanguageResolver()::resolve,
     subscribeProjectLanguage: (Project, () -> Unit) -> (() -> Unit) = ::observeProjectLanguage,
 ) : SettingsParticipant {
     private val contextLanguage = ContextLanguageController(resolveLanguage, subscribeProjectLanguage)
@@ -130,11 +129,11 @@ class AyuIslandsSyntaxPanel internal constructor(
         styleControls.clear()
     }
 
-    fun buildPanel(
+    internal fun buildPanel(
         panel: Panel,
         variant: AyuVariant,
         contextProject: Project? = null,
-        contextFileType: FileType? = null,
+        contextFile: ActiveFileContext? = null,
     ) {
         this.variant = variant
         capabilityController?.dispose()
@@ -146,7 +145,7 @@ class AyuIslandsSyntaxPanel internal constructor(
         currentLanguage =
             contextLanguage.start(
                 project = contextProject,
-                fileType = contextFileType,
+                activeFile = contextFile,
                 fallback = DEFAULT_PREVIEW_LANGUAGE,
                 applyDetected = ::applyDetectedLanguage,
             )

@@ -3,15 +3,41 @@ package dev.ayuislands.settings
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileTypes.FileType
+import com.intellij.openapi.fileTypes.LanguageFileType
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
 
-internal data class SettingsOpenContext(
-    val project: Project?,
-    val activeFileType: FileType?,
+internal data class ActiveFileContext(
+    val fileName: String,
+    val fileTypeName: String,
+    val languageIds: Set<String>,
 ) {
     companion object {
-        val EMPTY = SettingsOpenContext(project = null, activeFileType = null)
+        fun capture(
+            fileName: String,
+            fileType: FileType,
+        ): ActiveFileContext {
+            val languageIds =
+                (fileType as? LanguageFileType)
+                    ?.language
+                    ?.let { language ->
+                        setOf(language.id, language.displayName).filterTo(linkedSetOf(), String::isNotBlank)
+                    }.orEmpty()
+            return ActiveFileContext(
+                fileName = fileName,
+                fileTypeName = fileType.name,
+                languageIds = languageIds,
+            )
+        }
+    }
+}
+
+internal data class SettingsOpenContext(
+    val project: Project?,
+    val activeFile: ActiveFileContext?,
+) {
+    companion object {
+        val EMPTY = SettingsOpenContext(project = null, activeFile = null)
     }
 }
 
@@ -20,31 +46,31 @@ internal class SettingsOpenContextSource(
     private val focusedEditorContext: (Project) -> SettingsOpenContext? = { project ->
         FocusedEditorContext.getInstance().get(project)
     },
-    private val liveFileType: (Project) -> FileType? = ::readSelectedFileType,
+    private val liveFileContext: (Project) -> ActiveFileContext? = ::selectedFileContext,
 ) {
     fun capture(): SettingsOpenContext {
         val project = focusedProject()
         val focusedContext = project?.let(focusedEditorContext)
-        val liveType = if (focusedContext == null) project?.let(liveFileType) else null
+        val liveContext = if (focusedContext == null) project?.let(liveFileContext) else null
         val source = if (focusedContext != null) "focused-editor" else "live-manager"
-        val activeFileType = focusedContext?.activeFileType ?: liveType
+        val activeFile = focusedContext?.activeFile ?: liveContext
         LOG.info(
             "[SYNTAX-CONTEXT] settings-open project=${project?.name}, " +
-                "source=$source, fileType=${activeFileType?.name}",
+                "source=$source, fileType=${activeFile?.fileTypeName}",
         )
         return SettingsOpenContext(
             project = project,
-            activeFileType = activeFileType,
+            activeFile = activeFile,
         )
     }
 
     private companion object {
         private val LOG = logger<SettingsOpenContextSource>()
 
-        fun readSelectedFileType(project: Project): FileType? {
+        fun selectedFileContext(project: Project): ActiveFileContext? {
             val manager = FileEditorManager.getInstance(project)
-            return manager.selectedTextEditor?.virtualFile?.fileType
-                ?: manager.selectedFiles.firstOrNull()?.fileType
+            val file = manager.selectedTextEditor?.virtualFile ?: manager.selectedFiles.firstOrNull()
+            return file?.let { activeFile -> ActiveFileContext.capture(activeFile.name, activeFile.fileType) }
         }
     }
 }

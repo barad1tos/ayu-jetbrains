@@ -21,7 +21,16 @@ internal class SyntaxCapabilityController(
 
     fun selectLanguage(languageId: String) {
         if (probe == null) return
-        handle(SyntaxCapabilityEvent.SelectLanguage(languageId))
+        val specification =
+            checkNotNull(SyntaxLanguageRegistry.findByStorageId(languageId)) {
+                "Unknown syntax capability language '$languageId'"
+            }
+        val key =
+            SyntaxCapabilityKey(
+                languageId = languageId,
+                profileIds = specification.nativeProfiles.mapTo(linkedSetOf()) { it.id },
+            )
+        handle(SyntaxCapabilityEvent.SelectLanguage(key))
     }
 
     fun performRecoveryAction() {
@@ -59,7 +68,8 @@ internal class SyntaxCapabilityController(
             SyntaxCapabilityEffect.CancelProbe -> cancelProbe()
             is SyntaxCapabilityEffect.StartProbe -> startProbe(effect.languageId, effect.generation)
             SyntaxCapabilityEffect.Render -> rendered(model.state)
-            is SyntaxCapabilityEffect.OpenPluginSettings -> openPluginSettings(effect.requirement)
+            is SyntaxCapabilityEffect.OpenPluginSettings ->
+                openPluginSettings(effect.languageId, effect.requirement)
             SyntaxCapabilityEffect.OpenHighlightingSettings -> openHighlightingSettings()
             SyntaxCapabilityEffect.ClearRenderer -> rendered(null)
         }
@@ -89,8 +99,11 @@ internal class SyntaxCapabilityController(
         Disposer.dispose(task)
     }
 
-    private fun openPluginSettings(requirement: PluginRequirement?) {
-        marketplace.open(requirement)
+    private fun openPluginSettings(
+        languageId: String,
+        requirement: PluginRequirement?,
+    ) {
+        marketplace.open(languageId, requirement)
     }
 
     private fun openHighlightingSettings() {

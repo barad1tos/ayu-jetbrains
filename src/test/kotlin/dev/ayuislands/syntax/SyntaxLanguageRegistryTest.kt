@@ -186,9 +186,73 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
-    fun `supportedLanguages returns at least 26 LANGUAGE entries`() {
-        val supported = SyntaxLanguageRegistry.supportedLanguages()
-        assertTrue(supported.size >= 26, "expected >=26 LANGUAGE entries, got ${supported.size}")
+    fun `supportedLanguages preserves the advertised language contract`() {
+        val supported = SyntaxLanguageRegistry.supportedLanguages().mapTo(linkedSetOf()) { it.displayName }
+
+        assertEquals(
+            setOf(
+                "Angular",
+                "Apple plist",
+                "Bash",
+                "C# (ReSharper)",
+                "CodeQL",
+                "CoffeeScript",
+                "Cron expression",
+                "CSS",
+                "Dart",
+                "Django",
+                "Docker",
+                "dotenv",
+                "DQL",
+                "Drools",
+                "EditorConfig",
+                "Erlang",
+                "FreeMarker",
+                "Gherkin",
+                "GitLab CI",
+                "Go",
+                "GraphQL",
+                "Groovy",
+                "HAML",
+                "HCL",
+                "HTML",
+                "HTTP client",
+                "Ignore files",
+                "Java",
+                "JavaScript",
+                "JSON",
+                "JSONPath",
+                "Kotlin",
+                "Lua",
+                "Makefile",
+                "Markdown",
+                "Nginx",
+                "Objective-C",
+                "PHP",
+                "PowerShell",
+                "Properties files",
+                "Protobuf",
+                "Protobuf text",
+                "Puppet",
+                "Python",
+                "Qute",
+                "RegExp",
+                "Ruby",
+                "Rust",
+                "Sass",
+                "Scala",
+                "Slim",
+                "Swift",
+                "TIL",
+                "TypeScript",
+                "Velocity",
+                "Vue",
+                "Windows Batch",
+                "XML",
+                "YAML",
+            ),
+            supported,
+        )
     }
 
     @Test

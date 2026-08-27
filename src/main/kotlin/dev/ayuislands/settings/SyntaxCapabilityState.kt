@@ -60,9 +60,14 @@ internal sealed interface SyntaxCapabilityState {
     ) : SyntaxCapabilityState
 }
 
+internal data class SyntaxCapabilityKey(
+    val languageId: String,
+    val profileIds: Set<String>,
+)
+
 internal sealed interface SyntaxCapabilityEvent {
     data class SelectLanguage(
-        val languageId: String,
+        val key: SyntaxCapabilityKey,
     ) : SyntaxCapabilityEvent
 
     sealed interface ProbeCompletion : SyntaxCapabilityEvent {
@@ -117,6 +122,7 @@ internal sealed interface SyntaxCapabilityEffect {
     data object Render : SyntaxCapabilityEffect
 
     data class OpenPluginSettings(
+        val languageId: String,
         val requirement: PluginRequirement?,
     ) : SyntaxCapabilityEffect
 
@@ -128,7 +134,8 @@ internal sealed interface SyntaxCapabilityEffect {
 internal data class SyntaxCapabilityModel(
     val state: SyntaxCapabilityState? = null,
     val generation: Long = 0,
-    val confirmedCache: Map<String, SyntaxCapabilityEvidence> = emptyMap(),
+    val activeKey: SyntaxCapabilityKey? = null,
+    val terminalCache: Map<SyntaxCapabilityKey, SyntaxCapabilityState> = emptyMap(),
     val isHighlightingRecheckArmed: Boolean = false,
     val isClosed: Boolean = false,
 ) {

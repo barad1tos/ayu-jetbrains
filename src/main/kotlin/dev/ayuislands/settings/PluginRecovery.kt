@@ -5,6 +5,8 @@ import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.syntax.LanguageSpecification
 import dev.ayuislands.syntax.PluginRequirement
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 internal fun interface PluginAvailability {
     fun isLoaded(pluginId: String): Boolean
@@ -44,11 +46,17 @@ internal class PluginRecoveryResolver(
 internal class PluginMarketplace(
     private val browse: (String) -> Unit = { url -> BrowserUtil.browse(url) },
 ) {
-    fun open(requirement: PluginRequirement?) {
-        browse(requirement?.marketplaceUrl ?: MARKETPLACE_URL)
+    fun open(
+        languageId: String,
+        requirement: PluginRequirement?,
+    ) {
+        browse(requirement?.marketplaceUrl ?: searchUrl(languageId))
     }
 
     private companion object {
-        private const val MARKETPLACE_URL = "https://plugins.jetbrains.com/"
+        private const val MARKETPLACE_SEARCH_URL = "https://plugins.jetbrains.com/search?search="
+
+        private fun searchUrl(languageId: String): String =
+            MARKETPLACE_SEARCH_URL + URLEncoder.encode(languageId, StandardCharsets.UTF_8)
     }
 }

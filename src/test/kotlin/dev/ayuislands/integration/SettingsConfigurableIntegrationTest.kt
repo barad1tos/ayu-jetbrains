@@ -111,7 +111,7 @@ class SettingsConfigurableIntegrationTest : BasePlatformTestCase() {
         val configurable =
             AyuIslandsConfigurable {
                 events += "capture"
-                SettingsOpenContext(project = null, activeFileType = null)
+                SettingsOpenContext(project = null, activeFile = null)
             }
         try {
             configurable.createPanel()

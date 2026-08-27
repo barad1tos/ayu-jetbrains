@@ -1,12 +1,12 @@
 package dev.ayuislands.settings
 
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import dev.ayuislands.accent.ProjectLanguageDetectionListener
 
 internal class ContextLanguageController(
-    private val resolve: (Project?, FileType?, String) -> String,
+    private val resolve: (Project?, ActiveFileContext?, String) -> String,
     private val subscribe: (Project, () -> Unit) -> (() -> Unit),
 ) {
     private var stopUpdates: (() -> Unit)? = null
@@ -16,13 +16,13 @@ internal class ContextLanguageController(
 
     fun start(
         project: Project?,
-        fileType: FileType?,
+        activeFile: ActiveFileContext?,
         fallback: String,
         applyDetected: (String) -> Unit,
     ): String {
         dispose()
         hasUserSelection = false
-        if (project != null && fileType == null) {
+        if (project != null && activeFile == null) {
             stopUpdates =
                 subscribe(project) {
                     if (hasUserSelection) return@subscribe
@@ -41,10 +41,10 @@ internal class ContextLanguageController(
                     }
                 }
         }
-        currentLanguage = resolve(project, fileType, fallback)
+        currentLanguage = resolve(project, activeFile, fallback)
         LOG.info(
             "[SYNTAX-CONTEXT] language-start project=${project?.name}, " +
-                "fileType=${fileType?.name}, selected=$currentLanguage",
+                "fileType=${activeFile?.fileTypeName}, selected=$currentLanguage",
         )
         return currentLanguage
     }
@@ -68,10 +68,11 @@ internal fun observeProjectLanguage(
     project: Project,
     refresh: () -> Unit,
 ): () -> Unit {
-    val connection = project.messageBus.connect()
+    val owner = Disposer.newDisposable("Ayu project language observer")
+    val connection = project.messageBus.connect(owner)
     connection.subscribe(
         ProjectLanguageDetectionListener.TOPIC,
         ProjectLanguageDetectionListener { refresh() },
     )
-    return connection::disconnect
+    return { Disposer.dispose(owner) }
 }

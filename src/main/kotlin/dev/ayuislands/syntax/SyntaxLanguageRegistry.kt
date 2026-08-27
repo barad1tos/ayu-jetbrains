@@ -18,6 +18,8 @@ data class NativeProfile(
     val id: String,
     val fileTypeNames: Set<String>,
     val languageIds: Set<String>,
+    val exactFileNames: Set<String>,
+    val extensions: Set<String>,
 )
 
 data class PreviewBundle(
@@ -259,6 +261,8 @@ object SyntaxLanguageRegistry {
                             id = profileId,
                             fileTypeNames = nativeFileTypeNames(language.tag, preview.standardFileTypeName),
                             languageIds = aliases,
+                            exactFileNames = nativeFileNames(language.displayName, preview.fileName),
+                            extensions = nativeExtensions(language.displayName, preview.defaultExtension),
                         ),
                     ),
                 preview =
@@ -287,6 +291,28 @@ object SyntaxLanguageRegistry {
         buildSet {
             add(standardFileTypeName)
             if (languageId == SWIFT_STORAGE_ID) add(NOCTULE_SWIFT_ALIAS)
+        }
+
+    private fun nativeFileNames(
+        language: String,
+        previewFileName: String,
+    ): Set<String> =
+        if (language in exactNameLanguages) {
+            setOf(previewFileName)
+        } else {
+            emptySet()
+        }
+
+    private fun nativeExtensions(
+        language: String,
+        defaultExtension: String,
+    ): Set<String> =
+        buildSet {
+            add(defaultExtension)
+            when (language) {
+                "HCL" -> add("tf")
+                "YAML" -> add("yml")
+            }
         }
 
     private fun pluginRequirement(languageId: String): PluginRequirement? =
@@ -485,4 +511,17 @@ object SyntaxLanguageRegistry {
         "https://plugins.jetbrains.com/plugin/22150-noctule-the-swift-ide"
     private const val BASH_STORAGE_ID = "Bash"
     private const val SHELL_SCRIPT_ALIAS = "Shell Script"
+
+    private val exactNameLanguages =
+        setOf(
+            "Apple plist",
+            "Cron expression",
+            "Docker",
+            "EditorConfig",
+            "GitLab CI",
+            "Ignore files",
+            "Makefile",
+            "Nginx",
+            "dotenv",
+        )
 }

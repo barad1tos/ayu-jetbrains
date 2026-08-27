@@ -17,9 +17,9 @@ internal class FocusedEditorCapture {
     private val focusedEditor = AtomicReference<SettingsOpenContext>()
 
     fun record(context: SettingsOpenContext): Boolean {
-        if (context.project == null || context.activeFileType == null) return false
+        if (context.project == null || context.activeFile == null) return false
         val previous = focusedEditor.getAndSet(context)
-        return previous?.project !== context.project || previous.activeFileType != context.activeFileType
+        return previous?.project !== context.project || previous.activeFile != context.activeFile
     }
 
     fun get(project: Project): SettingsOpenContext? =
@@ -47,7 +47,7 @@ internal class FocusedEditorContext(
                     if (capture.record(context)) {
                         LOG.info(
                             "[SYNTAX-CONTEXT] focused-editor project=${context.project?.name}, " +
-                                "fileType=${context.activeFileType?.name}",
+                                "fileType=${context.activeFile?.fileTypeName}",
                         )
                     }
                 }
@@ -69,7 +69,7 @@ internal class FocusedEditorContext(
             val editor = dataContext.getData(CommonDataKeys.EDITOR) ?: return null
             val project = editor.project ?: dataContext.getData(CommonDataKeys.PROJECT) ?: return null
             val activeFile = FileDocumentManager.getInstance().getFile(editor.document) ?: return null
-            return SettingsOpenContext(project, activeFile.fileType)
+            return SettingsOpenContext(project, ActiveFileContext.capture(activeFile.name, activeFile.fileType))
         }
     }
 }

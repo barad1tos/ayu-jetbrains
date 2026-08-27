@@ -16,7 +16,11 @@ class AyuSettingsCompositionTest {
         val session = SettingsSession()
         val panels = settingsPanels()
         val contextProject = mockk<Project>()
-        val openContext = SettingsOpenContext(contextProject, activeFileType = mockk())
+        val openContext =
+            SettingsOpenContext(
+                contextProject,
+                activeFile = ActiveFileContext("Preview.kt", "Kotlin", setOf("kotlin", "Kotlin")),
+            )
         val composition =
             AyuSettingsComposition(
                 AyuVariant.MIRAGE,
@@ -42,7 +46,7 @@ class AyuSettingsCompositionTest {
                 any(),
                 AyuVariant.MIRAGE,
                 openContext.project,
-                openContext.activeFileType,
+                openContext.activeFile,
             )
             panels.vcs.buildPanel(any(), AyuVariant.MIRAGE)
             panels.workspace.buildPanel(any())

@@ -1,11 +1,8 @@
 package dev.ayuislands.settings
 
-import com.intellij.lang.Language
-import com.intellij.openapi.fileTypes.FileType
-import com.intellij.openapi.fileTypes.LanguageFileType
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.ProjectLanguageVerdict
-import io.mockk.every
+import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import io.mockk.mockk
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,6 +10,10 @@ import kotlin.test.assertTrue
 
 class SyntaxLanguageResolverTest {
     private val project = mockk<Project>(relaxed = true)
+    private val coldProjectResolver =
+        SyntaxLanguageResolver(
+            projectVerdict = { _, _ -> ProjectLanguageVerdict.Cold },
+        )
 
     @Test
     fun `active supported file language wins over persisted fallback`() {
@@ -24,7 +25,7 @@ class SyntaxLanguageResolverTest {
         val selected =
             resolver.resolve(
                 project = project,
-                activeFileType = languageFileType("Swift"),
+                activeFile = activeFile(languageId = "Swift"),
                 fallbackLanguage = "Kotlin",
             )
 
@@ -38,7 +39,7 @@ class SyntaxLanguageResolverTest {
         val selected =
             resolver.resolve(
                 project = project,
-                activeFileType = languageFileType("NoctuleSwift"),
+                activeFile = activeFile(languageId = "NoctuleSwift"),
                 fallbackLanguage = "Kotlin",
             )
 
@@ -52,7 +53,7 @@ class SyntaxLanguageResolverTest {
         val selected =
             resolver.resolve(
                 project = project,
-                activeFileType = languageFileType("Shell Script"),
+                activeFile = activeFile(languageId = "Shell Script"),
                 fallbackLanguage = "Kotlin",
             )
 
@@ -66,11 +67,91 @@ class SyntaxLanguageResolverTest {
         val selected =
             resolver.resolve(
                 project = project,
-                activeFileType = languageFileType("Swift"),
+                activeFile = activeFile(languageId = "Swift"),
                 fallbackLanguage = "Kotlin",
             )
 
         assertEquals("Swift", selected)
+    }
+
+    @Test
+    fun `special file name wins over a generic host language`() {
+        val selected =
+            coldProjectResolver.resolve(
+                project = project,
+                activeFile = activeFile(".gitlab-ci.yml", "YAML", "YAML"),
+                fallbackLanguage = "Kotlin",
+            )
+
+        assertEquals("GitLab CI", selected)
+    }
+
+    @Test
+    fun `native file type selects ReSharper C sharp without a matching language id`() {
+        val selected =
+            coldProjectResolver.resolve(
+                project = project,
+                activeFile = activeFile("Program.cs", "C#", "CSharp"),
+                fallbackLanguage = "Kotlin",
+            )
+
+        assertEquals("C# (ReSharper)", selected)
+    }
+
+    @Test
+    fun `unique extension selects a language when native identities are unavailable`() {
+        val selected =
+            coldProjectResolver.resolve(
+                project = project,
+                activeFile = activeFile("Info.plist", "Plain text"),
+                fallbackLanguage = "Kotlin",
+            )
+
+        assertEquals("Apple plist", selected)
+    }
+
+    @Test
+    fun `ambiguous Terraform identity preserves the persisted fallback`() {
+        var projectReads = 0
+        val resolver =
+            SyntaxLanguageResolver(
+                projectVerdict = { _, _ ->
+                    projectReads += 1
+                    ProjectLanguageVerdict.Cold
+                },
+            )
+
+        val selected =
+            resolver.resolve(
+                project = project,
+                activeFile = activeFile("main.tf", "HCL"),
+                fallbackLanguage = "Kotlin",
+            )
+
+        assertEquals("Kotlin", selected)
+        assertEquals(1, projectReads)
+    }
+
+    @Test
+    fun `every advertised language resolves from its declared native identity`() {
+        SyntaxLanguageRegistry.specifications().forEach { specification ->
+            val profile = specification.nativeProfiles.single()
+            val preview = specification.preview.files.single()
+
+            val selected =
+                coldProjectResolver.resolve(
+                    project = project,
+                    activeFile =
+                        activeFile(
+                            preview.fileName,
+                            profile.fileTypeNames.first(),
+                            *profile.languageIds.toTypedArray(),
+                        ),
+                    fallbackLanguage = "Kotlin",
+                )
+
+            assertEquals(specification.displayName, selected, specification.displayName)
+        }
     }
 
     @Test
@@ -85,7 +166,7 @@ class SyntaxLanguageResolverTest {
                 },
             )
 
-        val selected = resolver.resolve(project, activeFileType = null, fallbackLanguage = "Kotlin")
+        val selected = resolver.resolve(project, activeFile = null, fallbackLanguage = "Kotlin")
 
         assertEquals("Swift", selected)
     }
@@ -101,7 +182,7 @@ class SyntaxLanguageResolverTest {
                 },
             )
 
-        resolver.resolve(project, activeFileType = null, fallbackLanguage = "Kotlin")
+        resolver.resolve(project, activeFile = null, fallbackLanguage = "Kotlin")
 
         assertTrue(shouldWarmCache)
     }
@@ -116,7 +197,7 @@ class SyntaxLanguageResolverTest {
         val selected =
             resolver.resolve(
                 project = project,
-                activeFileType = languageFileType("UnsupportedLanguage"),
+                activeFile = activeFile(languageId = "UnsupportedLanguage"),
                 fallbackLanguage = "Swift",
             )
 
@@ -127,18 +208,21 @@ class SyntaxLanguageResolverTest {
     fun `missing project preserves persisted catalog fallback without reading an editor`() {
         val resolver = SyntaxLanguageResolver()
 
-        val selected = resolver.resolve(project = null, activeFileType = null, fallbackLanguage = "Kotlin")
+        val selected = resolver.resolve(project = null, activeFile = null, fallbackLanguage = "Kotlin")
 
         assertEquals("Kotlin", selected)
     }
 
-    private fun languageFileType(languageId: String): FileType {
-        val language = mockk<Language>()
-        every { language.id } returns languageId
-        every { language.displayName } returns languageId
-        return mockk<LanguageFileType> {
-            every { this@mockk.language } returns language
-            every { name } returns languageId
-        }
-    }
+    private fun activeFile(languageId: String): ActiveFileContext = activeFile("Preview.swift", languageId, languageId)
+
+    private fun activeFile(
+        fileName: String,
+        fileTypeName: String,
+        vararg languageIds: String,
+    ): ActiveFileContext =
+        ActiveFileContext(
+            fileName = fileName,
+            fileTypeName = fileTypeName,
+            languageIds = languageIds.toSet(),
+        )
 }

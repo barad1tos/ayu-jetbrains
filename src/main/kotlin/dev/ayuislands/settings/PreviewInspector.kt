@@ -2,19 +2,13 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileTypes.FileType
-import com.intellij.openapi.fileTypes.FileTypeManager
-import com.intellij.openapi.fileTypes.LanguageFileType
-import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory
-import com.intellij.openapi.fileTypes.UnknownFileType
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.LightVirtualFile
 import dev.ayuislands.syntax.LanguageSpecification
 import dev.ayuislands.syntax.NativeProfile
 import dev.ayuislands.syntax.PreviewFileSpec
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.coroutines.cancellation.CancellationException
 
 internal fun interface PreviewInspector {
     fun inspect(
@@ -26,6 +20,7 @@ internal fun interface PreviewInspector {
 internal class IdePreviewInspector(
     private val project: Project,
     private val recovery: PluginRecoveryResolver = PluginRecoveryResolver(),
+    private val previewResolver: NativePreviewResolver = NativePreviewResolver(),
 ) : PreviewInspector {
     private val warnedFailures = ConcurrentHashMap.newKeySet<String>()
 
@@ -36,7 +31,7 @@ internal class IdePreviewInspector(
         try {
             inspectBundle(specification, generation)
         } catch (failure: RuntimeException) {
-            propagateProbeCancellation(failure)
+            rethrowPreviewCancellation(failure)
             warnOnce(specification.storageId, failure)
             SyntaxProbeResult.Deferred(
                 languageId = specification.storageId,
@@ -53,8 +48,11 @@ internal class IdePreviewInspector(
         for (previewFile in specification.preview.files) {
             val profile = specification.profile(previewFile.profileId)
             val fileType =
-                resolveFileType(previewFile, profile)
-                    ?: return recovery.unavailable(specification, generation)
+                when (val resolution = previewResolver.resolve(previewFile.fileName, profile)) {
+                    is NativePreviewResolution.Resolved -> resolution.fileType
+                    is NativePreviewResolution.LookupFailed -> throw resolution.failure
+                    is NativePreviewResolution.Unavailable -> return recovery.unavailable(specification, generation)
+                }
             val code =
                 loadPreview(previewFile.resourceName)
                     ?: error("Missing bundled syntax preview '${previewFile.resourceName}'")
@@ -82,25 +80,6 @@ internal class IdePreviewInspector(
         )
     }
 
-    private fun resolveFileType(
-        previewFile: PreviewFileSpec,
-        profile: NativeProfile,
-    ): FileType? {
-        val fileType = FileTypeManager.getInstance().getFileTypeByFileName(previewFile.fileName)
-        if (fileType === PlainTextFileType.INSTANCE || fileType === UnknownFileType.INSTANCE) return null
-        if (fileType !is LanguageFileType) return null
-        if (profile.fileTypeNames.none { it.equals(fileType.name, ignoreCase = true) }) return null
-        val nativeLanguageNames = setOf(fileType.language.id, fileType.language.displayName)
-        val matchesLanguage =
-            profile.languageIds.any { expected ->
-                nativeLanguageNames.any { it.equals(expected, ignoreCase = true) }
-            }
-        if (!matchesLanguage) {
-            return null
-        }
-        return fileType
-    }
-
     private fun loadPreview(resourceName: String): String? {
         val path = "$PREVIEW_RESOURCE_ROOT/$resourceName"
         val stream = IdePreviewInspector::class.java.getResourceAsStream(path) ?: return null
@@ -126,8 +105,4 @@ internal class IdePreviewInspector(
         private const val PREVIEW_RESOURCE_ROOT = "/dev/ayuislands/settings/syntax-preview"
         private const val TEMPORARY_FAILURE_MESSAGE = "Native syntax analysis is temporarily unavailable. Retry."
     }
-}
-
-private fun propagateProbeCancellation(failure: RuntimeException) {
-    if (failure is ProcessCanceledException || failure is CancellationException) throw failure
 }

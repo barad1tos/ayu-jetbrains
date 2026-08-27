@@ -7,7 +7,7 @@ internal object SyntaxCapabilityReducer {
     ): SyntaxCapabilityTransition {
         if (model.isClosed) return SyntaxCapabilityTransition(model)
         return when (event) {
-            is SyntaxCapabilityEvent.SelectLanguage -> selectLanguage(model, event.languageId)
+            is SyntaxCapabilityEvent.SelectLanguage -> selectLanguage(model, event.key)
             is SyntaxCapabilityEvent.ProbeConfirmed -> confirm(model, event)
             is SyntaxCapabilityEvent.ProbeMissingPlugin -> markPluginUnavailable(model, event)
             is SyntaxCapabilityEvent.ProbeDeferred -> defer(model, event)
@@ -22,26 +22,22 @@ internal object SyntaxCapabilityReducer {
 
     private fun selectLanguage(
         model: SyntaxCapabilityModel,
-        languageId: String,
+        key: SyntaxCapabilityKey,
     ): SyntaxCapabilityTransition {
         val generation = model.generation + 1
-        val cached = model.confirmedCache[languageId]
-        val nextState =
-            if (cached == null) {
-                SyntaxCapabilityState.Checking(languageId, generation)
-            } else {
-                SyntaxCapabilityState.Confirmed(languageId, cached)
-            }
+        val cached = model.terminalCache[key]
+        val nextState = cached ?: SyntaxCapabilityState.Checking(key.languageId, generation)
         val effects =
             buildList {
                 add(SyntaxCapabilityEffect.CancelProbe)
-                if (cached == null) add(SyntaxCapabilityEffect.StartProbe(languageId, generation))
+                if (cached == null) add(SyntaxCapabilityEffect.StartProbe(key.languageId, generation))
                 add(SyntaxCapabilityEffect.Render)
             }
         return SyntaxCapabilityTransition(
             model.copy(
                 state = nextState,
                 generation = generation,
+                activeKey = key,
                 isHighlightingRecheckArmed = false,
             ),
             effects,
@@ -55,13 +51,8 @@ internal object SyntaxCapabilityReducer {
         if (!model.accepts(event) || event.evidence.languageId != event.languageId) {
             return SyntaxCapabilityTransition(model)
         }
-        return SyntaxCapabilityTransition(
-            model.copy(
-                state = SyntaxCapabilityState.Confirmed(event.languageId, event.evidence),
-                confirmedCache = model.confirmedCache + (event.languageId to event.evidence),
-            ),
-            listOf(SyntaxCapabilityEffect.Render),
-        )
+        val state = SyntaxCapabilityState.Confirmed(event.languageId, event.evidence)
+        return completeProbe(model, state, isCacheable = true)
     }
 
     private fun markPluginUnavailable(
@@ -72,6 +63,7 @@ internal object SyntaxCapabilityReducer {
         return completeProbe(
             model,
             SyntaxCapabilityState.PluginUnavailable(event.languageId, event.recovery),
+            isCacheable = true,
         )
     }
 
@@ -83,6 +75,7 @@ internal object SyntaxCapabilityReducer {
         return completeProbe(
             model,
             SyntaxCapabilityState.TemporarilyUnavailable(event.languageId, event.reason),
+            isCacheable = false,
         )
     }
 
@@ -98,6 +91,7 @@ internal object SyntaxCapabilityReducer {
                 confirmedCells = event.confirmedCells,
                 mismatches = event.mismatches,
             ),
+            isCacheable = true,
         )
     }
 
@@ -109,7 +103,7 @@ internal object SyntaxCapabilityReducer {
         ) {
             return SyntaxCapabilityTransition(model)
         }
-        return startProbe(model, current.languageId, invalidateCache = false)
+        return startProbe(model, current.languageId)
     }
 
     private fun openPluginSettings(model: SyntaxCapabilityModel): SyntaxCapabilityTransition {
@@ -118,7 +112,12 @@ internal object SyntaxCapabilityReducer {
                 ?: return SyntaxCapabilityTransition(model)
         return SyntaxCapabilityTransition(
             model,
-            listOf(SyntaxCapabilityEffect.OpenPluginSettings(current.recovery.requirement)),
+            listOf(
+                SyntaxCapabilityEffect.OpenPluginSettings(
+                    languageId = current.languageId,
+                    requirement = current.recovery.requirement,
+                ),
+            ),
         )
     }
 
@@ -138,21 +137,19 @@ internal object SyntaxCapabilityReducer {
             model.state as? SyntaxCapabilityState.Confirmed
                 ?: return SyntaxCapabilityTransition(model)
         if (!model.isHighlightingRecheckArmed) return SyntaxCapabilityTransition(model)
-        return startProbe(model, current.languageId, invalidateCache = true)
+        return startProbe(model, current.languageId)
     }
 
     private fun startProbe(
         model: SyntaxCapabilityModel,
         languageId: String,
-        invalidateCache: Boolean,
     ): SyntaxCapabilityTransition {
         val generation = model.generation + 1
         return SyntaxCapabilityTransition(
             model.copy(
                 state = SyntaxCapabilityState.Checking(languageId, generation),
                 generation = generation,
-                confirmedCache =
-                    if (invalidateCache) model.confirmedCache - languageId else model.confirmedCache,
+                terminalCache = model.activeKey?.let(model.terminalCache::minus) ?: model.terminalCache,
                 isHighlightingRecheckArmed = false,
             ),
             listOf(
@@ -167,7 +164,8 @@ internal object SyntaxCapabilityReducer {
         SyntaxCapabilityTransition(
             model.copy(
                 state = null,
-                confirmedCache = emptyMap(),
+                activeKey = null,
+                terminalCache = emptyMap(),
                 isHighlightingRecheckArmed = false,
                 isClosed = true,
             ),
@@ -182,9 +180,18 @@ internal object SyntaxCapabilityReducer {
     private fun completeProbe(
         model: SyntaxCapabilityModel,
         nextState: SyntaxCapabilityState,
+        isCacheable: Boolean,
     ): SyntaxCapabilityTransition =
         SyntaxCapabilityTransition(
-            model.copy(state = nextState),
+            model.copy(
+                state = nextState,
+                terminalCache =
+                    if (isCacheable) {
+                        model.activeKey?.let { model.terminalCache + (it to nextState) } ?: model.terminalCache
+                    } else {
+                        model.terminalCache
+                    },
+            ),
             listOf(SyntaxCapabilityEffect.Render),
         )
 }

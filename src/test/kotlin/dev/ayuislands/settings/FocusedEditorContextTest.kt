@@ -1,6 +1,5 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.project.Project
 import io.mockk.every
 import io.mockk.mockk
@@ -16,26 +15,24 @@ class FocusedEditorContextTest {
     fun `focused editor context remains scoped to its project tab`() {
         val swiftProject = mockk<Project>()
         val kotlinProject = mockk<Project>()
-        val swift = mockk<FileType>()
+        val swift = ActiveFileContext("Recovery.swift", "NoctuleSwift", setOf("NoctuleSwift", "Swift"))
         val capture = FocusedEditorCapture()
 
         capture.record(SettingsOpenContext(swiftProject, swift))
 
         assertNull(capture.get(kotlinProject))
-        assertSame(swift, capture.get(swiftProject)?.activeFileType)
-        assertSame(swift, capture.get(swiftProject)?.activeFileType)
+        assertSame(swift, capture.get(swiftProject)?.activeFile)
     }
 
     @Test
     fun `focus listener captures the editor before settings steals focus`() {
         val project = mockk<Project>()
-        val swift = mockk<FileType>()
+        val swift = ActiveFileContext("Recovery.swift", "NoctuleSwift", setOf("NoctuleSwift", "Swift"))
         val editorContext = SettingsOpenContext(project, swift)
         val editorComponent = JPanel()
         val settingsComponent = JPanel()
         lateinit var focusListener: PropertyChangeListener
         every { project.name } returns "GenreUpdater"
-        every { swift.name } returns "NoctuleSwift"
         val context =
             FocusedEditorContext(
                 subscribeFocus = { registered ->
@@ -56,7 +53,7 @@ class FocusedEditorContextTest {
             ),
         )
 
-        assertSame(swift, context.get(project)?.activeFileType)
+        assertSame(swift, context.get(project)?.activeFile)
         context.dispose()
     }
 }

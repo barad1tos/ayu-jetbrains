@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
 class SyntaxCapabilityStateTest {
     @Test
     fun `selecting an uncached language starts one generation and hides controls`() {
-        val transition = reduce(SyntaxCapabilityModel(), SyntaxCapabilityEvent.SelectLanguage("Swift"))
+        val transition = reduce(SyntaxCapabilityModel(), select("Swift"))
 
         val checking = assertIs<SyntaxCapabilityState.Checking>(transition.model.state)
         assertEquals("Swift", checking.languageId)
@@ -29,8 +29,8 @@ class SyntaxCapabilityStateTest {
     }
 
     @Test
-    fun `current confirmation becomes visible and is the only cached outcome`() {
-        val checking = selected("Swift")
+    fun `current confirmation becomes visible and is cached by profile identity`() {
+        val checking = selected()
         val evidence = swiftEvidence()
 
         val transition =
@@ -41,14 +41,15 @@ class SyntaxCapabilityStateTest {
 
         assertIs<SyntaxCapabilityState.Confirmed>(transition.model.state)
         assertEquals(setOf(KEYWORD), transition.model.visibleCells)
-        assertEquals(evidence, transition.model.confirmedCache["Swift"])
+        val cached = assertIs<SyntaxCapabilityState.Confirmed>(transition.model.terminalCache[key("Swift")])
+        assertEquals(evidence, cached.evidence)
         assertEquals(listOf(SyntaxCapabilityEffect.Render), transition.effects)
     }
 
     @Test
     fun `stale completion cannot expose rows for a newly selected language`() {
-        val swift = selected("Swift")
-        val kotlin = reduce(swift, SyntaxCapabilityEvent.SelectLanguage("Kotlin")).model
+        val swift = selected()
+        val kotlin = reduce(swift, select("Kotlin")).model
 
         val afterStale =
             reduce(
@@ -65,7 +66,7 @@ class SyntaxCapabilityStateTest {
 
     @Test
     fun `missing plugin exposes exact recovery only and retry is not cached`() {
-        val checking = selected("Swift")
+        val checking = selected()
         val unavailable =
             reduce(
                 checking,
@@ -75,11 +76,12 @@ class SyntaxCapabilityStateTest {
         val state = assertIs<SyntaxCapabilityState.PluginUnavailable>(unavailable.model.state)
         assertEquals(PLUGIN_INSTALL_INSTRUCTION, state.recovery.instruction)
         assertTrue(unavailable.model.visibleCells.isEmpty())
-        assertTrue(unavailable.model.confirmedCache.isEmpty())
+        assertIs<SyntaxCapabilityState.PluginUnavailable>(unavailable.model.terminalCache[key("Swift")])
 
         val retry = reduce(unavailable.model, SyntaxCapabilityEvent.Retry)
         val retried = assertIs<SyntaxCapabilityState.Checking>(retry.model.state)
         assertEquals(2, retried.generation)
+        assertFalse(retry.model.terminalCache.containsKey(key("Swift")))
         assertEquals(
             listOf(
                 SyntaxCapabilityEffect.CancelProbe,
@@ -92,7 +94,7 @@ class SyntaxCapabilityStateTest {
 
     @Test
     fun `temporary failure hides controls while mismatch exposes confirmed subset`() {
-        val checking = selected("Swift")
+        val checking = selected()
         val deferred =
             reduce(
                 checking,
@@ -100,7 +102,7 @@ class SyntaxCapabilityStateTest {
             )
         assertIs<SyntaxCapabilityState.TemporarilyUnavailable>(deferred.model.state)
         assertTrue(deferred.model.visibleCells.isEmpty())
-        assertTrue(deferred.model.confirmedCache.isEmpty())
+        assertTrue(deferred.model.terminalCache.isEmpty())
 
         val mismatch =
             reduce(
@@ -114,15 +116,15 @@ class SyntaxCapabilityStateTest {
             )
         assertIs<SyntaxCapabilityState.Incompatible>(mismatch.model.state)
         assertEquals(setOf(KEYWORD), mismatch.model.visibleCells)
-        assertTrue(mismatch.model.confirmedCache.isEmpty())
+        assertIs<SyntaxCapabilityState.Incompatible>(mismatch.model.terminalCache[key("Swift")])
     }
 
     @Test
     fun `selecting a positively cached language renders it without probing`() {
-        val swift = confirmed("Swift", swiftEvidence())
-        val kotlin = reduce(swift, SyntaxCapabilityEvent.SelectLanguage("Kotlin")).model
+        val swift = confirmed(swiftEvidence())
+        val kotlin = reduce(swift, select("Kotlin")).model
 
-        val cached = reduce(kotlin, SyntaxCapabilityEvent.SelectLanguage("Swift"))
+        val cached = reduce(kotlin, select("Swift"))
 
         assertIs<SyntaxCapabilityState.Confirmed>(cached.model.state)
         assertEquals(setOf(KEYWORD), cached.model.visibleCells)
@@ -133,11 +135,66 @@ class SyntaxCapabilityStateTest {
     }
 
     @Test
+    fun `stable unavailable and incompatible outcomes are reused within the session`() {
+        val unavailable =
+            reduce(
+                selected(),
+                SyntaxCapabilityEvent.ProbeMissingPlugin("Swift", 1, PluginRecovery()),
+            ).model
+        val afterKotlin = reduce(unavailable, select("Kotlin")).model
+
+        val cachedUnavailable = reduce(afterKotlin, select("Swift"))
+
+        assertIs<SyntaxCapabilityState.PluginUnavailable>(cachedUnavailable.model.state)
+        assertEquals(
+            listOf(SyntaxCapabilityEffect.CancelProbe, SyntaxCapabilityEffect.Render),
+            cachedUnavailable.effects,
+        )
+
+        val mismatch =
+            reduce(
+                selected(),
+                SyntaxCapabilityEvent.ProbeMismatch(
+                    languageId = "Swift",
+                    generation = 1,
+                    confirmedCells = setOf(KEYWORD),
+                    mismatches = listOf(CapabilityMismatch(OPERATOR, "No representative span")),
+                ),
+            ).model
+        val mismatchAfterKotlin = reduce(mismatch, select("Kotlin")).model
+
+        val cachedMismatch = reduce(mismatchAfterKotlin, select("Swift"))
+
+        assertIs<SyntaxCapabilityState.Incompatible>(cachedMismatch.model.state)
+        assertEquals(
+            listOf(SyntaxCapabilityEffect.CancelProbe, SyntaxCapabilityEffect.Render),
+            cachedMismatch.effects,
+        )
+    }
+
+    @Test
+    fun `temporary outcome is probed again after switching away and back`() {
+        val deferred =
+            reduce(
+                selected(),
+                SyntaxCapabilityEvent.ProbeDeferred("Swift", 1, "Indexing"),
+            ).model
+        val afterKotlin = reduce(deferred, select("Kotlin")).model
+
+        val retried = reduce(afterKotlin, select("Swift"))
+
+        assertIs<SyntaxCapabilityState.Checking>(retried.model.state)
+        assertTrue(retried.effects.any { it is SyntaxCapabilityEffect.StartProbe })
+    }
+
+    @Test
     fun `semantic recovery invalidates only selected cache after returning`() {
-        val swift = confirmed("Swift", swiftEvidence(hasConditionalAbsence = true))
+        val swift = confirmed(swiftEvidence(hasConditionalAbsence = true))
         val withKotlinCache =
             swift.copy(
-                confirmedCache = swift.confirmedCache + ("Kotlin" to kotlinEvidence()),
+                terminalCache =
+                    swift.terminalCache +
+                        (key("Kotlin") to SyntaxCapabilityState.Confirmed("Kotlin", kotlinEvidence())),
             )
 
         val opened = reduce(withKotlinCache, SyntaxCapabilityEvent.OpenHighlightingSettings)
@@ -147,8 +204,9 @@ class SyntaxCapabilityStateTest {
         val returned = reduce(opened.model, SyntaxCapabilityEvent.RecheckHighlighting)
         val checking = assertIs<SyntaxCapabilityState.Checking>(returned.model.state)
         assertEquals(2, checking.generation)
-        assertFalse(returned.model.confirmedCache.containsKey("Swift"))
-        assertEquals(kotlinEvidence(), returned.model.confirmedCache["Kotlin"])
+        assertFalse(returned.model.terminalCache.containsKey(key("Swift")))
+        val cachedKotlin = assertIs<SyntaxCapabilityState.Confirmed>(returned.model.terminalCache[key("Kotlin")])
+        assertEquals(kotlinEvidence(), cachedKotlin.evidence)
         assertFalse(returned.model.isHighlightingRecheckArmed)
         assertEquals(
             listOf(
@@ -162,7 +220,7 @@ class SyntaxCapabilityStateTest {
 
     @Test
     fun `highlighting recovery stays inert without a conditional absence`() {
-        val confirmed = confirmed("Swift", swiftEvidence())
+        val confirmed = confirmed(swiftEvidence())
 
         val transition = reduce(confirmed, SyntaxCapabilityEvent.OpenHighlightingSettings)
 
@@ -174,45 +232,52 @@ class SyntaxCapabilityStateTest {
     fun `plugin recovery navigation does not change state`() {
         val unavailable =
             reduce(
-                selected("Swift"),
+                selected(),
                 SyntaxCapabilityEvent.ProbeMissingPlugin("Swift", 1, PluginRecovery()),
             ).model
 
         val transition = reduce(unavailable, SyntaxCapabilityEvent.OpenPluginSettings)
 
         assertEquals(unavailable, transition.model)
-        assertEquals(listOf(SyntaxCapabilityEffect.OpenPluginSettings(null)), transition.effects)
+        assertEquals(
+            listOf(SyntaxCapabilityEffect.OpenPluginSettings("Swift", null)),
+            transition.effects,
+        )
     }
 
     @Test
     fun `closing cancels work clears cache and makes later events inert`() {
-        val confirmed = confirmed("Swift", swiftEvidence())
+        val confirmed = confirmed(swiftEvidence())
 
         val closed = reduce(confirmed, SyntaxCapabilityEvent.CloseSettings)
 
         assertTrue(closed.model.isClosed)
         assertNull(closed.model.state)
-        assertTrue(closed.model.confirmedCache.isEmpty())
+        assertTrue(closed.model.terminalCache.isEmpty())
         assertEquals(
             listOf(SyntaxCapabilityEffect.CancelProbe, SyntaxCapabilityEffect.ClearRenderer),
             closed.effects,
         )
-        val afterClose = reduce(closed.model, SyntaxCapabilityEvent.SelectLanguage("Kotlin"))
+        val afterClose = reduce(closed.model, select("Kotlin"))
         assertEquals(closed.model, afterClose.model)
         assertTrue(afterClose.effects.isEmpty())
     }
 
-    private fun selected(languageId: String): SyntaxCapabilityModel =
-        reduce(SyntaxCapabilityModel(), SyntaxCapabilityEvent.SelectLanguage(languageId)).model
+    private fun selected(): SyntaxCapabilityModel = reduce(SyntaxCapabilityModel(), select("Swift")).model
 
-    private fun confirmed(
-        languageId: String,
-        evidence: SyntaxCapabilityEvidence,
-    ): SyntaxCapabilityModel {
-        val checking = selected(languageId)
+    private fun select(languageId: String): SyntaxCapabilityEvent =
+        SyntaxCapabilityEvent.SelectLanguage(
+            key(languageId),
+        )
+
+    private fun key(languageId: String): SyntaxCapabilityKey =
+        SyntaxCapabilityKey(languageId, setOf("$languageId:default"))
+
+    private fun confirmed(evidence: SyntaxCapabilityEvidence): SyntaxCapabilityModel {
+        val checking = selected()
         return reduce(
             checking,
-            SyntaxCapabilityEvent.ProbeConfirmed(languageId, 1, evidence),
+            SyntaxCapabilityEvent.ProbeConfirmed("Swift", 1, evidence),
         ).model
     }
 

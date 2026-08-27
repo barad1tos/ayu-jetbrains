@@ -1,6 +1,5 @@
 package dev.ayuislands.settings
 
-import com.intellij.lang.Language
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
@@ -10,10 +9,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.fileTypes.FileType
-import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
-import com.intellij.openapi.fileTypes.UnknownFileType
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
@@ -24,6 +20,7 @@ import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.syntax.LanguageSpecification
+import dev.ayuislands.syntax.NativeProfile
 import dev.ayuislands.syntax.PreviewFileSpec
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
@@ -34,11 +31,9 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
-import java.util.Locale
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.SwingConstants
-import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Live preview of syntax-intensity colors rendered as a compact IDE scene.
@@ -54,11 +49,12 @@ internal class SyntaxPreviewComponent(
     private var variant: AyuVariant,
     private var language: String = DEFAULT_LANGUAGE,
     private val previewCodeLoader: (String) -> String = ::loadPreviewCode,
+    private val previewResolver: NativePreviewResolver = NativePreviewResolver(),
     private val previewFileFactory: (String, FileType, CharSequence) -> VirtualFile = ::createPreviewFile,
 ) : JComponent(),
     Disposable {
     private var previewSample: PreviewSample = sampleFor(language)
-    private var fileTypeResolution: PreviewFileType = resolvePreviewFileType(language, previewSample)
+    private var fileTypeResolution: PreviewFileType = resolvePreviewFileType(previewSample)
     private val previewCodeCache = mutableMapOf<String, String>()
     private val editorField: EditorTextField = createEditorField()
     private val recoveryLabel =
@@ -69,6 +65,7 @@ internal class SyntaxPreviewComponent(
     private val failedFactoryLanguages = mutableSetOf<String>()
     private val failedNativeLanguages = mutableSetOf<String>()
     private val failedPlainLanguages = mutableSetOf<String>()
+    private val failedResolutionLanguages = mutableSetOf<String>()
     private var isDisposed = false
 
     init {
@@ -89,7 +86,7 @@ internal class SyntaxPreviewComponent(
         if (nextLanguage != this.language || nextSample != previewSample) {
             selectSample(nextLanguage, nextSample)
         }
-        refreshEditorColorsScheme()
+        refreshEditor()
         editorField.background = surfacePalette().editor
         editorField.repaint()
         revalidate()
@@ -122,12 +119,12 @@ internal class SyntaxPreviewComponent(
         val nextSample =
             PreviewSample(
                 fileName = previewFile.fileName,
-                standardFileTypeNames = specification.profile(previewFile).fileTypeNames,
+                profile = specification.profile(previewFile),
                 code = previewCode,
             )
         if (nextSample == previewSample) return
         selectSample(language, nextSample)
-        refreshEditorColorsScheme()
+        refreshEditor()
         editorField.repaint()
         revalidate()
         repaint()
@@ -139,18 +136,14 @@ internal class SyntaxPreviewComponent(
     ) {
         language = nextLanguage
         previewSample = nextSample
-        fileTypeResolution = resolvePreviewFileType(nextLanguage, nextSample)
+        fileTypeResolution = resolvePreviewFileType(nextSample)
         val document = EditorFactory.getInstance().createDocument(nextSample.code)
         editorField.setNewDocumentAndFileType(fileTypeResolution.fileType, document)
         refreshFallbackTooltip(nextLanguage, fileTypeResolution)
     }
 
-    private fun refreshEditorColorsScheme() {
-        val editor = editorField.getEditor(false) ?: return
-        refreshEditor(editor)
-    }
-
-    private fun refreshEditor(editor: EditorEx) {
+    private fun refreshEditor(editor: EditorEx? = editorField.getEditor(false)) {
+        editor ?: return
         val previewScheme = previewColorsScheme(editor.colorsScheme)
         editor.colorsScheme = previewScheme
         installPreviewHighlighter(editor, previewScheme)
@@ -346,7 +339,7 @@ internal class SyntaxPreviewComponent(
 
     private data class PreviewSample(
         val fileName: String,
-        val standardFileTypeNames: Set<String>,
+        val profile: NativeProfile?,
         val code: String,
     )
 
@@ -374,11 +367,13 @@ internal class SyntaxPreviewComponent(
                 PreviewChromeProjectRow(fixedColor(0xFFA759), "Types.kt"),
                 PreviewChromeProjectRow(fixedColor(0xFFD580), "build/"),
             )
+        private val PLAIN_TEXT_PREVIEW =
+            PreviewFileType(PlainTextFileType.INSTANCE, isPlainTextFallback = true)
 
         private val DEFAULT_SAMPLE =
             PreviewSample(
                 "Preview.txt",
-                emptySet(),
+                null,
                 """
                 class Preview {
                     value = "hello"
@@ -428,7 +423,7 @@ internal class SyntaxPreviewComponent(
 
         private fun firstPreviewSample(specification: LanguageSpecification): PreviewSample {
             val previewFile = specification.preview.files.firstOrNull() ?: return DEFAULT_SAMPLE
-            return previewFile.toPreviewSample(specification.profile(previewFile).fileTypeNames)
+            return previewFile.toPreviewSample(specification.profile(previewFile))
         }
 
         private fun LanguageSpecification.profile(previewFile: PreviewFileSpec) =
@@ -436,10 +431,10 @@ internal class SyntaxPreviewComponent(
                 "Unknown native profile '${previewFile.profileId}' for '$storageId'"
             }
 
-        private fun PreviewFileSpec.toPreviewSample(standardFileTypeNames: Set<String>): PreviewSample =
+        private fun PreviewFileSpec.toPreviewSample(profile: NativeProfile): PreviewSample =
             PreviewSample(
                 fileName,
-                standardFileTypeNames,
+                profile,
                 loadPreviewCode(resourceName),
             )
 
@@ -452,68 +447,22 @@ internal class SyntaxPreviewComponent(
             }
             return stream.bufferedReader(Charsets.UTF_8).use { it.readText().trimIndent() }
         }
+    }
 
-        private fun resolvePreviewFileType(
-            language: String,
-            sample: PreviewSample,
-        ): PreviewFileType {
-            val fileType = availableFileType(language, sample)
-            return if (fileType == null) {
-                PreviewFileType(PlainTextFileType.INSTANCE, isPlainTextFallback = true)
-            } else {
-                PreviewFileType(fileType, isPlainTextFallback = false)
-            }
-        }
-
-        private fun availableFileType(
-            language: String,
-            sample: PreviewSample,
-        ): FileType? =
-            standardFileType(sample)
-                ?: associatedFileType(sample)
-                ?: registeredLanguageFileType(language)
-
-        private fun associatedFileType(sample: PreviewSample): FileType? =
-            try {
-                FileTypeManager
-                    .getInstance()
-                    .getFileTypeByFileName(sample.fileName)
-                    .takeUnless { it === UnknownFileType.INSTANCE || it === PlainTextFileType.INSTANCE }
-            } catch (exception: RuntimeException) {
-                LOG.debug("File association lookup failed for syntax preview '${sample.fileName}'", exception)
-                null
-            }
-
-        private fun standardFileType(sample: PreviewSample): FileType? {
-            for (standardName in sample.standardFileTypeNames) {
-                try {
-                    val fileType = FileTypeManager.getInstance().getStdFileType(standardName)
-                    if (fileType.name.equals(standardName, ignoreCase = true)) return fileType
-                } catch (exception: RuntimeException) {
-                    LOG.debug("Standard file type '$standardName' unavailable for syntax preview", exception)
+    private fun resolvePreviewFileType(sample: PreviewSample): PreviewFileType {
+        val profile = sample.profile ?: return PLAIN_TEXT_PREVIEW
+        return when (val resolution = previewResolver.resolve(sample.fileName, profile)) {
+            is NativePreviewResolution.Resolved ->
+                PreviewFileType(resolution.fileType, isPlainTextFallback = false)
+            is NativePreviewResolution.Unavailable -> PLAIN_TEXT_PREVIEW
+            is NativePreviewResolution.LookupFailed -> {
+                if (failedResolutionLanguages.add(language)) {
+                    LOG.warn("Native file type lookup failed for preview language '$language'", resolution.failure)
                 }
+                PLAIN_TEXT_PREVIEW
             }
-            return null
         }
-
-        private fun registeredLanguageFileType(languageDisplayName: String): FileType? =
-            try {
-                val normalizedDisplayName = languageDisplayName.lowercase(Locale.ROOT)
-                val language =
-                    Language.getRegisteredLanguages().firstOrNull {
-                        it.displayName.lowercase(Locale.ROOT) == normalizedDisplayName
-                    }
-                language?.let { FileTypeManager.getInstance().findFileTypeByLanguage(it) }
-            } catch (exception: RuntimeException) {
-                LOG.debug(
-                    "Registered language lookup failed for syntax preview language '$languageDisplayName'",
-                    exception,
-                )
-                null
-            }
     }
 }
 
-private fun propagateCancellation(failure: RuntimeException) {
-    if (failure is ProcessCanceledException || failure is CancellationException) throw failure
-}
+private fun propagateCancellation(failure: RuntimeException) = rethrowPreviewCancellation(failure)

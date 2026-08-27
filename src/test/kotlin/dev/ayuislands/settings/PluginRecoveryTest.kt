@@ -28,15 +28,30 @@ class PluginRecoveryTest {
         val marketplace = PluginMarketplace { url -> opened.add(url) }
 
         marketplace.open(
-            PluginRequirement(
-                pluginId = "dev.j-a.swift",
-                displayName = "Noctule, the Swift IDE",
-                marketplaceUrl = "https://plugins.jetbrains.com/plugin/22150-noctule-the-swift-ide",
-            ),
+            languageId = "Swift",
+            requirement =
+                PluginRequirement(
+                    pluginId = "dev.j-a.swift",
+                    displayName = "Noctule, the Swift IDE",
+                    marketplaceUrl = "https://plugins.jetbrains.com/plugin/22150-noctule-the-swift-ide",
+                ),
         )
 
         assertEquals(
             listOf("https://plugins.jetbrains.com/plugin/22150-noctule-the-swift-ide"),
+            opened,
+        )
+    }
+
+    @Test
+    fun `generic recovery opens an encoded Marketplace language search`() {
+        val opened = mutableListOf<String>()
+        val marketplace = PluginMarketplace(opened::add)
+
+        marketplace.open("C# (ReSharper)", requirement = null)
+
+        assertEquals(
+            listOf("https://plugins.jetbrains.com/search?search=C%23+%28ReSharper%29"),
             opened,
         )
     }
