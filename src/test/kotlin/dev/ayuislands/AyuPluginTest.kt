@@ -69,6 +69,14 @@ class AyuPluginTest {
     }
 
     @Test
+    fun `Noctule plugin lookup uses its optional dependency marker`() {
+        assertEquals(
+            "swift.NoctuleFrontendLoggingService",
+            AyuPlugin.markerClassName(PluginId.getId("dev.j-a.swift")),
+        )
+    }
+
+    @Test
     fun `findLoadedPlugin returns null when optional plugin marker class is unavailable`() {
         val app = mockk<Application>()
         val absentId = PluginId.getId("indent-rainbow.indent-rainbow")

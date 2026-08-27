@@ -16,7 +16,14 @@ class AyuSettingsCompositionTest {
         val session = SettingsSession()
         val panels = settingsPanels()
         val contextProject = mockk<Project>()
-        val composition = AyuSettingsComposition(AyuVariant.MIRAGE, session, panels, contextProject)
+        val openContext = SettingsOpenContext(contextProject, activeFileType = mockk())
+        val composition =
+            AyuSettingsComposition(
+                AyuVariant.MIRAGE,
+                session,
+                panels,
+                openContext,
+            )
 
         val tabs = composition.buildContentTabs()
 
@@ -31,7 +38,12 @@ class AyuSettingsCompositionTest {
         verify(exactly = 1) {
             panels.font.buildPanel(any())
             panels.effects.buildPanel(any())
-            panels.syntax.buildPanel(any(), AyuVariant.MIRAGE, contextProject)
+            panels.syntax.buildPanel(
+                any(),
+                AyuVariant.MIRAGE,
+                openContext.project,
+                openContext.activeFileType,
+            )
             panels.vcs.buildPanel(any(), AyuVariant.MIRAGE)
             panels.workspace.buildPanel(any())
             panels.plugins.buildPanel(any())

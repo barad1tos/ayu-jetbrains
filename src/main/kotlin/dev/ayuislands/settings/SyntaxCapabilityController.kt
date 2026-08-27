@@ -1,8 +1,6 @@
 package dev.ayuislands.settings
 
-import com.intellij.ide.plugins.PluginManagerConfigurable
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
@@ -13,6 +11,7 @@ import dev.ayuislands.syntax.SyntaxLanguageRegistry
 internal class SyntaxCapabilityController(
     private val project: Project?,
     private val rendered: (SyntaxCapabilityState?) -> Unit,
+    private val marketplace: PluginMarketplace = PluginMarketplace(),
 ) : Disposable {
     private var probe: SyntaxCapabilityProbe? = project?.let(::NativeCapabilityProbe)
     private var activeProbe: Disposable? = null
@@ -91,15 +90,7 @@ internal class SyntaxCapabilityController(
     }
 
     private fun openPluginSettings(requirement: PluginRequirement?) {
-        val currentProject = project ?: return
-        if (requirement == null) {
-            ShowSettingsUtil.getInstance().showSettingsDialog(currentProject, PluginManagerConfigurable.ID)
-        } else {
-            PluginManagerConfigurable.showPluginConfigurable(
-                currentProject,
-                listOf(PluginId.getId(requirement.pluginId)),
-            )
-        }
+        marketplace.open(requirement)
     }
 
     private fun openHighlightingSettings() {

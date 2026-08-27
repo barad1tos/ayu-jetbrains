@@ -10,17 +10,22 @@ import kotlin.test.assertTrue
  * classification table (≥30 entries across underscore, dot-namespaced,
  * space-separated, and plugin-namespaced buckets per RESEARCH OQ-03), the
  * cross-cutting CASCADE / DIAGNOSTICS / EDITOR_OVERLAY routing, the unknown-
- * prefix OTHER fallback with log-once latch, and the [supportedLanguages]
+ * prefix OTHER fallback with log-once latch, and the [SyntaxLanguageRegistry.supportedLanguages]
  * picker contract (≥26 LANGUAGE entries, no non-LANGUAGE leaks,
  * alphabetical sort by displayName).
  */
 class SyntaxLanguageRegistryTest {
     private data class Row(
         val key: String,
-        val tag: String,
-        val displayName: String,
-        val bucket: SyntaxLanguageRegistry.Bucket,
-    )
+        val expected: SyntaxLanguageRegistry.LangTag,
+    ) {
+        constructor(
+            key: String,
+            tag: String,
+            displayName: String,
+            bucket: SyntaxLanguageRegistry.Bucket,
+        ) : this(key, SyntaxLanguageRegistry.LangTag(tag, displayName, bucket))
+    }
 
     private val languageRows =
         listOf(
@@ -120,11 +125,11 @@ class SyntaxLanguageRegistryTest {
 
     @Test
     fun `classify routes language prefixes to expected tag display bucket`() {
-        for (row in languageRows) {
-            val tag = SyntaxLanguageRegistry.classify(row.key)
-            assertEquals(row.tag, tag.tag, "tag for ${row.key}")
-            assertEquals(row.displayName, tag.displayName, "displayName for ${row.key}")
-            assertEquals(row.bucket, tag.bucket, "bucket for ${row.key}")
+        for ((key, expected) in languageRows) {
+            val tag = SyntaxLanguageRegistry.classify(key)
+            assertEquals(expected.tag, tag.tag, "tag for $key")
+            assertEquals(expected.displayName, tag.displayName, "displayName for $key")
+            assertEquals(expected.bucket, tag.bucket, "bucket for $key")
         }
     }
 
@@ -189,11 +194,11 @@ class SyntaxLanguageRegistryTest {
     @Test
     fun `supportedLanguages excludes non-LANGUAGE buckets`() {
         val supported = SyntaxLanguageRegistry.supportedLanguages()
-        for (entry in supported) {
+        for ((tag, displayName, bucket) in supported) {
             assertEquals(
                 SyntaxLanguageRegistry.Bucket.LANGUAGE,
-                entry.bucket,
-                "supportedLanguages must not leak bucket=${entry.bucket} (${entry.tag})",
+                bucket,
+                "supportedLanguages must not leak bucket=$bucket ($tag/$displayName)",
             )
         }
     }
@@ -256,5 +261,19 @@ class SyntaxLanguageRegistryTest {
                 assertEquals(language, SyntaxLanguageRegistry.resolveAlias(alias), "alias $alias")
             }
         }
+    }
+
+    @Test
+    fun `Swift specification accepts Noctule as a native provider`() {
+        val swift = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Swift"))
+
+        assertTrue(
+            swift.nativeProfiles
+                .single()
+                .fileTypeNames
+                .contains("NoctuleSwift"),
+        )
+        assertEquals("dev.j-a.swift", requireNotNull(swift.pluginRequirement).pluginId)
+        assertEquals("Noctule, the Swift IDE", swift.pluginRequirement.displayName)
     }
 }

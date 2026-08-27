@@ -27,6 +27,8 @@ internal object AyuPlugin {
     private const val CODE_GLANCE_PRO_MARKER_CLASS = "com.nasller.codeglance.config.CodeGlanceConfigService"
     private const val INDENT_RAINBOW_ID = "indent-rainbow.indent-rainbow"
     private const val INDENT_RAINBOW_MARKER_CLASS = "indent.rainbow.settings.IrConfig"
+    private const val NOCTULE_ID = "dev.j-a.swift"
+    private const val NOCTULE_MARKER_CLASS = "swift.NoctuleFrontendLoggingService"
 
     /**
      * Returns the loaded descriptor for [pluginId], or `null` when the plugin
@@ -66,11 +68,12 @@ internal object AyuPlugin {
             logPluginLookupFailure(exception)
         }
 
-    private fun markerClassName(pluginId: PluginId): String? =
+    internal fun markerClassName(pluginId: PluginId): String? =
         when (pluginId.idString) {
             ID_STRING -> AyuPlugin::class.java.name
             CODE_GLANCE_PRO_ID -> CODE_GLANCE_PRO_MARKER_CLASS
             INDENT_RAINBOW_ID -> INDENT_RAINBOW_MARKER_CLASS
+            NOCTULE_ID -> NOCTULE_MARKER_CLASS
             else -> null
         }
 

@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.project.Project
 import com.intellij.ui.InplaceButton
@@ -24,6 +25,7 @@ import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import org.jetbrains.annotations.TestOnly
 import javax.swing.JButton
 import javax.swing.JCheckBox
+import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 
@@ -44,8 +46,11 @@ import javax.swing.JSlider
  * and the readout [JLabel] is presentation-only.
  */
 @Suppress("TooManyFunctions", "UnstableApiUsage") // Settings panel with focused UI lifecycle helpers.
-class AyuIslandsSyntaxPanel : SettingsParticipant {
-    private val languageResolver = SyntaxLanguageResolver()
+class AyuIslandsSyntaxPanel internal constructor(
+    resolveLanguage: (Project?, FileType?, String) -> String = SyntaxLanguageResolver()::resolve,
+    subscribeProjectLanguage: (Project, () -> Unit) -> (() -> Unit) = ::observeProjectLanguage,
+) : SettingsParticipant {
+    private val contextLanguage = ContextLanguageController(resolveLanguage, subscribeProjectLanguage)
     private var pendingPreset: SyntaxPreset = SyntaxPreset.AMBIENT
     private var storedPreset: SyntaxPreset = SyntaxPreset.AMBIENT
     private var suppressListeners: Boolean = false
@@ -106,6 +111,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     private var quietOperatorsCheckbox: JCheckBox? = null
     private var emphasizeDeclarationsCheckbox: JCheckBox? = null
     private var masterResetButton: JButton? = null
+    private var languageCombo: JComboBox<String>? = null
     private var currentLanguage: String = ""
     private var variant: AyuVariant? = null
     private var syntaxPreview: SyntaxPreviewComponent? = null
@@ -115,6 +121,8 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     private val capabilityStatus = CapabilityStatus { capabilityController?.performRecoveryAction() }
 
     override fun dispose() {
+        contextLanguage.dispose()
+        languageCombo = null
         editingSession?.dispose()
         editingSession = null
         capabilityController?.dispose()
@@ -126,6 +134,7 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         panel: Panel,
         variant: AyuVariant,
         contextProject: Project? = null,
+        contextFileType: FileType? = null,
     ) {
         this.variant = variant
         capabilityController?.dispose()
@@ -134,7 +143,13 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         loadStateIntoPending()
         openEditingSession()
         customSelected.set(pendingPreset == SyntaxPreset.CUSTOM)
-        currentLanguage = preferredInitialLanguage(contextProject)
+        currentLanguage =
+            contextLanguage.start(
+                project = contextProject,
+                fileType = contextFileType,
+                fallback = DEFAULT_PREVIEW_LANGUAGE,
+                applyDetected = ::applyDetectedLanguage,
+            )
         with(panel) {
             buildPresetBlock()
 
@@ -197,12 +212,14 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
     /** Build the premium Custom drill-down as two grouped, aligned columns. */
     private fun Panel.buildCustomFoldOut() {
         val languages = SyntaxLanguageRegistry.supportedLanguages().map { it.displayName }
-        currentLanguage = currentLanguage.takeIf { it in languages } ?: preferredInitialLanguage()
+        currentLanguage = currentLanguage.takeIf { it in languages } ?: DEFAULT_PREVIEW_LANGUAGE
         row("Language:") {
             val combo = comboBox(languages).component
+            languageCombo = combo
             combo.selectedItem = currentLanguage
             combo.addActionListener {
                 val language = combo.selectedItem as? String ?: return@addActionListener
+                contextLanguage.select(language)
                 currentLanguage = language
                 rebindSlidersFor(language)
                 refreshMasterResetButton()
@@ -687,11 +704,10 @@ class AyuIslandsSyntaxPanel : SettingsParticipant {
         )
     }
 
-    private fun preferredInitialLanguage(contextProject: Project? = null): String =
-        languageResolver.resolve(
-            project = contextProject,
-            fallbackLanguage = DEFAULT_PREVIEW_LANGUAGE,
-        )
+    private fun applyDetectedLanguage(detectedLanguage: String) {
+        currentLanguage = detectedLanguage
+        languageCombo?.selectedItem = detectedLanguage
+    }
 
     private fun readabilityOptions(): SyntaxReadabilityOptions =
         SyntaxReadabilityOptions(

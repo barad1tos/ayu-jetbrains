@@ -25,6 +25,7 @@ internal fun interface PreviewInspector {
 
 internal class IdePreviewInspector(
     private val project: Project,
+    private val recovery: PluginRecoveryResolver = PluginRecoveryResolver(),
 ) : PreviewInspector {
     private val warnedFailures = ConcurrentHashMap.newKeySet<String>()
 
@@ -53,7 +54,7 @@ internal class IdePreviewInspector(
             val profile = specification.profile(previewFile.profileId)
             val fileType =
                 resolveFileType(previewFile, profile)
-                    ?: return missingPlugin(specification, generation)
+                    ?: return recovery.unavailable(specification, generation)
             val code =
                 loadPreview(previewFile.resourceName)
                     ?: error("Missing bundled syntax preview '${previewFile.resourceName}'")
@@ -99,16 +100,6 @@ internal class IdePreviewInspector(
         }
         return fileType
     }
-
-    private fun missingPlugin(
-        specification: LanguageSpecification,
-        generation: Long,
-    ): SyntaxProbeResult =
-        SyntaxProbeResult.MissingPlugin(
-            languageId = specification.storageId,
-            generation = generation,
-            recovery = PluginRecovery(specification.pluginRequirement),
-        )
 
     private fun loadPreview(resourceName: String): String? {
         val path = "$PREVIEW_RESOURCE_ROOT/$resourceName"

@@ -30,6 +30,7 @@ import dev.ayuislands.licensing.ReconciliationResult
 import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.FocusedEditorContext
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -53,8 +54,12 @@ internal class AyuIslandsStartupActivity(
     private val projectsProvider: () -> Iterable<Project> = {
         ProjectManager.getInstance().openProjects.asList()
     },
+    private val initializeFocusedEditorContext: suspend () -> Unit = {
+        FocusedEditorContext.getInstance()
+    },
 ) : ProjectActivity {
     override suspend fun execute(project: Project) {
+        initializeFocusedEditorContext()
         val themeName = AyuVariant.currentThemeName()
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
 

@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.InplaceButton
@@ -250,6 +251,70 @@ class AyuIslandsSyntaxPanelTest {
                 )
             assertEquals("Java", preview.languageForTest())
             assertEquals(syntaxPreviewEditorFixture.javaFileType, editor.fileType)
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `completed project scan replaces the cold fallback language`() {
+        val project = mockk<Project>(relaxed = true)
+        lateinit var refreshLanguage: () -> Unit
+        var resolutionCount = 0
+        val syntaxPanel =
+            AyuIslandsSyntaxPanel(
+                resolveLanguage = { _, _, _ ->
+                    if (resolutionCount++ == 0) "Kotlin" else "Swift"
+                },
+                subscribeProjectLanguage = { _, refresh ->
+                    refreshLanguage = refresh
+                    {}
+                },
+            )
+        val dialogPanel =
+            panel {
+                syntaxPanel.buildPanel(this, AyuVariant.MIRAGE, contextProject = project)
+            }
+
+        try {
+            val languageCombo = assertNotNull(findComponent(dialogPanel, JComboBox::class.java))
+            assertEquals("Kotlin", languageCombo.selectedItem)
+
+            refreshLanguage()
+
+            assertEquals("Swift", languageCombo.selectedItem)
+        } finally {
+            syntaxPanel.dispose()
+        }
+    }
+
+    @Test
+    fun `completed project scan preserves a manual language selection`() {
+        val project = mockk<Project>(relaxed = true)
+        lateinit var refreshLanguage: () -> Unit
+        var resolutionCount = 0
+        val syntaxPanel =
+            AyuIslandsSyntaxPanel(
+                resolveLanguage = { _, _, _ ->
+                    if (resolutionCount++ == 0) "Kotlin" else "Swift"
+                },
+                subscribeProjectLanguage = { _, refresh ->
+                    refreshLanguage = refresh
+                    {}
+                },
+            )
+        val dialogPanel =
+            panel {
+                syntaxPanel.buildPanel(this, AyuVariant.MIRAGE, contextProject = project)
+            }
+
+        try {
+            val languageCombo = assertNotNull(findComponent(dialogPanel, JComboBox::class.java))
+            languageCombo.selectedItem = "Java"
+
+            refreshLanguage()
+
+            assertEquals("Java", languageCombo.selectedItem)
         } finally {
             syntaxPanel.dispose()
         }

@@ -12,7 +12,6 @@ import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.AyuPlugin
-import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
@@ -60,7 +59,11 @@ internal fun SettingsApplyResult.Failed.toConfigurationException(): Configuratio
     }
 }
 
-class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
+class AyuIslandsConfigurable internal constructor(
+    private val settingsContext: () -> SettingsOpenContext,
+) : BoundConfigurable("Ayu Islands") {
+    constructor() : this(SettingsOpenContextSource()::capture)
+
     private val log = logger<AyuIslandsConfigurable>()
 
     private companion object {
@@ -76,6 +79,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private var session: SettingsSession? = null
 
     override fun createPanel(): DialogPanel {
+        val openContext = settingsContext()
         closeSession()
         val pluginVersion = resolvePluginVersion()
         val variant = AyuVariant.detect()
@@ -84,7 +88,7 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
             AyuSettingsComposition(
                 variant = variant,
                 session = nextSession,
-                contextProject = AccentApplicator.resolveFocusedProject(),
+                openContext = openContext,
             ).buildContentTabs()
         session = nextSession
 

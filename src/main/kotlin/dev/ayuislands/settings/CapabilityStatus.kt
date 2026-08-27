@@ -41,7 +41,7 @@ private fun SyntaxCapabilityState.presentation(): CapabilityPresentation? =
     when (this) {
         is SyntaxCapabilityState.Checking -> CapabilityPresentation("Checking language support…")
         is SyntaxCapabilityState.PluginUnavailable ->
-            CapabilityPresentation(recovery.instruction, "Open Plugins")
+            CapabilityPresentation(recovery.instruction, "Open Marketplace")
         is SyntaxCapabilityState.TemporarilyUnavailable -> CapabilityPresentation(reason, "Retry")
         is SyntaxCapabilityState.Incompatible ->
             CapabilityPresentation("Some language controls could not be verified.", "Retry")

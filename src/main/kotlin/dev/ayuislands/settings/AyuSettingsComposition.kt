@@ -1,6 +1,5 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.panel
@@ -28,7 +27,7 @@ internal class AyuSettingsComposition(
     private val variant: AyuVariant?,
     private val session: SettingsSession,
     private val panels: AyuSettingsPanels = AyuSettingsPanels(),
-    private val contextProject: Project? = null,
+    private val openContext: SettingsOpenContext = SettingsOpenContext.EMPTY,
 ) {
     fun buildContentTabs(): List<Pair<String, JComponent>> {
         lateinit var tabs: List<Pair<String, JComponent>>
@@ -40,7 +39,12 @@ internal class AyuSettingsComposition(
                     "Glow" to buildGlowTab(),
                     "Syntax" to
                         buildAyuOnlyTab("Syntax", "syntax intensity", panels.syntax) { activeVariant ->
-                            panels.syntax.buildPanel(this, activeVariant, contextProject)
+                            panels.syntax.buildPanel(
+                                this,
+                                activeVariant,
+                                openContext.project,
+                                openContext.activeFileType,
+                            )
                         },
                     "VCS" to
                         buildAyuOnlyTab("VCS", "VCS colors", panels.vcs) { activeVariant ->

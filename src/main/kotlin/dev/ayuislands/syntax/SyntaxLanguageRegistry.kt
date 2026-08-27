@@ -34,6 +34,7 @@ data class PreviewFileSpec(
 data class PluginRequirement(
     val pluginId: String,
     val displayName: String,
+    val marketplaceUrl: String,
 )
 
 /**
@@ -256,7 +257,7 @@ object SyntaxLanguageRegistry {
                     listOf(
                         NativeProfile(
                             id = profileId,
-                            fileTypeNames = setOf(preview.standardFileTypeName),
+                            fileTypeNames = nativeFileTypeNames(language.tag, preview.standardFileTypeName),
                             languageIds = aliases,
                         ),
                     ),
@@ -273,11 +274,31 @@ object SyntaxLanguageRegistry {
                             ),
                     ),
                 semanticOnlyCategories = preview.semanticOnlyCategories,
-                pluginRequirement = null,
+                pluginRequirement = pluginRequirement(language.tag),
                 verificationRuntimeId = language.tag,
             )
         }
     }
+
+    private fun nativeFileTypeNames(
+        languageId: String,
+        standardFileTypeName: String,
+    ): Set<String> =
+        buildSet {
+            add(standardFileTypeName)
+            if (languageId == SWIFT_STORAGE_ID) add(NOCTULE_SWIFT_ALIAS)
+        }
+
+    private fun pluginRequirement(languageId: String): PluginRequirement? =
+        when (languageId) {
+            SWIFT_STORAGE_ID ->
+                PluginRequirement(
+                    pluginId = NOCTULE_PLUGIN_ID,
+                    displayName = NOCTULE_PLUGIN_NAME,
+                    marketplaceUrl = NOCTULE_MARKETPLACE_URL,
+                )
+            else -> null
+        }
 
     private fun buildPrefixRules(): List<Pair<Regex, LangTag>> =
         spaceSeparatedRules() + pluginNamespacedRules() + dotNamespacedRules() + underscoreRules()
@@ -458,6 +479,10 @@ object SyntaxLanguageRegistry {
 
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
+    private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"
+    private const val NOCTULE_PLUGIN_NAME = "Noctule, the Swift IDE"
+    private const val NOCTULE_MARKETPLACE_URL =
+        "https://plugins.jetbrains.com/plugin/22150-noctule-the-swift-ide"
     private const val BASH_STORAGE_ID = "Bash"
     private const val SHELL_SCRIPT_ALIAS = "Shell Script"
 }

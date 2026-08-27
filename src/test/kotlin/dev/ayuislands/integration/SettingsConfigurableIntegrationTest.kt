@@ -4,6 +4,8 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.ayuislands.settings.AyuIslandsConfigurable
 import dev.ayuislands.settings.AyuIslandsEffectsPanel
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.SettingsOpenContext
+import io.mockk.every
 import io.mockk.mockkConstructor
 import io.mockk.unmockkConstructor
 import io.mockk.verify
@@ -94,6 +96,30 @@ class SettingsConfigurableIntegrationTest : BasePlatformTestCase() {
             configurable.disposeUIResources()
 
             verify(exactly = 2) { anyConstructed<AyuIslandsEffectsPanel>().dispose() }
+        } finally {
+            configurable.disposeUIResources()
+            unmockkConstructor(AyuIslandsEffectsPanel::class)
+        }
+    }
+
+    fun testConfigurableCapturesEditorContextBeforeCancellingThePreviousSession() {
+        val events = mutableListOf<String>()
+        mockkConstructor(AyuIslandsEffectsPanel::class)
+        every { anyConstructed<AyuIslandsEffectsPanel>().cancel() } answers {
+            events += "cancel"
+        }
+        val configurable =
+            AyuIslandsConfigurable {
+                events += "capture"
+                SettingsOpenContext(project = null, activeFileType = null)
+            }
+        try {
+            configurable.createPanel()
+            events.clear()
+
+            configurable.createPanel()
+
+            assertEquals(listOf("capture", "cancel"), events.take(2))
         } finally {
             configurable.disposeUIResources()
             unmockkConstructor(AyuIslandsEffectsPanel::class)
