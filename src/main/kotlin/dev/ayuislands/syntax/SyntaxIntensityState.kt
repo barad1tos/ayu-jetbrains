@@ -94,33 +94,26 @@ enum class FontEmphasis(
 }
 
 /**
- * Application-level persistence for Phase 50 syntax-intensity state.
+ * Application-level persistence for per-language syntax tuning.
  *
- * Storage file: `ayu-islands-syntax-intensity.xml` — distinct from Phase 49's
- * `ayu-islands-syntax-mode.xml` per D-13 so the read-and-discard migration is
- * unambiguous. The `schemaVersion` field on [SyntaxIntensityBaseState] is the
- * forward-compatibility lever for Phase 50B Custom drill-down changes; the
- * cross-phase (Phase 49 -> Phase 50) migration is governed by the filename
- * swap, not the field.
+ * Storage file: `ayu-islands-syntax-intensity.xml`. It stays distinct from the
+ * legacy `ayu-islands-syntax-mode.xml` so the two persisted contracts cannot
+ * be conflated. [SyntaxIntensityBaseState.schemaVersion] tracks compatible
+ * changes within the current storage shape.
  *
- * Round-2 review fixes locked here:
- *  - Gemini + OpenCode MEDIUM consensus: `customOverrides` is a FLAT
- *    composite-key `Map<String, String>` (key = `"language|category"`,
- *    value = `"0..100"`), matching the proven
- *    [dev.ayuislands.settings.mappings.AccentMappingsState] BaseState shape.
- *    The nested `Map<String, MutableMap<String, Int>>` spike from round 1
- *    is skipped — both reviewers independently flagged BaseState's nested-map
- *    delegate as unreliable for XML round-trip.
+ *  - `customOverrides` uses a flat composite-key `Map<String, String>`
+ *    (`"language|category"` -> `"0..100"`). This is the BaseState shape that
+ *    round-trips reliably while preserving unknown persisted entries.
  *  - `schemaVersion` is `4` since the sparse additive [FontEmphasis] layer was
  *    added. A v3 config has no `customEmphasis` element, so it deserialises to
  *    an empty map and needs no read-time migration; all legacy fields and
  *    replacement-style tokens remain unchanged.
- *  - Codex HIGH #1 continuation: [toPresetConfig] is the one-way bridge
- *    that adapts the flat composite-key map back into the nested
+ *  - [toPresetConfig] is the one-way bridge that adapts the flat
+ *    composite-key map back into the nested
  *    `Map<String, Map<String, Int>>` shape consumed by
- *    [SyntaxIntensityApplicator.compute] and [SyntaxPreset.detect]. Plan
- *    50-03's [SyntaxPresetConfig] DTO is the boundary type — neither the
- *    state class nor the preset enum references the other directly.
+ *    [SyntaxIntensityApplicator.compute] and [SyntaxPreset.detect].
+ *    [SyntaxPresetConfig] is the boundary type, keeping storage independent
+ *    from preset behavior.
  */
 @Service
 @State(
@@ -146,9 +139,9 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
      * round-trip preserves whatever XML contains, and this bridge is the
      * place that normalises the surface presented to the applicator. No
      * `runCatching` / `catch (Throwable)` — guarded with explicit conditionals
-     * + [String.toIntOrNull] / [FontStyleOverride.fromName] (Pattern B compliance).
+     * + [String.toIntOrNull] / [FontStyleOverride.fromName].
      *
-     * The default `selectedPreset` is `"AMBIENT"` (D-23 safety net) — even
+     * The default `selectedPreset` is `"AMBIENT"` — even
      * if a future XML schema bug nulls the field out, the DTO consumer
      * passes the literal through [SyntaxPreset.fromName] which falls back
      * to [SyntaxPreset.AMBIENT].
@@ -185,8 +178,8 @@ class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseS
 /**
  * BaseState backing for [SyntaxIntensityState].
  *
- * Schema (D-16 — round-2 revised per Gemini + OpenCode consensus):
- *  - [selectedPreset]: enum name string, default `"AMBIENT"` (D-23).
+ * Persisted schema:
+ *  - [selectedPreset]: enum name string, default `"AMBIENT"`.
  *  - [subordinatePreset]: enum name string, default `"AMBIENT"`. The named
  *    preset whose curve fills the untouched (sparse) cells while the user is
  *    in the Custom drill-down. Legacy / absent XML deserialises to `"AMBIENT"`

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.awt.Font
 import kotlin.math.abs
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
 /**
@@ -1457,6 +1458,23 @@ class SyntaxIntensityApplicatorTest {
         )
         assertEquals(setOf(PrimitiveCategory.STRING_LITERAL), categories["JSON"])
         assertFalse(categories.containsKey("Default"), "cascade source buckets are not user-selectable languages")
+    }
+
+    @Test
+    fun `tunable categories return an immutable snapshot`() {
+        val categories =
+            SyntaxIntensityApplicator.tunableCategories(
+                baseline = mapOf(javaKeywordKey to attrsWithFg(Color(0xFF, 0xCC, 0x66))),
+                overlay = emptyMap(),
+                fallbacks = emptyMap(),
+            )
+
+        assertFailsWith<UnsupportedOperationException> {
+            (categories as MutableMap<String, Set<PrimitiveCategory>>)["Java"] = emptySet()
+        }
+        assertFailsWith<UnsupportedOperationException> {
+            (categories.getValue("Java") as MutableSet<PrimitiveCategory>).clear()
+        }
     }
 
     @Test

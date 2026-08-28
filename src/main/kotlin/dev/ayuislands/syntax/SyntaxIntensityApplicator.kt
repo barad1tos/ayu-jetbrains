@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.color.AccentHsl
 import dev.ayuislands.rotation.HslColor
 import java.awt.Color
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
@@ -15,12 +16,12 @@ import kotlin.math.abs
  * `Map<TextAttributesKey, TextAttributes>`. No IDE singleton, no platform
  * I/O — fully testable in unit tests.
  *
- * Language-aware curve lookup (Codex HIGH #4): each baseline key's language
+ * Language-aware curve lookup: each baseline key's language
  * is derived from `key.externalName` via [SyntaxLanguageRegistry.classify] →
  * [SyntaxLanguageRegistry.LangTag.displayName]; the resulting language name
  * is the input to [SyntaxPresetCurves.curveFor]. The `variantName` parameter
- * is used ONLY for the R-1 caller-contract WARN — it never reaches the curve
- * lookup as a "language" mistake.
+ * is used only for the white-background diagnostic and never participates in
+ * language lookup.
  *
  * Math: parse baseline foreground via [HslColor.fromColor], then:
  *  - saturation is additive (`hsl.saturation + saturationDelta`), self-clamped
@@ -40,7 +41,7 @@ import kotlin.math.abs
  * as its floor so the COMMENT dim can reach the legacy RGB×0.6 tolerance.
  * Hue invariant by construction.
  *
- * Custom font style (Part A backend): under `preset == CUSTOM` the per-cell
+ * Custom font style: under `preset == CUSTOM` the per-cell
  * `customStyles` replacement map (language -> category -> `java.awt.Font`
  * bitmask) sets the clone's `fontType` after the foreground transform.
  * `customEmphasis` is a separate additive map: it ORs its bitmask into the
@@ -54,12 +55,12 @@ import kotlin.math.abs
  * small chroma-intent boost. The user's Custom sparse map stays manual
  * per-language tuning only.
  *
- * Pattern B clone discipline: baseline / overlay `TextAttributes` instances
+ * Baseline and overlay `TextAttributes` instances
  * are NEVER mutated. Every output value is a fresh clone obtained via
  * `source.clone()` and the cloned instance is the only thing the applicator
  * writes to (both `foregroundColor` and `fontType`).
  *
- * H10 fix carried forward: no `null` is ever emitted as a value — the
+ * No `null` is ever emitted as a value because the
  * platform's `EditorColorsSchemeImpl.setAttributes(key, attrs)` declares
  * the second parameter `@NotNull`. The applicator's emit path always uses
  * the cloned (non-null) TextAttributes. Keys that don't classify into a
@@ -68,16 +69,16 @@ import kotlin.math.abs
  * resolves and clones the registered [TextAttributesKey.fallbackAttributeKey]
  * from the Ayu source maps before changing the requested foreground/style.
  *
- * R-1 caller contract (D-09, RB-4): the applicator takes `editorBg: Color`
+ * The applicator takes `editorBg: Color`
  * as a parameter — it does NOT call [dev.ayuislands.syntax.RgbBlend.fallbackEditorBgFor]
  * itself. The mitigation for `EditorColorsScheme.defaultBackground == Color.WHITE`
- * on a dark variant is the SERVICE caller's responsibility (Plan 50-05).
+ * on a dark variant is the service caller's responsibility.
  * If a dark variant arrives here with `Color.WHITE`, the applicator latches
  * a one-time WARN per `(variant, session)` so the regression is visible in
  * `idea.log` without spamming.
  *
- * Pattern B note: there is NO `runCatching` and NO broad `catch` in this
- * file. The pure-compute path has no exception sources beyond
+ * The pure-compute path has no `runCatching` or broad `catch`; its only
+ * exception sources are
  * [HslColor.fromColor] / [HslColor.toColor], which `require()`-validate
  * inputs already clamped to `[0, 1]` / `[0, 360]` by the caller. Any
  * `IllegalArgumentException` from a malformed delta is a programming bug
@@ -152,11 +153,9 @@ object SyntaxIntensityApplicator {
                 )
             }
         }
-        // `request.editorBg` participates in the R-1 contract guard above but does
-        // not feed the per-key transform; the parameter exists so the
-        // applicator stays language-aware AND signature-stable for Plan
-        // 50-05's service caller, which will pass the resolved editor
-        // background for diagnostic logging.
+        // `request.editorBg` participates in the contract guard above but does
+        // not feed the per-key transform. The service supplies the resolved
+        // editor background for diagnostic logging.
         check(request.editorBg.alpha in 0..MAX_RGB_CHANNEL) {
             "editorBg alpha out of range: ${request.editorBg.alpha}"
         }
@@ -180,7 +179,11 @@ object SyntaxIntensityApplicator {
                 categories.getOrPut(role.languageId) { linkedSetOf() }.add(role.primitive)
             }
         }
-        return categories.mapValues { (_, values) -> values.toSet() }
+        val snapshot =
+            categories.mapValues { (_, values) ->
+                Collections.unmodifiableSet(LinkedHashSet(values))
+            }
+        return Collections.unmodifiableMap(snapshot)
     }
 
     private fun hasTunableForeground(
@@ -225,10 +228,9 @@ object SyntaxIntensityApplicator {
         context: TransformContext,
         sources: AttributeSources,
     ): TextAttributes? {
-        val sourceForeground = input.source.foregroundColor
-        if (sourceForeground == null) {
-            return transformInherited(input, context, sources)
-        }
+        val sourceForeground =
+            input.source.foregroundColor
+                ?: return transformInherited(input, context, sources)
         val clone = input.source.clone()
         clone.foregroundColor =
             transformForeground(
@@ -319,11 +321,11 @@ object SyntaxIntensityApplicator {
         sources: AttributeSources,
         result: MutableMap<TextAttributesKey, TextAttributes>,
     ) {
-        for (target in SyntaxLanguageRegistry.cascadeTargetsFor(cascadeSource.defaultKeyName)) {
-            val targetKey = findKey(target.keyName, sources)
+        for ((languageTag, keyName) in SyntaxLanguageRegistry.cascadeTargetsFor(cascadeSource.defaultKeyName)) {
+            val targetKey = findKey(keyName, sources)
             val targetSource = sources.overlay[targetKey] ?: sources.baseline[targetKey]
             if (targetSource?.foregroundColor != null) continue
-            val language = target.language.displayName
+            val language = languageTag.displayName
             val curve =
                 resolveCurve(
                     context.preset,
@@ -470,7 +472,7 @@ object SyntaxIntensityApplicator {
         ) {
             log.warn(
                 "editorBg arrived as Color.WHITE for dark variant '$variantName' — " +
-                    "caller must resolve via RgbBlend.fallbackEditorBgFor (R-1)",
+                    "caller must resolve via RgbBlend.fallbackEditorBgFor",
             )
         }
     }

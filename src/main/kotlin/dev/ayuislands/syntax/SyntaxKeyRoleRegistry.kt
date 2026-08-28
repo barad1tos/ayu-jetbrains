@@ -68,8 +68,8 @@ object SyntaxKeyRoleRegistry {
      *    `OPERATOR` family because some platforms emit
      *    `KOTLIN_FUNCTION_DECLARATION` and we want FUNCTION_DECL, not OPERATOR.
      *  - `CLASS_DECLARATION` / `CLASS_NAME` route to CLASS_DECL — at this
-     *    granularity class-references and class-declarations are NOT
-     *    distinguished (Plan 50-04 modulates them with the same curve).
+     *    granularity class references and declarations intentionally share
+     *    the same curve.
      *  - `INTERFACE_NAME` / `INTERFACE_DECLARATION` must beat CLASS_*; place
      *    INTERFACE BEFORE CLASS in the table.
      *  - `LOCAL_VARIABLE` must beat the generic VARIABLE family (no rule yet).

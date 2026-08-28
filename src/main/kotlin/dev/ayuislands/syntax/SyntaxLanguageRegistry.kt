@@ -45,14 +45,14 @@ private data class NativeIdentityAliases(
  * [Bucket.DIAGNOSTICS] (warnings/errors/typos — hidden from picker),
  * [Bucket.EDITOR_OVERLAY] (breakpoints/folded text/diff — hidden from picker),
  * or [Bucket.OTHER] (unknown prefix; logged once via [warnedUnknownPrefixes]
- * latch — Pattern A from [SyntaxOverlayLoader]).
+ * latch shared with [SyntaxOverlayLoader]).
  *
  * Also owns the closed catalog of 5 cascade keys eligible for per-language
- * materialization in Phase 50A — see [cascadeKeysInScope] and
- * [cascadeTargets]. Per Phase 50 RESEARCH OQ-04 the catalog is intentionally
+ * materialization — see [cascadeKeysInScope] and [cascadeTargets]. The catalog
+ * is intentionally
  * conservative (`DEFAULT_LINE_COMMENT` / `BLOCK_COMMENT` / `DOC_COMMENT` /
- * `STRING` / `NUMBER`); broader cascade keys are deferred until Wave 3
- * proves the materialization cycle does not double-apply.
+ * `STRING` / `NUMBER`); broader cascade keys require equivalent evidence that
+ * materialization cannot double-apply.
  *
  * Object (not `@Service`) — pure compute, no IDE state. Thread-safe by
  * construction (immutable maps + ConcurrentHashMap-backed unknown-prefix
@@ -61,11 +61,7 @@ private data class NativeIdentityAliases(
  *  - [Bucket] = CASCADE → cross-language baseline used to derive
  *    per-language materialized keys at apply time
  *  - [Bucket] / DIAGNOSTICS / EDITOR_OVERLAY / OTHER → hidden from picker;
- *    intensity does NOT modulate these (R-7 — pollution risk)
- *
- * References Phase 50 RESEARCH OQ-03 (full prefix map) + OQ-04
- * (cascade-targets table) + CONTEXT D-06 (prefix ownership) + D-07
- * (cross-language cascade materialized per-language).
+ *    intensity does not modulate these because they are not language-owned
  */
 object SyntaxLanguageRegistry {
     enum class Bucket { LANGUAGE, CASCADE, DIAGNOSTICS, EDITOR_OVERLAY, OTHER }
