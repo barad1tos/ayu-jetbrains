@@ -135,22 +135,22 @@ class SyntaxLanguageResolverTest {
     @Test
     fun `every advertised language resolves from its declared native identity`() {
         SyntaxLanguageRegistry.specifications().forEach { specification ->
-            val profile = specification.nativeProfiles.single()
-            val preview = specification.preview.files.single()
+            specification.preview.files.forEach { preview ->
+                val profile = specification.nativeProfiles.single { it.id == preview.profileId }
+                val selected =
+                    coldProjectResolver.resolve(
+                        project = project,
+                        activeFile =
+                            activeFile(
+                                preview.fileName,
+                                profile.fileTypeNames.first(),
+                                *profile.languageIds.toTypedArray(),
+                            ),
+                        fallbackLanguage = "Kotlin",
+                    )
 
-            val selected =
-                coldProjectResolver.resolve(
-                    project = project,
-                    activeFile =
-                        activeFile(
-                            preview.fileName,
-                            profile.fileTypeNames.first(),
-                            *profile.languageIds.toTypedArray(),
-                        ),
-                    fallbackLanguage = "Kotlin",
-                )
-
-            assertEquals(specification.displayName, selected, specification.displayName)
+                assertEquals(specification.displayName, selected, preview.fileName)
+            }
         }
     }
 

@@ -114,7 +114,7 @@ internal object SyntaxRuntimeCatalog {
                 id = "hcl",
                 productId = "INTELLIJ_IDEA_COMMUNITY",
                 version = "2025.1",
-                candidateLanguages = setOf("HCL"),
+                candidateLanguages = setOf("HCL", "TIL"),
                 marketplaceDependency = MarketplaceDependency("org.intellij.plugins.hcl", "251.23774.426"),
             ),
             SyntaxRuntime(
@@ -221,7 +221,6 @@ internal object SyntaxRuntimeCatalog {
                         "Nginx",
                         "PowerShell",
                         "Scala",
-                        "TIL",
                         "Windows Batch",
                     ),
                 provisioning =

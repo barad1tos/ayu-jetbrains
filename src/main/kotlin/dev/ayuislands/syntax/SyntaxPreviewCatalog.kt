@@ -19,17 +19,31 @@ import dev.ayuislands.syntax.PrimitiveCategory.TYPE_REF
 
 internal data class SyntaxPreviewSpec(
     val language: String,
+    val fixtures: List<PreviewFixture>,
+    val semanticOnlyCategories: Set<PrimitiveCategory> = emptySet(),
+    val detectionProfiles: List<DetectionProfileHint> = emptyList(),
+)
+
+internal data class PreviewFixture(
+    val profileName: String,
     val fileName: String,
-    val standardFileTypeName: String,
-    val defaultExtension: String,
+    val fileType: FileTypeHint,
     val resourceName: String,
     val demonstratedCategories: Set<PrimitiveCategory>,
-    val semanticOnlyCategories: Set<PrimitiveCategory> = emptySet(),
+    val isDetectionProfile: Boolean = true,
 )
 
 internal data class FileTypeHint(
     val standardName: String,
     val extension: String,
+    val languageIds: Set<String> = emptySet(),
+)
+
+internal data class DetectionProfileHint(
+    val profileName: String,
+    val fileTypeNames: Set<String>,
+    val languageIds: Set<String> = emptySet(),
+    val extensions: Set<String>,
 )
 
 internal object SyntaxPreviewCatalog {
@@ -567,7 +581,10 @@ internal object SyntaxPreviewCatalog {
     fun languages(): Set<String> = specifications.keys.toSet()
 
     fun categories(language: String): Set<PrimitiveCategory> =
-        specifications[language]?.demonstratedCategories.orEmpty()
+        specifications[language]
+            ?.fixtures
+            .orEmpty()
+            .flatMapTo(linkedSetOf(), PreviewFixture::demonstratedCategories)
 
     fun entries(): Collection<SyntaxPreviewSpec> = specifications.values
 }
@@ -581,14 +598,39 @@ internal fun syntaxPreviewSpec(
 ): SyntaxPreviewSpec =
     SyntaxPreviewSpec(
         language,
-        fileName,
-        fileTypeHint.standardName,
-        fileTypeHint.extension,
-        resourceName,
-        categories.toSet(),
+        listOf(
+            previewFixture(
+                profileName = "default",
+                fileName = fileName,
+                fileTypeHint = fileTypeHint,
+                resourceName = resourceName,
+                *categories,
+            ),
+        ),
+    )
+
+internal fun syntaxPreviewSpec(
+    language: String,
+    vararg fixtures: PreviewFixture,
+): SyntaxPreviewSpec = SyntaxPreviewSpec(language, fixtures.toList())
+
+internal fun previewFixture(
+    profileName: String,
+    fileName: String,
+    fileTypeHint: FileTypeHint,
+    resourceName: String,
+    vararg categories: PrimitiveCategory,
+): PreviewFixture =
+    PreviewFixture(
+        profileName = profileName,
+        fileName = fileName,
+        fileType = fileTypeHint,
+        resourceName = resourceName,
+        demonstratedCategories = categories.toSet(),
     )
 
 internal fun previewFileType(
     standardName: String,
     extension: String,
-): FileTypeHint = FileTypeHint(standardName, extension)
+    languageIds: Set<String> = emptySet(),
+): FileTypeHint = FileTypeHint(standardName, extension, languageIds)

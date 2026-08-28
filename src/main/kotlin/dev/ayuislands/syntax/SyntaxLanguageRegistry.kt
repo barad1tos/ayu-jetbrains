@@ -19,6 +19,7 @@ data class NativeProfile(
     val languageIds: Set<String>,
     val exactFileNames: Set<String>,
     val extensions: Set<String>,
+    val isDetectionProfile: Boolean = true,
 )
 
 data class PreviewBundle(
@@ -247,7 +248,6 @@ object SyntaxLanguageRegistry {
                 checkNotNull(previews[language.displayName]) {
                     "Missing preview declaration for ${language.displayName}"
                 }
-            val profileId = "${language.displayName}:default"
             val aliases =
                 buildSet {
                     add(language.tag)
@@ -260,31 +260,54 @@ object SyntaxLanguageRegistry {
                 displayName = language.displayName,
                 aliases = aliases,
                 nativeProfiles =
-                    listOf(
-                        NativeProfile(
-                            id = profileId,
-                            fileTypeNames =
-                                nativeFileTypeNames(
-                                    language.displayName,
-                                    language.tag,
-                                    preview.standardFileTypeName,
+                    buildList {
+                        preview.fixtures.forEach { fixture ->
+                            add(
+                                NativeProfile(
+                                    id = "${language.displayName}:${fixture.profileName}",
+                                    fileTypeNames =
+                                        nativeFileTypeNames(
+                                            language.displayName,
+                                            language.tag,
+                                            fixture.fileType.standardName,
+                                        ),
+                                    languageIds =
+                                        aliases +
+                                            nativeIdentityAliases[language.displayName]?.languageIds.orEmpty() +
+                                            fixture.fileType.languageIds,
+                                    exactFileNames = nativeFileNames(language.displayName),
+                                    extensions =
+                                        nativeExtensions(
+                                            language.displayName,
+                                            fixture.fileType.extension,
+                                        ),
+                                    isDetectionProfile = fixture.isDetectionProfile,
                                 ),
-                            languageIds = aliases + nativeIdentityAliases[language.displayName]?.languageIds.orEmpty(),
-                            exactFileNames = nativeFileNames(language.displayName),
-                            extensions = nativeExtensions(language.displayName, preview.defaultExtension),
-                        ),
-                    ),
+                            )
+                        }
+                        preview.detectionProfiles.forEach { profile ->
+                            add(
+                                NativeProfile(
+                                    id = "${language.displayName}:${profile.profileName}",
+                                    fileTypeNames = profile.fileTypeNames,
+                                    languageIds = aliases + profile.languageIds,
+                                    exactFileNames = nativeFileNames(language.displayName),
+                                    extensions = profile.extensions,
+                                ),
+                            )
+                        }
+                    },
                 preview =
                     PreviewBundle(
                         files =
-                            listOf(
+                            preview.fixtures.map { fixture ->
                                 PreviewFileSpec(
-                                    fileName = preview.fileName,
-                                    resourceName = preview.resourceName,
-                                    profileId = profileId,
-                                    demonstratedCategories = preview.demonstratedCategories,
-                                ),
-                            ),
+                                    fileName = fixture.fileName,
+                                    resourceName = fixture.resourceName,
+                                    profileId = "${language.displayName}:${fixture.profileName}",
+                                    demonstratedCategories = fixture.demonstratedCategories,
+                                )
+                            },
                     ),
                 semanticOnlyCategories = preview.semanticOnlyCategories,
                 pluginRequirement = pluginRequirement(language.tag),
@@ -331,7 +354,7 @@ object SyntaxLanguageRegistry {
                     displayName = GRAPHQL_PLUGIN_NAME,
                     marketplaceUrl = GRAPHQL_MARKETPLACE_URL,
                 )
-            HCL_STORAGE_ID ->
+            HCL_STORAGE_ID, TIL_STORAGE_ID ->
                 PluginRequirement(
                     pluginId = HCL_PLUGIN_ID,
                     displayName = HCL_PLUGIN_NAME,
@@ -535,6 +558,7 @@ object SyntaxLanguageRegistry {
     private const val HCL_PLUGIN_ID = "org.intellij.plugins.hcl"
     private const val HCL_PLUGIN_NAME = "Terraform and HCL"
     private const val HCL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/7808-terraform-and-hcl"
+    private const val TIL_STORAGE_ID = "TIL"
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
     private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"

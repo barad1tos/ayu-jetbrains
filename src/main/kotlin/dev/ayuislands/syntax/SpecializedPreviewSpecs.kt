@@ -178,15 +178,42 @@ internal object SpecializedPreviewSpecs {
             ),
             syntaxPreviewSpec(
                 "TIL",
-                "preview.tf",
-                previewFileType("HCL", "tf"),
-                "til.txt",
-                KEYWORD,
-                LOCAL_VAR,
-                NUMBER_LITERAL,
-                INSTANCE_FIELD,
-                TYPE_REF,
-                OPERATOR,
+                previewFixture(
+                    "default",
+                    "preview.hil",
+                    previewFileType(
+                        "HIL",
+                        "hil",
+                        setOf("HIL"),
+                    ),
+                    "til.txt",
+                    KEYWORD,
+                    LOCAL_VAR,
+                    NUMBER_LITERAL,
+                    OPERATOR,
+                ),
+                previewFixture(
+                    "terraform",
+                    "preview.tf",
+                    previewFileType(
+                        "Terraform",
+                        "tf",
+                        setOf("HCL-Terraform", "Terraform/OpenTofu"),
+                    ),
+                    "til-terraform.txt",
+                    LOCAL_VAR,
+                    INSTANCE_FIELD,
+                    TYPE_REF,
+                ).copy(isDetectionProfile = false),
+            ).copy(
+                detectionProfiles =
+                    listOf(
+                        DetectionProfileHint(
+                            profileName = "legacy",
+                            fileTypeNames = setOf("HCL"),
+                            extensions = setOf("tf"),
+                        ),
+                    ),
             ),
             syntaxPreviewSpec(
                 "Windows Batch",

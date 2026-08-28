@@ -404,14 +404,6 @@ internal class SyntaxPreviewComponent(
                 .orEmpty()
                 .flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
 
-        @TestOnly
-        internal fun resourceNamesForTest(): Set<String> =
-            SyntaxLanguageRegistry
-                .specifications()
-                .flatMapTo(linkedSetOf()) { specification ->
-                    specification.preview.files.map(PreviewFileSpec::resourceName)
-                }
-
         private fun normalizeLanguage(language: String): String =
             language.takeIf { it.isNotBlank() } ?: DEFAULT_LANGUAGE
 

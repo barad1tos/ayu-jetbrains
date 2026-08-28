@@ -33,6 +33,7 @@ internal class SyntaxLanguageMatcher(
         buildMap<String, MutableSet<LanguageSpecification>> {
             for (specification in this@indexBy) {
                 for (profile in specification.nativeProfiles) {
+                    if (!profile.isDetectionProfile) continue
                     for (selector in selectors(profile)) {
                         getOrPut(normalize(selector), ::linkedSetOf).add(specification)
                     }

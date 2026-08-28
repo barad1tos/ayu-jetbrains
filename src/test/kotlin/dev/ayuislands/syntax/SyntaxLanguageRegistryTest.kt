@@ -362,13 +362,19 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
-    fun `HCL specification points recovery to its official provider`() {
-        val hcl = requireNotNull(SyntaxLanguageRegistry.findByStorageId("HCL"))
-        val requirement = requireNotNull(hcl.pluginRequirement)
+    fun `HCL and TIL specifications point recovery to their official provider`() {
+        setOf("HCL", "TIL").forEach { languageId ->
+            val language = requireNotNull(SyntaxLanguageRegistry.findByStorageId(languageId))
+            val requirement = requireNotNull(language.pluginRequirement)
 
-        assertEquals("org.intellij.plugins.hcl", requirement.pluginId)
-        assertEquals("Terraform and HCL", requirement.displayName)
-        assertEquals("https://plugins.jetbrains.com/plugin/7808-terraform-and-hcl", requirement.marketplaceUrl)
+            assertEquals("org.intellij.plugins.hcl", requirement.pluginId, languageId)
+            assertEquals("Terraform and HCL", requirement.displayName, languageId)
+            assertEquals(
+                "https://plugins.jetbrains.com/plugin/7808-terraform-and-hcl",
+                requirement.marketplaceUrl,
+                languageId,
+            )
+        }
     }
 
     @Test
@@ -438,6 +444,30 @@ class SyntaxLanguageRegistryTest {
             assertTrue(profile.fileTypeNames.containsAll(identity.first), language)
             assertTrue(profile.languageIds.containsAll(identity.second), language)
         }
+    }
+
+    @Test
+    fun `TIL previews lexical HIL and semantic Terraform surfaces`() {
+        val til = requireNotNull(SyntaxLanguageRegistry.findByStorageId("TIL"))
+        val previews = til.preview.files.associateBy(PreviewFileSpec::fileName)
+        val profiles = til.nativeProfiles.associateBy(NativeProfile::id)
+        val hilProfile = requireNotNull(profiles[requireNotNull(previews["preview.hil"]).profileId])
+        val terraformProfile = requireNotNull(profiles[requireNotNull(previews["preview.tf"]).profileId])
+        val legacyProfile = requireNotNull(profiles["TIL:legacy"])
+
+        assertEquals(setOf("preview.hil", "preview.tf"), previews.keys)
+        assertEquals(setOf("TIL:default", "TIL:terraform", "TIL:legacy"), profiles.keys)
+        assertTrue(hilProfile.fileTypeNames.contains("HIL"))
+        assertTrue(hilProfile.languageIds.contains("HIL"))
+        assertEquals(setOf("hil"), hilProfile.extensions)
+        assertTrue(terraformProfile.fileTypeNames.contains("Terraform"))
+        assertTrue(terraformProfile.languageIds.containsAll(setOf("HCL-Terraform", "Terraform/OpenTofu")))
+        assertTrue(terraformProfile.extensions.contains("tf"))
+        assertFalse(terraformProfile.isDetectionProfile)
+        assertTrue(legacyProfile.fileTypeNames.contains("HCL"))
+        assertTrue(legacyProfile.languageIds.contains("TIL"))
+        assertEquals(setOf("tf"), legacyProfile.extensions)
+        assertTrue(legacyProfile.isDetectionProfile)
     }
 
     @Test

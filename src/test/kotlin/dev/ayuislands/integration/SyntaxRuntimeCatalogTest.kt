@@ -107,10 +107,10 @@ class SyntaxRuntimeCatalogTest {
     }
 
     @Test
-    fun `HCL uses its official marketplace language provider`() {
+    fun `HCL and TIL share their official marketplace language provider`() {
         val runtime = SyntaxRuntimeCatalog.require("hcl")
 
-        assertEquals(setOf("HCL"), runtime.candidateLanguages)
+        assertEquals(setOf("HCL", "TIL"), runtime.candidateLanguages)
         assertEquals(
             MarketplaceDependency("org.intellij.plugins.hcl", "251.23774.426"),
             runtime.marketplaceDependency,

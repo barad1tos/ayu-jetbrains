@@ -46,6 +46,10 @@
     <option name="DART_PARENTH" baseAttributes="DEFAULT_PARENTHS" />
     <option name="DART_SEMICOLON" baseAttributes="DEFAULT_SEMICOLON" />
     <option name="DART_STRING" baseAttributes="DEFAULT_STRING" />
+    <option name="TIL.BRACES" baseAttributes="DEFAULT_BRACES" />
+    <option name="TIL.BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
+    <option name="TIL.COMMA" baseAttributes="DEFAULT_COMMA" />
+    <option name="TIL.DOT" baseAttributes="DEFAULT_DOT" />
     <option name="PUPPET_NAME" baseAttributes="PUPPET_CLASS_NAME" />
     <option name="PUPPET_SQ_STRING" baseAttributes="PUPPET_STRING" />
     <!-- Noctule Swift semantic token keys must carry concrete values here:

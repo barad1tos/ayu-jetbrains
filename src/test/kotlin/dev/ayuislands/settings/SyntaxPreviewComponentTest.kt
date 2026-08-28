@@ -32,6 +32,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -497,7 +498,10 @@ class SyntaxPreviewComponentTest {
     fun `preview catalog exactly covers every declared syntax language`() {
         val supported = SyntaxLanguageRegistry.supportedLanguages().mapTo(linkedSetOf()) { it.displayName }
 
-        assertEquals(supported, SyntaxPreviewComponent.catalogLanguagesForTest())
+        assertEquals(
+            expected = supported,
+            actual = SyntaxPreviewComponent.catalogLanguagesForTest(),
+        )
     }
 
     @Test
@@ -527,10 +531,11 @@ class SyntaxPreviewComponentTest {
 
     @Test
     fun `preview resources are unique complete and nonblank`() {
-        val languages = SyntaxPreviewComponent.catalogLanguagesForTest()
-        val resources = SyntaxPreviewComponent.resourceNamesForTest()
+        val specifications = SyntaxLanguageRegistry.specifications()
+        val resources = specifications.flatMap { it.preview.files }.map { it.resourceName }
 
-        assertEquals(languages.size, resources.size, "Every declared language must own one unique resource.")
+        assertTrue(specifications.all { it.preview.files.isNotEmpty() }, "Every declared language must own a resource.")
+        assertEquals(resources.size, resources.toSet().size, "Every preview surface must own one unique resource.")
         resources.forEach { resource ->
             val path = "/dev/ayuislands/settings/syntax-preview/$resource"
             val url = assertNotNull(SyntaxPreviewComponent::class.java.getResource(path), path)
@@ -545,7 +550,7 @@ class SyntaxPreviewComponentTest {
             SyntaxPreviewComponent.catalogLanguagesForTest().map { language ->
                 {
                     component.updatePreview(AyuVariant.MIRAGE, language)
-                    assertFalse(component.sampleFileNameForTest() == "Preview.txt", language)
+                    assertNotEquals("Preview.txt", component.sampleFileNameForTest(), language)
                     assertFalse(
                         component.sampleCodeForTest().contains("class Preview {\n    value = \"hello\""),
                         language,
