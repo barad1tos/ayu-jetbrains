@@ -1,12 +1,2 @@
-stages: [test]
-
-variables:
-  PREVIEW_NAME: "Ayu"
-
-preview:
-  stage: test
-  image: alpine:3.20
-  script:
-    - echo "$PREVIEW_NAME"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+$BRANCH == "main" || $PIPELINE_SOURCE == "merge_request_event"
+($TAG =~ /^v\d+\.\d+\.\d+$/ || $IS_PROTECTED) && $DEPLOY_TARGET != ""

@@ -11,6 +11,7 @@ import kotlin.test.assertEquals
 class SyntaxContractReportTest {
     @TempDir
     lateinit var reportDirectory: Path
+    private val runtime = SyntaxRuntimeCatalog.require("idea-community")
 
     @Test
     fun `report exposes structured evidence actions and a filterable table`() {
@@ -24,13 +25,40 @@ class SyntaxContractReportTest {
                         declared = setOf(KEYWORD),
                         previewed = setOf(KEYWORD),
                         verified = setOf(KEYWORD),
+                        runtimeEvidence =
+                            listOf(
+                                RuntimeSyntaxEvidence(
+                                    runtimeId = "idea-community",
+                                    profileId = "Swift:default",
+                                    status = RuntimeEvidenceStatus.VERIFIED,
+                                    fileTypeName = "NoctuleSwift",
+                                    languageIds = setOf("NoctuleSwift", "Swift"),
+                                    originsByPrimitive =
+                                        mapOf(
+                                            KEYWORD to
+                                                setOf(
+                                                    SyntaxEvidenceOrigin.LEXICAL_TOKEN,
+                                                    SyntaxEvidenceOrigin.PREVIEW_OCCURRENCE,
+                                                ),
+                                        ),
+                                ),
+                            ),
                     ),
                 ),
             )
 
-        val report = SyntaxContractReport.render(matrix)
+        val report = SyntaxContractReport.render(matrix, runtime)
 
+        assertContains(report.json, "\"schemaVersion\": 1")
+        assertContains(report.json, "\"id\": \"idea-community\"")
+        assertContains(report.json, "\"product\": \"INTELLIJ_IDEA_COMMUNITY\"")
+        assertContains(report.json, "\"version\": \"2025.1\"")
         assertContains(report.json, "\"language\": \"Swift\"")
+        assertContains(report.json, "\"profileId\": \"Swift:default\"")
+        assertContains(report.json, "\"status\": \"VERIFIED\"")
+        assertContains(report.json, "\"fileTypeName\": \"NoctuleSwift\"")
+        assertContains(report.json, "\"languageIds\": [\"NoctuleSwift\", \"Swift\"]")
+        assertContains(report.json, "\"KEYWORD\": [\"LEXICAL_TOKEN\", \"PREVIEW_OCCURRENCE\"]")
         assertContains(report.json, "\"existingButUndeclared\": [\"OPERATOR\"]")
         assertContains(
             report.json,
@@ -49,7 +77,7 @@ class SyntaxContractReportTest {
                 listOf(LanguageContractEvidence(language = "C# <script>", advertised = true)),
             )
 
-        val report = SyntaxContractReport.render(matrix)
+        val report = SyntaxContractReport.render(matrix, runtime)
 
         assertContains(report.json, "C# <script>")
         assertContains(report.html, "C# &lt;script&gt;")
@@ -63,14 +91,14 @@ class SyntaxContractReportTest {
                 listOf(LanguageContractEvidence(language = "Kotlin", advertised = true)),
             )
 
-        val written = SyntaxContractReport.write(matrix, reportDirectory)
+        val written = SyntaxContractReport.write(matrix, runtime, reportDirectory)
 
         assertEquals(
-            setOf("syntax-contract.html", "syntax-contract.json", "syntax-contract.md"),
+            setOf("syntax-contract.html", "syntax-contract-idea-community.json", "syntax-contract.md"),
             written.map { it.fileName.toString() }.toSet(),
         )
         assertContains(
-            reportDirectory.resolve("syntax-contract.json").toFile().readText(),
+            reportDirectory.resolve("syntax-contract-idea-community.json").toFile().readText(),
             "\"language\": \"Kotlin\"",
         )
     }

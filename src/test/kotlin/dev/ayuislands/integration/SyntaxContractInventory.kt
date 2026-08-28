@@ -11,6 +11,7 @@ internal object SyntaxContractInventory {
         specifications: List<LanguageSpecification>,
         existing: Map<String, Set<PrimitiveCategory>>,
         verified: Map<String, Set<PrimitiveCategory>>,
+        runtimeEvidence: Map<String, List<RuntimeSyntaxEvidence>> = emptyMap(),
     ): SyntaxContractMatrix =
         SyntaxContractMatrix.build(
             specifications.map { specification ->
@@ -21,6 +22,7 @@ internal object SyntaxContractInventory {
                     declared = specification.declaredCategories(),
                     previewed = specification.previewedCategories(),
                     verified = verified[specification.storageId].orEmpty(),
+                    runtimeEvidence = runtimeEvidence[specification.storageId].orEmpty(),
                 )
             },
         )

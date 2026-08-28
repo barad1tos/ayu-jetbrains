@@ -11,32 +11,50 @@ internal data class RenderedSyntaxContract(
 )
 
 internal object SyntaxContractReport {
-    fun render(matrix: SyntaxContractMatrix): RenderedSyntaxContract =
+    fun render(
+        matrix: SyntaxContractMatrix,
+        runtime: SyntaxRuntime,
+    ): RenderedSyntaxContract =
         RenderedSyntaxContract(
-            json = renderJson(matrix),
-            html = renderHtml(matrix),
-            markdown = renderMarkdown(matrix),
+            json = renderJson(matrix, runtime),
+            html = renderHtml(matrix, runtime),
+            markdown = renderMarkdown(matrix, runtime),
         )
 
     fun write(
         matrix: SyntaxContractMatrix,
+        runtime: SyntaxRuntime,
         outputDirectory: Path,
     ): List<Path> {
-        val report = render(matrix)
+        val report = render(matrix, runtime)
         Files.createDirectories(outputDirectory)
         return listOf(
-            outputDirectory.resolve("syntax-contract.json").write(report.json),
+            outputDirectory.resolve("syntax-contract-${runtime.id}.json").write(report.json),
             outputDirectory.resolve("syntax-contract.html").write(report.html),
             outputDirectory.resolve("syntax-contract.md").write(report.markdown),
         )
     }
 
-    private fun renderJson(matrix: SyntaxContractMatrix): String =
+    private fun renderJson(
+        matrix: SyntaxContractMatrix,
+        runtime: SyntaxRuntime,
+    ): String =
         matrix.languages.joinToString(
-            prefix = "{\n  \"languages\": [\n",
+            prefix =
+                "{\n" +
+                    "  \"schemaVersion\": $SCHEMA_VERSION,\n" +
+                    "  \"runtime\": ${runtime.toJson()},\n" +
+                    "  \"languages\": [\n",
             separator = ",\n",
             postfix = "\n  ]\n}\n",
         ) { language -> language.toJson().prependIndent("    ") }
+
+    private fun SyntaxRuntime.toJson(): String =
+        "{" +
+            "\"id\": ${id.jsonString()}, " +
+            "\"product\": ${productId.jsonString()}, " +
+            "\"version\": ${version.jsonString()}" +
+            "}"
 
     private fun LanguageContract.toJson(): String =
         buildString {
@@ -52,11 +70,15 @@ internal object SyntaxContractReport {
             appendLine("  \"declaredButMissingImplementation\": ${unimplementedDeclarations.toJson()},")
             appendLine("  \"declaredButMissingPreview\": ${unpreviewedDeclarations.toJson()},")
             appendLine("  \"previewedButUnverified\": ${unverifiedPreviews.toJson()},")
+            appendLine("  \"runtimeEvidence\": ${runtimeEvidence.toRuntimeEvidenceJson()},")
             appendLine("  \"actions\": ${actions.toJson()}")
             append("}")
         }
 
-    private fun renderHtml(matrix: SyntaxContractMatrix): String =
+    private fun renderHtml(
+        matrix: SyntaxContractMatrix,
+        runtime: SyntaxRuntime,
+    ): String =
         """
         <!doctype html>
         <html lang="en">
@@ -75,7 +97,7 @@ internal object SyntaxContractReport {
           </style>
         </head>
         <body>
-          <h1>Ayu Islands syntax contract</h1>
+          <h1>Ayu Islands syntax contract — ${runtime.id.html()}</h1>
           <input id="filter" type="search" placeholder="Filter languages or primitives" aria-label="Filter matrix">
           <table>
             <thead>
@@ -111,7 +133,10 @@ internal object SyntaxContractReport {
             "<td>${actions.joinToString(" ").html()}</td></tr>"
     }
 
-    private fun renderMarkdown(matrix: SyntaxContractMatrix): String {
+    private fun renderMarkdown(
+        matrix: SyntaxContractMatrix,
+        runtime: SyntaxRuntime,
+    ): String {
         val complete = matrix.languages.count(LanguageContract::isComplete)
         val needsAction = matrix.languages.size - complete
         val details =
@@ -121,12 +146,14 @@ internal object SyntaxContractReport {
                     "- **${language.language.html()}**: ${language.actions.joinToString(" ").html()}"
                 }
         return buildString {
-            append("Syntax contract: ${matrix.languages.size} languages")
+            append("Syntax contract (${runtime.id}): ${matrix.languages.size} languages")
             append(" | $complete complete | $needsAction need action")
             if (details.isNotEmpty()) append("\n$details")
             append('\n')
         }
     }
+
+    private const val SCHEMA_VERSION = 1
 }
 
 private fun Path.write(content: String): Path = also { Files.writeString(this, content) }
@@ -134,6 +161,28 @@ private fun Path.write(content: String): Path = also { Files.writeString(this, c
 private fun Set<PrimitiveCategory>.toJson(): String = map(PrimitiveCategory::name).sorted().toJson()
 
 private fun List<String>.toJson(): String = joinToString(prefix = "[", postfix = "]") { it.jsonString() }
+
+private fun List<RuntimeSyntaxEvidence>.toRuntimeEvidenceJson(): String =
+    sortedWith(compareBy(RuntimeSyntaxEvidence::runtimeId, RuntimeSyntaxEvidence::profileId))
+        .joinToString(prefix = "[", postfix = "]") { evidence ->
+            buildString {
+                append("{")
+                append("\"runtimeId\": ${evidence.runtimeId.jsonString()}, ")
+                append("\"profileId\": ${evidence.profileId.jsonString()}, ")
+                append("\"status\": ${evidence.status.name.jsonString()}, ")
+                append("\"fileTypeName\": ${evidence.fileTypeName.jsonString()}, ")
+                append("\"languageIds\": ${evidence.languageIds.sorted().toJson()}, ")
+                append("\"originsByPrimitive\": ${evidence.originsByPrimitive.toJson()}")
+                append("}")
+            }
+        }
+
+private fun Map<PrimitiveCategory, Set<SyntaxEvidenceOrigin>>.toJson(): String =
+    entries
+        .sortedBy { (primitive) -> primitive.name }
+        .joinToString(prefix = "{", postfix = "}") { (primitive, origins) ->
+            "${primitive.name.jsonString()}: ${origins.map(SyntaxEvidenceOrigin::name).sorted().toJson()}"
+        }
 
 private fun String.jsonString(): String =
     buildString {

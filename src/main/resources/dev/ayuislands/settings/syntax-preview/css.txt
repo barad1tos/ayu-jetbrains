@@ -1,5 +1,5 @@
 @media (min-width: 42rem) {
-    .preview-card {
+    .preview-card[data-preview="ayu"] {
         --accent: #ffcc66;
         color: var(--accent);
         padding: 12px;

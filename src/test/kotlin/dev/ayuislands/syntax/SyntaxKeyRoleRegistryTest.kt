@@ -30,12 +30,12 @@ class SyntaxKeyRoleRegistryTest {
 
     @Test
     fun `every advertised language has declared tunable roles`() {
-        for (language in SyntaxLanguageRegistry.specifications()) {
-            val roles = SyntaxKeyRoleRegistry.rolesFor(language.storageId)
+        for ((storageId) in SyntaxLanguageRegistry.specifications()) {
+            val roles = SyntaxKeyRoleRegistry.rolesFor(storageId)
 
-            assertTrue(roles.isNotEmpty(), language.storageId)
+            assertTrue(roles.isNotEmpty(), storageId)
             roles.forEach { (roleId, role) ->
-                assertEquals(language.storageId, role.languageId, "${language.storageId}: $roleId")
+                assertEquals(storageId, role.languageId, "$storageId: $roleId")
             }
         }
     }
@@ -78,6 +78,14 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `Python native string and type keys keep distinct roles`() {
+        assertEquals(PrimitiveCategory.STRING_LITERAL, classifyPrimitive("PY.STRING.U"))
+        assertEquals(PrimitiveCategory.TYPE_REF, classifyPrimitive("PY.ANNOTATION"))
+        assertEquals(PrimitiveCategory.ANNOTATION, classifyPrimitive("PY.DECORATOR"))
+        assertEquals(PrimitiveCategory.GENERICS, classifyPrimitive("PY.TYPE_PARAMETER"))
+    }
+
+    @Test
     fun `JAVA_STRING classifies to STRING_LITERAL`() {
         assertEquals(PrimitiveCategory.STRING_LITERAL, classifyPrimitive("JAVA_STRING"))
     }
@@ -115,6 +123,30 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `JavaScript member functions are not classified as fields`() {
+        assertEquals(PrimitiveCategory.FUNCTION_DECL, classifyPrimitive("JS.INSTANCE_MEMBER_FUNCTION"))
+        assertEquals(PrimitiveCategory.FUNCTION_DECL, classifyPrimitive("TS.INSTANCE_MEMBER_FUNCTION"))
+        assertEquals(PrimitiveCategory.FUNCTION_DECL, classifyPrimitive("JS.STATIC_MEMBER_FUNCTION"))
+    }
+
+    @Test
+    fun `TypeScript primitive types classify to TYPE_REF`() {
+        assertEquals(PrimitiveCategory.TYPE_REF, classifyPrimitive("TS.PRIMITIVE.TYPES"))
+    }
+
+    @Test
+    fun `HTTP method type is a keyword instead of a type reference`() {
+        assertEquals(PrimitiveCategory.KEYWORD, classifyPrimitive("HTTP_REQUEST_METHOD_TYPE"))
+    }
+
+    @Test
+    fun `Go references and members keep distinct roles`() {
+        assertEquals(PrimitiveCategory.TYPE_REF, classifyPrimitive("GO_EXPORTED_STRUCT_REFERENCE"))
+        assertEquals(PrimitiveCategory.INSTANCE_FIELD, classifyPrimitive("GO_STRUCT_EXPORTED_MEMBER"))
+        assertEquals(PrimitiveCategory.FUNCTION_DECL, classifyPrimitive("GO_STRUCT_EXPORTED_MEMBER_CALL"))
+    }
+
+    @Test
     fun `JAVA_CLASS_NAME classifies to CLASS_DECL (decl + name fold to CLASS_DECL at this granularity)`() {
         assertEquals(PrimitiveCategory.CLASS_DECL, classifyPrimitive("JAVA_CLASS_NAME"))
     }
@@ -137,6 +169,14 @@ class SyntaxKeyRoleRegistryTest {
         assertEquals(
             PrimitiveCategory.OPERATOR,
             classifyPrimitive("JAVA_OPERATION_SIGN"),
+        )
+    }
+
+    @Test
+    fun `RUBY_IVAR classifies to INSTANCE_FIELD`() {
+        assertEquals(
+            PrimitiveCategory.INSTANCE_FIELD,
+            classifyPrimitive("RUBY_IVAR"),
         )
     }
 

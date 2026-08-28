@@ -15,9 +15,12 @@ import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.psi.TokenType
 import com.intellij.psi.tree.IElementType
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixture4TestCase
+import dev.ayuislands.settings.ConditionalAbsence
 import dev.ayuislands.settings.HighlightEvidence
 import dev.ayuislands.settings.HighlightEvidenceCollector
 import dev.ayuislands.settings.IdePreviewInspector
+import dev.ayuislands.settings.NativePreviewResolution
+import dev.ayuislands.settings.NativePreviewResolver
 import dev.ayuislands.settings.SyntaxProbeResult
 import dev.ayuislands.syntax.FontEmphasis
 import dev.ayuislands.syntax.FontStyleOverride
@@ -38,12 +41,11 @@ import java.util.concurrent.Callable
 import kotlin.test.assertTrue
 
 class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
+    private val runtime by lazy(SyntaxRuntimeSelection::select)
+
     @Test
-    fun `production inspector confirms every bundled preview available in test runtime`() {
-        val specifications =
-            REQUIRED_NATIVE_LANGUAGES
-                .map { language -> requireNotNull(SyntaxLanguageRegistry.findByStorageId(language)) }
-                .sortedBy(LanguageSpecification::storageId)
+    fun `production inspector confirms every candidate preview available in test runtime`() {
+        val specifications = runtimeSpecifications()
         val results =
             ApplicationManager
                 .getApplication()
@@ -61,10 +63,14 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 val expected =
                     specification.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
                 val confirmed = result as? SyntaxProbeResult.Confirmed
+                val accounted =
+                    confirmed?.evidence?.let { evidence ->
+                        evidence.confirmedCells + evidence.conditionalAbsences.map(ConditionalAbsence::primitive)
+                    }
                 when {
                     confirmed == null -> "${specification.storageId}: $result"
-                    confirmed.evidence.confirmedCells != expected ->
-                        "${specification.storageId}: expected=$expected, confirmed=${confirmed.evidence.confirmedCells}"
+                    accounted != expected ->
+                        "${specification.storageId}: expected=$expected, accounted=$accounted"
                     else -> null
                 }
             }
@@ -115,14 +121,11 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
     @Test
     fun `installed native previews emit every claimed category`() {
         val results =
-            SyntaxLanguageRegistry
-                .specifications()
-                .sortedBy(LanguageSpecification::storageId)
+            runtimeSpecifications()
                 .flatMap { specification ->
                     specification.preview.files.map { previewFile -> inspectPreview(specification, previewFile) }
                 }
         val unavailable = results.filterIsInstance<NativePreviewResult.Unavailable>()
-        val requiredUnavailable = unavailable.filter { result -> result.language in REQUIRED_NATIVE_LANGUAGES }
         val matrix = buildContractMatrix(results)
         publishContractReport(matrix)
         val missingClaims =
@@ -134,7 +137,7 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 }
         val problems =
             buildList {
-                requiredUnavailable.forEach { result ->
+                unavailable.forEach { result ->
                     add("Required ${result.language} preview resolved to ${result.fileTypeName}")
                 }
                 missingClaims.forEach { failure -> add(failure.describe()) }
@@ -158,9 +161,7 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
     @Test
     fun `every installed language-owned preview key actuates all cell dimensions`() {
         val results =
-            SyntaxLanguageRegistry
-                .specifications()
-                .sortedBy(LanguageSpecification::storageId)
+            runtimeSpecifications()
                 .flatMap { specification ->
                     specification.preview.files.map { previewFile -> inspectPreview(specification, previewFile) }
                 }.filterIsInstance<NativePreviewResult.Verified>()
@@ -183,12 +184,24 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                     keySelector = { result -> result.specification.storageId },
                     valueTransform = { result -> result.evidence.categories },
                 ).mapValues { (_, categories) -> categories.flatten().toSet() }
+        val runtimeEvidence =
+            results
+                .groupBy(
+                    keySelector = NativePreviewResult::language,
+                    valueTransform = { result -> result.toRuntimeEvidence(runtime.id) },
+                )
         return SyntaxContractInventory.build(
             specifications = SyntaxLanguageRegistry.specifications(),
             existing = existingCategories(),
             verified = verified,
+            runtimeEvidence = runtimeEvidence,
         )
     }
+
+    private fun runtimeSpecifications(): List<LanguageSpecification> =
+        runtime.candidateLanguages
+            .map { language -> requireNotNull(SyntaxLanguageRegistry.findByStorageId(language)) }
+            .sortedBy(LanguageSpecification::storageId)
 
     private fun existingCategories(): Map<String, Set<PrimitiveCategory>> {
         val loader = SyntaxOverlayLoader()
@@ -208,7 +221,7 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
 
     private fun publishContractReport(matrix: SyntaxContractMatrix) {
         val outputDirectory = Path.of(System.getProperty(REPORT_DIRECTORY_PROPERTY, DEFAULT_REPORT_DIRECTORY))
-        SyntaxContractReport.write(matrix, outputDirectory)
+        SyntaxContractReport.write(matrix, runtime, outputDirectory)
     }
 
     private fun verifyActuation(
@@ -349,16 +362,40 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
         previewFile: PreviewFileSpec,
     ): NativePreviewResult {
         val code = loadPreview(previewFile.resourceName)
-        myFixture.configureByText(previewFile.fileName, code)
-        val fileType = myFixture.file.fileType
-        val fileTypeIdentity = "${fileType.name} (${fileType.javaClass.name})"
         val profile = requireNotNull(specification.nativeProfiles.firstOrNull { it.id == previewFile.profileId })
-        if (!isExpectedNativeType(profile, fileType)) {
-            return NativePreviewResult.Unavailable(specification.storageId, fileTypeIdentity)
+        val nativeFileType =
+            when (val resolution = NativePreviewResolver().resolve(previewFile.fileName, profile)) {
+                is NativePreviewResolution.Resolved -> resolution.fileType
+                is NativePreviewResolution.LookupFailed -> throw resolution.failure
+                is NativePreviewResolution.Unavailable -> {
+                    myFixture.configureByText(previewFile.fileName, code)
+                    return NativePreviewResult.Unavailable(
+                        specification.storageId,
+                        previewFile.profileId,
+                        myFixture.file.fileType.nativeIdentity(),
+                    )
+                }
+            }
+        val projectFile = myFixture.addFileToProject(previewFile.fileName, code)
+        if (isExpectedNativeType(profile, projectFile.fileType)) {
+            myFixture.configureFromExistingVirtualFile(projectFile.virtualFile)
+        } else {
+            myFixture.configureByText(nativeFileType, code)
+        }
+        val projectFileType = myFixture.file.fileType
+        val identity = projectFileType.nativeIdentity()
+        if (!isExpectedNativeType(profile, projectFileType)) {
+            return NativePreviewResult.Unavailable(specification.storageId, previewFile.profileId, identity)
         }
 
         val highlighter =
-            checkNotNull(SyntaxHighlighterFactory.getSyntaxHighlighter(fileType, project, myFixture.file.virtualFile)) {
+            checkNotNull(
+                SyntaxHighlighterFactory.getSyntaxHighlighter(
+                    projectFileType,
+                    project,
+                    myFixture.file.virtualFile,
+                ),
+            ) {
                 "No syntax highlighter for ${previewFile.fileName}"
             }
         val highlightInfos = myFixture.doHighlighting()
@@ -379,7 +416,26 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 code,
                 semanticKeys + descriptorKeys,
             )
-        return NativePreviewResult.Verified(specification, previewFile, fileTypeIdentity, evidence)
+        val origins =
+            SyntaxEvidenceProvenance.classify(
+                lexicalKeys = evidence.lexicalKeys,
+                previewOccurrenceKeys = semanticKeys,
+                descriptorKeys = descriptorKeys,
+            )
+        return NativePreviewResult.Verified(specification, previewFile, identity, evidence, origins)
+    }
+
+    private fun FileType.nativeIdentity(): NativeIdentity {
+        val languageIds =
+            (this as? LanguageFileType)
+                ?.language
+                ?.let { language -> setOf(language.id, language.displayName) }
+                .orEmpty()
+        return NativeIdentity(
+            fileTypeName = name,
+            fileTypeClass = javaClass.name,
+            languageIds = languageIds,
+        )
     }
 
     private fun isExpectedNativeType(
@@ -410,17 +466,55 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
     }
 
     private sealed interface NativePreviewResult {
+        val language: String
+
+        fun toRuntimeEvidence(runtimeId: String): RuntimeSyntaxEvidence
+
         data class Verified(
             val specification: LanguageSpecification,
             val previewFile: PreviewFileSpec,
-            val fileTypeName: String,
+            val identity: NativeIdentity,
             val evidence: HighlightEvidence,
-        ) : NativePreviewResult
+            val originsByPrimitive: Map<PrimitiveCategory, Set<SyntaxEvidenceOrigin>>,
+        ) : NativePreviewResult {
+            override val language: String = specification.storageId
+            val fileTypeName: String = identity.description
+
+            override fun toRuntimeEvidence(runtimeId: String): RuntimeSyntaxEvidence =
+                RuntimeSyntaxEvidence(
+                    runtimeId = runtimeId,
+                    profileId = previewFile.profileId,
+                    status = RuntimeEvidenceStatus.VERIFIED,
+                    fileTypeName = identity.fileTypeName,
+                    languageIds = identity.languageIds,
+                    originsByPrimitive = originsByPrimitive,
+                )
+        }
 
         data class Unavailable(
-            val language: String,
-            val fileTypeName: String,
-        ) : NativePreviewResult
+            override val language: String,
+            val profileId: String,
+            val identity: NativeIdentity,
+        ) : NativePreviewResult {
+            val fileTypeName: String = identity.description
+
+            override fun toRuntimeEvidence(runtimeId: String): RuntimeSyntaxEvidence =
+                RuntimeSyntaxEvidence(
+                    runtimeId = runtimeId,
+                    profileId = profileId,
+                    status = RuntimeEvidenceStatus.UNAVAILABLE,
+                    fileTypeName = identity.fileTypeName,
+                    languageIds = identity.languageIds,
+                )
+        }
+    }
+
+    private data class NativeIdentity(
+        val fileTypeName: String,
+        val fileTypeClass: String,
+        val languageIds: Set<String>,
+    ) {
+        val description: String = "$fileTypeName ($fileTypeClass)"
     }
 
     private data class MissingClaims(
@@ -447,19 +541,6 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
 
         private val VARIANTS = listOf("Mirage", "Dark", "Light")
         private val INTENSITIES = listOf(0, 25, 50, 75, 100)
-
-        private val REQUIRED_NATIVE_LANGUAGES =
-            setOf(
-                "Java",
-                "Kotlin",
-                "Groovy",
-                "Bash",
-                "JSON",
-                "Markdown",
-                "XML",
-                "Properties files",
-                "YAML",
-            )
     }
 }
 

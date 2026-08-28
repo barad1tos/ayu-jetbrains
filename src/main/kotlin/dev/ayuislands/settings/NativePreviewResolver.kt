@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.lang.Language
 import com.intellij.openapi.fileTypes.FileType
 import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.LanguageFileType
@@ -21,7 +22,13 @@ internal sealed interface NativePreviewResolution {
     ) : NativePreviewResolution
 }
 
+private data class CandidateLookup(
+    val fileTypes: List<FileType>,
+    val failure: RuntimeException? = null,
+)
+
 internal class NativePreviewResolver(
+    private val languageById: (String) -> Language? = Language::findLanguageByID,
     private val fileTypes: () -> FileTypeManager = FileTypeManager::getInstance,
 ) {
     fun resolve(
@@ -29,34 +36,48 @@ internal class NativePreviewResolver(
         profile: NativeProfile,
     ): NativePreviewResolution {
         val manager = fileTypes()
-        val candidates = mutableListOf<FileType>()
-        var lookupFailure: RuntimeException? = null
-        try {
-            candidates += manager.getFileTypeByFileName(fileName)
-        } catch (failure: RuntimeException) {
-            rethrowPreviewCancellation(failure)
-            lookupFailure = failure
-        }
-        for (standardName in profile.fileTypeNames) {
-            try {
-                candidates += manager.getStdFileType(standardName)
-            } catch (failure: RuntimeException) {
-                rethrowPreviewCancellation(failure)
-                if (lookupFailure == null) lookupFailure = failure
+        val lookupSuppliers =
+            buildList {
+                add { listOf(manager.getFileTypeByFileName(fileName)) }
+                profile.fileTypeNames.mapTo(this) { standardName ->
+                    { listOf(manager.getStdFileType(standardName)) }
+                }
+                add {
+                    manager.registeredFileTypes
+                        .filterIsInstance<LanguageFileType>()
+                        .filter { fileType -> profile.matches(fileType) }
+                }
+                profile.languageIds.mapTo(this) { languageId ->
+                    { listOfNotNull(languageById(languageId)?.associatedFileType) }
+                }
             }
+        var firstFailure: RuntimeException? = null
+        lookupSuppliers.forEach { lookup ->
+            val result = captureLookup(lookup)
+            if (firstFailure == null) firstFailure = result.failure
+            val resolved =
+                result.fileTypes
+                    .asSequence()
+                    .filterIsInstance<LanguageFileType>()
+                    .filterNot(::isFallbackFileType)
+                    .firstOrNull { fileType -> profile.matches(fileType) }
+            if (resolved != null) return NativePreviewResolution.Resolved(resolved)
         }
 
-        for (candidate in candidates) {
-            when {
-                candidate === PlainTextFileType.INSTANCE || candidate === UnknownFileType.INSTANCE -> Unit
-                candidate !is LanguageFileType -> Unit
-                profile.matches(candidate) -> return NativePreviewResolution.Resolved(candidate)
-                else -> Unit
-            }
-        }
-        return lookupFailure?.let(NativePreviewResolution::LookupFailed)
+        return firstFailure?.let(NativePreviewResolution::LookupFailed)
             ?: NativePreviewResolution.Unavailable
     }
+
+    private fun captureLookup(block: () -> List<FileType>): CandidateLookup =
+        try {
+            CandidateLookup(block())
+        } catch (failure: RuntimeException) {
+            rethrowPreviewCancellation(failure)
+            CandidateLookup(emptyList(), failure)
+        }
+
+    private fun isFallbackFileType(fileType: LanguageFileType): Boolean =
+        fileType === PlainTextFileType.INSTANCE || fileType === UnknownFileType.INSTANCE
 
     private fun NativeProfile.matches(fileType: LanguageFileType): Boolean {
         if (fileTypeNames.none { it.equals(fileType.name, ignoreCase = true) }) return false

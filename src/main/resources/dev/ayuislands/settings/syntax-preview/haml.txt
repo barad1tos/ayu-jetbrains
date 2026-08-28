@@ -1,7 +1,7 @@
 !!! 5
 -# Native HAML preview
 - count = 42
-%section#preview.card{data: {count: count}}
+%section#preview.card(title="Ayu" data-count=count)
   - if count > 0
     %strong= "Ayu #{count}"
   - else

@@ -84,7 +84,7 @@ internal object SyntaxPreviewCatalog {
                 TYPE_REF,
                 LOCAL_VAR,
                 GENERICS,
-            ),
+            ).copy(semanticOnlyCategories = setOf(GENERICS)),
             syntaxPreviewSpec(
                 "JavaScript",
                 "preset-preview.js",
@@ -102,7 +102,7 @@ internal object SyntaxPreviewCatalog {
                 STATIC_FIELD,
                 OPERATOR,
                 FUNCTION_DECL,
-            ),
+            ).copy(semanticOnlyCategories = setOf(TYPE_REF)),
             syntaxPreviewSpec(
                 "TypeScript",
                 "preset-preview.ts",
@@ -135,7 +135,6 @@ internal object SyntaxPreviewCatalog {
                 CLASS_DECL,
                 PARAMETER,
                 INSTANCE_FIELD,
-                ANNOTATION,
                 OPERATOR,
             ),
             syntaxPreviewSpec(
@@ -213,7 +212,6 @@ internal object SyntaxPreviewCatalog {
                 "swift.txt",
                 CLASS_DECL,
                 PARAMETER,
-                TYPE_REF,
                 ANNOTATION,
                 KEYWORD,
                 FUNCTION_DECL,
@@ -222,11 +220,8 @@ internal object SyntaxPreviewCatalog {
                 NUMBER_LITERAL,
                 INTERFACE_DECL,
                 STRING_LITERAL,
-                GENERICS,
                 COMMENT,
                 OPERATOR,
-                STATIC_FIELD,
-                DOCUMENTATION,
             ),
             syntaxPreviewSpec(
                 "Angular",
@@ -431,6 +426,18 @@ internal object SyntaxPreviewCatalog {
                 INSTANCE_FIELD,
                 STATIC_FIELD,
                 TYPE_REF,
+            ).copy(
+                semanticOnlyCategories =
+                    setOf(
+                        PARAMETER,
+                        CLASS_DECL,
+                        INTERFACE_DECL,
+                        FUNCTION_DECL,
+                        ANNOTATION,
+                        INSTANCE_FIELD,
+                        STATIC_FIELD,
+                        TYPE_REF,
+                    ),
             ),
             syntaxPreviewSpec(
                 "PowerShell",
@@ -455,7 +462,7 @@ internal object SyntaxPreviewCatalog {
             ),
             syntaxPreviewSpec(
                 "Qute",
-                "preview.html",
+                "preview.qute.html",
                 previewFileType("Qute", "html"),
                 "qute.txt",
                 KEYWORD,
@@ -478,7 +485,6 @@ internal object SyntaxPreviewCatalog {
                 OPERATOR,
                 TYPE_REF,
                 INSTANCE_FIELD,
-                INTERFACE_DECL,
             ),
             syntaxPreviewSpec(
                 "Sass",

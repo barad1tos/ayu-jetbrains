@@ -2,6 +2,7 @@ doctype html
 / Native Slim preview
 - count = 42
 section#preview.card data-count=count
+  | Ayu #{count}
   - if count > 0
     strong = "Ayu #{count}"
   - else

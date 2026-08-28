@@ -10,6 +10,7 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
@@ -22,16 +23,20 @@ class NativePreviewResolverTest {
     private val preview = swift.preview.files.single()
     private val profile = swift.nativeProfiles.single()
 
+    init {
+        every { fileTypes.registeredFileTypes } returns emptyArray()
+    }
+
     @Test
-    fun `registered filename association wins over a generic standard type`() {
+    fun `registered filename association short-circuits broader registries`() {
         val noctule = languageFileType("NoctuleSwift", "NoctuleSwift")
-        val generic = languageFileType("Swift", "Swift")
         every { fileTypes.getFileTypeByFileName(preview.fileName) } returns noctule
-        every { fileTypes.getStdFileType(any()) } returns generic
 
         val resolution = resolver.resolve(preview.fileName, profile)
 
         assertSame(noctule, assertIs<NativePreviewResolution.Resolved>(resolution).fileType)
+        verify(exactly = 0) { fileTypes.getStdFileType(any()) }
+        verify(exactly = 0) { fileTypes.registeredFileTypes }
     }
 
     @Test
@@ -54,6 +59,37 @@ class NativePreviewResolverTest {
         val resolution = resolver.resolve(preview.fileName, profile)
 
         assertIs<NativePreviewResolution.Unavailable>(resolution)
+    }
+
+    @Test
+    fun `registered language type resolves without a filename association`() {
+        val qute = languageFileType("Qute", "Qute")
+        val quteProfile = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Qute")).nativeProfiles.single()
+        every { fileTypes.getFileTypeByFileName(any()) } returns PlainTextFileType.INSTANCE
+        every { fileTypes.getStdFileType(any()) } returns UnknownFileType.INSTANCE
+        every { fileTypes.registeredFileTypes } returns arrayOf(qute)
+
+        val resolution = resolver.resolve("preview.html", quteProfile)
+
+        assertSame(qute, assertIs<NativePreviewResolution.Resolved>(resolution).fileType)
+    }
+
+    @Test
+    fun `associated language type resolves contextual providers`() {
+        val djangoFileType = languageFileType("DjangoTemplate", "DjangoTemplate")
+        val djangoLanguage = mockk<Language> { every { associatedFileType } returns djangoFileType }
+        val djangoProfile = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Django")).nativeProfiles.single()
+        val contextualResolver =
+            NativePreviewResolver(
+                fileTypes = { fileTypes },
+                languageById = { languageId -> djangoLanguage.takeIf { languageId == "DjangoTemplate" } },
+            )
+        every { fileTypes.getFileTypeByFileName(any()) } returns PlainTextFileType.INSTANCE
+        every { fileTypes.getStdFileType(any()) } returns UnknownFileType.INSTANCE
+
+        val resolution = contextualResolver.resolve("preview.html", djangoProfile)
+
+        assertSame(djangoFileType, assertIs<NativePreviewResolution.Resolved>(resolution).fileType)
     }
 
     @Test

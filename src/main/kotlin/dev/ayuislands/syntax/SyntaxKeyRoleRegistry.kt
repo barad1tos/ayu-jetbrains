@@ -101,18 +101,22 @@ object SyntaxKeyRoleRegistry {
             addRules(
                 PrimitiveCategory.STATIC_FIELD,
                 "STATIC_FIELD|STATIC_FINAL_FIELD|STATIC_GETTER|STATIC_SETTER",
-                "STATIC_MEMBER|^Static field$|org\\.rust\\.STATIC|org\\.rust\\.MUT_STATIC|PHP_CONSTANT",
+                "STATIC_MEMBER_VARIABLE|STATIC_MEMBER_FIELD|^Static field$",
+                "org\\.rust\\.STATIC|org\\.rust\\.MUT_STATIC|PHP_CONSTANT",
                 "^Static property reference ID$",
                 "SWIFT\\.CONSTANT",
             )
             addRules(
                 PrimitiveCategory.INSTANCE_FIELD,
                 "INSTANCE_FIELD|INSTANCE_FINAL_FIELD|INSTANCE_GETTER|INSTANCE_SETTER",
-                "INSTANCE_MEMBER|INSTANCE_PROPERTY|TOP_LEVEL_GETTER|TOP_LEVEL_SETTER",
+                "INSTANCE_MEMBER_VARIABLE|INSTANCE_MEMBER_FIELD|INSTANCE_PROPERTY",
+                "TOP_LEVEL_GETTER|TOP_LEVEL_SETTER",
                 "TOP_LEVEL_VARIABLE|TOP_LEVEL_FUNCTION|PROPERTY_REFERENCE|HASH_KEY|TAG_KEY",
                 "TAG_VALUE|MAP_KEY|INSTANCE_PROPERTY_CUSTOM|PACKAGE_PROPERTY",
                 "INSTANCE_FIELD_ATTRIBUTES|SYNTHETIC_EXTENSION_PROPERTY|^Instance field$",
                 "LUA_FIELD|SWIFT_PROPERTY|SWIFT_GLOBAL_VARIABLE|Instance property reference|GO_TAG_TEXT",
+                "GO_STRUCT_(?:EXPORTED|LOCAL)_MEMBER$",
+                "RUBY_IVAR",
                 "SWIFT\\.GLOBAL_VARIABLE|SWIFT\\.PROPERTY",
                 "MAGIC_MEMBER_ACCESS|EDITORCONFIG_PROPERTY_KEY|DOTENV_KEY|HCL\\.BLOCK_ONLY_NAME_KEY",
             )
@@ -134,6 +138,7 @@ object SyntaxKeyRoleRegistry {
                 "KOTLIN_CONSTRUCTOR|TEAR_OFF|Method call|Method declaration",
                 "Groovy method declaration|Groovy constructor declaration|Groovy constructor call",
                 "LOCAL_FUNC|STD_API|POWER_SHELL_COMMAND_NAME|POWER_SHELL_METHOD_CALL_NAME",
+                "GO_STRUCT_(?:EXPORTED|LOCAL)_MEMBER_CALL",
                 "RBS_TMETHOD_NAME|RBS_RUBY_SPECIFIC_CALLS",
                 "FUNCTION_REFERENCE|^Static method access$",
             )
@@ -144,6 +149,11 @@ object SyntaxKeyRoleRegistry {
                 "INTERFACE_NAME_ATTRIBUTES|PROTOCOL_REFERENCE|PROTOCOL_NAME|PROTOCOL_DECLARATION",
                 "KOTLIN_TRAIT|EXPORTED_INTERFACE",
                 "INTERFACE$|^Trait name$|^Interface name$|Scala Trait|RBS_TINTERFACEIDENT",
+            )
+            addRules(
+                PrimitiveCategory.TYPE_REF,
+                "GO_(?:EXPORTED|LOCAL)_STRUCT_REFERENCE",
+                "PY\\.ANNOTATION",
             )
             // --- Class / enum / struct (declarations + references) ----------
             addRules(
@@ -172,6 +182,7 @@ object SyntaxKeyRoleRegistry {
             // --- Keywords / modifiers --------------------------------------
             addRules(
                 PrimitiveCategory.KEYWORD,
+                "^HTTP_REQUEST_METHOD_TYPE$",
                 "KEYWORD($|S|_)|MODIFIER$|RESERVED_WORD$|KEYWORD_OPERATIONS$",
                 "DIRECTIVE$|HEADER$|TAG_NAME$|XML_NS_PREFIX|XML_TAG_DATA",
                 "DIRECTIVE_PREFIX|DIRECTIVE_COMMAND|DIRECTIVE_KEY|DIRECTIVE_VALUE",
@@ -233,6 +244,7 @@ object SyntaxKeyRoleRegistry {
                 "VALID_ESCAPE|INVALID_ESCAPE|^Valid string escape$|^Invalid string escape$",
                 "MARKDOWN_CODE_SPAN|INTERPOLATION",
                 "String Injection|VALUE$|CONTENT$",
+                "PY\\.STRING\\.",
             )
             // --- Number literals -------------------------------------------
             addRules(
@@ -271,6 +283,7 @@ object SyntaxKeyRoleRegistry {
             addRules(
                 PrimitiveCategory.TYPE_REF,
                 "TYPE_REFERENCE$|TYPE_NAME$|TYPE_ALIAS$|TYPE$|TYPEALIAS$|TYPEALIAS_REFERENCE",
+                "PRIMITIVE\\.TYPES$",
                 "ASSOCIATED_TYPE_DECLARATION",
                 "TYPE_HINT|PRIMITIVE_TYPE_HINT|PREDEFINED_SCOPE|PREDEFINED|Scala Type",
                 "Scala Predefined types|Scala Mutable Collection|Scala Immutable Collection",

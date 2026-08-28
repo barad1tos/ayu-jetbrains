@@ -340,4 +340,62 @@ class SyntaxLanguageRegistryTest {
         assertEquals("dev.j-a.swift", requireNotNull(swift.pluginRequirement).pluginId)
         assertEquals("Noctule, the Swift IDE", swift.pluginRequirement.displayName)
     }
+
+    @Test
+    fun `Ruby exposes only provider-backed primitives`() {
+        val ruby = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Ruby"))
+        val primitives = ruby.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
+        assertTrue(PrimitiveCategory.INSTANCE_FIELD in primitives)
+        assertFalse(PrimitiveCategory.INTERFACE_DECL in primitives)
+    }
+
+    @Test
+    fun `Swift exposes only Noctule-backed primitives`() {
+        val swift = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Swift"))
+        val primitives = swift.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
+        assertTrue(PrimitiveCategory.INTERFACE_DECL in primitives)
+        assertFalse(PrimitiveCategory.TYPE_REF in primitives)
+        assertFalse(PrimitiveCategory.GENERICS in primitives)
+        assertFalse(PrimitiveCategory.STATIC_FIELD in primitives)
+        assertFalse(PrimitiveCategory.DOCUMENTATION in primitives)
+    }
+
+    @Test
+    fun `native profiles include provider identities`() {
+        val expectedIdentities =
+            mapOf(
+                "Angular" to (setOf("Angular2Html") to setOf("Angular2Html")),
+                "Django" to (setOf("DjangoTemplate") to setOf("DjangoTemplate")),
+                "Docker" to (setOf("Dockerfile") to setOf("Dockerfile")),
+                "FreeMarker" to (setOf("FTL") to setOf("FTL")),
+                "GitLab CI" to
+                    (setOf("GitLabCiExpression") to setOf("GitLabCiExpressionLanguage")),
+                "HTTP client" to (setOf("HTTP Request") to setOf("HTTP Request")),
+                "Objective-C" to (setOf("ObjectiveC") to setOf("ObjectiveC")),
+                "Protobuf text" to (setOf("prototext") to setOf("prototext")),
+                "Ruby" to (setOf("Ruby") to setOf("ruby")),
+                "Sass" to (setOf("SCSS") to setOf("SCSS")),
+                "Velocity" to (setOf("VTL") to setOf("VTL")),
+                "Vue" to (setOf("Vue.js") to setOf("Vue")),
+            )
+
+        expectedIdentities.forEach { (language, identity) ->
+            val profile = requireNotNull(SyntaxLanguageRegistry.findByStorageId(language)).nativeProfiles.single()
+
+            assertTrue(profile.fileTypeNames.containsAll(identity.first), language)
+            assertTrue(profile.languageIds.containsAll(identity.second), language)
+        }
+    }
+
+    @Test
+    fun `GitLab CI previews native expressions while matching its YAML host file`() {
+        val gitLabCi = requireNotNull(SyntaxLanguageRegistry.findByStorageId("GitLab CI"))
+        val profile = gitLabCi.nativeProfiles.single()
+        val preview = gitLabCi.preview.files.single()
+
+        assertEquals("preview.gitlabciexpression", preview.fileName)
+        assertEquals(setOf(".gitlab-ci.yml"), profile.exactFileNames)
+    }
 }

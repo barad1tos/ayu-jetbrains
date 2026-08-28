@@ -1,10 +1,7 @@
 from functools import lru_cache
-from typing import TypeVar
-
-Value = TypeVar("Value")
 
 @lru_cache
-def render(value: Value) -> str:
+def render[Value](value: Value) -> str:
     """Format one value for preview."""
     prefix = "Ayu"
     count = 42  # tuned local

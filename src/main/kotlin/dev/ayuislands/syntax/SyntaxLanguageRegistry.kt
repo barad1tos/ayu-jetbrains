@@ -11,7 +11,6 @@ data class LanguageSpecification(
     val preview: PreviewBundle,
     val semanticOnlyCategories: Set<PrimitiveCategory> = emptySet(),
     val pluginRequirement: PluginRequirement?,
-    val verificationRuntimeId: String,
 )
 
 data class NativeProfile(
@@ -37,6 +36,11 @@ data class PluginRequirement(
     val pluginId: String,
     val displayName: String,
     val marketplaceUrl: String,
+)
+
+private data class NativeIdentityAliases(
+    val fileTypeNames: Set<String>,
+    val languageIds: Set<String>,
 )
 
 /**
@@ -259,9 +263,14 @@ object SyntaxLanguageRegistry {
                     listOf(
                         NativeProfile(
                             id = profileId,
-                            fileTypeNames = nativeFileTypeNames(language.tag, preview.standardFileTypeName),
-                            languageIds = aliases,
-                            exactFileNames = nativeFileNames(language.displayName, preview.fileName),
+                            fileTypeNames =
+                                nativeFileTypeNames(
+                                    language.displayName,
+                                    language.tag,
+                                    preview.standardFileTypeName,
+                                ),
+                            languageIds = aliases + nativeIdentityAliases[language.displayName]?.languageIds.orEmpty(),
+                            exactFileNames = nativeFileNames(language.displayName),
                             extensions = nativeExtensions(language.displayName, preview.defaultExtension),
                         ),
                     ),
@@ -279,29 +288,22 @@ object SyntaxLanguageRegistry {
                     ),
                 semanticOnlyCategories = preview.semanticOnlyCategories,
                 pluginRequirement = pluginRequirement(language.tag),
-                verificationRuntimeId = language.tag,
             )
         }
     }
 
     private fun nativeFileTypeNames(
+        language: String,
         languageId: String,
         standardFileTypeName: String,
     ): Set<String> =
         buildSet {
             add(standardFileTypeName)
+            addAll(nativeIdentityAliases[language]?.fileTypeNames.orEmpty())
             if (languageId == SWIFT_STORAGE_ID) add(NOCTULE_SWIFT_ALIAS)
         }
 
-    private fun nativeFileNames(
-        language: String,
-        previewFileName: String,
-    ): Set<String> =
-        if (language in exactNameLanguages) {
-            setOf(previewFileName)
-        } else {
-            emptySet()
-        }
+    private fun nativeFileNames(language: String): Set<String> = exactNativeFileNames[language].orEmpty()
 
     private fun nativeExtensions(
         language: String,
@@ -512,16 +514,36 @@ object SyntaxLanguageRegistry {
     private const val BASH_STORAGE_ID = "Bash"
     private const val SHELL_SCRIPT_ALIAS = "Shell Script"
 
-    private val exactNameLanguages =
-        setOf(
-            "Apple plist",
-            "Cron expression",
-            "Docker",
-            "EditorConfig",
-            "GitLab CI",
-            "Ignore files",
-            "Makefile",
-            "Nginx",
-            "dotenv",
+    private val nativeIdentityAliases =
+        mapOf(
+            "Angular" to NativeIdentityAliases(setOf("Angular2Html"), setOf("Angular2Html")),
+            "Django" to NativeIdentityAliases(setOf("DjangoTemplate"), setOf("DjangoTemplate")),
+            "Docker" to NativeIdentityAliases(setOf("Dockerfile"), setOf("Dockerfile")),
+            "FreeMarker" to NativeIdentityAliases(setOf("FTL"), setOf("FTL")),
+            "GitLab CI" to
+                NativeIdentityAliases(
+                    setOf("GitLabCiExpression"),
+                    setOf("GitLabCiExpressionLanguage"),
+                ),
+            "HTTP client" to NativeIdentityAliases(setOf("HTTP Request"), setOf("HTTP Request")),
+            "Objective-C" to NativeIdentityAliases(setOf("ObjectiveC"), setOf("ObjectiveC")),
+            "Protobuf text" to NativeIdentityAliases(setOf("prototext"), setOf("prototext")),
+            "Ruby" to NativeIdentityAliases(setOf("Ruby"), setOf("ruby")),
+            "Sass" to NativeIdentityAliases(setOf("SCSS"), setOf("SCSS")),
+            "Velocity" to NativeIdentityAliases(setOf("VTL"), setOf("VTL")),
+            "Vue" to NativeIdentityAliases(setOf("Vue.js"), setOf("Vue")),
+        )
+
+    private val exactNativeFileNames =
+        mapOf(
+            "Apple plist" to setOf("Info.plist"),
+            "Cron expression" to setOf("crontab"),
+            "Docker" to setOf("Dockerfile"),
+            "EditorConfig" to setOf(".editorconfig"),
+            "GitLab CI" to setOf(".gitlab-ci.yml"),
+            "Ignore files" to setOf(".gitignore"),
+            "Makefile" to setOf("Makefile"),
+            "Nginx" to setOf("nginx.conf"),
+            "dotenv" to setOf(".env"),
         )
 }

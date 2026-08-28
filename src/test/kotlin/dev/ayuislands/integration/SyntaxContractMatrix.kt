@@ -9,6 +9,21 @@ internal data class LanguageContractEvidence(
     val declared: Set<PrimitiveCategory> = emptySet(),
     val previewed: Set<PrimitiveCategory> = emptySet(),
     val verified: Set<PrimitiveCategory> = emptySet(),
+    val runtimeEvidence: List<RuntimeSyntaxEvidence> = emptyList(),
+)
+
+internal enum class RuntimeEvidenceStatus {
+    VERIFIED,
+    UNAVAILABLE,
+}
+
+internal data class RuntimeSyntaxEvidence(
+    val runtimeId: String,
+    val profileId: String,
+    val status: RuntimeEvidenceStatus,
+    val fileTypeName: String,
+    val languageIds: Set<String>,
+    val originsByPrimitive: Map<PrimitiveCategory, Set<SyntaxEvidenceOrigin>> = emptyMap(),
 )
 
 internal data class LanguageContract(
@@ -18,6 +33,7 @@ internal data class LanguageContract(
     val declared: Set<PrimitiveCategory>,
     val previewed: Set<PrimitiveCategory>,
     val verified: Set<PrimitiveCategory>,
+    val runtimeEvidence: List<RuntimeSyntaxEvidence>,
 ) {
     val undeclaredImplementations: Set<PrimitiveCategory> = existing - declared
     val unimplementedDeclarations: Set<PrimitiveCategory> = declared - existing
@@ -70,6 +86,7 @@ internal data class SyntaxContractMatrix(
                             declared = language.declared,
                             previewed = language.previewed,
                             verified = language.verified,
+                            runtimeEvidence = language.runtimeEvidence,
                         )
                     }.sortedBy(LanguageContract::language),
             )

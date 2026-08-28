@@ -1,3 +1,5 @@
+//go:build preview
+
 package preview
 
 import "fmt" // tuned import

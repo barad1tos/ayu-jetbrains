@@ -726,6 +726,27 @@ class SyntaxIntensityApplicatorTest {
     }
 
     @Test
+    fun `untuned inherited language key stays absent from every preset output`() {
+        val defaultBraces = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACES")
+        val cssBraces = TextAttributesKey.createTextAttributesKey("CSS.BRACES", defaultBraces)
+        val fallback = attrsWithFg(Color(0xCC, 0xCA, 0xC2))
+        val baseline = linkedMapOf(defaultBraces to fallback)
+        val overlay = linkedMapOf(cssBraces to TextAttributes())
+
+        SyntaxPreset.entries.forEach { preset ->
+            val result =
+                compute(
+                    preset = preset,
+                    customOverrides = emptyMap(),
+                    baseline = baseline,
+                    overlay = overlay,
+                )
+
+            assertFalse(result.containsKey(cssBraces), "$preset must preserve the inherited user-visible style")
+        }
+    }
+
+    @Test
     fun `custom emphasis on an inherited Swift operator preserves the resolved Ayu color`() {
         val defaultBrackets = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACKETS")
         val swiftBrackets = TextAttributesKey.createTextAttributesKey("SWIFT.BRACKETS", defaultBrackets)

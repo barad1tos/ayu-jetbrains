@@ -1,6 +1,38 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <scheme name="Ayu Islands Light Extended" version="142">
   <attributes>
+    <!-- Runtime-observed language keys stay sparse so native fallback attributes remain authoritative. -->
+    <option name="CSS.PARENTHESES"><value /></option>
+    <option name="CSS.COLON"><value /></option>
+    <option name="CSS.BRACES"><value /></option>
+    <option name="CSS.DOT"><value /></option>
+    <option name="CSS.SEMICOLON"><value /></option>
+    <option name="CSS.STRING"><value /></option>
+    <option name="HTTP_REQUEST_ENVIRONMENT_VARIABLE"><value /></option>
+    <option name="HTTP_REQUEST_SEPARATOR"><value /></option>
+    <option name="DOCKER_DOT"><value /></option>
+    <option name="DOCKER_BRACKETS"><value /></option>
+    <option name="DOCKER_COMMA"><value /></option>
+    <option name="PHP_SEMICOLON"><value /></option>
+    <option name="PHP_BRACES"><value /></option>
+    <option name="PHP_PARENTHESES"><value /></option>
+    <option name="PHP_BRACKETS"><value /></option>
+    <option name="MAKEFILE_STRING"><value /></option>
+    <option name="MAKEFILE_BRACES"><value /></option>
+    <option name="MAKEFILE_PARENTHESES"><value /></option>
+    <option name="MAKEFILE_COMMENT"><value /></option>
+    <option name="JS.EXPORTED.CLASS"><value /></option>
+    <option name="JS.BRACES"><value /></option>
+    <option name="JS.OPERATION_SIGN"><value /></option>
+    <option name="JS.SEMICOLON"><value /></option>
+    <option name="JS.PARENTHS"><value /></option>
+    <option name="JS.DOT"><value /></option>
+    <option name="JS.DOC_TYPE"><value /></option>
+    <option name="SASS_CLASS_NAME"><value /></option>
+    <option name="SASS_INTERPOLATION"><value /></option>
+    <option name="SASS_IDENTIFIER"><value /></option>
+    <option name="TS.CLASS"><value /></option>
+    <option name="TS.PRIMITIVE.TYPES"><value /></option>
     <!-- Noctule Swift semantic token keys must carry concrete values here:
          the runtime syntax-intensity overlay skips baseAttributes-only entries. -->
     <option name="SWIFT.IDENTIFIER"><value><option name="FOREGROUND" value="5C6166" /></value></option>
@@ -133,6 +165,13 @@
         <option name="FONT_TYPE" value="3" />
       </value>
     </option>
+    <option name="GO_STRUCT_EXPORTED_MEMBER"><value /></option>
+    <option name="GO_LINE_COMMENT"><value /></option>
+    <option name="GO_BRACES"><value /></option>
+    <option name="GO_PARENTHESES"><value /></option>
+    <option name="GO_OPERATOR"><value /></option>
+    <option name="GO_DOT"><value /></option>
+    <option name="GO_COMMA"><value /></option>
     <option name="GO_STRUCT_EXPORTED_MEMBER_CALL">
       <value>
         <option name="FOREGROUND" value="EBA400" />
@@ -775,6 +814,18 @@
       <value>
         <option name="FOREGROUND" value="FA8532" />
       </value>
+    </option>
+    <option name="SLIM_STATIC_CONTENT">
+      <value />
+    </option>
+    <option name="RUBY_COLON">
+      <value />
+    </option>
+    <option name="RUBY_DOT">
+      <value />
+    </option>
+    <option name="RUBY_PARENTHESES">
+      <value />
     </option>
     <option name="org.rust.METHOD_CALL">
       <value>
@@ -2743,6 +2794,9 @@
       <value>
         <option name="FOREGROUND" value="FA8532" />
       </value>
+    </option>
+    <option name="DQL_IDENTIFIER">
+      <value />
     </option>
     <option name="RUBY_CONSTANT_DEF_ID">
       <value>
