@@ -9,11 +9,11 @@ internal object SyntaxCapabilityReducer {
         return when (event) {
             is SyntaxCapabilityEvent.SelectLanguage -> selectLanguage(model, event.key)
             is SyntaxCapabilityEvent.ProbeConfirmed -> confirm(model, event)
-            is SyntaxCapabilityEvent.ProbeMissingPlugin -> markPluginUnavailable(model, event)
+            is SyntaxCapabilityEvent.ProbeUnavailable -> markSupportUnavailable(model, event)
             is SyntaxCapabilityEvent.ProbeDeferred -> defer(model, event)
             is SyntaxCapabilityEvent.ProbeMismatch -> markIncompatible(model, event)
             SyntaxCapabilityEvent.Retry -> retry(model)
-            SyntaxCapabilityEvent.OpenPluginSettings -> openPluginSettings(model)
+            SyntaxCapabilityEvent.OpenLanguageSupport -> openLanguageSupport(model)
             SyntaxCapabilityEvent.OpenHighlightingSettings -> openHighlightingSettings(model)
             SyntaxCapabilityEvent.RecheckHighlighting -> recheckHighlighting(model)
             SyntaxCapabilityEvent.CloseSettings -> close(model)
@@ -55,14 +55,14 @@ internal object SyntaxCapabilityReducer {
         return completeProbe(model, state, isCacheable = true)
     }
 
-    private fun markPluginUnavailable(
+    private fun markSupportUnavailable(
         model: SyntaxCapabilityModel,
-        event: SyntaxCapabilityEvent.ProbeMissingPlugin,
+        event: SyntaxCapabilityEvent.ProbeUnavailable,
     ): SyntaxCapabilityTransition {
         if (!model.accepts(event)) return SyntaxCapabilityTransition(model)
         return completeProbe(
             model,
-            SyntaxCapabilityState.PluginUnavailable(event.languageId, event.recovery),
+            SyntaxCapabilityState.SupportUnavailable(event.languageId),
             isCacheable = true,
         )
     }
@@ -97,7 +97,7 @@ internal object SyntaxCapabilityReducer {
 
     private fun retry(model: SyntaxCapabilityModel): SyntaxCapabilityTransition {
         val current = model.state
-        if (current !is SyntaxCapabilityState.PluginUnavailable &&
+        if (current !is SyntaxCapabilityState.SupportUnavailable &&
             current !is SyntaxCapabilityState.TemporarilyUnavailable &&
             current !is SyntaxCapabilityState.Incompatible
         ) {
@@ -106,16 +106,15 @@ internal object SyntaxCapabilityReducer {
         return startProbe(model, current.languageId)
     }
 
-    private fun openPluginSettings(model: SyntaxCapabilityModel): SyntaxCapabilityTransition {
+    private fun openLanguageSupport(model: SyntaxCapabilityModel): SyntaxCapabilityTransition {
         val current =
-            model.state as? SyntaxCapabilityState.PluginUnavailable
+            model.state as? SyntaxCapabilityState.SupportUnavailable
                 ?: return SyntaxCapabilityTransition(model)
         return SyntaxCapabilityTransition(
             model,
             listOf(
-                SyntaxCapabilityEffect.OpenPluginSettings(
+                SyntaxCapabilityEffect.OpenLanguageSupport(
                     languageId = current.languageId,
-                    requirement = current.recovery.requirement,
                 ),
             ),
         )

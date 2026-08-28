@@ -69,11 +69,8 @@ class AyuPluginTest {
     }
 
     @Test
-    fun `Noctule plugin lookup uses its optional dependency marker`() {
-        assertEquals(
-            "swift.NoctuleFrontendLoggingService",
-            AyuPlugin.markerClassName(PluginId.getId("dev.j-a.swift")),
-        )
+    fun `syntax providers stay outside shared plugin lookup`() {
+        assertNull(AyuPlugin.markerClassName(PluginId.getId("dev.j-a.swift")))
     }
 
     @Test

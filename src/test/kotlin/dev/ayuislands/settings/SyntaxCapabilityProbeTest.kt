@@ -98,17 +98,15 @@ class SyntaxCapabilityProbeTest {
     }
 
     @Test
-    fun `missing plugin result carries exact generic recovery instruction`() {
+    fun `unavailable result preserves identity through the capability event`() {
         val result =
-            SyntaxProbeResult.MissingPlugin(
+            SyntaxProbeResult.Unavailable(
                 languageId = "Swift",
                 generation = 4,
-                recovery = PluginRecovery(swiftSpecification().pluginRequirement),
             )
 
-        assertEquals(PLUGIN_INSTALL_INSTRUCTION, result.recovery.instruction)
         assertEquals(
-            SyntaxCapabilityEvent.ProbeMissingPlugin("Swift", 4, result.recovery),
+            SyntaxCapabilityEvent.ProbeUnavailable("Swift", 4),
             result.toEvent(),
         )
     }

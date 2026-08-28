@@ -293,7 +293,7 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
-    fun `Scala cascades target provider-owned native keys`() {
+    fun `Scala cascades target runtime-owned native keys`() {
         assertEquals("ScalaDoc comment", SyntaxLanguageRegistry.cascadeTargets("Scala", "DEFAULT_DOC_COMMENT"))
         assertEquals("Scala Number", SyntaxLanguageRegistry.cascadeTargets("Scala", "DEFAULT_NUMBER"))
     }
@@ -334,7 +334,7 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
-    fun `Swift specification accepts Noctule as a native provider`() {
+    fun `Swift specification accepts Noctule as a runtime identity`() {
         val swift = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Swift"))
 
         assertTrue(
@@ -343,62 +343,10 @@ class SyntaxLanguageRegistryTest {
                 .fileTypeNames
                 .contains("NoctuleSwift"),
         )
-        assertEquals("dev.j-a.swift", requireNotNull(swift.pluginRequirement).pluginId)
-        assertEquals("Noctule, the Swift IDE", swift.pluginRequirement.displayName)
     }
 
     @Test
-    fun `Dart specification points recovery to its official provider`() {
-        val dart = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Dart"))
-        val requirement = requireNotNull(dart.pluginRequirement)
-
-        assertEquals("Dart", requirement.pluginId)
-        assertEquals("Dart", requirement.displayName)
-        assertEquals("https://plugins.jetbrains.com/plugin/6351-dart", requirement.marketplaceUrl)
-    }
-
-    @Test
-    fun `GraphQL specification points recovery to its official provider`() {
-        val graphQl = requireNotNull(SyntaxLanguageRegistry.findByStorageId("GraphQL"))
-        val requirement = requireNotNull(graphQl.pluginRequirement)
-
-        assertEquals("com.intellij.lang.jsgraphql", requirement.pluginId)
-        assertEquals("GraphQL", requirement.displayName)
-        assertEquals("https://plugins.jetbrains.com/plugin/8097-graphql", requirement.marketplaceUrl)
-    }
-
-    @Test
-    fun `Scala specification points recovery to its official provider`() {
-        val scala = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Scala"))
-        val requirement = requireNotNull(scala.pluginRequirement)
-
-        assertEquals("org.intellij.scala", requirement.pluginId)
-        assertEquals("Scala", requirement.displayName)
-        assertEquals("https://plugins.jetbrains.com/plugin/1347-scala", requirement.marketplaceUrl)
-    }
-
-    @Test
-    fun `PowerShell specification points recovery to its canonical provider`() {
-        val powerShell = requireNotNull(SyntaxLanguageRegistry.findByStorageId("PowerShell"))
-        val requirement = requireNotNull(powerShell.pluginRequirement)
-
-        assertEquals("com.intellij.plugin.adernov.powershell", requirement.pluginId)
-        assertEquals("PowerShell", requirement.displayName)
-        assertEquals("https://plugins.jetbrains.com/plugin/10249-powershell", requirement.marketplaceUrl)
-    }
-
-    @Test
-    fun `Windows Batch specification points recovery to its canonical provider`() {
-        val batch = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Windows Batch"))
-        val requirement = requireNotNull(batch.pluginRequirement)
-
-        assertEquals("Batch Scripts Support", requirement.pluginId)
-        assertEquals("Batch Scripts Support", requirement.displayName)
-        assertEquals("https://plugins.jetbrains.com/plugin/265-batch-scripts-support", requirement.marketplaceUrl)
-    }
-
-    @Test
-    fun `Windows Batch exposes only provider-backed primitives`() {
+    fun `Windows Batch exposes only runtime-backed primitives`() {
         val batch = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Windows Batch"))
         val primitives = batch.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
 
@@ -416,23 +364,7 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
-    fun `HCL and TIL specifications point recovery to their official provider`() {
-        setOf("HCL", "TIL").forEach { languageId ->
-            val language = requireNotNull(SyntaxLanguageRegistry.findByStorageId(languageId))
-            val requirement = requireNotNull(language.pluginRequirement)
-
-            assertEquals("org.intellij.plugins.hcl", requirement.pluginId, languageId)
-            assertEquals("Terraform and HCL", requirement.displayName, languageId)
-            assertEquals(
-                "https://plugins.jetbrains.com/plugin/7808-terraform-and-hcl",
-                requirement.marketplaceUrl,
-                languageId,
-            )
-        }
-    }
-
-    @Test
-    fun `Ruby exposes only provider-backed primitives`() {
+    fun `Ruby exposes only runtime-backed primitives`() {
         val ruby = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Ruby"))
         val primitives = ruby.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
 
@@ -453,7 +385,7 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
-    fun `Gherkin exposes only provider-backed primitives`() {
+    fun `Gherkin exposes only runtime-backed primitives`() {
         val gherkin = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Gherkin"))
         val primitives = gherkin.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
 
@@ -472,7 +404,7 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
-    fun `native profiles include provider identities`() {
+    fun `native profiles include runtime identities`() {
         val expectedIdentities =
             mapOf(
                 "Angular" to (setOf("Angular2Html") to setOf("Angular2Html")),

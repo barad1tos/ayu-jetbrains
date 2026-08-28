@@ -65,18 +65,17 @@ class SyntaxCapabilityStateTest {
     }
 
     @Test
-    fun `missing plugin exposes exact recovery only and retry is not cached`() {
+    fun `unavailable support exposes recovery and retry starts a fresh probe`() {
         val checking = selected()
         val unavailable =
             reduce(
                 checking,
-                SyntaxCapabilityEvent.ProbeMissingPlugin("Swift", 1, PluginRecovery()),
+                SyntaxCapabilityEvent.ProbeUnavailable("Swift", 1),
             )
 
-        val state = assertIs<SyntaxCapabilityState.PluginUnavailable>(unavailable.model.state)
-        assertEquals(PLUGIN_INSTALL_INSTRUCTION, state.recovery.instruction)
+        assertIs<SyntaxCapabilityState.SupportUnavailable>(unavailable.model.state)
         assertTrue(unavailable.model.visibleCells.isEmpty())
-        assertIs<SyntaxCapabilityState.PluginUnavailable>(unavailable.model.terminalCache[key("Swift")])
+        assertIs<SyntaxCapabilityState.SupportUnavailable>(unavailable.model.terminalCache[key("Swift")])
 
         val retry = reduce(unavailable.model, SyntaxCapabilityEvent.Retry)
         val retried = assertIs<SyntaxCapabilityState.Checking>(retry.model.state)
@@ -139,13 +138,13 @@ class SyntaxCapabilityStateTest {
         val unavailable =
             reduce(
                 selected(),
-                SyntaxCapabilityEvent.ProbeMissingPlugin("Swift", 1, PluginRecovery()),
+                SyntaxCapabilityEvent.ProbeUnavailable("Swift", 1),
             ).model
         val afterKotlin = reduce(unavailable, select("Kotlin")).model
 
         val cachedUnavailable = reduce(afterKotlin, select("Swift"))
 
-        assertIs<SyntaxCapabilityState.PluginUnavailable>(cachedUnavailable.model.state)
+        assertIs<SyntaxCapabilityState.SupportUnavailable>(cachedUnavailable.model.state)
         assertEquals(
             listOf(SyntaxCapabilityEffect.CancelProbe, SyntaxCapabilityEffect.Render),
             cachedUnavailable.effects,
@@ -229,18 +228,18 @@ class SyntaxCapabilityStateTest {
     }
 
     @Test
-    fun `plugin recovery navigation does not change state`() {
+    fun `language support navigation does not change state`() {
         val unavailable =
             reduce(
                 selected(),
-                SyntaxCapabilityEvent.ProbeMissingPlugin("Swift", 1, PluginRecovery()),
+                SyntaxCapabilityEvent.ProbeUnavailable("Swift", 1),
             ).model
 
-        val transition = reduce(unavailable, SyntaxCapabilityEvent.OpenPluginSettings)
+        val transition = reduce(unavailable, SyntaxCapabilityEvent.OpenLanguageSupport)
 
         assertEquals(unavailable, transition.model)
         assertEquals(
-            listOf(SyntaxCapabilityEffect.OpenPluginSettings("Swift", null)),
+            listOf(SyntaxCapabilityEffect.OpenLanguageSupport("Swift")),
             transition.effects,
         )
     }

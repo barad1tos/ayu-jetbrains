@@ -10,7 +10,6 @@ data class LanguageSpecification(
     val nativeProfiles: List<NativeProfile>,
     val preview: PreviewBundle,
     val semanticOnlyCategories: Set<PrimitiveCategory> = emptySet(),
-    val pluginRequirement: PluginRequirement?,
 )
 
 data class NativeProfile(
@@ -31,12 +30,6 @@ data class PreviewFileSpec(
     val resourceName: String,
     val profileId: String,
     val demonstratedCategories: Set<PrimitiveCategory>,
-)
-
-data class PluginRequirement(
-    val pluginId: String,
-    val displayName: String,
-    val marketplaceUrl: String,
 )
 
 private data class NativeIdentityAliases(
@@ -310,7 +303,6 @@ object SyntaxLanguageRegistry {
                             },
                     ),
                 semanticOnlyCategories = preview.semanticOnlyCategories,
-                pluginRequirement = pluginRequirement(language.tag),
             )
         }
     }
@@ -338,53 +330,6 @@ object SyntaxLanguageRegistry {
                 "HCL" -> add("tf")
                 "YAML" -> add("yml")
             }
-        }
-
-    private fun pluginRequirement(languageId: String): PluginRequirement? =
-        when (languageId) {
-            DART_STORAGE_ID ->
-                PluginRequirement(
-                    pluginId = DART_PLUGIN_ID,
-                    displayName = DART_PLUGIN_NAME,
-                    marketplaceUrl = DART_MARKETPLACE_URL,
-                )
-            GRAPHQL_STORAGE_ID ->
-                PluginRequirement(
-                    pluginId = GRAPHQL_PLUGIN_ID,
-                    displayName = GRAPHQL_PLUGIN_NAME,
-                    marketplaceUrl = GRAPHQL_MARKETPLACE_URL,
-                )
-            HCL_STORAGE_ID, TIL_STORAGE_ID ->
-                PluginRequirement(
-                    pluginId = HCL_PLUGIN_ID,
-                    displayName = HCL_PLUGIN_NAME,
-                    marketplaceUrl = HCL_MARKETPLACE_URL,
-                )
-            SCALA_STORAGE_ID ->
-                PluginRequirement(
-                    pluginId = SCALA_PLUGIN_ID,
-                    displayName = SCALA_PLUGIN_NAME,
-                    marketplaceUrl = SCALA_MARKETPLACE_URL,
-                )
-            POWERSHELL_STORAGE_ID ->
-                PluginRequirement(
-                    pluginId = POWERSHELL_PLUGIN_ID,
-                    displayName = POWERSHELL_PLUGIN_NAME,
-                    marketplaceUrl = POWERSHELL_MARKETPLACE_URL,
-                )
-            BATCH_LANGUAGE_ID ->
-                PluginRequirement(
-                    pluginId = WINDOWS_BATCH_PLUGIN_ID,
-                    displayName = WINDOWS_BATCH_PLUGIN_NAME,
-                    marketplaceUrl = WINDOWS_BATCH_MARKETPLACE_URL,
-                )
-            SWIFT_STORAGE_ID ->
-                PluginRequirement(
-                    pluginId = NOCTULE_PLUGIN_ID,
-                    displayName = NOCTULE_PLUGIN_NAME,
-                    marketplaceUrl = NOCTULE_MARKETPLACE_URL,
-                )
-            else -> null
         }
 
     private fun buildPrefixRules(): List<Pair<Regex, LangTag>> =
@@ -571,38 +516,8 @@ object SyntaxLanguageRegistry {
                 ),
         )
 
-    private const val DART_STORAGE_ID = "Dart"
-    private const val DART_PLUGIN_ID = "Dart"
-    private const val DART_PLUGIN_NAME = "Dart"
-    private const val DART_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/6351-dart"
-    private const val GRAPHQL_STORAGE_ID = "GraphQL"
-    private const val GRAPHQL_PLUGIN_ID = "com.intellij.lang.jsgraphql"
-    private const val GRAPHQL_PLUGIN_NAME = "GraphQL"
-    private const val GRAPHQL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/8097-graphql"
-    private const val HCL_STORAGE_ID = "HCL"
-    private const val HCL_PLUGIN_ID = "org.intellij.plugins.hcl"
-    private const val HCL_PLUGIN_NAME = "Terraform and HCL"
-    private const val HCL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/7808-terraform-and-hcl"
-    private const val TIL_STORAGE_ID = "TIL"
-    private const val SCALA_STORAGE_ID = "Scala"
-    private const val SCALA_PLUGIN_ID = "org.intellij.scala"
-    private const val SCALA_PLUGIN_NAME = "Scala"
-    private const val SCALA_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/1347-scala"
-    private const val POWERSHELL_STORAGE_ID = "PowerShell"
-    private const val POWERSHELL_PLUGIN_ID = "com.intellij.plugin.adernov.powershell"
-    private const val POWERSHELL_PLUGIN_NAME = "PowerShell"
-    private const val POWERSHELL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/10249-powershell"
-    private const val BATCH_LANGUAGE_ID = "Batch"
-    private const val WINDOWS_BATCH_PLUGIN_ID = "Batch Scripts Support"
-    private const val WINDOWS_BATCH_PLUGIN_NAME = "Batch Scripts Support"
-    private const val WINDOWS_BATCH_MARKETPLACE_URL =
-        "https://plugins.jetbrains.com/plugin/265-batch-scripts-support"
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
-    private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"
-    private const val NOCTULE_PLUGIN_NAME = "Noctule, the Swift IDE"
-    private const val NOCTULE_MARKETPLACE_URL =
-        "https://plugins.jetbrains.com/plugin/22150-noctule-the-swift-ide"
     private const val BASH_STORAGE_ID = "Bash"
     private const val SHELL_SCRIPT_ALIAS = "Shell Script"
 

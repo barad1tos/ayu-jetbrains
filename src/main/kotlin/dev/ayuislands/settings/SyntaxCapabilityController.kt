@@ -4,14 +4,13 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
-import dev.ayuislands.syntax.PluginRequirement
 import dev.ayuislands.syntax.SyntaxLanguageRegistry
 
 /** Owns transient capability work for one settings session. */
 internal class SyntaxCapabilityController(
     private val project: Project?,
     private val rendered: (SyntaxCapabilityState?) -> Unit,
-    private val marketplace: PluginMarketplace = PluginMarketplace(),
+    private val marketplace: LanguageSupportMarketplace = LanguageSupportMarketplace(),
 ) : Disposable {
     private var probe: SyntaxCapabilityProbe? = project?.let(::NativeCapabilityProbe)
     private var activeProbe: Disposable? = null
@@ -35,7 +34,7 @@ internal class SyntaxCapabilityController(
 
     fun performRecoveryAction() {
         when (model.state) {
-            is SyntaxCapabilityState.PluginUnavailable -> handle(SyntaxCapabilityEvent.OpenPluginSettings)
+            is SyntaxCapabilityState.SupportUnavailable -> handle(SyntaxCapabilityEvent.OpenLanguageSupport)
             is SyntaxCapabilityState.TemporarilyUnavailable,
             is SyntaxCapabilityState.Incompatible,
             -> handle(SyntaxCapabilityEvent.Retry)
@@ -68,8 +67,8 @@ internal class SyntaxCapabilityController(
             SyntaxCapabilityEffect.CancelProbe -> cancelProbe()
             is SyntaxCapabilityEffect.StartProbe -> startProbe(effect.languageId, effect.generation)
             SyntaxCapabilityEffect.Render -> rendered(model.state)
-            is SyntaxCapabilityEffect.OpenPluginSettings ->
-                openPluginSettings(effect.languageId, effect.requirement)
+            is SyntaxCapabilityEffect.OpenLanguageSupport ->
+                openLanguageSupport(effect.languageId)
             SyntaxCapabilityEffect.OpenHighlightingSettings -> openHighlightingSettings()
             SyntaxCapabilityEffect.ClearRenderer -> rendered(null)
         }
@@ -99,11 +98,8 @@ internal class SyntaxCapabilityController(
         Disposer.dispose(task)
     }
 
-    private fun openPluginSettings(
-        languageId: String,
-        requirement: PluginRequirement?,
-    ) {
-        marketplace.open(languageId, requirement)
+    private fun openLanguageSupport(languageId: String) {
+        marketplace.open(languageId)
     }
 
     private fun openHighlightingSettings() {

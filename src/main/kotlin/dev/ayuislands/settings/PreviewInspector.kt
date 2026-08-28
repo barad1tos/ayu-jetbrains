@@ -19,7 +19,6 @@ internal fun interface PreviewInspector {
 
 internal class IdePreviewInspector(
     private val project: Project,
-    private val recovery: PluginRecoveryResolver = PluginRecoveryResolver(),
     private val previewResolver: NativePreviewResolver = NativePreviewResolver(),
 ) : PreviewInspector {
     private val warnedFailures = ConcurrentHashMap.newKeySet<String>()
@@ -51,7 +50,8 @@ internal class IdePreviewInspector(
                 when (val resolution = previewResolver.resolve(previewFile.fileName, profile)) {
                     is NativePreviewResolution.Resolved -> resolution.fileType
                     is NativePreviewResolution.LookupFailed -> throw resolution.failure
-                    is NativePreviewResolution.Unavailable -> return recovery.unavailable(specification, generation)
+                    is NativePreviewResolution.Unavailable ->
+                        return SyntaxProbeResult.Unavailable(specification.storageId, generation)
                 }
             val code =
                 loadPreview(previewFile.resourceName)

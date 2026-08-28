@@ -58,7 +58,7 @@ internal class SyntaxCategoryAvailability(
                 is SyntaxCapabilityState.Confirmed -> state.evidence.confirmedCells
                 is SyntaxCapabilityState.Incompatible -> state.confirmedCells
                 is SyntaxCapabilityState.Checking,
-                is SyntaxCapabilityState.PluginUnavailable,
+                is SyntaxCapabilityState.SupportUnavailable,
                 is SyntaxCapabilityState.TemporarilyUnavailable,
                 null,
                 -> emptySet()

@@ -94,8 +94,8 @@ internal class SyntaxPreviewComponent(
     }
 
     fun showCapability(state: SyntaxCapabilityState?) {
-        val unavailable = state as? SyntaxCapabilityState.PluginUnavailable
-        recoveryLabel.text = unavailable?.recovery?.instruction.orEmpty()
+        val unavailable = state as? SyntaxCapabilityState.SupportUnavailable
+        recoveryLabel.text = LANGUAGE_SUPPORT_INSTRUCTION.takeIf { unavailable != null }.orEmpty()
         recoveryLabel.isVisible = unavailable != null
         editorField.isVisible = unavailable == null
         revalidate()

@@ -23,10 +23,9 @@ internal sealed interface SyntaxProbeResult {
         val evidence: SyntaxCapabilityEvidence,
     ) : SyntaxProbeResult
 
-    data class MissingPlugin(
+    data class Unavailable(
         override val languageId: String,
         override val generation: Long,
-        val recovery: PluginRecovery,
     ) : SyntaxProbeResult
 
     data class Deferred(
@@ -47,8 +46,8 @@ internal fun SyntaxProbeResult.toEvent(): SyntaxCapabilityEvent =
     when (this) {
         is SyntaxProbeResult.Confirmed ->
             SyntaxCapabilityEvent.ProbeConfirmed(languageId, generation, evidence)
-        is SyntaxProbeResult.MissingPlugin ->
-            SyntaxCapabilityEvent.ProbeMissingPlugin(languageId, generation, recovery)
+        is SyntaxProbeResult.Unavailable ->
+            SyntaxCapabilityEvent.ProbeUnavailable(languageId, generation)
         is SyntaxProbeResult.Deferred ->
             SyntaxCapabilityEvent.ProbeDeferred(languageId, generation, reason)
         is SyntaxProbeResult.Mismatch ->

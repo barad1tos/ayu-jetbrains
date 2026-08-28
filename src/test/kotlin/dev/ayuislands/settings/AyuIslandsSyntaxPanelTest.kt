@@ -196,7 +196,7 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `preview plugin availability does not replace the persisted language`() {
+    fun `preview capability availability does not replace the persisted language`() {
         val unavailableFileType = syntaxPreviewEditorFixture.mockFileType("Unavailable", "txt")
         val javaScriptFileType = syntaxPreviewEditorFixture.mockFileType("JavaScript", "js")
         every { syntaxPreviewEditorFixture.fileTypeManager.getStdFileType("Kotlin") } returns unavailableFileType
@@ -1873,17 +1873,17 @@ class AyuIslandsSyntaxPanelTest {
     }
 
     @Test
-    fun `missing plugin replaces plain preview with actionable recovery`() {
+    fun `unavailable support replaces plain preview with actionable recovery`() {
         stateBase.selectedPreset = "CUSTOM"
         val syntaxPanel = AyuIslandsSyntaxPanel()
         val dialogPanel = buildFullSyntaxPanel(syntaxPanel)
 
         try {
-            syntaxPanel.activateCapabilityForTest(missingPluginProbe())
+            syntaxPanel.activateCapabilityForTest(unavailableSupportProbe())
 
             val preview = assertNotNull(findComponent(dialogPanel, SyntaxPreviewComponent::class.java))
             val editor = assertNotNull(findComponent(preview, EditorTextField::class.java))
-            val recovery = assertNotNull(findLabel(preview, PLUGIN_INSTALL_INSTRUCTION))
+            val recovery = assertNotNull(findLabel(preview, LANGUAGE_SUPPORT_INSTRUCTION))
             assertFalse(editor.isVisible)
             assertTrue(recovery.isVisible)
             PrimitiveCategory.entries.forEach { category ->
@@ -2124,7 +2124,7 @@ class AyuIslandsSyntaxPanelTest {
             }
         }
 
-    private fun missingPluginProbe(): SyntaxCapabilityProbe =
+    private fun unavailableSupportProbe(): SyntaxCapabilityProbe =
         object : SyntaxCapabilityProbe {
             override fun start(
                 specification: LanguageSpecification,
@@ -2133,10 +2133,9 @@ class AyuIslandsSyntaxPanelTest {
                 completed: (SyntaxProbeResult) -> Unit,
             ) {
                 completed(
-                    SyntaxProbeResult.MissingPlugin(
+                    SyntaxProbeResult.Unavailable(
                         languageId = specification.storageId,
                         generation = generation,
-                        recovery = PluginRecovery(),
                     ),
                 )
             }

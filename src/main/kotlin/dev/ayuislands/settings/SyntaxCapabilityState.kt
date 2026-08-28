@@ -1,17 +1,6 @@
 package dev.ayuislands.settings
 
-import dev.ayuislands.syntax.PluginRequirement
 import dev.ayuislands.syntax.PrimitiveCategory
-
-internal const val PLUGIN_INSTALL_INSTRUCTION =
-    "To tune this language, please install its official plugin from JetBrains Marketplace."
-
-internal data class PluginRecovery(
-    val requirement: PluginRequirement? = null,
-) {
-    val instruction: String
-        get() = PLUGIN_INSTALL_INSTRUCTION
-}
 
 internal data class ConditionalAbsence(
     val primitive: PrimitiveCategory,
@@ -38,9 +27,8 @@ internal sealed interface SyntaxCapabilityState {
         val generation: Long,
     ) : SyntaxCapabilityState
 
-    data class PluginUnavailable(
+    data class SupportUnavailable(
         override val languageId: String,
-        val recovery: PluginRecovery,
     ) : SyntaxCapabilityState
 
     data class TemporarilyUnavailable(
@@ -81,10 +69,9 @@ internal sealed interface SyntaxCapabilityEvent {
         val evidence: SyntaxCapabilityEvidence,
     ) : ProbeCompletion
 
-    data class ProbeMissingPlugin(
+    data class ProbeUnavailable(
         override val languageId: String,
         override val generation: Long,
-        val recovery: PluginRecovery,
     ) : ProbeCompletion
 
     data class ProbeDeferred(
@@ -102,7 +89,7 @@ internal sealed interface SyntaxCapabilityEvent {
 
     data object Retry : SyntaxCapabilityEvent
 
-    data object OpenPluginSettings : SyntaxCapabilityEvent
+    data object OpenLanguageSupport : SyntaxCapabilityEvent
 
     data object OpenHighlightingSettings : SyntaxCapabilityEvent
 
@@ -121,9 +108,8 @@ internal sealed interface SyntaxCapabilityEffect {
 
     data object Render : SyntaxCapabilityEffect
 
-    data class OpenPluginSettings(
+    data class OpenLanguageSupport(
         val languageId: String,
-        val requirement: PluginRequirement?,
     ) : SyntaxCapabilityEffect
 
     data object OpenHighlightingSettings : SyntaxCapabilityEffect
@@ -145,7 +131,7 @@ internal data class SyntaxCapabilityModel(
                 is SyntaxCapabilityState.Confirmed -> current.evidence.confirmedCells
                 is SyntaxCapabilityState.Incompatible -> current.confirmedCells
                 is SyntaxCapabilityState.Checking,
-                is SyntaxCapabilityState.PluginUnavailable,
+                is SyntaxCapabilityState.SupportUnavailable,
                 is SyntaxCapabilityState.TemporarilyUnavailable,
                 null,
                 -> emptySet()

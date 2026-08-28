@@ -40,8 +40,8 @@ private data class CapabilityPresentation(
 private fun SyntaxCapabilityState.presentation(): CapabilityPresentation? =
     when (this) {
         is SyntaxCapabilityState.Checking -> CapabilityPresentation("Checking language support…")
-        is SyntaxCapabilityState.PluginUnavailable ->
-            CapabilityPresentation(recovery.instruction, "Open Marketplace")
+        is SyntaxCapabilityState.SupportUnavailable ->
+            CapabilityPresentation(LANGUAGE_SUPPORT_INSTRUCTION, "Open Marketplace")
         is SyntaxCapabilityState.TemporarilyUnavailable -> CapabilityPresentation(reason, "Retry")
         is SyntaxCapabilityState.Incompatible ->
             CapabilityPresentation("Some language controls could not be verified.", "Retry")
@@ -58,3 +58,5 @@ private fun SyntaxCapabilityState.presentation(): CapabilityPresentation? =
     }
 
 private const val CAPABILITY_GAP = 8
+internal const val LANGUAGE_SUPPORT_INSTRUCTION =
+    "To tune this language, please install its official plugin from JetBrains Marketplace."
