@@ -2,6 +2,7 @@ import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.models.ProductRelease
 import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 buildscript {
     repositories { mavenCentral() }
@@ -202,6 +203,9 @@ val syntaxRuntimeTargets =
 
 kotlin {
     jvmToolchain(21)
+    compilerOptions {
+        apiVersion.set(KotlinVersion.KOTLIN_2_2)
+    }
 }
 
 repositories {
