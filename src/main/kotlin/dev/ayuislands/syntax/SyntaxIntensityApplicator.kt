@@ -294,14 +294,18 @@ object SyntaxIntensityApplicator {
         sources: AttributeSources,
     ): TextAttributes? {
         val visited = mutableSetOf<String>()
-        var fallbackName = sources.fallbacks[key.externalName] ?: key.fallbackAttributeKey?.externalName
-        while (true) {
-            val currentFallbackName = fallbackName ?: break
-            if (!visited.add(currentFallbackName)) break
+        var currentFallbackName =
+            sources.fallbacks[key.externalName]
+                ?: key.fallbackAttributeKey?.externalName
+                ?: return null
+        while (visited.add(currentFallbackName)) {
             val fallback = findKey(currentFallbackName, sources)
             val attributes = sourceAttributes(currentFallbackName, sources)
             if (attributes?.foregroundColor != null) return attributes
-            fallbackName = sources.fallbacks[currentFallbackName] ?: fallback.fallbackAttributeKey?.externalName
+            currentFallbackName =
+                sources.fallbacks[currentFallbackName]
+                    ?: fallback.fallbackAttributeKey?.externalName
+                    ?: return null
         }
         return null
     }
