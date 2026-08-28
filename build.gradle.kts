@@ -377,6 +377,7 @@ intellijPlatformTesting {
 }
 
 val syntaxContractGroups = syntaxRuntimeTargets.chunked(3)
+val syntaxContractMatrixSize = providers.gradleProperty("syntaxContractMatrixSize")
 val syntaxContractGroupTasks =
     syntaxContractGroups.mapIndexed { index, runtimes ->
         tasks.register("syntaxContractGroup${index + 1}") {
@@ -385,6 +386,20 @@ val syntaxContractGroupTasks =
             dependsOn(runtimes.map(SyntaxRuntimeTarget::taskName))
         }
     }
+
+tasks.register("verifySyntaxContractMatrix") {
+    group = "verification"
+    description = "Verify that CI schedules every declared syntax contract group"
+    doLast {
+        val configuredSize =
+            syntaxContractMatrixSize.orNull?.toIntOrNull()
+                ?: error("Provide -PsyntaxContractMatrixSize=<CI matrix job count>")
+        check(configuredSize == syntaxContractGroups.size) {
+            "Syntax contract CI matrix has $configuredSize groups, but the runtime catalog requires " +
+                "${syntaxContractGroups.size}"
+        }
+    }
+}
 
 tasks.register("syntaxContractAll") {
     group = "verification"

@@ -6,13 +6,13 @@ import com.intellij.notification.NotificationGroup
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.syntax.SyntaxIntensityService
+import dev.ayuislands.syntax.SyntaxIntensityState
 import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxTransactionResult
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
@@ -44,8 +44,7 @@ class SyntaxServiceRuntimeTest {
         var foreignReports = 0
         val runtime =
             SyntaxServiceRuntime(
-                runtime = mockk(relaxed = true),
-                recover = { _, _ -> },
+                dependencies = dependencies(mockk(relaxed = true)),
                 onRelinquished = relinquished::add,
                 onForeignScheme = { foreignReports++ },
             )
@@ -58,18 +57,24 @@ class SyntaxServiceRuntimeTest {
     }
 
     @Test
-    fun `failed automatic recovery notification retries the persisted checkpoint`() {
-        val application = mockk<Application>()
+    fun `failed recovery retries the retained journal before applying current persisted config`() {
         val manager = mockk<NotificationGroupManager>()
         val group = mockk<NotificationGroup>()
         val notification = mockk<Notification>()
         val action = slot<NotificationAction>()
         val service = mockk<SyntaxIntensityService>(relaxed = true)
-        val config = config()
-        every { service.apply(config) } throws IllegalStateException("automatic retry failed") andThen Unit
-        mockkStatic(ApplicationManager::class, NotificationGroupManager::class)
-        every { ApplicationManager.getApplication() } returns application
-        every { application.invokeLater(any<Runnable>()) } answers { firstArg<Runnable>().run() }
+        val session = mockk<SyntaxIntensityService.SyntaxRuntimeSession>()
+        val checkpoint = config("CUSTOM")
+        val current = config("AMBIENT")
+        val restoreFailure = IllegalStateException("restore failed")
+        every { session.restore() } returns
+            SyntaxTransactionResult.RecoveryRequired(restoreFailure, listOf(restoreFailure)) andThen applied()
+        every { service.openRuntimeSession() } returns session
+        every { service.apply(checkpoint) } throws IllegalStateException("legacy recovery path")
+        every { service.apply(current) } returns Unit
+        mockkStatic(NotificationGroupManager::class)
+        mockkObject(SyntaxIntensityState.Companion)
+        every { SyntaxIntensityState.getInstance().toPresetConfig() } returns current
         every { NotificationGroupManager.getInstance() } returns manager
         every { manager.getNotificationGroup("Ayu Islands") } returns group
         every {
@@ -80,10 +85,12 @@ class SyntaxServiceRuntimeTest {
         every { notification.expire() } returns Unit
 
         try {
-            SyntaxServiceRuntime(service).scheduleRecovery(config, IllegalStateException("restore failed"))
+            SyntaxServiceRuntime(service).scheduleRecovery(checkpoint, restoreFailure)
             action.captured.actionPerformed(mockk<AnActionEvent>(relaxed = true), notification)
 
-            verify(exactly = 2) { service.apply(config) }
+            verify(exactly = 2) { session.restore() }
+            verify(exactly = 1) { service.apply(current) }
+            verify(exactly = 0) { service.apply(checkpoint) }
             verify(exactly = 1) { notification.expire() }
         } finally {
             unmockkAll()
@@ -92,14 +99,16 @@ class SyntaxServiceRuntimeTest {
 
     private fun serviceRuntime(session: SyntaxIntensityService.SyntaxRuntimeSession): SyntaxServiceRuntime =
         SyntaxServiceRuntime(
-            runtime = session,
-            recover = { _, _ -> },
+            dependencies = dependencies(session),
             onRelinquished = {},
             onForeignScheme = {},
         )
 
-    private fun config(): SyntaxPresetConfig =
-        SyntaxPresetConfig(selectedPreset = "AMBIENT", customOverrides = emptyMap())
+    private fun dependencies(session: SyntaxIntensityService.SyntaxRuntimeSession): RuntimeDependencies =
+        RuntimeDependencies(session) { _, _ -> }
+
+    private fun config(preset: String = "AMBIENT"): SyntaxPresetConfig =
+        SyntaxPresetConfig(selectedPreset = preset, customOverrides = emptyMap())
 
     private fun applied(): SyntaxTransactionResult = SyntaxTransactionResult.Applied(emptySet(), emptySet())
 }

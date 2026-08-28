@@ -509,6 +509,28 @@ class SyntaxIntensityServiceTest {
     }
 
     @Test
+    fun `service retains incomplete rollback for recovery before the next apply`() {
+        val darkCheckpoint = mockk<EditorSchemeOverrides.AttributesCheckpoint>(relaxed = true)
+        every {
+            overrideCheckpoints.capture(mockDark, EditorSchemeOwner.Syntax, any())
+        } returns darkCheckpoint
+        every {
+            EditorSchemeOverrides.restore(mockDark, EditorSchemeOwner.Syntax)
+        } throws IllegalStateException("write failed") andThen Unit
+        every {
+            overrideCheckpoints.rollback(darkCheckpoint)
+        } returns listOf(IllegalStateException("rollback failed")) andThen emptyList()
+        val service = SyntaxIntensityService()
+
+        assertFailsWith<IllegalStateException> {
+            service.apply(SyntaxPreset.WHISPER, emptyMap())
+        }
+        service.apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verify(exactly = 2) { overrideCheckpoints.rollback(darkCheckpoint) }
+    }
+
+    @Test
     fun `runtime cancel restores semantic font checkpoint`() {
         val service = SyntaxIntensityService()
         service.apply(

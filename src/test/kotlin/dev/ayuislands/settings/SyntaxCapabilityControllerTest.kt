@@ -78,14 +78,17 @@ class SyntaxCapabilityControllerTest {
             val probeLifetime = ProbeLifetime()
             lifetime = probeLifetime
             Disposer.register(parent) { probeLifetime.isDisposed = true }
-            error("probe failed")
+            error("NoClassDefFoundError: internal.plugin.Probe")
         }
 
         controller.selectLanguage("Swift")
 
         val state = assertIs<SyntaxCapabilityState.TemporarilyUnavailable>(rendered.last())
         assertEquals("Swift", state.languageId)
-        assertEquals("probe failed", state.reason)
+        assertEquals(
+            "Could not check Swift support. Retry, or update or enable its language plugin if the problem continues.",
+            state.reason,
+        )
         assertTrue(requireNotNull(lifetime).isDisposed)
         controller.dispose()
     }

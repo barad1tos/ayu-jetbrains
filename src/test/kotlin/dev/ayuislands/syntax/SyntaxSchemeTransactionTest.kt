@@ -76,6 +76,32 @@ class SyntaxSchemeTransactionTest {
     }
 
     @Test
+    fun `thrown rollback failure retains its checkpoint and continues restoration`() {
+        val writer = RecordingWriter(failOn = "Light", rollbackExceptionOn = "Dark")
+        val journal = SyntaxSchemeJournal()
+
+        val result =
+            SyntaxSchemeTransaction(writer) {}.apply(
+                listOf(
+                    change("Mirage", "JAVA_KEYWORD"),
+                    change("Dark", "KOTLIN_KEYWORD"),
+                    change("Light", "SWIFT.KEYWORD"),
+                ),
+                journal,
+            )
+
+        val failure = assertIs<SyntaxTransactionResult.RecoveryRequired>(result)
+        assertEquals(listOf("rollback Dark"), failure.rollbackFailures.mapNotNull { it.message })
+        assertEquals(listOf("Light", "Dark", "Mirage"), writer.rolledBack)
+
+        writer.rollbackExceptionOn = null
+        writer.rolledBack.clear()
+        journal.restore(writer) {}
+
+        assertEquals(listOf("Dark"), writer.rolledBack)
+    }
+
+    @Test
     fun `cancellation rolls back every checkpoint before rethrowing the original instance`() {
         listOf(
             ProcessCanceledException(),
@@ -198,6 +224,7 @@ class SyntaxSchemeTransactionTest {
     private class RecordingWriter(
         var failOn: String? = null,
         var rollbackFailureOn: String? = null,
+        var rollbackExceptionOn: String? = null,
         private val relinquishedByLabel: Map<String, Set<String>> = emptyMap(),
     ) : SyntaxSchemeWriter {
         val rolledBack = mutableListOf<String>()
@@ -217,6 +244,9 @@ class SyntaxSchemeTransactionTest {
             rolledBack += checkpoint.label
             if (checkpoint.label == rollbackCancellationOn) {
                 throw checkNotNull(rollbackCancellation)
+            }
+            if (checkpoint.label == rollbackExceptionOn) {
+                error("rollback ${checkpoint.label}")
             }
             return if (checkpoint.label == rollbackFailureOn) {
                 listOf(RuntimeException("rollback ${checkpoint.label}"))

@@ -123,7 +123,7 @@ internal class SyntaxCapabilityController(
             SyntaxProbeResult.Deferred(
                 languageId = languageId,
                 generation = generation,
-                reason = terminalFailure.message ?: PROBE_FAILURE_MESSAGE,
+                reason = probeFailureMessage(languageId),
             )
         handle(result.toEvent())
     }
@@ -162,7 +162,6 @@ internal class SyntaxCapabilityController(
     private companion object {
         private val LOG = Logger.getInstance(SyntaxCapabilityController::class.java)
         private const val HIGHLIGHTING_SETTINGS_ID = "preferences.editor.colorScheme"
-        private const val PROBE_FAILURE_MESSAGE = "Native syntax capability check failed"
     }
 }
 

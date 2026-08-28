@@ -66,7 +66,7 @@ class SyntaxEditingSessionTest {
     }
 
     @Test
-    fun `incomplete rollback schedules recovery from the persisted checkpoint`() {
+    fun `incomplete preview rollback waits for explicit restore before recovery`() {
         val runtime = RecordingRuntime()
         val session = editingSession(config(50), runtime, mutableListOf())
         val failure = IllegalStateException("preview")
@@ -78,8 +78,12 @@ class SyntaxEditingSessionTest {
 
         session.editDiscrete(config(80))
 
-        assertEquals(listOf<Pair<SyntaxPresetConfig, RuntimeException>>(config(50) to failure), runtime.recoveries)
+        assertEquals(emptyList(), runtime.recoveries)
         assertEquals(config(80), session.pendingConfig())
+
+        session.cancel()
+
+        assertEquals(listOf(config(50)), runtime.restores)
     }
 
     @Test
@@ -322,6 +326,31 @@ class SyntaxEditingSessionTest {
     }
 
     @Test
+    fun `cancel recovery requirement closes and schedules recovery once`() {
+        val runtime = RecordingRuntime()
+        val debounce = RecordingDebounce()
+        val session =
+            SyntaxEditingSession(
+                initialCheckpoint = config(50),
+                runtime = runtime,
+                persist = {},
+                debounceFactory = { callback -> debounce.also { it.callback = callback } },
+            )
+        session.editDiscrete(config(80))
+        runtime.restoreResult =
+            SyntaxTransactionResult.RecoveryRequired(
+                cause = IllegalStateException("restore failed"),
+                rollbackFailures = listOf(IllegalStateException("rollback failed")),
+            )
+
+        session.cancel()
+        session.dispose()
+
+        assertEquals(listOf(config(50)), runtime.restores)
+        assertEquals(1, runtime.recoveries.size)
+    }
+
+    @Test
     fun `foreign scheme never changes session state or requests a runtime write`() {
         val state = SyntaxSessionState.Live(config(50), config(80))
 
@@ -383,6 +412,25 @@ class SyntaxEditingSessionTest {
 
         assertSame(cancellation, thrown)
         assertEquals(1, debounce.disposals)
+    }
+
+    @Test
+    fun `cancel restores checkpoint even when stopping debounce fails`() {
+        val runtime = RecordingRuntime()
+        val debounce = RecordingDebounce(failStopAt = 2)
+        val session =
+            SyntaxEditingSession(
+                initialCheckpoint = config(50),
+                runtime = runtime,
+                persist = {},
+                debounceFactory = { callback -> debounce.also { it.callback = callback } },
+            )
+        session.editDiscrete(config(70))
+
+        val failure = assertFails { session.cancel() }
+
+        assertEquals("stop failed", failure.message)
+        assertEquals(listOf(config(50)), runtime.restores)
     }
 
     private fun config(keyword: Int): SyntaxPresetConfig =
@@ -449,7 +497,9 @@ class SyntaxEditingSessionTest {
         private fun applied(): SyntaxTransactionResult = SyntaxTransactionResult.Applied(emptySet(), emptySet())
     }
 
-    private class RecordingDebounce : SyntaxDebounce {
+    private class RecordingDebounce(
+        private val failStopAt: Int? = null,
+    ) : SyntaxDebounce {
         var callback: (() -> Unit)? = null
         var restarts = 0
         var stops = 0
@@ -461,6 +511,7 @@ class SyntaxEditingSessionTest {
 
         override fun stop() {
             stops++
+            if (stops == failStopAt) error("stop failed")
         }
 
         override fun dispose() {

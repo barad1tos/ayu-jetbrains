@@ -24,7 +24,7 @@ class NativeProbeCompletionTest {
                 dispatch = dispatches::add,
             )
 
-        completion.failed(IllegalStateException("probe failed"))
+        completion.failed(IllegalStateException("NoClassDefFoundError: internal.plugin.Probe"))
 
         assertTrue(results.isEmpty())
         assertEquals(1, dispatches.size)
@@ -32,7 +32,10 @@ class NativeProbeCompletionTest {
         val result = assertIs<SyntaxProbeResult.Deferred>(results.single())
         assertEquals("Swift", result.languageId)
         assertEquals(7, result.generation)
-        assertEquals("probe failed", result.reason)
+        assertEquals(
+            "Could not check Swift support. Retry, or update or enable its language plugin if the problem continues.",
+            result.reason,
+        )
         Disposer.dispose(parent)
     }
 

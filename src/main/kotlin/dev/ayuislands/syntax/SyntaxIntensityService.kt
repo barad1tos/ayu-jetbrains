@@ -29,17 +29,19 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    active `globalScheme` whenever it isn't one of the named instances we
  *    already touched (identity dedup avoids double-writes on a clean
  *    install).
- *  - R-7 single publish: exactly one [EditorSchemeChange] event per apply call.
- *    The shared publisher supplies the write-intent context required by
- *    downstream editor listeners.
+ *  - R-7 single publish: a successful transaction emits exactly one
+ *    [EditorSchemeChange] event. Failures before publication emit none. The
+ *    shared publisher supplies the write-intent context required by downstream
+ *    editor listeners.
  *  - Pattern A latches: a missing named scheme logs WARN once per (scheme,
  *    session); an unknown overlay variant tag arriving via
  *    [resolveActiveAyuOverlayVariant] (a future Ayu variant outside the whitelist)
  *    logs WARN once per (variantTag, session) and skips the R-1 fallback.
  *  - Atomic scheme writes: every target is computed before mutation, then
  *    [SyntaxSchemeTransaction] checkpoints only the touched attributes. Any
- *    write failure restores all checkpoints before the single publish; a
- *    publisher failure also restores the checkpointed attributes.
+ *    write or publisher failure attempts to restore every checkpoint. An
+ *    incomplete rollback remains journaled and blocks a later direct apply
+ *    until recovery succeeds.
  *  - Inherited-key ownership: Custom may materialize a language key whose
  *    color normally comes from a registered fallback. [IdeSyntaxSchemeWriter]
  *    snapshots the exact direct attribute before the first write, restores it
@@ -87,6 +89,9 @@ class SyntaxIntensityService {
         ConcurrentHashMap<String, Map<String, Set<PrimitiveCategory>>>()
     private val loggedCapabilityMisses = ConcurrentHashMap.newKeySet<String>()
     private val unlicensedCustomLogged = AtomicBoolean(false)
+    private val directApplyLock = Any()
+    private val directWriter = IdeSyntaxSchemeWriter()
+    private val directJournal = SyntaxSchemeJournal()
 
     @Volatile
     private var replacementFonts: Map<String, Map<String, Int>> = emptyMap()
@@ -111,18 +116,39 @@ class SyntaxIntensityService {
     }
 
     fun apply(config: SyntaxPresetConfig) {
-        val context = applyContext(config)
-        val changes = schemeChanges(context)
-        retireLegacyKeys(changes)
-        when (val result = applyChanges(context, changes, IdeSyntaxSchemeWriter(), journal = null)) {
-            is SyntaxTransactionResult.Applied -> Unit
-            is SyntaxTransactionResult.RecoveryRequired -> {
-                result.rollbackFailures.forEach { failure ->
-                    log.warn("Failed to roll back syntax scheme transaction", failure)
+        synchronized(directApplyLock) {
+            when (val recovery = directJournal.restore(directWriter, ::publishSchemeChange)) {
+                is SyntaxTransactionResult.Applied -> Unit
+                is SyntaxTransactionResult.RecoveryRequired -> {
+                    recovery.rollbackFailures.forEach { failure ->
+                        log.warn(ROLLBACK_FAILURE_MESSAGE, failure)
+                    }
+                    recovery.rethrow()
                 }
-                throw result.cause
+                is SyntaxTransactionResult.RolledBack -> recovery.rethrow()
             }
-            is SyntaxTransactionResult.RolledBack -> throw result.cause
+            val context = applyContext(config)
+            val changes = schemeChanges(context)
+            retireLegacyKeys(changes)
+            when (val result = applyChanges(context, changes, directWriter, directJournal)) {
+                is SyntaxTransactionResult.Applied -> directJournal.advance(directWriter)
+                is SyntaxTransactionResult.RecoveryRequired -> {
+                    result.rollbackFailures.forEach { failure ->
+                        log.warn(ROLLBACK_FAILURE_MESSAGE, failure)
+                    }
+                    val recovery = directJournal.restore(directWriter, ::publishSchemeChange)
+                    if (recovery is SyntaxTransactionResult.Failure) {
+                        recovery.cause.takeIf { it !== result.cause }?.let(result.cause::addSuppressed)
+                        if (recovery is SyntaxTransactionResult.RecoveryRequired) {
+                            recovery.rollbackFailures.forEach { failure ->
+                                log.warn(ROLLBACK_FAILURE_MESSAGE, failure)
+                            }
+                        }
+                    }
+                    result.rethrow()
+                }
+                is SyntaxTransactionResult.RolledBack -> result.rethrow()
+            }
         }
     }
 
@@ -605,6 +631,7 @@ class SyntaxIntensityService {
         // only the active scheme arrives here writable, so each poisoned copy needs its
         // own pass the first time it becomes active.
         private const val RETIREMENT_FLAG_KEY = "ayu.syntax.visibility.retired.schemes"
+        private const val ROLLBACK_FAILURE_MESSAGE = "Failed to roll back syntax scheme transaction"
 
         // Keys the overlay used to define and must now leave to the platform.
         // Versions 2.7.0-2.8.1 gave these a foreground, which Java merges over the
@@ -708,3 +735,5 @@ class SyntaxIntensityService {
         }
     }
 }
+
+private fun SyntaxTransactionResult.Failure.rethrow(): Nothing = throw cause

@@ -60,7 +60,7 @@ internal class NativeProbeCompletion(
                 SyntaxProbeResult.Deferred(
                     languageId = languageId,
                     generation = generation,
-                    reason = runtimeFailure.message ?: PROBE_FAILURE_MESSAGE,
+                    reason = probeFailureMessage(languageId),
                 ),
             )
         }
@@ -72,9 +72,11 @@ internal class NativeProbeCompletion(
 
     private companion object {
         private val LOG = Logger.getInstance(NativeProbeCompletion::class.java)
-        private const val PROBE_FAILURE_MESSAGE = "Native syntax capability check failed"
     }
 }
+
+internal fun probeFailureMessage(languageId: String): String =
+    "Could not check $languageId support. Retry, or update or enable its language plugin if the problem continues."
 
 private fun dispatchOnUiThread(action: () -> Unit) {
     ApplicationManager.getApplication().invokeLater(action, ModalityState.any())

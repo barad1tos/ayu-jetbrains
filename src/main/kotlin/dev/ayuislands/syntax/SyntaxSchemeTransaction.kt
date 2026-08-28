@@ -210,8 +210,11 @@ private fun rollback(
             }
         } catch (failure: RuntimeException) {
             incomplete += checkpoint
-            if (!isCancellation(failure)) throw failure
-            cancellation = cancellation.record(failure)
+            if (isCancellation(failure)) {
+                cancellation = cancellation.record(failure)
+            } else {
+                failures += failure
+            }
         }
     }
     return RollbackAttempt(incomplete, failures, cancellation)
