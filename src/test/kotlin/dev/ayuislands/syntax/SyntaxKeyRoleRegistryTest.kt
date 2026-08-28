@@ -150,6 +150,11 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `HCL property keys classify as instance fields`() {
+        assertEquals(PrimitiveCategory.INSTANCE_FIELD, classifyPrimitive("HCL.PROPERTY_KEY"))
+    }
+
+    @Test
     fun `unused CoffeeScript class key is explicitly excluded`() {
         val role = SyntaxKeyRoleRegistry.classify("COFFEESCRIPT.CLASS_NAME")
 

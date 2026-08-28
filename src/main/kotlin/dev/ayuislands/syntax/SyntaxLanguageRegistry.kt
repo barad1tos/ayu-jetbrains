@@ -331,6 +331,12 @@ object SyntaxLanguageRegistry {
                     displayName = GRAPHQL_PLUGIN_NAME,
                     marketplaceUrl = GRAPHQL_MARKETPLACE_URL,
                 )
+            HCL_STORAGE_ID ->
+                PluginRequirement(
+                    pluginId = HCL_PLUGIN_ID,
+                    displayName = HCL_PLUGIN_NAME,
+                    marketplaceUrl = HCL_MARKETPLACE_URL,
+                )
             SWIFT_STORAGE_ID ->
                 PluginRequirement(
                     pluginId = NOCTULE_PLUGIN_ID,
@@ -525,6 +531,10 @@ object SyntaxLanguageRegistry {
     private const val GRAPHQL_PLUGIN_ID = "com.intellij.lang.jsgraphql"
     private const val GRAPHQL_PLUGIN_NAME = "GraphQL"
     private const val GRAPHQL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/8097-graphql"
+    private const val HCL_STORAGE_ID = "HCL"
+    private const val HCL_PLUGIN_ID = "org.intellij.plugins.hcl"
+    private const val HCL_PLUGIN_NAME = "Terraform and HCL"
+    private const val HCL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/7808-terraform-and-hcl"
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
     private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"

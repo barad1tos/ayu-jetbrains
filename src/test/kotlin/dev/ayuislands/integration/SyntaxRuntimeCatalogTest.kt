@@ -107,6 +107,17 @@ class SyntaxRuntimeCatalogTest {
     }
 
     @Test
+    fun `HCL uses its official marketplace language provider`() {
+        val runtime = SyntaxRuntimeCatalog.require("hcl")
+
+        assertEquals(setOf("HCL"), runtime.candidateLanguages)
+        assertEquals(
+            MarketplaceDependency("org.intellij.plugins.hcl", "251.23774.426"),
+            runtime.marketplaceDependency,
+        )
+    }
+
+    @Test
     fun `bundled provider languages stay with their host product runtimes`() {
         assertTrue("Gherkin" in SyntaxRuntimeCatalog.require("webstorm").candidateLanguages)
         assertTrue("CoffeeScript" in SyntaxRuntimeCatalog.require("rubymine").candidateLanguages)

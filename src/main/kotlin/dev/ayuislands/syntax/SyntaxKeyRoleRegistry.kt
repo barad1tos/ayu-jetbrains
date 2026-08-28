@@ -124,7 +124,8 @@ object SyntaxKeyRoleRegistry {
                 "GO_STRUCT_(?:EXPORTED|LOCAL)_MEMBER$",
                 "RUBY_IVAR",
                 "SWIFT\\.GLOBAL_VARIABLE|SWIFT\\.PROPERTY",
-                "MAGIC_MEMBER_ACCESS|EDITORCONFIG_PROPERTY_KEY|DOTENV_KEY|HCL\\.BLOCK_ONLY_NAME_KEY",
+                "MAGIC_MEMBER_ACCESS|EDITORCONFIG_PROPERTY_KEY|DOTENV_KEY",
+                "HCL\\.BLOCK_ONLY_NAME_KEY|HCL\\.PROPERTY_KEY",
             )
             // --- Functions / methods (must beat KEYWORD / OPERATOR) ---------
             addRules(

@@ -111,6 +111,13 @@ internal object SyntaxRuntimeCatalog {
                     MarketplaceDependency("com.intellij.lang.jsgraphql", "251.23774.318"),
             ),
             SyntaxRuntime(
+                id = "hcl",
+                productId = "INTELLIJ_IDEA_COMMUNITY",
+                version = "2025.1",
+                candidateLanguages = setOf("HCL"),
+                marketplaceDependency = MarketplaceDependency("org.intellij.plugins.hcl", "251.23774.426"),
+            ),
+            SyntaxRuntime(
                 id = "rider",
                 productId = "RIDER",
                 version = "2025.1.3",
@@ -209,7 +216,6 @@ internal object SyntaxRuntimeCatalog {
                         "CodeQL",
                         "Drools",
                         "Erlang",
-                        "HCL",
                         "Ignore files",
                         "Lua",
                         "Nginx",

@@ -29,6 +29,7 @@ val integrationPlugins =
         "com.intellij.lang.jsgraphql" to "251.23774.318",
         "com.redhat.devtools.lsp4ij" to "0.20.1",
         "dev.j-a.swift" to "1.11.1.435-251",
+        "org.intellij.plugins.hcl" to "251.23774.426",
         "pl.thedeem.dql" to "1.10.0",
         "com.nasller.CodeGlancePro" to "2.0.2",
         "indent-rainbow.indent-rainbow" to "2.2.0",
@@ -185,6 +186,13 @@ val syntaxRuntimeTargets =
             ide = communityIde,
             bundledPlugins = communityBundledPlugins,
             enabledMarketplacePlugins = setOf("com.intellij.lang.jsgraphql"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "hcl",
+            taskName = "syntaxContractHcl",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("org.intellij.plugins.hcl"),
         ),
         SyntaxRuntimeTarget(
             "rubymine",

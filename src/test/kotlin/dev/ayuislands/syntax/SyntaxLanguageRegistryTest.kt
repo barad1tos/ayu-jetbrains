@@ -362,6 +362,16 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `HCL specification points recovery to its official provider`() {
+        val hcl = requireNotNull(SyntaxLanguageRegistry.findByStorageId("HCL"))
+        val requirement = requireNotNull(hcl.pluginRequirement)
+
+        assertEquals("org.intellij.plugins.hcl", requirement.pluginId)
+        assertEquals("Terraform and HCL", requirement.displayName)
+        assertEquals("https://plugins.jetbrains.com/plugin/7808-terraform-and-hcl", requirement.marketplaceUrl)
+    }
+
+    @Test
     fun `Ruby exposes only provider-backed primitives`() {
         val ruby = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Ruby"))
         val primitives = ruby.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
