@@ -145,6 +145,14 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `unused CoffeeScript class key is explicitly excluded`() {
+        val role = SyntaxKeyRoleRegistry.classify("COFFEESCRIPT.CLASS_NAME")
+
+        assertTrue(role is SyntaxKeyRole.Excluded)
+        assertEquals("CoffeeScript", role.languageId)
+    }
+
+    @Test
     fun `Go references and members keep distinct roles`() {
         assertEquals(PrimitiveCategory.TYPE_REF, classifyPrimitive("GO_EXPORTED_STRUCT_REFERENCE"))
         assertEquals(PrimitiveCategory.INSTANCE_FIELD, classifyPrimitive("GO_STRUCT_EXPORTED_MEMBER"))

@@ -106,7 +106,7 @@ internal object SyntaxRuntimeCatalog {
                             "the light fixture cannot initialize Rider without an open solution.",
                     ),
             ),
-            runtime("rubymine", "RUBYMINE", "2025.1.3", setOf("HAML", "Ruby", "Slim")),
+            runtime("rubymine", "RUBYMINE", "2025.1.3", setOf("CoffeeScript", "HAML", "Ruby", "Slim")),
             SyntaxRuntime(
                 id = "apple-plist",
                 productId = "INTELLIJ_IDEA",
@@ -182,7 +182,6 @@ internal object SyntaxRuntimeCatalog {
                 candidateLanguages =
                     setOf(
                         "CodeQL",
-                        "CoffeeScript",
                         "Cron expression",
                         "Dart",
                         "Drools",

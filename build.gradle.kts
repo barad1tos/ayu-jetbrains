@@ -175,6 +175,7 @@ val syntaxRuntimeTargets =
             bundledPlugins =
                 listOf(
                     "com.intellij.modules.json",
+                    "org.coffeescript",
                     "org.jetbrains.plugins.ruby",
                     "org.jetbrains.plugins.haml",
                     "org.jetbrains.plugins.slim",

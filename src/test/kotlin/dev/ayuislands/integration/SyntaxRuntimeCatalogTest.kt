@@ -90,6 +90,7 @@ class SyntaxRuntimeCatalogTest {
     @Test
     fun `bundled provider languages stay with their host product runtimes`() {
         assertTrue("Gherkin" in SyntaxRuntimeCatalog.require("webstorm").candidateLanguages)
+        assertTrue("CoffeeScript" in SyntaxRuntimeCatalog.require("rubymine").candidateLanguages)
         assertTrue(
             SyntaxRuntimeCatalog.require("pycharm").candidateLanguages.containsAll(setOf("dotenv", "Puppet")),
         )

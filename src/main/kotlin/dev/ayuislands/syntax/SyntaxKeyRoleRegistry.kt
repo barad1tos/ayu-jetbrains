@@ -51,6 +51,10 @@ object SyntaxKeyRoleRegistry {
 
     private val log = logger<SyntaxKeyRoleRegistry>()
     private val warnedUnknownSuffixes = ConcurrentHashMap.newKeySet<String>()
+    private val excludedLanguageKeys =
+        mapOf(
+            "COFFEESCRIPT.CLASS_NAME" to "Provider emits JS.EXPORTED.CLASS for class names",
+        )
 
     /**
      * Ordered suffix-rule table. First match wins.
@@ -317,6 +321,9 @@ object SyntaxKeyRoleRegistry {
         val language = SyntaxLanguageRegistry.classify(keyName)
         val primitive = primitiveFor(keyName)
         if (language.bucket == SyntaxLanguageRegistry.Bucket.LANGUAGE) {
+            excludedLanguageKeys[keyName]?.let { reason ->
+                return SyntaxKeyRole.Excluded(language.displayName, reason)
+            }
             return if (primitive == null) {
                 SyntaxKeyRole.Excluded(language.displayName, "No supported primitive role")
             } else {

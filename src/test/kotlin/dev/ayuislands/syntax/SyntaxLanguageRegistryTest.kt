@@ -372,6 +372,16 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `CoffeeScript records descriptor-backed semantic primitives`() {
+        val coffeeScript = requireNotNull(SyntaxLanguageRegistry.findByStorageId("CoffeeScript"))
+
+        assertEquals(
+            setOf(PrimitiveCategory.PARAMETER),
+            coffeeScript.semanticOnlyCategories,
+        )
+    }
+
+    @Test
     fun `native profiles include provider identities`() {
         val expectedIdentities =
             mapOf(
