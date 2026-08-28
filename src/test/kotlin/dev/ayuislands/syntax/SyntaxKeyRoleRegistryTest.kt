@@ -129,6 +129,30 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `Windows Batch provider keys keep their native primitive roles`() {
+        val expectedRoles =
+            mapOf(
+                "BATCH.COMMENT" to PrimitiveCategory.COMMENT,
+                "BATCH.STRING" to PrimitiveCategory.STRING_LITERAL,
+                "BATCH.NUMBER" to PrimitiveCategory.NUMBER_LITERAL,
+                "BATCH.VARIABLE" to PrimitiveCategory.LOCAL_VAR,
+                "BATCH.ENVIRONMENT_VARIABLE" to PrimitiveCategory.LOCAL_VAR,
+                "BATCH.ENVIRONMENT_VARIABLE_DEFINITION" to PrimitiveCategory.LOCAL_VAR,
+                "BATCH.KEYWORD" to PrimitiveCategory.KEYWORD,
+                "BATCH.OPERATION_SIGN" to PrimitiveCategory.OPERATOR,
+                "BATCH.BRACES" to PrimitiveCategory.OPERATOR,
+                "BATCH.BRACKETS" to PrimitiveCategory.OPERATOR,
+                "BATCH.PARENTHS" to PrimitiveCategory.OPERATOR,
+            )
+
+        expectedRoles.forEach { (keyName, primitive) ->
+            val role = assertIs<SyntaxKeyRole.Tunable>(SyntaxKeyRoleRegistry.classify(keyName), keyName)
+            assertEquals("Windows Batch", role.languageId, keyName)
+            assertEquals(primitive, role.primitive, keyName)
+        }
+    }
+
+    @Test
     fun `JAVA_STRING classifies to STRING_LITERAL`() {
         assertEquals(PrimitiveCategory.STRING_LITERAL, classifyPrimitive("JAVA_STRING"))
     }

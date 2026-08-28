@@ -24,6 +24,7 @@ class NativePreviewResolverTest {
     private val profile = swift.nativeProfiles.single()
 
     init {
+        every { fileTypes.findFileTypeByName(any()) } returns UnknownFileType.INSTANCE
         every { fileTypes.registeredFileTypes } returns emptyArray()
     }
 

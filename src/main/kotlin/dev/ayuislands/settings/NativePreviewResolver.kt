@@ -39,8 +39,9 @@ internal class NativePreviewResolver(
         val lookupSuppliers =
             buildList {
                 add { listOf(manager.getFileTypeByFileName(fileName)) }
-                profile.fileTypeNames.mapTo(this) { standardName ->
-                    { listOf(manager.getStdFileType(standardName)) }
+                profile.fileTypeNames.forEach { fileTypeName ->
+                    add { listOfNotNull(manager.findFileTypeByName(fileTypeName)) }
+                    add { listOf(manager.getStdFileType(fileTypeName)) }
                 }
                 add {
                     manager.registeredFileTypes

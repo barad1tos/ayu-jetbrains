@@ -137,6 +137,15 @@ class SyntaxRuntimeCatalogTest {
     }
 
     @Test
+    fun `Windows Batch stays in provider research until public runtime support is verifiable`() {
+        val runtime = SyntaxRuntimeCatalog.require("provider-research")
+
+        assertTrue("Windows Batch" in runtime.candidateLanguages)
+        assertTrue(runtime.provisioning is RuntimeProvisioning.ProviderResearch)
+        assertFalse(SyntaxRuntimeCatalog.entries.any { candidate -> candidate.id == "windows-batch" })
+    }
+
+    @Test
     fun `bundled provider languages stay with their host product runtimes`() {
         assertTrue("Gherkin" in SyntaxRuntimeCatalog.require("webstorm").candidateLanguages)
         assertTrue("CoffeeScript" in SyntaxRuntimeCatalog.require("rubymine").candidateLanguages)

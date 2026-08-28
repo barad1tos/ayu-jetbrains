@@ -221,8 +221,10 @@ internal object SpecializedPreviewSpecs {
                 previewFileType("Batch", "bat"),
                 "windows-batch.txt",
                 KEYWORD,
-                NUMBER_LITERAL,
                 LOCAL_VAR,
+                STRING_LITERAL,
+                NUMBER_LITERAL,
+                COMMENT,
                 OPERATOR,
             ),
         )

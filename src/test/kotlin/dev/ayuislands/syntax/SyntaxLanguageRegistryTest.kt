@@ -388,6 +388,34 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `Windows Batch specification points recovery to its canonical provider`() {
+        val batch = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Windows Batch"))
+        val requirement = requireNotNull(batch.pluginRequirement)
+
+        assertEquals("Batch Scripts Support", requirement.pluginId)
+        assertEquals("Batch Scripts Support", requirement.displayName)
+        assertEquals("https://plugins.jetbrains.com/plugin/265-batch-scripts-support", requirement.marketplaceUrl)
+    }
+
+    @Test
+    fun `Windows Batch exposes only provider-backed primitives`() {
+        val batch = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Windows Batch"))
+        val primitives = batch.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
+        assertEquals(
+            setOf(
+                PrimitiveCategory.KEYWORD,
+                PrimitiveCategory.LOCAL_VAR,
+                PrimitiveCategory.STRING_LITERAL,
+                PrimitiveCategory.NUMBER_LITERAL,
+                PrimitiveCategory.COMMENT,
+                PrimitiveCategory.OPERATOR,
+            ),
+            primitives,
+        )
+    }
+
+    @Test
     fun `HCL and TIL specifications point recovery to their official provider`() {
         setOf("HCL", "TIL").forEach { languageId ->
             val language = requireNotNull(SyntaxLanguageRegistry.findByStorageId(languageId))

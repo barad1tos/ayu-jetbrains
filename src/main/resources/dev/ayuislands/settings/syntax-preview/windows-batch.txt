@@ -3,7 +3,7 @@ rem Native Windows Batch preview
 set "COUNT=42"
 set "NAME=Ayu"
 if %COUNT% GTR 0 call :render "%NAME%"
-exit /b 0
+exit /b 0 2>nul
 
 :render
 set "VALUE=%~1"

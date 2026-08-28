@@ -111,6 +111,18 @@ class SyntaxLanguageResolverTest {
     }
 
     @Test
+    fun `active Batch file selects Windows Batch without a registered provider identity`() {
+        val selected =
+            coldProjectResolver.resolve(
+                project = project,
+                activeFile = activeFile("recovery.bat", "Plain text"),
+                fallbackLanguage = "Kotlin",
+            )
+
+        assertEquals("Windows Batch", selected)
+    }
+
+    @Test
     fun `ambiguous Terraform identity preserves the persisted fallback`() {
         var projectReads = 0
         val resolver =

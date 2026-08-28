@@ -372,6 +372,12 @@ object SyntaxLanguageRegistry {
                     displayName = POWERSHELL_PLUGIN_NAME,
                     marketplaceUrl = POWERSHELL_MARKETPLACE_URL,
                 )
+            BATCH_LANGUAGE_ID ->
+                PluginRequirement(
+                    pluginId = WINDOWS_BATCH_PLUGIN_ID,
+                    displayName = WINDOWS_BATCH_PLUGIN_NAME,
+                    marketplaceUrl = WINDOWS_BATCH_MARKETPLACE_URL,
+                )
             SWIFT_STORAGE_ID ->
                 PluginRequirement(
                     pluginId = NOCTULE_PLUGIN_ID,
@@ -508,6 +514,12 @@ object SyntaxLanguageRegistry {
                     "DEFAULT_STRING" to "Scala String",
                     "DEFAULT_NUMBER" to "Scala Number",
                 ),
+            "Batch" to
+                mapOf(
+                    "DEFAULT_BLOCK_COMMENT" to "BATCH.COMMENT",
+                    "DEFAULT_STRING" to "BATCH.STRING",
+                    "DEFAULT_NUMBER" to "BATCH.NUMBER",
+                ),
             "Rust" to
                 mapOf(
                     "DEFAULT_LINE_COMMENT" to "org.rust.LINE_COMMENT",
@@ -580,6 +592,11 @@ object SyntaxLanguageRegistry {
     private const val POWERSHELL_PLUGIN_ID = "com.intellij.plugin.adernov.powershell"
     private const val POWERSHELL_PLUGIN_NAME = "PowerShell"
     private const val POWERSHELL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/10249-powershell"
+    private const val BATCH_LANGUAGE_ID = "Batch"
+    private const val WINDOWS_BATCH_PLUGIN_ID = "Batch Scripts Support"
+    private const val WINDOWS_BATCH_PLUGIN_NAME = "Batch Scripts Support"
+    private const val WINDOWS_BATCH_MARKETPLACE_URL =
+        "https://plugins.jetbrains.com/plugin/265-batch-scripts-support"
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
     private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"

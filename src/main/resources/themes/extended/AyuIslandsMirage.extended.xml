@@ -2444,6 +2444,13 @@
         <option name="FONT_TYPE" value="0" />
       </value>
     </option>
+    <option name="BATCH.COMMENT" baseAttributes="DEFAULT_BLOCK_COMMENT" />
+    <option name="BATCH.STRING" baseAttributes="DEFAULT_STRING" />
+    <option name="BATCH.ENVIRONMENT_VARIABLE_DEFINITION" baseAttributes="DEFAULT_CONSTANT" />
+    <option name="BATCH.OPERATION_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
+    <option name="BATCH.BRACES" baseAttributes="DEFAULT_BRACES" />
+    <option name="BATCH.BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
+    <option name="BATCH.PARENTHS" baseAttributes="DEFAULT_PARENTHS" />
     <option name="GITLAB_CI_EXPRESSION_IDENTIFIER">
       <value>
         <option name="FOREGROUND" value="F28779" />
