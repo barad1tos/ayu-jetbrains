@@ -319,6 +319,12 @@ object SyntaxLanguageRegistry {
 
     private fun pluginRequirement(languageId: String): PluginRequirement? =
         when (languageId) {
+            DART_STORAGE_ID ->
+                PluginRequirement(
+                    pluginId = DART_PLUGIN_ID,
+                    displayName = DART_PLUGIN_NAME,
+                    marketplaceUrl = DART_MARKETPLACE_URL,
+                )
             SWIFT_STORAGE_ID ->
                 PluginRequirement(
                     pluginId = NOCTULE_PLUGIN_ID,
@@ -505,6 +511,10 @@ object SyntaxLanguageRegistry {
                 ),
         )
 
+    private const val DART_STORAGE_ID = "Dart"
+    private const val DART_PLUGIN_ID = "Dart"
+    private const val DART_PLUGIN_NAME = "Dart"
+    private const val DART_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/6351-dart"
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
     private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"

@@ -300,6 +300,21 @@ internal object SyntaxPreviewCatalog {
                 PARAMETER,
                 LOCAL_VAR,
                 STRING_LITERAL,
+                DOCUMENTATION,
+                NUMBER_LITERAL,
+            ).copy(
+                semanticOnlyCategories =
+                    setOf(
+                        ANNOTATION,
+                        CLASS_DECL,
+                        FUNCTION_DECL,
+                        INSTANCE_FIELD,
+                        STATIC_FIELD,
+                        GENERICS,
+                        TYPE_REF,
+                        PARAMETER,
+                        LOCAL_VAR,
+                    ),
             ),
             syntaxPreviewSpec(
                 "Django",

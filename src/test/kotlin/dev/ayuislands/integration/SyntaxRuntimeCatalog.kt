@@ -96,6 +96,13 @@ internal object SyntaxRuntimeCatalog {
                 marketplaceDependency = MarketplaceDependency("pl.thedeem.dql", "1.10.0"),
             ),
             SyntaxRuntime(
+                id = "dart",
+                productId = "INTELLIJ_IDEA_COMMUNITY",
+                version = "2025.1",
+                candidateLanguages = setOf("Dart"),
+                marketplaceDependency = MarketplaceDependency("Dart", "506.1.0"),
+            ),
+            SyntaxRuntime(
                 id = "rider",
                 productId = "RIDER",
                 version = "2025.1.3",
@@ -192,7 +199,6 @@ internal object SyntaxRuntimeCatalog {
                 candidateLanguages =
                     setOf(
                         "CodeQL",
-                        "Dart",
                         "Drools",
                         "Erlang",
                         "GraphQL",

@@ -342,6 +342,16 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `Dart specification points recovery to its official provider`() {
+        val dart = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Dart"))
+        val requirement = requireNotNull(dart.pluginRequirement)
+
+        assertEquals("Dart", requirement.pluginId)
+        assertEquals("Dart", requirement.displayName)
+        assertEquals("https://plugins.jetbrains.com/plugin/6351-dart", requirement.marketplaceUrl)
+    }
+
+    @Test
     fun `Ruby exposes only provider-backed primitives`() {
         val ruby = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Ruby"))
         val primitives = ruby.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)

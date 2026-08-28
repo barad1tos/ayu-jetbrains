@@ -88,6 +88,14 @@ class SyntaxRuntimeCatalogTest {
     }
 
     @Test
+    fun `Dart uses its official marketplace language provider`() {
+        val runtime = SyntaxRuntimeCatalog.require("dart")
+
+        assertEquals(setOf("Dart"), runtime.candidateLanguages)
+        assertEquals(MarketplaceDependency("Dart", "506.1.0"), runtime.marketplaceDependency)
+    }
+
+    @Test
     fun `bundled provider languages stay with their host product runtimes`() {
         assertTrue("Gherkin" in SyntaxRuntimeCatalog.require("webstorm").candidateLanguages)
         assertTrue("CoffeeScript" in SyntaxRuntimeCatalog.require("rubymine").candidateLanguages)

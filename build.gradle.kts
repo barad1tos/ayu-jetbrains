@@ -24,6 +24,8 @@ version = providers.gradleProperty("pluginVersion").get()
 
 val integrationPlugins =
     listOf(
+        "Dart" to "506.1.0",
+        "com.redhat.devtools.lsp4ij" to "0.20.1",
         "dev.j-a.swift" to "1.11.1.435-251",
         "pl.thedeem.dql" to "1.10.0",
         "com.nasller.CodeGlancePro" to "2.0.2",
@@ -167,6 +169,13 @@ val syntaxRuntimeTargets =
             ide = communityIde,
             bundledPlugins = communityBundledPlugins,
             enabledMarketplacePlugins = setOf("pl.thedeem.dql"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "dart",
+            taskName = "syntaxContractDart",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("Dart", "com.redhat.devtools.lsp4ij"),
         ),
         SyntaxRuntimeTarget(
             "rubymine",

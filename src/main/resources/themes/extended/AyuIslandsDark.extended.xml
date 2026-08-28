@@ -35,6 +35,17 @@
     <option name="TS.PRIMITIVE.TYPES"><value /></option>
     <option name="COFFEESCRIPT.FUNCTION" baseAttributes="COFFEESCRIPT.FUNCTION_NAME" />
     <option name="COFFEESCRIPT.STRING_LITERAL" baseAttributes="COFFEESCRIPT.STRING" />
+    <option name="DART_BRACES" baseAttributes="DEFAULT_BRACES" />
+    <option name="DART_COLON" baseAttributes="DEFAULT_OPERATION_SIGN" />
+    <option name="DART_DOC_COMMENT" baseAttributes="DEFAULT_DOC_COMMENT" />
+    <option name="DART_DOT" baseAttributes="DEFAULT_DOT" />
+    <option name="DART_LOCAL_VARIABLE_DECLARATION" baseAttributes="DEFAULT_LOCAL_VARIABLE" />
+    <option name="DART_LOCAL_VARIABLE_REFERENCE" baseAttributes="DEFAULT_LOCAL_VARIABLE" />
+    <option name="DART_NUMBER" baseAttributes="DEFAULT_NUMBER" />
+    <option name="DART_OPERATION_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
+    <option name="DART_PARENTH" baseAttributes="DEFAULT_PARENTHS" />
+    <option name="DART_SEMICOLON" baseAttributes="DEFAULT_SEMICOLON" />
+    <option name="DART_STRING" baseAttributes="DEFAULT_STRING" />
     <option name="PUPPET_NAME" baseAttributes="PUPPET_CLASS_NAME" />
     <option name="PUPPET_SQ_STRING" baseAttributes="PUPPET_STRING" />
     <!-- Noctule Swift semantic token keys must carry concrete values here:
