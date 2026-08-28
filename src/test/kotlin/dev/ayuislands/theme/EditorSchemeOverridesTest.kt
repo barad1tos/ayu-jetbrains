@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
@@ -381,7 +382,8 @@ class EditorSchemeOverridesTest {
 
     @Test
     fun `editable copy inherits the canonical restoration ledger`() {
-        val canonicalColors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val originalColor = ColorUtil.toAlpha(Color.RED, TEST_ALPHA)
+        val canonicalColors = mutableMapOf<ColorKey, Color?>(colorKey to originalColor)
         val canonical = scheme(name = "Ayu Islands Mirage", colors = canonicalColors)
         var current = canonical
         every { editorColorsManager.globalScheme } answers { current }
@@ -394,7 +396,7 @@ class EditorSchemeOverridesTest {
 
         AyuEditorSchemeScope.restore(elementOwner)
 
-        assertEquals(Color.RED, editableColors[colorKey])
+        assertEquals(originalColor, editableColors[colorKey])
     }
 
     private fun scheme(
@@ -454,4 +456,8 @@ class EditorSchemeOverridesTest {
             effectType = EffectType.WAVE_UNDERSCORE
             fontType = 3
         }
+
+    private companion object {
+        const val TEST_ALPHA = 96
+    }
 }

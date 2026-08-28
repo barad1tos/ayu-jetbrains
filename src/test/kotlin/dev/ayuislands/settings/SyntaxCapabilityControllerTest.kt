@@ -1,6 +1,5 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import dev.ayuislands.syntax.LanguageSpecification
@@ -49,20 +48,11 @@ class SyntaxCapabilityControllerTest {
     fun `language changes and disposal cancel only in-flight probes`() {
         val lifetimes = mutableListOf<ProbeLifetime>()
         val controller = SyntaxCapabilityController(project, rendered = {})
-        controller.replaceProbeForTest(
-            object : SyntaxCapabilityProbe {
-                override fun start(
-                    specification: LanguageSpecification,
-                    generation: Long,
-                    parent: Disposable,
-                    completed: (SyntaxProbeResult) -> Unit,
-                ) {
-                    val lifetime = ProbeLifetime()
-                    lifetimes += lifetime
-                    Disposer.register(parent) { lifetime.isDisposed = true }
-                }
-            },
-        )
+        controller.replaceProbeForTest { _, _, parent, _ ->
+            val lifetime = ProbeLifetime()
+            lifetimes += lifetime
+            Disposer.register(parent) { lifetime.isDisposed = true }
+        }
 
         controller.selectLanguage("Swift")
         controller.selectLanguage("Kotlin")
@@ -76,15 +66,8 @@ class SyntaxCapabilityControllerTest {
     }
 
     private fun completingProbe(result: (LanguageSpecification, Long) -> SyntaxProbeResult): SyntaxCapabilityProbe =
-        object : SyntaxCapabilityProbe {
-            override fun start(
-                specification: LanguageSpecification,
-                generation: Long,
-                parent: Disposable,
-                completed: (SyntaxProbeResult) -> Unit,
-            ) {
-                completed(result(specification, generation))
-            }
+        SyntaxCapabilityProbe { specification, generation, _, completed ->
+            completed(result(specification, generation))
         }
 
     private data class ProbeLifetime(

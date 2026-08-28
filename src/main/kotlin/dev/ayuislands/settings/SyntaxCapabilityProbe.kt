@@ -4,7 +4,7 @@ import com.intellij.openapi.Disposable
 import dev.ayuislands.syntax.LanguageSpecification
 import dev.ayuislands.syntax.PrimitiveCategory
 
-internal interface SyntaxCapabilityProbe {
+internal fun interface SyntaxCapabilityProbe {
     fun start(
         specification: LanguageSpecification,
         generation: Long,

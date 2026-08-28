@@ -7,6 +7,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElementId
 import org.jdom.Element
 import java.awt.Color
@@ -145,30 +146,40 @@ internal object EditorSchemeOverrides {
                 val failures = mutableListOf<RuntimeException>()
                 val schemeStates = states.getOrPut(checkpoint.scheme) { mutableMapOf() }
                 checkpoint.entries.forEach { (entry, saved) ->
-                    try {
-                        writeValue(checkpoint.scheme, entry, saved.directValue)
-                    } catch (failure: RuntimeException) {
-                        failures += failure
-                    }
-                    try {
-                        val state = saved.overrideState
-                        if (state == null) {
-                            schemeStates.remove(entry)
-                        } else {
-                            schemeStates[entry] = state.snapshot()
-                        }
-                        val metadata = saved.metadataValue
-                        if (metadata == null) {
-                            checkpoint.scheme.metaProperties.remove(entry.metadataKey)
-                        } else {
-                            checkpoint.scheme.metaProperties.setProperty(entry.metadataKey, metadata)
-                        }
-                    } catch (failure: RuntimeException) {
-                        failures += failure
-                    }
+                    failures += restoreCheckpointEntry(checkpoint.scheme, schemeStates, entry, saved)
                 }
                 if (schemeStates.isEmpty()) states.remove(checkpoint.scheme)
                 failures
+            }
+
+        private fun restoreCheckpointEntry(
+            scheme: EditorColorsScheme,
+            schemeStates: MutableMap<SchemeEntry, OverrideState>,
+            entry: SchemeEntry,
+            saved: CheckpointEntry,
+        ): List<RuntimeException> =
+            buildList {
+                try {
+                    writeValue(scheme, entry, saved.directValue)
+                } catch (failure: RuntimeException) {
+                    add(failure)
+                }
+                try {
+                    val state = saved.overrideState
+                    if (state == null) {
+                        schemeStates.remove(entry)
+                    } else {
+                        schemeStates[entry] = state.snapshot()
+                    }
+                    val metadata = saved.metadataValue
+                    if (metadata == null) {
+                        scheme.metaProperties.remove(entry.metadataKey)
+                    } else {
+                        scheme.metaProperties.setProperty(entry.metadataKey, metadata)
+                    }
+                } catch (failure: RuntimeException) {
+                    add(failure)
+                }
             }
     }
 
@@ -263,24 +274,22 @@ internal object EditorSchemeOverrides {
         entry: SchemeEntry,
         value: SchemeValue,
     ) {
-        when {
-            entry is SchemeEntry.ColorEntry && value is SchemeValue.ColorValue -> {
-                scheme.setColor(entry.key, value.value)
-            }
+        when (entry) {
+            is SchemeEntry.ColorEntry ->
+                when (value) {
+                    is SchemeValue.ColorValue -> scheme.setColor(entry.key, value.value)
+                    is SchemeValue.InheritedColor ->
+                        scheme.setColor(entry.key, AbstractColorsScheme.INHERITED_COLOR_MARKER)
+                    else -> error("Editor scheme entry and value types must match")
+                }
 
-            entry is SchemeEntry.AttributesEntry && value is SchemeValue.AttributesValue -> {
-                scheme.setAttributes(entry.key, value.value?.clone())
-            }
-
-            entry is SchemeEntry.ColorEntry && value is SchemeValue.InheritedColor -> {
-                scheme.setColor(entry.key, AbstractColorsScheme.INHERITED_COLOR_MARKER)
-            }
-
-            entry is SchemeEntry.AttributesEntry && value is SchemeValue.InheritedAttributes -> {
-                scheme.setAttributes(entry.key, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
-            }
-
-            else -> error("Editor scheme entry and value types must match")
+            is SchemeEntry.AttributesEntry ->
+                when (value) {
+                    is SchemeValue.AttributesValue -> scheme.setAttributes(entry.key, value.value?.clone())
+                    is SchemeValue.InheritedAttributes ->
+                        scheme.setAttributes(entry.key, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+                    else -> error("Editor scheme entry and value types must match")
+                }
         }
     }
 
@@ -470,9 +479,8 @@ internal object EditorSchemeOverrides {
 
     private object OverrideCodec {
         fun encode(state: OverrideState): String {
-            val stateOwner = state.owner
             val owner =
-                when (stateOwner) {
+                when (val stateOwner = state.owner) {
                     is EditorSchemeOwner.Element -> "E:${stateOwner.id.name}"
                     EditorSchemeOwner.AlwaysOn -> "A"
                     EditorSchemeOwner.Syntax -> "S"
@@ -531,7 +539,7 @@ internal object EditorSchemeOverrides {
                                     .substringAfter(',')
                                     .takeIf(String::isNotEmpty)
                                     ?.toInt()
-                                    ?.let { Color(it, true) },
+                                    ?.let(::decodeArgb),
                             )
                         'N' -> SchemeValue.AttributesValue(null)
                         else -> {
@@ -541,6 +549,18 @@ internal object EditorSchemeOverrides {
                     }
                 }
             }
+
+        private fun decodeArgb(value: Int): Color {
+            val rgbHex = (value and RGB_MASK).toString(HEX_RADIX).padStart(RGB_HEX_LENGTH, '0')
+            val alpha = value ushr ALPHA_SHIFT and CHANNEL_MASK
+            return ColorUtil.toAlpha(ColorUtil.fromHex(rgbHex), alpha)
+        }
+
+        private const val RGB_MASK = 0xFFFFFF
+        private const val HEX_RADIX = 16
+        private const val RGB_HEX_LENGTH = 6
+        private const val ALPHA_SHIFT = 24
+        private const val CHANNEL_MASK = 0xFF
 
         private const val STATE_PAYLOAD_INDEX = 2
     }

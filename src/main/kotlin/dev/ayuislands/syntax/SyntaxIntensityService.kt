@@ -195,12 +195,11 @@ class SyntaxIntensityService {
     ): SyntaxTransactionResult {
         val previousFonts = replacementFonts
         replacementFonts = context.replacementFonts()
-        val result = SyntaxSchemeTransaction(writer, ::publishSchemeChange).apply(changes, journal)
-        when (result) {
-            is SyntaxTransactionResult.Applied -> return result
+        return when (val result = SyntaxSchemeTransaction(writer, ::publishSchemeChange).apply(changes, journal)) {
+            is SyntaxTransactionResult.Applied -> result
             is SyntaxTransactionResult.Failed -> {
                 replacementFonts = previousFonts
-                return result
+                result
             }
         }
     }

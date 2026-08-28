@@ -406,7 +406,7 @@ object SyntaxLanguageRegistry {
             Regex("^PROTOTEXT_") to LangTag("ProtobufText", "Protobuf text", Bucket.LANGUAGE),
             Regex("^PROTO_") to LangTag("Protobuf", "Protobuf", Bucket.LANGUAGE),
             Regex("^ERL_") to LangTag("Erlang", "Erlang", Bucket.LANGUAGE),
-            Regex("^GITLAB_") to LangTag("GitLab", "GitLab CI", Bucket.LANGUAGE),
+            Regex("^GITLAB_") to LangTag("GitLab", GITLAB_CI_NAME, Bucket.LANGUAGE),
             Regex("^DOTENV_") to LangTag("dotenv", "dotenv", Bucket.LANGUAGE),
             Regex("^APPLE_") to LangTag("ApplePlist", "Apple plist", Bucket.LANGUAGE),
             Regex("^QL_") to LangTag("CodeQL", "CodeQL", Bucket.LANGUAGE),
@@ -516,6 +516,7 @@ object SyntaxLanguageRegistry {
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
     private const val BASH_STORAGE_ID = "Bash"
     private const val SHELL_SCRIPT_ALIAS = "Shell Script"
+    private const val GITLAB_CI_NAME = "GitLab CI"
 
     private val nativeIdentityAliases =
         mapOf(
@@ -525,7 +526,7 @@ object SyntaxLanguageRegistry {
             "dotenv" to NativeIdentityAliases(setOf(".env file"), setOf("DotEnv")),
             "FreeMarker" to NativeIdentityAliases(setOf("FTL"), setOf("FTL")),
             "Gherkin" to NativeIdentityAliases(setOf("Cucumber"), setOf("Gherkin")),
-            "GitLab CI" to
+            GITLAB_CI_NAME to
                 NativeIdentityAliases(
                     setOf("GitLabCiExpression"),
                     setOf("GitLabCiExpressionLanguage"),
@@ -545,7 +546,7 @@ object SyntaxLanguageRegistry {
             "Cron expression" to setOf("crontab"),
             "Docker" to setOf("Dockerfile"),
             "EditorConfig" to setOf(".editorconfig"),
-            "GitLab CI" to setOf(".gitlab-ci.yml"),
+            GITLAB_CI_NAME to setOf(".gitlab-ci.yml"),
             "Ignore files" to setOf(".gitignore"),
             "Makefile" to setOf("Makefile"),
             "Nginx" to setOf("nginx.conf"),

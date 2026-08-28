@@ -1,7 +1,6 @@
 package dev.ayuislands.settings
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.application.Application
@@ -21,7 +20,6 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.FontEmphasis
 import dev.ayuislands.syntax.FontStyleOverride
-import dev.ayuislands.syntax.LanguageSpecification
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxIntensityBaseState
@@ -2102,43 +2100,29 @@ class AyuIslandsSyntaxPanelTest {
         categories: Set<PrimitiveCategory>,
         conditionalAbsences: List<ConditionalAbsence> = emptyList(),
     ): SyntaxCapabilityProbe =
-        object : SyntaxCapabilityProbe {
-            override fun start(
-                specification: LanguageSpecification,
-                generation: Long,
-                parent: Disposable,
-                completed: (SyntaxProbeResult) -> Unit,
-            ) {
-                completed(
-                    SyntaxProbeResult.Confirmed(
-                        languageId = specification.storageId,
-                        generation = generation,
-                        evidence =
-                            SyntaxCapabilityEvidence(
-                                languageId = specification.storageId,
-                                confirmedCells = categories,
-                                conditionalAbsences = conditionalAbsences,
-                            ),
-                    ),
-                )
-            }
+        SyntaxCapabilityProbe { specification, generation, _, completed ->
+            completed(
+                SyntaxProbeResult.Confirmed(
+                    languageId = specification.storageId,
+                    generation = generation,
+                    evidence =
+                        SyntaxCapabilityEvidence(
+                            languageId = specification.storageId,
+                            confirmedCells = categories,
+                            conditionalAbsences = conditionalAbsences,
+                        ),
+                ),
+            )
         }
 
     private fun unavailableSupportProbe(): SyntaxCapabilityProbe =
-        object : SyntaxCapabilityProbe {
-            override fun start(
-                specification: LanguageSpecification,
-                generation: Long,
-                parent: Disposable,
-                completed: (SyntaxProbeResult) -> Unit,
-            ) {
-                completed(
-                    SyntaxProbeResult.Unavailable(
-                        languageId = specification.storageId,
-                        generation = generation,
-                    ),
-                )
-            }
+        SyntaxCapabilityProbe { specification, generation, _, completed ->
+            completed(
+                SyntaxProbeResult.Unavailable(
+                    languageId = specification.storageId,
+                    generation = generation,
+                ),
+            )
         }
 
     private fun findLabel(
