@@ -2554,6 +2554,11 @@
     <option name="Scala Keyword" baseAttributes="DEFAULT_KEYWORD" />
     <option name="Scala Number" baseAttributes="DEFAULT_NUMBER" />
     <option name="Scala String" baseAttributes="DEFAULT_STRING" />
+    <option name="Scala Brackets" baseAttributes="DEFAULT_BRACKETS" />
+    <option name="Scala Braces" baseAttributes="DEFAULT_BRACES" />
+    <option name="Scala Parentheses" baseAttributes="DEFAULT_PARENTHS" />
+    <option name="Scala Comma" baseAttributes="DEFAULT_COMMA" />
+    <option name="Scala Assign" baseAttributes="DEFAULT_OPERATION_SIGN" />
     <option name="Scala Valid escape in string" baseAttributes="DEFAULT_VALID_STRING_ESCAPE" />
     <option name="Scala Invalid escape in string" baseAttributes="DEFAULT_INVALID_STRING_ESCAPE" />
     <option name="Interpolated String Injection">

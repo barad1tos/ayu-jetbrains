@@ -118,6 +118,13 @@ internal object SyntaxRuntimeCatalog {
                 marketplaceDependency = MarketplaceDependency("org.intellij.plugins.hcl", "251.23774.426"),
             ),
             SyntaxRuntime(
+                id = "scala",
+                productId = "INTELLIJ_IDEA_COMMUNITY",
+                version = "2025.1",
+                candidateLanguages = setOf("Scala"),
+                marketplaceDependency = MarketplaceDependency("org.intellij.scala", "2025.1.22"),
+            ),
+            SyntaxRuntime(
                 id = "rider",
                 productId = "RIDER",
                 version = "2025.1.3",
@@ -220,7 +227,6 @@ internal object SyntaxRuntimeCatalog {
                         "Lua",
                         "Nginx",
                         "PowerShell",
-                        "Scala",
                         "Windows Batch",
                     ),
                 provisioning =

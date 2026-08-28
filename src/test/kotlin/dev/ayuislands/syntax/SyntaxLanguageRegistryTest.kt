@@ -293,6 +293,12 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `Scala cascades target provider-owned native keys`() {
+        assertEquals("ScalaDoc comment", SyntaxLanguageRegistry.cascadeTargets("Scala", "DEFAULT_DOC_COMMENT"))
+        assertEquals("Scala Number", SyntaxLanguageRegistry.cascadeTargets("Scala", "DEFAULT_NUMBER"))
+    }
+
+    @Test
     fun `unknown-prefix latch does not flood when classify is called many times for the same key`() {
         // No direct log capture without IntelliJ test fixture; we assert the side-effect-
         // free contract: repeated classify returns the same OTHER tag and does not throw.
@@ -359,6 +365,16 @@ class SyntaxLanguageRegistryTest {
         assertEquals("com.intellij.lang.jsgraphql", requirement.pluginId)
         assertEquals("GraphQL", requirement.displayName)
         assertEquals("https://plugins.jetbrains.com/plugin/8097-graphql", requirement.marketplaceUrl)
+    }
+
+    @Test
+    fun `Scala specification points recovery to its official provider`() {
+        val scala = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Scala"))
+        val requirement = requireNotNull(scala.pluginRequirement)
+
+        assertEquals("org.intellij.scala", requirement.pluginId)
+        assertEquals("Scala", requirement.displayName)
+        assertEquals("https://plugins.jetbrains.com/plugin/1347-scala", requirement.marketplaceUrl)
     }
 
     @Test

@@ -118,6 +118,14 @@ class SyntaxRuntimeCatalogTest {
     }
 
     @Test
+    fun `Scala uses its official marketplace language provider`() {
+        val runtime = SyntaxRuntimeCatalog.require("scala")
+
+        assertEquals(setOf("Scala"), runtime.candidateLanguages)
+        assertEquals(MarketplaceDependency("org.intellij.scala", "2025.1.22"), runtime.marketplaceDependency)
+    }
+
+    @Test
     fun `bundled provider languages stay with their host product runtimes`() {
         assertTrue("Gherkin" in SyntaxRuntimeCatalog.require("webstorm").candidateLanguages)
         assertTrue("CoffeeScript" in SyntaxRuntimeCatalog.require("rubymine").candidateLanguages)

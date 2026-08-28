@@ -360,6 +360,12 @@ object SyntaxLanguageRegistry {
                     displayName = HCL_PLUGIN_NAME,
                     marketplaceUrl = HCL_MARKETPLACE_URL,
                 )
+            SCALA_STORAGE_ID ->
+                PluginRequirement(
+                    pluginId = SCALA_PLUGIN_ID,
+                    displayName = SCALA_PLUGIN_NAME,
+                    marketplaceUrl = SCALA_MARKETPLACE_URL,
+                )
             SWIFT_STORAGE_ID ->
                 PluginRequirement(
                     pluginId = NOCTULE_PLUGIN_ID,
@@ -375,6 +381,7 @@ object SyntaxLanguageRegistry {
     private fun spaceSeparatedRules(): List<Pair<Regex, LangTag>> =
         listOf(
             Regex("^Scala ") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
+            Regex("^ScalaDoc ") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
             Regex("^Scalatest ") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
             Regex("^Groovy(doc)? ") to groovyTag,
         )
@@ -491,9 +498,9 @@ object SyntaxLanguageRegistry {
                 mapOf(
                     "DEFAULT_LINE_COMMENT" to "Scala Line comment",
                     "DEFAULT_BLOCK_COMMENT" to "Scala Block comment",
-                    "DEFAULT_DOC_COMMENT" to "SCALA_DOC_COMMENT",
+                    "DEFAULT_DOC_COMMENT" to "ScalaDoc comment",
                     "DEFAULT_STRING" to "Scala String",
-                    "DEFAULT_NUMBER" to "SCALA_NUMBER",
+                    "DEFAULT_NUMBER" to "Scala Number",
                 ),
             "Rust" to
                 mapOf(
@@ -559,6 +566,10 @@ object SyntaxLanguageRegistry {
     private const val HCL_PLUGIN_NAME = "Terraform and HCL"
     private const val HCL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/7808-terraform-and-hcl"
     private const val TIL_STORAGE_ID = "TIL"
+    private const val SCALA_STORAGE_ID = "Scala"
+    private const val SCALA_PLUGIN_ID = "org.intellij.scala"
+    private const val SCALA_PLUGIN_NAME = "Scala"
+    private const val SCALA_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/1347-scala"
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
     private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"

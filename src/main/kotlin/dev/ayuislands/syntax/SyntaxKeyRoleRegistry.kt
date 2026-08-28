@@ -95,6 +95,7 @@ object SyntaxKeyRoleRegistry {
                 "LINE_COMMENT$|BLOCK_COMMENT$|COMMENT$|COMMENT_REFERENCE$|_COMMENT_",
                 "MARKDOWN_BLOCK_QUOTE_MARKER|MARKDOWN_FRONT_MATTER",
                 "IGNORE\\.COMMENT|IGNORE\\.UNUSED_ENTRY|COND_NOT_COMPILED",
+                "Scala (?:Line|Block) comment",
             )
             // GraphQL directives are annotation-like metadata, not language directives.
             addRules(PrimitiveCategory.ANNOTATION, "^GRAPHQL_DIRECTIVE$")
@@ -198,7 +199,7 @@ object SyntaxKeyRoleRegistry {
                 "SELF_SUPER|DIRECTIVE_CONDITION|DIRECTIVE_FLAG|PREDEFINED_SYMBOL",
                 "REQUIRE_CALL|WORDS|MARKDOWN_HEADER|NGINX_IF|NGINX_GEO",
                 "NGINX_MAP|DROOLS_OPERATIONS|Scalatest keyword|Scala directive",
-                "Scala XML tag$|Scala XML tag name|GENERATED_ITEM|QUTE_BOOLEAN",
+                "Scala Keyword|Scala XML tag$|Scala XML tag name|GENERATED_ITEM|QUTE_BOOLEAN",
                 "JSONPATH\\.BOOLEAN|JSONPATH\\.OPERATIONS|JSONPATH\\.CONTEXT",
                 "IGNORE\\.NEGATION|IGNORE\\.SYNTAX|IGNORE\\.SLASH",
                 "IGNORE\\.SECTION|IGNORE\\.HEADER|MAKEFILE_FUNCTION$",
@@ -250,13 +251,13 @@ object SyntaxKeyRoleRegistry {
                 "GString|FSTRING_FRAGMENT|REGEX$|REGEXP$|ESCAPE$",
                 "VALID_ESCAPE|INVALID_ESCAPE|^Valid string escape$|^Invalid string escape$",
                 "MARKDOWN_CODE_SPAN|INTERPOLATION",
-                "String Injection|VALUE$|CONTENT$",
+                "String Injection|VALUE$|CONTENT$|Scala String",
                 "PY\\.STRING\\.",
             )
             // --- Number literals -------------------------------------------
             addRules(
                 PrimitiveCategory.NUMBER_LITERAL,
-                "NUMBER$|INTEGER$|FLOAT$|HEX$|NUMBER_LITERAL$|^Number$",
+                "NUMBER$|INTEGER$|FLOAT$|HEX$|NUMBER_LITERAL$|^Number$|Scala Number",
             )
             // --- Annotations / decorators / metadata ------------------------
             addRules(
@@ -280,7 +281,7 @@ object SyntaxKeyRoleRegistry {
                 "^Closure braces$|^Operation sign$|^Braces$|^Brackets$|^Parentheses$|^Label$|JS\\.LABEL|BATCH\\.LABEL",
                 "BATCH\\.LABEL_REFERENCE|GOTO_LABEL|POWER_SHELL_LABEL_NAME",
                 "YAML_SCALAR_LIST|CSS\\.AMPERSAND|PROGUARD_WILDCARD|IGNORE\\.BRACKET",
-                "WILDCARD",
+                "WILDCARD|Scala (?:Assign|Braces|Brackets|Comma|Parentheses)",
             )
             // --- Type references / aliases ---------------------------------
             // PUBLIC_/PROTECTED_/PACKAGE_PRIVATE_/PRIVATE_REFERENCE are deliberately

@@ -86,6 +86,29 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `Scala provider keys keep their native primitive roles`() {
+        val expectedRoles =
+            mapOf(
+                "ScalaDoc comment" to PrimitiveCategory.DOCUMENTATION,
+                "Scala Line comment" to PrimitiveCategory.COMMENT,
+                "Scala Keyword" to PrimitiveCategory.KEYWORD,
+                "Scala Number" to PrimitiveCategory.NUMBER_LITERAL,
+                "Scala String" to PrimitiveCategory.STRING_LITERAL,
+                "Scala Brackets" to PrimitiveCategory.OPERATOR,
+                "Scala Braces" to PrimitiveCategory.OPERATOR,
+                "Scala Parentheses" to PrimitiveCategory.OPERATOR,
+                "Scala Comma" to PrimitiveCategory.OPERATOR,
+                "Scala Assign" to PrimitiveCategory.OPERATOR,
+            )
+
+        expectedRoles.forEach { (keyName, primitive) ->
+            val role = assertIs<SyntaxKeyRole.Tunable>(SyntaxKeyRoleRegistry.classify(keyName), keyName)
+            assertEquals("Scala", role.languageId, keyName)
+            assertEquals(primitive, role.primitive, keyName)
+        }
+    }
+
+    @Test
     fun `JAVA_STRING classifies to STRING_LITERAL`() {
         assertEquals(PrimitiveCategory.STRING_LITERAL, classifyPrimitive("JAVA_STRING"))
     }

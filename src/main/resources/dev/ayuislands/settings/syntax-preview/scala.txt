@@ -1,4 +1,5 @@
 /** Renders values for preview. */
+// Native syntax roles remain visible without a configured Scala SDK.
 trait Previewing[T] { def render(value: T): String }
 
 @deprecated("preview", "1.0")

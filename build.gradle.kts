@@ -29,6 +29,7 @@ val integrationPlugins =
         "com.intellij.lang.jsgraphql" to "251.23774.318",
         "com.redhat.devtools.lsp4ij" to "0.20.1",
         "dev.j-a.swift" to "1.11.1.435-251",
+        "org.intellij.scala" to "2025.1.22",
         "org.intellij.plugins.hcl" to "251.23774.426",
         "pl.thedeem.dql" to "1.10.0",
         "com.nasller.CodeGlancePro" to "2.0.2",
@@ -193,6 +194,13 @@ val syntaxRuntimeTargets =
             ide = communityIde,
             bundledPlugins = communityBundledPlugins,
             enabledMarketplacePlugins = setOf("org.intellij.plugins.hcl"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "scala",
+            taskName = "syntaxContractScala",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("org.intellij.scala"),
         ),
         SyntaxRuntimeTarget(
             "rubymine",
