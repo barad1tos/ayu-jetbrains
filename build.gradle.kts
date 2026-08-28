@@ -27,6 +27,7 @@ val integrationPlugins =
     listOf(
         "Dart" to "506.1.0",
         "com.intellij.lang.jsgraphql" to "251.23774.318",
+        "com.intellij.plugin.adernov.powershell" to "2.10.0",
         "com.redhat.devtools.lsp4ij" to "0.20.1",
         "dev.j-a.swift" to "1.11.1.435-251",
         "org.intellij.scala" to "2025.1.22",
@@ -201,6 +202,13 @@ val syntaxRuntimeTargets =
             ide = communityIde,
             bundledPlugins = communityBundledPlugins,
             enabledMarketplacePlugins = setOf("org.intellij.scala"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "powershell",
+            taskName = "syntaxContractPowerShell",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("com.intellij.plugin.adernov.powershell"),
         ),
         SyntaxRuntimeTarget(
             "rubymine",

@@ -378,6 +378,16 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `PowerShell specification points recovery to its canonical provider`() {
+        val powerShell = requireNotNull(SyntaxLanguageRegistry.findByStorageId("PowerShell"))
+        val requirement = requireNotNull(powerShell.pluginRequirement)
+
+        assertEquals("com.intellij.plugin.adernov.powershell", requirement.pluginId)
+        assertEquals("PowerShell", requirement.displayName)
+        assertEquals("https://plugins.jetbrains.com/plugin/10249-powershell", requirement.marketplaceUrl)
+    }
+
+    @Test
     fun `HCL and TIL specifications point recovery to their official provider`() {
         setOf("HCL", "TIL").forEach { languageId ->
             val language = requireNotNull(SyntaxLanguageRegistry.findByStorageId(languageId))

@@ -126,6 +126,17 @@ class SyntaxRuntimeCatalogTest {
     }
 
     @Test
+    fun `PowerShell uses its canonical marketplace language provider`() {
+        val runtime = SyntaxRuntimeCatalog.require("powershell")
+
+        assertEquals(setOf("PowerShell"), runtime.candidateLanguages)
+        assertEquals(
+            MarketplaceDependency("com.intellij.plugin.adernov.powershell", "2.10.0"),
+            runtime.marketplaceDependency,
+        )
+    }
+
+    @Test
     fun `bundled provider languages stay with their host product runtimes`() {
         assertTrue("Gherkin" in SyntaxRuntimeCatalog.require("webstorm").candidateLanguages)
         assertTrue("CoffeeScript" in SyntaxRuntimeCatalog.require("rubymine").candidateLanguages)

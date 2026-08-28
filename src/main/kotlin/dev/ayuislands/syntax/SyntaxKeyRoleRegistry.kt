@@ -125,6 +125,7 @@ object SyntaxKeyRoleRegistry {
                 "GO_STRUCT_(?:EXPORTED|LOCAL)_MEMBER$",
                 "RUBY_IVAR",
                 "SWIFT\\.GLOBAL_VARIABLE|SWIFT\\.PROPERTY",
+                "POWER_SHELL_PROPERTY_REF_NAME",
                 "MAGIC_MEMBER_ACCESS|EDITORCONFIG_PROPERTY_KEY|DOTENV_KEY",
                 "HCL\\.BLOCK_ONLY_NAME_KEY|HCL\\.PROPERTY_KEY",
             )
@@ -146,6 +147,7 @@ object SyntaxKeyRoleRegistry {
                 "KOTLIN_CONSTRUCTOR|TEAR_OFF|Method call|Method declaration",
                 "Groovy method declaration|Groovy constructor declaration|Groovy constructor call",
                 "LOCAL_FUNC|STD_API|POWER_SHELL_COMMAND_NAME|POWER_SHELL_METHOD_CALL_NAME",
+                "POWER_SHELL_METHOD_DECLARATION_NAME",
                 "GO_STRUCT_(?:EXPORTED|LOCAL)_MEMBER_CALL",
                 "RBS_TMETHOD_NAME|RBS_RUBY_SPECIFIC_CALLS",
                 "FUNCTION_REFERENCE|^Static method access$",
@@ -179,6 +181,7 @@ object SyntaxKeyRoleRegistry {
                 "Scala Object|Scala Given|Scala Abstract class|Scala Enum|GO_TYPE_SPECIFICATION",
                 "MAKEFILE_TARGET|MAKEFILE_SPECIAL_TARGET|MAKEFILE_PREREQUISITE|NGINX_TYPES",
                 "DART_EXTENSION$|DART_MIXIN|GRAPHQL_IDENTIFIER|QL_ENTITY|PUPPET_NAME",
+                "POWER_SHELL_TYPE_NAME",
                 "IntelliJComposableCallTextAttributes",
             )
             // --- Generics --------------------------------------------------
@@ -236,7 +239,6 @@ object SyntaxKeyRoleRegistry {
                 "NGINX_VARIABLE|NGINX_LUA_BLOCK_DIRECTIVE|HTTP_REQUEST_PROTOCOL",
                 "HTTP_REQUEST_PORT|HTTP_REQUEST_PARAMETER_NAME|HTTP_REQUEST_PARAMETER_VALUE",
                 "HTTP_REQUEST_FILE_VARIABLE_NAME|COOKIE_TOKEN|POWER_SHELL_VARIABLE",
-                "POWER_SHELL_PROPERTY_REF_NAME",
                 "QUTE_IDENTIFIER|QUTE_TAG_NAME|TIL\\.IDENTIFIER|TIL\\.PROPERTY_REFERENCE",
                 "TIL\\.RESOURCE_INSTANCE_REFERENCE|PROTO_IDENTIFIER|PROTOTEXT_IDENTIFIER",
                 "PROTO_ENUM_VALUE|PROTOTEXT_ENUM_VALUE|JSONPATH\\.IDENTIFIER|JSONPATH\\.FUNCTION",

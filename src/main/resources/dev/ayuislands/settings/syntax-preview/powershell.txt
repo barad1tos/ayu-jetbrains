@@ -11,3 +11,6 @@ function Format-Preview {
     if ($count -gt 0) { return "$Value $count" }
     return "none"
 }
+
+$preview = [Preview]::new()
+Write-Output -InputObject $preview.Prefix

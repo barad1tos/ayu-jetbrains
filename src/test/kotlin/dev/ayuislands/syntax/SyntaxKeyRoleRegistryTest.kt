@@ -109,6 +109,26 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `PowerShell provider keys keep their native primitive roles`() {
+        val expectedRoles =
+            mapOf(
+                "POWER_SHELL_LINE_COMMENT" to PrimitiveCategory.COMMENT,
+                "POWER_SHELL_STRING" to PrimitiveCategory.STRING_LITERAL,
+                "POWER_SHELL_METHOD_DECLARATION_NAME" to PrimitiveCategory.FUNCTION_DECL,
+                "POWER_SHELL_COMMAND_PARAMETER" to PrimitiveCategory.PARAMETER,
+                "POWER_SHELL_TYPE_NAME" to PrimitiveCategory.CLASS_DECL,
+                "POWER_SHELL_TYPE_REFERENCE" to PrimitiveCategory.TYPE_REF,
+                "POWER_SHELL_PROPERTY_REF_NAME" to PrimitiveCategory.INSTANCE_FIELD,
+            )
+
+        expectedRoles.forEach { (keyName, primitive) ->
+            val role = assertIs<SyntaxKeyRole.Tunable>(SyntaxKeyRoleRegistry.classify(keyName), keyName)
+            assertEquals("PowerShell", role.languageId, keyName)
+            assertEquals(primitive, role.primitive, keyName)
+        }
+    }
+
+    @Test
     fun `JAVA_STRING classifies to STRING_LITERAL`() {
         assertEquals(PrimitiveCategory.STRING_LITERAL, classifyPrimitive("JAVA_STRING"))
     }

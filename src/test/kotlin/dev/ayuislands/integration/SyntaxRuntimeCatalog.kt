@@ -125,6 +125,14 @@ internal object SyntaxRuntimeCatalog {
                 marketplaceDependency = MarketplaceDependency("org.intellij.scala", "2025.1.22"),
             ),
             SyntaxRuntime(
+                id = "powershell",
+                productId = "INTELLIJ_IDEA_COMMUNITY",
+                version = "2025.1",
+                candidateLanguages = setOf("PowerShell"),
+                marketplaceDependency =
+                    MarketplaceDependency("com.intellij.plugin.adernov.powershell", "2.10.0"),
+            ),
+            SyntaxRuntime(
                 id = "rider",
                 productId = "RIDER",
                 version = "2025.1.3",
@@ -226,7 +234,6 @@ internal object SyntaxRuntimeCatalog {
                         "Ignore files",
                         "Lua",
                         "Nginx",
-                        "PowerShell",
                         "Windows Batch",
                     ),
                 provisioning =

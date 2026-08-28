@@ -366,6 +366,12 @@ object SyntaxLanguageRegistry {
                     displayName = SCALA_PLUGIN_NAME,
                     marketplaceUrl = SCALA_MARKETPLACE_URL,
                 )
+            POWERSHELL_STORAGE_ID ->
+                PluginRequirement(
+                    pluginId = POWERSHELL_PLUGIN_ID,
+                    displayName = POWERSHELL_PLUGIN_NAME,
+                    marketplaceUrl = POWERSHELL_MARKETPLACE_URL,
+                )
             SWIFT_STORAGE_ID ->
                 PluginRequirement(
                     pluginId = NOCTULE_PLUGIN_ID,
@@ -570,6 +576,10 @@ object SyntaxLanguageRegistry {
     private const val SCALA_PLUGIN_ID = "org.intellij.scala"
     private const val SCALA_PLUGIN_NAME = "Scala"
     private const val SCALA_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/1347-scala"
+    private const val POWERSHELL_STORAGE_ID = "PowerShell"
+    private const val POWERSHELL_PLUGIN_ID = "com.intellij.plugin.adernov.powershell"
+    private const val POWERSHELL_PLUGIN_NAME = "PowerShell"
+    private const val POWERSHELL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/10249-powershell"
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
     private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"
