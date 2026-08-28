@@ -325,6 +325,12 @@ object SyntaxLanguageRegistry {
                     displayName = DART_PLUGIN_NAME,
                     marketplaceUrl = DART_MARKETPLACE_URL,
                 )
+            GRAPHQL_STORAGE_ID ->
+                PluginRequirement(
+                    pluginId = GRAPHQL_PLUGIN_ID,
+                    displayName = GRAPHQL_PLUGIN_NAME,
+                    marketplaceUrl = GRAPHQL_MARKETPLACE_URL,
+                )
             SWIFT_STORAGE_ID ->
                 PluginRequirement(
                     pluginId = NOCTULE_PLUGIN_ID,
@@ -515,6 +521,10 @@ object SyntaxLanguageRegistry {
     private const val DART_PLUGIN_ID = "Dart"
     private const val DART_PLUGIN_NAME = "Dart"
     private const val DART_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/6351-dart"
+    private const val GRAPHQL_STORAGE_ID = "GraphQL"
+    private const val GRAPHQL_PLUGIN_ID = "com.intellij.lang.jsgraphql"
+    private const val GRAPHQL_PLUGIN_NAME = "GraphQL"
+    private const val GRAPHQL_MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/8097-graphql"
     private const val SWIFT_STORAGE_ID = "Swift"
     private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
     private const val NOCTULE_PLUGIN_ID = "dev.j-a.swift"

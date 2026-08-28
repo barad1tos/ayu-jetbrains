@@ -96,6 +96,17 @@ class SyntaxRuntimeCatalogTest {
     }
 
     @Test
+    fun `GraphQL uses its official marketplace language provider`() {
+        val runtime = SyntaxRuntimeCatalog.require("graphql")
+
+        assertEquals(setOf("GraphQL"), runtime.candidateLanguages)
+        assertEquals(
+            MarketplaceDependency("com.intellij.lang.jsgraphql", "251.23774.318"),
+            runtime.marketplaceDependency,
+        )
+    }
+
+    @Test
     fun `bundled provider languages stay with their host product runtimes`() {
         assertTrue("Gherkin" in SyntaxRuntimeCatalog.require("webstorm").candidateLanguages)
         assertTrue("CoffeeScript" in SyntaxRuntimeCatalog.require("rubymine").candidateLanguages)

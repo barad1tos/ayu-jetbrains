@@ -1495,6 +1495,12 @@
         <option name="FONT_TYPE" value="0" />
       </value>
     </option>
+    <option name="GRAPHQL_DIRECTIVE" baseAttributes="DEFAULT_METADATA" />
+    <option name="GRAPHQL_TYPE_NAME" baseAttributes="DEFAULT_CLASS_NAME" />
+    <option name="GRAPHQL_PARENTHESES" baseAttributes="DEFAULT_PARENTHS" />
+    <option name="GRAPHQL_COLON" baseAttributes="DEFAULT_SEMICOLON" />
+    <option name="GRAPHQL_BRACES" baseAttributes="DEFAULT_BRACES" />
+    <option name="GRAPHQL_BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
     <option name="DOCKER_KEYWORD">
       <value>
         <option name="FOREGROUND" value="FA8532" />

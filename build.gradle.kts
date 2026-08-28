@@ -26,6 +26,7 @@ version = providers.gradleProperty("pluginVersion").get()
 val integrationPlugins =
     listOf(
         "Dart" to "506.1.0",
+        "com.intellij.lang.jsgraphql" to "251.23774.318",
         "com.redhat.devtools.lsp4ij" to "0.20.1",
         "dev.j-a.swift" to "1.11.1.435-251",
         "pl.thedeem.dql" to "1.10.0",
@@ -177,6 +178,13 @@ val syntaxRuntimeTargets =
             ide = communityIde,
             bundledPlugins = communityBundledPlugins,
             enabledMarketplacePlugins = setOf("Dart", "com.redhat.devtools.lsp4ij"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "graphql",
+            taskName = "syntaxContractGraphql",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("com.intellij.lang.jsgraphql"),
         ),
         SyntaxRuntimeTarget(
             "rubymine",

@@ -96,6 +96,8 @@ object SyntaxKeyRoleRegistry {
                 "MARKDOWN_BLOCK_QUOTE_MARKER|MARKDOWN_FRONT_MATTER",
                 "IGNORE\\.COMMENT|IGNORE\\.UNUSED_ENTRY|COND_NOT_COMPILED",
             )
+            // GraphQL directives are annotation-like metadata, not language directives.
+            addRules(PrimitiveCategory.ANNOTATION, "^GRAPHQL_DIRECTIVE$")
             // --- Swift instance method (must beat INSTANCE_FIELD) ----------
             addRules(
                 PrimitiveCategory.FUNCTION_DECL,

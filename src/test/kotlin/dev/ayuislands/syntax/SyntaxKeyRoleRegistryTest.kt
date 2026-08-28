@@ -145,6 +145,11 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `GraphQL directives classify as annotations instead of keywords`() {
+        assertEquals(PrimitiveCategory.ANNOTATION, classifyPrimitive("GRAPHQL_DIRECTIVE"))
+    }
+
+    @Test
     fun `unused CoffeeScript class key is explicitly excluded`() {
         val role = SyntaxKeyRoleRegistry.classify("COFFEESCRIPT.CLASS_NAME")
 

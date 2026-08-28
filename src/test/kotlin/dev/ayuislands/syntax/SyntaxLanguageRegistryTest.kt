@@ -352,6 +352,16 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `GraphQL specification points recovery to its official provider`() {
+        val graphQl = requireNotNull(SyntaxLanguageRegistry.findByStorageId("GraphQL"))
+        val requirement = requireNotNull(graphQl.pluginRequirement)
+
+        assertEquals("com.intellij.lang.jsgraphql", requirement.pluginId)
+        assertEquals("GraphQL", requirement.displayName)
+        assertEquals("https://plugins.jetbrains.com/plugin/8097-graphql", requirement.marketplaceUrl)
+    }
+
+    @Test
     fun `Ruby exposes only provider-backed primitives`() {
         val ruby = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Ruby"))
         val primitives = ruby.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
