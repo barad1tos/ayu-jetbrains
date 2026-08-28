@@ -170,7 +170,7 @@ object SyntaxKeyRoleRegistry {
                 "^Enum name$|^Anonymous class name$|^Abstract class name$|Scala Class",
                 "Scala Object|Scala Given|Scala Abstract class|Scala Enum|GO_TYPE_SPECIFICATION",
                 "MAKEFILE_TARGET|MAKEFILE_SPECIAL_TARGET|MAKEFILE_PREREQUISITE|NGINX_TYPES",
-                "DART_EXTENSION$|DART_MIXIN|GRAPHQL_IDENTIFIER|QL_ENTITY",
+                "DART_EXTENSION$|DART_MIXIN|GRAPHQL_IDENTIFIER|QL_ENTITY|PUPPET_NAME",
                 "IntelliJComposableCallTextAttributes",
             )
             // --- Generics --------------------------------------------------
@@ -208,7 +208,7 @@ object SyntaxKeyRoleRegistry {
                 "ANONYMOUS_CLOSURE_PARAMETER",
                 "FUNCTION_PARAM|MAKEFILE_FUNCTION_PARAM|Closure parameter|Groovy parameter",
                 "Groovy reassigned parameter|Scala Parameter|Scala Named Argument",
-                "Scala Anonymous Parameter",
+                "Scala Anonymous Parameter|GHERKIN_TABLE_HEADER_CELL",
             )
             // --- Local variables -------------------------------------------
             addRules(

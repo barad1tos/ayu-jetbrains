@@ -140,6 +140,11 @@ class SyntaxKeyRoleRegistryTest {
     }
 
     @Test
+    fun `Gherkin table header cells classify to PARAMETER`() {
+        assertEquals(PrimitiveCategory.PARAMETER, classifyPrimitive("GHERKIN_TABLE_HEADER_CELL"))
+    }
+
+    @Test
     fun `Go references and members keep distinct roles`() {
         assertEquals(PrimitiveCategory.TYPE_REF, classifyPrimitive("GO_EXPORTED_STRUCT_REFERENCE"))
         assertEquals(PrimitiveCategory.INSTANCE_FIELD, classifyPrimitive("GO_STRUCT_EXPORTED_MEMBER"))
@@ -178,6 +183,11 @@ class SyntaxKeyRoleRegistryTest {
             PrimitiveCategory.INSTANCE_FIELD,
             classifyPrimitive("RUBY_IVAR"),
         )
+    }
+
+    @Test
+    fun `PUPPET_NAME classifies to CLASS_DECL`() {
+        assertEquals(PrimitiveCategory.CLASS_DECL, classifyPrimitive("PUPPET_NAME"))
     }
 
     @Test

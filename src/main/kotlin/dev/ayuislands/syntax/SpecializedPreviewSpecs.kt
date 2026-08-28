@@ -74,7 +74,6 @@ internal object SpecializedPreviewSpecs {
                 previewFileType("Gherkin", "feature"),
                 "gherkin.txt",
                 KEYWORD,
-                STRING_LITERAL,
                 PARAMETER,
                 OPERATOR,
             ),

@@ -72,7 +72,10 @@ class SyntaxRuntimeCatalogTest {
 
     @Test
     fun `PyCharm isolates community Python from the Django provider graph`() {
-        assertEquals(setOf("Python"), SyntaxRuntimeCatalog.require("pycharm").candidateLanguages)
+        val pyCharmLanguages = SyntaxRuntimeCatalog.require("pycharm").candidateLanguages
+
+        assertTrue("Python" in pyCharmLanguages)
+        assertFalse("Django" in pyCharmLanguages)
         assertEquals(setOf("Django"), SyntaxRuntimeCatalog.require("pycharm-django").candidateLanguages)
     }
 
@@ -82,6 +85,23 @@ class SyntaxRuntimeCatalogTest {
 
         assertEquals(setOf("DQL"), runtime.candidateLanguages)
         assertEquals(MarketplaceDependency("pl.thedeem.dql", "1.10.0"), runtime.marketplaceDependency)
+    }
+
+    @Test
+    fun `bundled provider languages stay with their host product runtimes`() {
+        assertTrue("Gherkin" in SyntaxRuntimeCatalog.require("webstorm").candidateLanguages)
+        assertTrue(
+            SyntaxRuntimeCatalog.require("pycharm").candidateLanguages.containsAll(setOf("dotenv", "Puppet")),
+        )
+    }
+
+    @Test
+    fun `Qute records the IntelliJ light fixture boundary`() {
+        val runtime = SyntaxRuntimeCatalog.require("idea-ultimate-qute")
+        val provisioning = runtime.provisioning as RuntimeProvisioning.Blocked
+
+        assertEquals(setOf("Qute"), runtime.candidateLanguages)
+        assertTrue(provisioning.reason.contains("does not register QuteFileType"))
     }
 
     @Test

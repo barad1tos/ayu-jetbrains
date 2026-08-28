@@ -68,6 +68,7 @@ internal object SyntaxRuntimeCatalog {
                     setOf(
                         "Angular",
                         "CSS",
+                        "Gherkin",
                         "HTML",
                         "HTTP client",
                         "JavaScript",
@@ -85,7 +86,7 @@ internal object SyntaxRuntimeCatalog {
             runtime("phpstorm", "PHPSTORM", "2025.3.3", setOf("PHP")),
             runtime("clion", "CLION", "2025.3.3", setOf("Makefile")),
             runtime("goland", "GOLAND", "2025.1.3", setOf("Go")),
-            runtime("pycharm", "PYCHARM", "2025.1.3", setOf("Python")),
+            runtime("pycharm", "PYCHARM", "2025.1.3", setOf("Python", "Puppet", "dotenv")),
             runtime("pycharm-django", "PYCHARM", "2025.1.3", setOf("Django")),
             SyntaxRuntime(
                 id = "dynatrace-dql",
@@ -114,6 +115,17 @@ internal object SyntaxRuntimeCatalog {
                 provisioning =
                     RuntimeProvisioning.Blocked(
                         "IntelliJ IDEA Ultimate has no bundled Apple plist language provider.",
+                    ),
+            ),
+            SyntaxRuntime(
+                id = "idea-ultimate-qute",
+                productId = "INTELLIJ_IDEA",
+                version = "2025.3.3",
+                candidateLanguages = setOf("Qute"),
+                provisioning =
+                    RuntimeProvisioning.Blocked(
+                        "The bundled Quarkus descriptor exposes Qute, but the public IntelliJ light fixture " +
+                            "does not register QuteFileType even with the root dependency closure.",
                     ),
             ),
             SyntaxRuntime(
@@ -173,18 +185,14 @@ internal object SyntaxRuntimeCatalog {
                         "CoffeeScript",
                         "Cron expression",
                         "Dart",
-                        "dotenv",
                         "Drools",
                         "Erlang",
-                        "Gherkin",
                         "GraphQL",
                         "HCL",
                         "Ignore files",
                         "Lua",
                         "Nginx",
                         "PowerShell",
-                        "Puppet",
-                        "Qute",
                         "Scala",
                         "TIL",
                         "Windows Batch",

@@ -33,6 +33,8 @@
     <option name="SASS_IDENTIFIER"><value /></option>
     <option name="TS.CLASS"><value /></option>
     <option name="TS.PRIMITIVE.TYPES"><value /></option>
+    <option name="PUPPET_NAME" baseAttributes="PUPPET_CLASS_NAME" />
+    <option name="PUPPET_SQ_STRING" baseAttributes="PUPPET_STRING" />
     <!-- Noctule Swift semantic token keys must carry concrete values here:
          the runtime syntax-intensity overlay skips baseAttributes-only entries. -->
     <option name="SWIFT.IDENTIFIER"><value><option name="FOREGROUND" value="5C6166" /></value></option>

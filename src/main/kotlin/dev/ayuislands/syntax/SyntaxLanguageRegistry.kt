@@ -519,7 +519,9 @@ object SyntaxLanguageRegistry {
             "Angular" to NativeIdentityAliases(setOf("Angular2Html"), setOf("Angular2Html")),
             "Django" to NativeIdentityAliases(setOf("DjangoTemplate"), setOf("DjangoTemplate")),
             "Docker" to NativeIdentityAliases(setOf("Dockerfile"), setOf("Dockerfile")),
+            "dotenv" to NativeIdentityAliases(setOf(".env file"), setOf("DotEnv")),
             "FreeMarker" to NativeIdentityAliases(setOf("FTL"), setOf("FTL")),
+            "Gherkin" to NativeIdentityAliases(setOf("Cucumber"), setOf("Gherkin")),
             "GitLab CI" to
                 NativeIdentityAliases(
                     setOf("GitLabCiExpression"),

@@ -142,6 +142,7 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
                 }
                 missingClaims.forEach { failure -> add(failure.describe()) }
                 matrix.languages
+                    .filter { language -> language.language in runtime.candidateLanguages }
                     .filter(LanguageContract::hasStructuralGap)
                     .forEach { language -> add("${language.language}: ${language.actions.joinToString(" ")}") }
             }

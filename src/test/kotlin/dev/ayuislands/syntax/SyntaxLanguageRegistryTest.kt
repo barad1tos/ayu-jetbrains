@@ -363,13 +363,24 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `Gherkin exposes only provider-backed primitives`() {
+        val gherkin = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Gherkin"))
+        val primitives = gherkin.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
+        assertTrue(PrimitiveCategory.PARAMETER in primitives)
+        assertFalse(PrimitiveCategory.STRING_LITERAL in primitives)
+    }
+
+    @Test
     fun `native profiles include provider identities`() {
         val expectedIdentities =
             mapOf(
                 "Angular" to (setOf("Angular2Html") to setOf("Angular2Html")),
                 "Django" to (setOf("DjangoTemplate") to setOf("DjangoTemplate")),
                 "Docker" to (setOf("Dockerfile") to setOf("Dockerfile")),
+                "dotenv" to (setOf(".env file") to setOf("DotEnv")),
                 "FreeMarker" to (setOf("FTL") to setOf("FTL")),
+                "Gherkin" to (setOf("Cucumber") to setOf("Gherkin")),
                 "GitLab CI" to
                     (setOf("GitLabCiExpression") to setOf("GitLabCiExpressionLanguage")),
                 "HTTP client" to (setOf("HTTP Request") to setOf("HTTP Request")),

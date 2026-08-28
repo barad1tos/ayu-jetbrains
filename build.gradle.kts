@@ -88,6 +88,7 @@ val webStormBundledPlugins =
         "JavaScript",
         "com.intellij.css",
         "com.jetbrains.restClient",
+        "gherkin",
         "org.jetbrains.plugins.sass",
     )
 val ideaUltimateBundledPlugins =
@@ -152,7 +153,7 @@ val syntaxRuntimeTargets =
             "pycharm",
             "syntaxContractPyCharm",
             verifiedIde(IntelliJPlatformType.PyCharm),
-            bundledPlugins = listOf("PythonCore"),
+            bundledPlugins = listOf("PythonCore", "com.intellij.lang.puppet", "ru.adelf.idea.dotenv"),
         ),
         SyntaxRuntimeTarget(
             "pycharm-django",
