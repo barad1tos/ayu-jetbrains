@@ -106,6 +106,15 @@ class SyntaxRuntimeCatalogTest {
     }
 
     @Test
+    fun `Cron records the injected language boundary`() {
+        val runtime = SyntaxRuntimeCatalog.require("idea-ultimate-cron")
+        val provisioning = runtime.provisioning as RuntimeProvisioning.Blocked
+
+        assertEquals(setOf("Cron expression"), runtime.candidateLanguages)
+        assertTrue(provisioning.reason.contains("injected language without a LanguageFileType"))
+    }
+
+    @Test
     fun `Rider records the solution-backed runtime boundary`() {
         val runtime = SyntaxRuntimeCatalog.require("rider")
         val provisioning = runtime.provisioning as RuntimeProvisioning.Blocked

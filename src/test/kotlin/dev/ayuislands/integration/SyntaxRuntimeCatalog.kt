@@ -129,6 +129,16 @@ internal object SyntaxRuntimeCatalog {
                     ),
             ),
             SyntaxRuntime(
+                id = "idea-ultimate-cron",
+                productId = "INTELLIJ_IDEA",
+                version = "2025.3.3",
+                candidateLanguages = setOf("Cron expression"),
+                provisioning =
+                    RuntimeProvisioning.Blocked(
+                        "The bundled Cron plugin exposes CronExp as an injected language without a LanguageFileType.",
+                    ),
+            ),
+            SyntaxRuntime(
                 id = "webstorm-jsonpath",
                 productId = "WEBSTORM",
                 version = "2025.3.3",
@@ -182,7 +192,6 @@ internal object SyntaxRuntimeCatalog {
                 candidateLanguages =
                     setOf(
                         "CodeQL",
-                        "Cron expression",
                         "Dart",
                         "Drools",
                         "Erlang",
