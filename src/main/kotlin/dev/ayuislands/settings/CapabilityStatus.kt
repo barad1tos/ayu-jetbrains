@@ -32,30 +32,43 @@ internal class CapabilityStatus(
     }
 }
 
-private data class CapabilityPresentation(
+internal data class CapabilityPresentation(
     val message: String,
     val action: String? = null,
 )
 
-private fun SyntaxCapabilityState.presentation(): CapabilityPresentation? =
+internal fun SyntaxCapabilityState.presentation(): CapabilityPresentation? =
     when (this) {
         is SyntaxCapabilityState.Checking -> CapabilityPresentation("Checking language support…")
         is SyntaxCapabilityState.SupportUnavailable ->
             CapabilityPresentation(LANGUAGE_SUPPORT_INSTRUCTION, "Open Marketplace")
         is SyntaxCapabilityState.TemporarilyUnavailable -> CapabilityPresentation(reason, "Retry")
         is SyntaxCapabilityState.Incompatible ->
-            CapabilityPresentation("Some language controls could not be verified.", "Retry")
+            CapabilityPresentation(
+                "Some controls could not be verified — ${mismatches.describe()}. " +
+                    "Update or enable $languageId language support, then Retry.",
+                "Retry",
+            )
         is SyntaxCapabilityState.Confirmed ->
             evidence.conditionalAbsences
                 .takeIf { it.isNotEmpty() }
-                ?.let {
+                ?.let { absences ->
                     CapabilityPresentation(
-                        "Some controls need semantic highlighting. Enable it for $languageId " +
-                            "under Editor | Color Scheme, then return here.",
+                        "These controls depend on semantic highlighting but are unavailable in the " +
+                            "current $languageId configuration: ${absences.categories()}. " +
+                            "Review highlighting settings, then return here.",
                         "Open Highlighting Settings",
                     )
                 }
     }
+
+private fun List<CapabilityMismatch>.describe(): String =
+    joinToString("; ") { mismatch ->
+        "${mismatch.primitive.displayName}: ${mismatch.reason}"
+    }
+
+private fun List<ConditionalAbsence>.categories(): String =
+    joinToString(", ") { absence -> absence.primitive.displayName }
 
 private const val CAPABILITY_GAP = 8
 internal const val LANGUAGE_SUPPORT_INSTRUCTION =

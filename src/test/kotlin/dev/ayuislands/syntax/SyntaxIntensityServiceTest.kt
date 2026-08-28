@@ -28,6 +28,7 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
 import java.awt.Font
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -36,6 +37,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -527,6 +529,35 @@ class SyntaxIntensityServiceTest {
 
         runtime.restore()
 
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `runtime cancellation restores semantic font checkpoint before propagation`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        val cancellation = CancellationException("preview cancelled")
+        every { EditorSchemeChange.publish() } throws cancellation
+
+        val thrown =
+            assertFailsWith<CancellationException> {
+                runtime.preview(
+                    SyntaxPresetConfig(
+                        selectedPreset = "CUSTOM",
+                        customOverrides = emptyMap(),
+                        customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+                    ),
+                )
+            }
+
+        assertSame(cancellation, thrown)
         assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
     }
 

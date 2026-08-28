@@ -3,10 +3,12 @@ package dev.ayuislands.syntax
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import dev.ayuislands.theme.EditorSchemeOverrides
 import dev.ayuislands.theme.EditorSchemeOwner
 import dev.ayuislands.theme.OverrideWriteResult
 import java.util.IdentityHashMap
+import kotlin.coroutines.cancellation.CancellationException
 
 internal data class SyntaxSchemeChange(
     val scheme: EditorColorsScheme,
@@ -25,10 +27,18 @@ internal sealed interface SyntaxTransactionResult {
         val relinquishedKeys: Set<String>,
     ) : SyntaxTransactionResult
 
-    data class Failed(
-        val cause: RuntimeException,
+    sealed interface Failure : SyntaxTransactionResult {
+        val cause: RuntimeException
+    }
+
+    data class RolledBack(
+        override val cause: RuntimeException,
+    ) : Failure
+
+    data class RecoveryRequired(
+        override val cause: RuntimeException,
         val rollbackFailures: List<RuntimeException>,
-    ) : SyntaxTransactionResult
+    ) : Failure
 }
 
 internal interface SyntaxSchemeWriter {
@@ -102,16 +112,22 @@ internal class SyntaxSchemeJournal {
         publish: () -> Unit,
     ): SyntaxTransactionResult {
         if (checkpoints.isEmpty()) return SyntaxTransactionResult.Applied(emptySet(), emptySet())
-        val rollbackFailures = checkpoints.asReversed().flatMap(writer::rollback)
-        if (rollbackFailures.isNotEmpty()) {
-            return SyntaxTransactionResult.Failed(rollbackFailures.first(), rollbackFailures)
+        val rollback = rollback(writer, checkpoints)
+        checkpoints.retainAll(rollback.incompleteCheckpoints)
+        rollback.rethrowCancellation()
+        if (rollback.failures.isNotEmpty()) {
+            return SyntaxTransactionResult.RecoveryRequired(rollback.failures.first(), rollback.failures)
         }
+        checkpoints.clear()
         return try {
             publish()
-            checkpoints.clear()
             SyntaxTransactionResult.Applied(emptySet(), emptySet())
+        } catch (cancellation: ProcessCanceledException) {
+            throw cancellation
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (failure: RuntimeException) {
-            SyntaxTransactionResult.Failed(failure, emptyList())
+            SyntaxTransactionResult.RolledBack(failure)
         }
     }
 
@@ -149,9 +165,63 @@ internal class SyntaxSchemeTransaction(
                 relinquishedKeys = relinquishedKeys,
             )
         } catch (failure: RuntimeException) {
-            val rollbackFailures =
-                checkpoints.asReversed().flatMap { checkpoint -> writer.rollback(checkpoint) }
-            SyntaxTransactionResult.Failed(failure, rollbackFailures)
+            val rollback = rollback(writer, checkpoints)
+            journal?.retain(rollback.incompleteCheckpoints)
+            rollback.rethrowCancellation(failure)
+            if (rollback.failures.isEmpty()) {
+                SyntaxTransactionResult.RolledBack(failure)
+            } else {
+                SyntaxTransactionResult.RecoveryRequired(failure, rollback.failures)
+            }
         }
     }
 }
+
+private data class RollbackAttempt(
+    val incompleteCheckpoints: List<SyntaxSchemeCheckpoint>,
+    val failures: List<RuntimeException>,
+    val cancellation: RuntimeException?,
+) {
+    fun rethrowCancellation(originalFailure: RuntimeException? = null) {
+        val originalCancellation = originalFailure?.takeIf(::isCancellation)
+        val cancellation = originalCancellation ?: cancellation ?: return
+        if (originalFailure != null && originalFailure !== cancellation) {
+            cancellation.addSuppressed(originalFailure)
+        }
+        this.cancellation?.takeIf { it !== cancellation }?.let(cancellation::addSuppressed)
+        failures.forEach(cancellation::addSuppressed)
+        throw cancellation
+    }
+}
+
+private fun rollback(
+    writer: SyntaxSchemeWriter,
+    checkpoints: List<SyntaxSchemeCheckpoint>,
+): RollbackAttempt {
+    val incomplete = mutableListOf<SyntaxSchemeCheckpoint>()
+    val failures = mutableListOf<RuntimeException>()
+    var cancellation: RuntimeException? = null
+    checkpoints.asReversed().forEach { checkpoint ->
+        try {
+            val checkpointFailures = writer.rollback(checkpoint)
+            if (checkpointFailures.isNotEmpty()) {
+                incomplete += checkpoint
+                failures += checkpointFailures
+            }
+        } catch (failure: RuntimeException) {
+            incomplete += checkpoint
+            if (!isCancellation(failure)) throw failure
+            cancellation = cancellation.record(failure)
+        }
+    }
+    return RollbackAttempt(incomplete, failures, cancellation)
+}
+
+private fun RuntimeException?.record(next: RuntimeException): RuntimeException {
+    val first = this ?: return next
+    if (first !== next) first.addSuppressed(next)
+    return first
+}
+
+private fun isCancellation(failure: RuntimeException): Boolean =
+    failure is ProcessCanceledException || failure is CancellationException

@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
@@ -20,8 +21,10 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class EditorSchemeOverridesTest {
@@ -378,6 +381,36 @@ class EditorSchemeOverridesTest {
 
         EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
         assertEquals(originalOwned, attributes[ownedKey])
+    }
+
+    @Test
+    fun `checkpoint rollback finishes remaining entries before propagating cancellation`() {
+        val cancelledKey = TextAttributesKey.find("TEST_CHECKPOINT_CANCELLED_ATTRIBUTES")
+        val restoredKey = TextAttributesKey.find("TEST_CHECKPOINT_RESTORED_ATTRIBUTES")
+        val cancelledOriginal = fullAttributes(Color.RED)
+        val restoredOriginal = fullAttributes(Color.GREEN)
+        val attributes =
+            mutableMapOf<TextAttributesKey, TextAttributes?>(
+                cancelledKey to cancelledOriginal,
+                restoredKey to restoredOriginal,
+            )
+        val cancellation = ProcessCanceledException()
+        val scheme = scheme(attributes = attributes)
+        val checkpoint =
+            EditorSchemeOverrides.checkpoints.capture(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                linkedSetOf(cancelledKey, restoredKey),
+            )
+        scheme.setAttributes(cancelledKey, fullAttributes(Color.ORANGE))
+        scheme.setAttributes(restoredKey, fullAttributes(Color.YELLOW))
+        every { scheme.setAttributes(cancelledKey, any()) } throws cancellation
+
+        val thrown = assertFails { EditorSchemeOverrides.checkpoints.rollback(checkpoint) }
+
+        assertSame(cancellation, thrown)
+        assertEquals(Color.ORANGE, attributes[cancelledKey]?.foregroundColor)
+        assertEquals(restoredOriginal, attributes[restoredKey])
     }
 
     @Test

@@ -115,6 +115,7 @@ class AyuIslandsSyntaxPanelTest {
         runtimeSession = mockk(relaxed = true)
         mockkObject(SyntaxIntensityService.Companion)
         every { SyntaxIntensityService.getInstance() } returns intensityService
+        every { intensityService.tunableCategories(any()) } returns null
         every { intensityService.openRuntimeSession() } returns runtimeSession
         val applied = SyntaxTransactionResult.Applied(emptySet(), emptySet())
         every { runtimeSession.preview(any()) } returns applied
@@ -503,7 +504,7 @@ class AyuIslandsSyntaxPanelTest {
         writePendingBoolean(panel, "pendingQuietOperators", false)
         writePendingBoolean(panel, "pendingEmphasizeDeclarations", true)
         every { runtimeSession.materialize(any()) } returns
-            SyntaxTransactionResult.Failed(RuntimeException("simulated apply failure"), emptyList())
+            SyntaxTransactionResult.RolledBack(RuntimeException("simulated apply failure"))
 
         assertFailsWith<RuntimeException> { panel.apply() }
 
@@ -1917,8 +1918,9 @@ class AyuIslandsSyntaxPanelTest {
             assertNotNull(
                 findLabel(
                     dialogPanel,
-                    "Some controls need semantic highlighting. Enable it for Kotlin " +
-                        "under Editor | Color Scheme, then return here.",
+                    "These controls depend on semantic highlighting but are unavailable in the " +
+                        "current Kotlin configuration: Operator. " +
+                        "Review highlighting settings, then return here.",
                 ),
             )
         } finally {

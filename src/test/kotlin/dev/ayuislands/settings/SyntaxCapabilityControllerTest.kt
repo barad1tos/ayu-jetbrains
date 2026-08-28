@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import dev.ayuislands.syntax.LanguageSpecification
@@ -7,7 +8,10 @@ import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import io.mockk.mockk
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class SyntaxCapabilityControllerTest {
@@ -63,6 +67,46 @@ class SyntaxCapabilityControllerTest {
         controller.dispose()
 
         assertTrue(lifetimes.last().isDisposed)
+    }
+
+    @Test
+    fun `probe failure renders terminal state and releases its lifetime`() {
+        var lifetime: ProbeLifetime? = null
+        val rendered = mutableListOf<SyntaxCapabilityState?>()
+        val controller = SyntaxCapabilityController(project, rendered::add)
+        controller.replaceProbeForTest { _, _, parent, _ ->
+            val probeLifetime = ProbeLifetime()
+            lifetime = probeLifetime
+            Disposer.register(parent) { probeLifetime.isDisposed = true }
+            error("probe failed")
+        }
+
+        controller.selectLanguage("Swift")
+
+        val state = assertIs<SyntaxCapabilityState.TemporarilyUnavailable>(rendered.last())
+        assertEquals("Swift", state.languageId)
+        assertEquals("probe failed", state.reason)
+        assertTrue(requireNotNull(lifetime).isDisposed)
+        controller.dispose()
+    }
+
+    @Test
+    fun `probe cancellation releases its lifetime and preserves exception identity`() {
+        var lifetime: ProbeLifetime? = null
+        val cancellation = ProcessCanceledException()
+        val controller = SyntaxCapabilityController(project, rendered = {})
+        controller.replaceProbeForTest { _, _, parent, _ ->
+            val probeLifetime = ProbeLifetime()
+            lifetime = probeLifetime
+            Disposer.register(parent) { probeLifetime.isDisposed = true }
+            throw cancellation
+        }
+
+        val thrown = assertFails { controller.selectLanguage("Swift") }
+
+        assertSame(cancellation, thrown)
+        assertTrue(requireNotNull(lifetime).isDisposed)
+        controller.dispose()
     }
 
     private fun completingProbe(result: (LanguageSpecification, Long) -> SyntaxProbeResult): SyntaxCapabilityProbe =

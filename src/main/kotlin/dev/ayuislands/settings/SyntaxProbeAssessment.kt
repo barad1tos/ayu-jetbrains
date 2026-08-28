@@ -37,7 +37,7 @@ internal object SyntaxProbeAssessment {
                     keysByPrimitive = keysByPrimitive,
                     conditionalAbsences =
                         conditionalCells.map {
-                            ConditionalAbsence(it, "Requires semantic highlighting")
+                            ConditionalAbsence(it, "Depends on semantic highlighting; no native preview span")
                         },
                 ),
         )

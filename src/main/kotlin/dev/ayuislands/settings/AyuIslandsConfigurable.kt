@@ -391,12 +391,19 @@ class AyuIslandsConfigurable internal constructor(
     }
 
     private fun closeSession() {
-        session?.cancel()?.forEach { failure ->
-            log.warn("Settings cancel failed for ${failure.participant}", failure.cause)
-        }
-        session?.close()?.forEach { failure ->
-            log.warn("Settings cleanup failed for ${failure.participant}", failure.cause)
-        }
+        val closingSession = session ?: return
         session = null
+        runCleanupSteps(
+            {
+                closingSession.cancel().forEach { failure ->
+                    log.warn("Settings cancel failed for ${failure.participant}", failure.cause)
+                }
+            },
+            {
+                closingSession.close().forEach { failure ->
+                    log.warn("Settings cleanup failed for ${failure.participant}", failure.cause)
+                }
+            },
+        )
     }
 }

@@ -533,6 +533,21 @@ categories:
           opens automatically with captioned screenshots of the marquee
           features. Reopen anytime via Tools → Ayu Islands → Show What's New.
 
+  syntax:
+    title: "Syntax tuning"
+    features:
+      - id: syntax-tuning
+        title: "Per-language syntax tuning"
+        keyword: "Syntax tuning"
+        introduced: "2.7.0"
+        updated: "2.9.0"
+        tier: paid
+        description: >
+          Per-language sliders tune only primitives confirmed by the active
+          language support. Bold and Italic are additive by default; an
+          explicit Replace inherited style option applies an exact font style.
+          Hidden, unknown, and previously stored cells remain unchanged.
+
   free-tier:
     title: "Free tier — complete theme"
     features:

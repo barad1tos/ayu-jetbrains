@@ -17,11 +17,15 @@ internal class SyntaxCategoryAvailability(
     private val styleControls: Map<PrimitiveCategory, SyntaxStyleControl>,
     private val visibilityChanged: (Set<PrimitiveCategory>) -> Unit = {},
 ) {
-    private var tunableCategories: Map<String, Set<PrimitiveCategory>>? = null
-    private var nativeCategories: Set<PrimitiveCategory>? = null
+    private var snapshot = SyntaxAvailabilitySnapshot()
 
     fun refreshCapabilities(variant: AyuVariant) {
-        tunableCategories = SyntaxIntensityService.getInstance().tunableCategories(variant)?.takeIf { it.isNotEmpty() }
+        val actuatedByLanguage =
+            SyntaxIntensityService
+                .getInstance()
+                .tunableCategories(variant)
+                ?.mapValues { (_, categories) -> categories.toSet() }
+        snapshot = snapshot.copy(actuatedByLanguage = actuatedByLanguage)
     }
 
     fun refreshRows(language: String) {
@@ -46,23 +50,20 @@ internal class SyntaxCategoryAvailability(
         }
     }
 
-    fun availableFor(language: String): Set<PrimitiveCategory> {
-        nativeCategories?.let { return it }
-        val capabilities = tunableCategories ?: return PrimitiveCategory.entries.toSet()
-        return capabilities[language].orEmpty()
-    }
+    fun availableFor(language: String): Set<PrimitiveCategory> = snapshot.availableFor(language)
 
     fun showCapability(state: SyntaxCapabilityState?) {
-        nativeCategories =
+        val nativeConfirmed =
             when (state) {
-                is SyntaxCapabilityState.Confirmed -> state.evidence.confirmedCells
-                is SyntaxCapabilityState.Incompatible -> state.confirmedCells
+                is SyntaxCapabilityState.Confirmed -> state.evidence.confirmedCells.toSet()
+                is SyntaxCapabilityState.Incompatible -> state.confirmedCells.toSet()
                 is SyntaxCapabilityState.Checking,
                 is SyntaxCapabilityState.SupportUnavailable,
                 is SyntaxCapabilityState.TemporarilyUnavailable,
                 null,
                 -> emptySet()
             }
+        snapshot = snapshot.copy(nativeConfirmed = nativeConfirmed)
         state?.languageId?.let(::refreshRows)
     }
 
@@ -75,5 +76,21 @@ internal class SyntaxCategoryAvailability(
         component?.isEnabled = isAvailable
         if (updateVisibility) component?.isVisible = isAvailable
         component?.toolTipText = reason
+    }
+}
+
+internal data class SyntaxAvailabilitySnapshot(
+    val nativeConfirmed: Set<PrimitiveCategory>? = null,
+    val actuatedByLanguage: Map<String, Set<PrimitiveCategory>>? = null,
+) {
+    fun availableFor(language: String): Set<PrimitiveCategory> {
+        val native = nativeConfirmed
+        val actuated = actuatedByLanguage?.get(language).orEmpty()
+        return when {
+            native != null && actuatedByLanguage != null -> native.intersect(actuated)
+            native != null -> native
+            actuatedByLanguage != null -> actuated
+            else -> PrimitiveCategory.entries.toSet()
+        }
     }
 }

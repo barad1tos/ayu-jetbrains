@@ -75,9 +75,9 @@ class AyuIslandsSyntaxPanel internal constructor(
     private val pendingOverrides: MutableMap<String, String> = mutableMapOf()
     private val storedOverrides: MutableMap<String, String> = mutableMapOf()
 
-    // Legacy font-style store: flat "language|category" -> FontStyleOverride
-    // enum name. It still round-trips stored configurations, but no longer has
-    // row-level controls in the compact Custom grid.
+    // Replacement-style store: flat "language|category" -> FontStyleOverride
+    // enum name. Existing values keep round-tripping, and each compact row can
+    // opt into the same exact style through Replace inherited style.
     private val pendingStyles: MutableMap<String, String> = mutableMapOf()
     private val storedStyles: MutableMap<String, String> = mutableMapOf()
     private val pendingEmphasis: MutableMap<String, String> = mutableMapOf()
@@ -120,13 +120,14 @@ class AyuIslandsSyntaxPanel internal constructor(
     private val capabilityStatus = CapabilityStatus { capabilityController?.performRecoveryAction() }
 
     override fun dispose() {
-        contextLanguage.dispose()
         languageCombo = null
-        editingSession?.dispose()
+        val closingEditingSession = editingSession
         editingSession = null
-        capabilityController?.dispose()
-        styleControls.values.forEach(SyntaxStyleControl::dispose)
+        val closingCapabilityController = capabilityController
+        capabilityController = null
+        val closingStyleControls = styleControls.values.toList()
         styleControls.clear()
+        disposeSyntaxPanel(contextLanguage, closingEditingSession, closingCapabilityController, closingStyleControls)
     }
 
     internal fun buildPanel(
@@ -733,6 +734,22 @@ class AyuIslandsSyntaxPanel internal constructor(
         private const val SEGMENTED_PRESENTATIONS_METHOD =
             "getPresentations" + "$" + "intellij_platform_ide_impl"
     }
+}
+
+private fun disposeSyntaxPanel(
+    contextLanguage: ContextLanguageController,
+    editingSession: SyntaxPanelSession?,
+    capabilityController: SyntaxCapabilityController?,
+    styleControls: List<SyntaxStyleControl>,
+) {
+    val steps =
+        buildList<() -> Unit> {
+            add(contextLanguage::dispose)
+            editingSession?.let { session -> add(session::dispose) }
+            capabilityController?.let { controller -> add(controller::dispose) }
+            styleControls.forEach { control -> add(control::dispose) }
+        }
+    runCleanupSteps(steps)
 }
 
 private fun syntaxCellKey(

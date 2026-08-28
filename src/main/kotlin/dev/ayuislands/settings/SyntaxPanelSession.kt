@@ -68,8 +68,10 @@ internal class SyntaxPanelSession(
     fun cancel(): SyntaxRestoreResult = editing.cancel()
 
     override fun dispose() {
-        Disposer.dispose(lifetime)
-        editing.dispose()
+        runCleanupSteps(
+            { Disposer.dispose(lifetime) },
+            editing::dispose,
+        )
     }
 
     private fun onSchemeChanged() {

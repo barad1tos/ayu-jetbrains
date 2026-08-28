@@ -72,7 +72,7 @@ class SyntaxCapabilityProbeTest {
         val confirmed = assertIs<SyntaxProbeResult.Confirmed>(result)
         assertEquals(setOf(KEYWORD), confirmed.evidence.confirmedCells)
         assertEquals(
-            listOf(ConditionalAbsence(OPERATOR, "Requires semantic highlighting")),
+            listOf(ConditionalAbsence(OPERATOR, "Depends on semantic highlighting; no native preview span")),
             confirmed.evidence.conditionalAbsences,
         )
     }

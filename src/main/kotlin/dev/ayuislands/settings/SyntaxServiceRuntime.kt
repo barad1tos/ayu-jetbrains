@@ -1,7 +1,10 @@
 package dev.ayuislands.settings
 
+import com.intellij.notification.Notification
+import com.intellij.notification.NotificationAction
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
@@ -78,22 +81,42 @@ private fun scheduleRecovery(
         restoreFailure,
     )
     ApplicationManager.getApplication().invokeLater {
-        try {
-            service.apply(config)
-        } catch (cancellation: ProcessCanceledException) {
-            throw cancellation
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (retryFailure: RuntimeException) {
-            logger<SyntaxServiceRuntime>().warn("Failed to recover the persisted syntax checkpoint", retryFailure)
+        retryRecovery(service, config)
+    }
+}
+
+private fun retryRecovery(
+    service: SyntaxIntensityService,
+    config: SyntaxPresetConfig,
+) {
+    try {
+        service.apply(config)
+    } catch (cancellation: ProcessCanceledException) {
+        throw cancellation
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (retryFailure: RuntimeException) {
+        logger<SyntaxServiceRuntime>().warn("Failed to recover the persisted syntax checkpoint", retryFailure)
+        val notification =
             NotificationGroupManager
                 .getInstance()
                 .getNotificationGroup("Ayu Islands")
                 .createNotification(
                     "Syntax settings could not be restored",
-                    "Your saved choices were not changed. Reopen Ayu Islands > Syntax and click Apply to retry.",
+                    "Your saved choices were not changed. Retry to restore their editor appearance now.",
                     NotificationType.ERROR,
-                ).notify(null)
-        }
+                )
+        notification
+            .addAction(
+                object : NotificationAction("Retry") {
+                    override fun actionPerformed(
+                        event: AnActionEvent,
+                        current: Notification,
+                    ) {
+                        current.expire()
+                        retryRecovery(service, config)
+                    }
+                },
+            ).notify(null)
     }
 }

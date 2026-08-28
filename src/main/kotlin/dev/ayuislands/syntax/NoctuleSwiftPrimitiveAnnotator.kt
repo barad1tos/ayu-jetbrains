@@ -8,7 +8,9 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.fileTypes.SyntaxHighlighterFactory
 import com.intellij.psi.PsiElement
+import com.intellij.psi.tree.IElementType
 import dev.ayuislands.accent.AyuVariant
+import java.util.concurrent.ConcurrentHashMap
 
 private const val NOCTULE_LANGUAGE_ID = "NoctuleSwift"
 private const val SWIFT_LANGUAGE = "Swift"
@@ -17,7 +19,7 @@ private const val SWIFT_KEYWORD_KEY = "SWIFT.KEYWORD"
 private val swiftKeywordAttributes = TextAttributesKey.createTextAttributesKey(SWIFT_KEYWORD_KEY)
 
 internal class NoctuleSwiftPrimitiveAnnotator(
-    private val operatorKeys: (PsiElement) -> Array<TextAttributesKey> = ::swiftOperatorKeys,
+    private val operatorKeys: (PsiElement) -> List<TextAttributesKey> = SwiftOperatorKeyCache()::keys,
     private val replacementFontType: () -> Int? = {
         SyntaxIntensityService
             .getInstance()
@@ -91,9 +93,28 @@ private fun isOperatorToken(tokenText: String): Boolean =
                 character == '\''
         }
 
-private fun swiftOperatorKeys(element: PsiElement): Array<TextAttributesKey> {
-    val node = element.node ?: return emptyArray()
-    val file = element.containingFile ?: return emptyArray()
+internal class SwiftOperatorKeyCache(
+    private val resolve: (PsiElement) -> List<TextAttributesKey> = ::swiftOperatorKeys,
+) {
+    private val keysByProfile = ConcurrentHashMap<TokenProfile, List<TextAttributesKey>>()
+
+    fun keys(element: PsiElement): List<TextAttributesKey> {
+        val node = element.node ?: return emptyList()
+        val file = element.containingFile ?: return emptyList()
+        val profile = TokenProfile(element.language.id, file.fileType.name, node.elementType)
+        return keysByProfile.computeIfAbsent(profile) { resolve(element).toList() }
+    }
+
+    private data class TokenProfile(
+        val languageId: String,
+        val fileTypeName: String,
+        val elementType: IElementType,
+    )
+}
+
+private fun swiftOperatorKeys(element: PsiElement): List<TextAttributesKey> {
+    val node = element.node ?: return emptyList()
+    val file = element.containingFile ?: return emptyList()
     val highlighter =
         SyntaxHighlighterFactory.getSyntaxHighlighter(
             element.language,
@@ -104,5 +125,5 @@ private fun swiftOperatorKeys(element: PsiElement): Array<TextAttributesKey> {
         .getTokenHighlights(node.elementType)
         .filter { key ->
             SyntaxKeyRoleRegistry.classify(key.externalName).effectivePrimitive == PrimitiveCategory.OPERATOR
-        }.toTypedArray()
+        }
 }

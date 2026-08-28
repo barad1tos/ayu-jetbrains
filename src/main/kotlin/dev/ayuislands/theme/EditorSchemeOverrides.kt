@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElementId
@@ -14,6 +15,7 @@ import java.awt.Color
 import java.util.Base64
 import java.util.EnumMap
 import java.util.IdentityHashMap
+import kotlin.coroutines.cancellation.CancellationException
 
 internal sealed interface EditorSchemeOwner {
     data class Element(
@@ -145,10 +147,20 @@ internal object EditorSchemeOverrides {
             synchronized(lock) {
                 val failures = mutableListOf<RuntimeException>()
                 val schemeStates = states.getOrPut(checkpoint.scheme) { mutableMapOf() }
+                var cancellation: RuntimeException? = null
                 checkpoint.entries.forEach { (entry, saved) ->
-                    failures += restoreCheckpointEntry(checkpoint.scheme, schemeStates, entry, saved)
+                    try {
+                        failures += restoreCheckpointEntry(checkpoint.scheme, schemeStates, entry, saved)
+                    } catch (failure: RuntimeException) {
+                        if (!failure.isCancellation()) throw failure
+                        cancellation = cancellation.record(failure)
+                    }
                 }
                 if (schemeStates.isEmpty()) states.remove(checkpoint.scheme)
+                cancellation?.let { cancelled ->
+                    failures.forEach(cancelled::addSuppressed)
+                    throw cancelled
+                }
                 failures
             }
 
@@ -159,10 +171,15 @@ internal object EditorSchemeOverrides {
             saved: CheckpointEntry,
         ): List<RuntimeException> =
             buildList {
+                var cancellation: RuntimeException? = null
                 try {
                     writeValue(scheme, entry, saved.directValue)
                 } catch (failure: RuntimeException) {
-                    add(failure)
+                    if (failure.isCancellation()) {
+                        cancellation = failure
+                    } else {
+                        add(failure)
+                    }
                 }
                 try {
                     val state = saved.overrideState
@@ -178,7 +195,15 @@ internal object EditorSchemeOverrides {
                         scheme.metaProperties.setProperty(entry.metadataKey, metadata)
                     }
                 } catch (failure: RuntimeException) {
-                    add(failure)
+                    if (failure.isCancellation()) {
+                        cancellation = cancellation.record(failure)
+                    } else {
+                        add(failure)
+                    }
+                }
+                cancellation?.let { cancelled ->
+                    forEach(cancelled::addSuppressed)
+                    throw cancelled
                 }
             }
     }
@@ -569,3 +594,12 @@ internal object EditorSchemeOverrides {
     private const val COLOR_KIND = "color"
     private const val ATTRIBUTES_KIND = "attributes"
 }
+
+private fun RuntimeException?.record(next: RuntimeException): RuntimeException {
+    val first = this ?: return next
+    if (first !== next) first.addSuppressed(next)
+    return first
+}
+
+private fun RuntimeException.isCancellation(): Boolean =
+    this is ProcessCanceledException || this is CancellationException

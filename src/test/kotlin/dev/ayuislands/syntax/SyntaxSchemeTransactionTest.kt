@@ -3,11 +3,15 @@ package dev.ayuislands.syntax
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import io.mockk.mockk
 import java.awt.Color
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 
 class SyntaxSchemeTransactionTest {
     @Test
@@ -21,7 +25,7 @@ class SyntaxSchemeTransactionTest {
 
             val result = SyntaxSchemeTransaction(writer) { publishes++ }.apply(listOf(first, second, third))
 
-            val failure = assertIs<SyntaxTransactionResult.Failed>(result)
+            val failure = assertIs<SyntaxTransactionResult.RolledBack>(result)
             assertEquals("write $failedLabel", failure.cause.message)
             assertEquals(listOf("Light", "Dark", "Mirage"), writer.rolledBack)
             assertEquals(0, publishes)
@@ -39,7 +43,7 @@ class SyntaxSchemeTransactionTest {
                 throw IllegalStateException("publish")
             }.apply(listOf(first, second))
 
-        val failure = assertIs<SyntaxTransactionResult.Failed>(result)
+        val failure = assertIs<SyntaxTransactionResult.RolledBack>(result)
         assertEquals("publish", failure.cause.message)
         assertEquals(listOf("Dark", "Mirage"), writer.rolledBack)
     }
@@ -52,8 +56,60 @@ class SyntaxSchemeTransactionTest {
 
         val result = SyntaxSchemeTransaction(writer) {}.apply(listOf(first, second))
 
-        val failure = assertIs<SyntaxTransactionResult.Failed>(result)
+        val failure = assertIs<SyntaxTransactionResult.RecoveryRequired>(result)
         assertEquals(listOf("rollback Dark"), failure.rollbackFailures.mapNotNull { it.message })
+        assertEquals(listOf("Dark", "Mirage"), writer.rolledBack)
+    }
+
+    @Test
+    fun `failed rollback checkpoint remains restorable through the journal`() {
+        val writer = RecordingWriter(failOn = "Dark", rollbackFailureOn = "Dark")
+        val journal = SyntaxSchemeJournal()
+
+        SyntaxSchemeTransaction(writer) {}.apply(listOf(change("Dark", "KOTLIN_KEYWORD")), journal)
+        writer.rollbackFailureOn = null
+        writer.rolledBack.clear()
+
+        journal.restore(writer) {}
+
+        assertEquals(listOf("Dark"), writer.rolledBack)
+    }
+
+    @Test
+    fun `cancellation rolls back every checkpoint before rethrowing the original instance`() {
+        listOf(
+            ProcessCanceledException(),
+            CancellationException("cancelled"),
+        ).forEach { cancellation ->
+            val first = change("Mirage", "JAVA_KEYWORD")
+            val second = change("Dark", "KOTLIN_KEYWORD")
+            val writer = RecordingWriter()
+
+            val thrown =
+                assertFails {
+                    SyntaxSchemeTransaction(writer) { throw cancellation }.apply(listOf(first, second))
+                }
+
+            assertSame(cancellation, thrown)
+            assertEquals(listOf("Dark", "Mirage"), writer.rolledBack)
+        }
+    }
+
+    @Test
+    fun `journal cancellation finishes rollback before rethrowing the original instance`() {
+        val writer = RecordingWriter()
+        val journal = SyntaxSchemeJournal()
+        val transaction = SyntaxSchemeTransaction(writer) {}
+        transaction.apply(listOf(change("Mirage", "JAVA_KEYWORD")), journal)
+        transaction.apply(listOf(change("Dark", "KOTLIN_KEYWORD")), journal)
+        val cancellation = ProcessCanceledException()
+        writer.rollbackCancellationOn = "Dark"
+        writer.rollbackCancellation = cancellation
+        writer.rolledBack.clear()
+
+        val thrown = assertFails { journal.restore(writer) {} }
+
+        assertSame(cancellation, thrown)
         assertEquals(listOf("Dark", "Mirage"), writer.rolledBack)
     }
 
@@ -141,11 +197,13 @@ class SyntaxSchemeTransactionTest {
 
     private class RecordingWriter(
         var failOn: String? = null,
-        private val rollbackFailureOn: String? = null,
+        var rollbackFailureOn: String? = null,
         private val relinquishedByLabel: Map<String, Set<String>> = emptyMap(),
     ) : SyntaxSchemeWriter {
         val rolledBack = mutableListOf<String>()
         val released = mutableListOf<String>()
+        var rollbackCancellationOn: String? = null
+        var rollbackCancellation: RuntimeException? = null
 
         override fun checkpoint(change: SyntaxSchemeChange): SyntaxSchemeCheckpoint =
             SyntaxSchemeCheckpoint(change.label)
@@ -157,6 +215,9 @@ class SyntaxSchemeTransactionTest {
 
         override fun rollback(checkpoint: SyntaxSchemeCheckpoint): List<RuntimeException> {
             rolledBack += checkpoint.label
+            if (checkpoint.label == rollbackCancellationOn) {
+                throw checkNotNull(rollbackCancellation)
+            }
             return if (checkpoint.label == rollbackFailureOn) {
                 listOf(RuntimeException("rollback ${checkpoint.label}"))
             } else {

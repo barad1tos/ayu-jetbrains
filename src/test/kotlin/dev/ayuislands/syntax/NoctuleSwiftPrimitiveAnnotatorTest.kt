@@ -1,12 +1,16 @@
 package dev.ayuislands.syntax
 
+import com.intellij.lang.ASTNode
 import com.intellij.lang.Language
 import com.intellij.lang.annotation.AnnotationBuilder
 import com.intellij.lang.annotation.AnnotationHolder
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.fileTypes.FileType
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFile
+import com.intellij.psi.tree.IElementType
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
@@ -149,7 +153,7 @@ class NoctuleSwiftPrimitiveAnnotatorTest {
 
         NoctuleSwiftPrimitiveAnnotator(
             isAyuActive = { true },
-            operatorKeys = { arrayOf(operatorKey) },
+            operatorKeys = { listOf(operatorKey) },
             replacementFontType = { Font.PLAIN },
             tokenAttributes = { sourceAttributes },
         ).annotate(element, holder)
@@ -169,7 +173,7 @@ class NoctuleSwiftPrimitiveAnnotatorTest {
         NoctuleSwiftPrimitiveAnnotator(
             isAyuActive = { true },
             operatorKeys = {
-                arrayOf(TextAttributesKey.createTextAttributesKey("SWIFT.OPERATOR.TEST"))
+                listOf(TextAttributesKey.createTextAttributesKey("SWIFT.OPERATOR.TEST"))
             },
             replacementFontType = { null },
             tokenAttributes = { error("Attributes must not resolve without replacement style") },
@@ -195,6 +199,30 @@ class NoctuleSwiftPrimitiveAnnotatorTest {
         verify(exactly = 0) { holder.newSilentAnnotation(any()) }
     }
 
+    @Test
+    fun `operator key cache resolves one immutable result per token profile`() {
+        val language = Language.findLanguageByID("TEXT") ?: Language.ANY
+        val elementType = IElementType("SWIFT_LEFT_BRACKET", language)
+        val fileType = mockk<FileType> { every { name } returns "Swift" }
+        val file = mockk<PsiFile> { every { this@mockk.fileType } returns fileType }
+        val first = mockOperatorLeaf(language, elementType, file)
+        val second = mockOperatorLeaf(language, elementType, file)
+        val operatorKey = TextAttributesKey.createTextAttributesKey("SWIFT.BRACKETS.CACHED")
+        var resolutions = 0
+        val cache =
+            SwiftOperatorKeyCache {
+                resolutions += 1
+                listOf(operatorKey)
+            }
+
+        val firstKeys = cache.keys(first)
+        val secondKeys = cache.keys(second)
+
+        assertEquals(listOf(operatorKey), firstKeys)
+        assertEquals(firstKeys, secondKeys)
+        assertEquals(1, resolutions)
+    }
+
     private fun mockSwiftLeaf(text: String = "nil"): PsiElement {
         val language = mockk<Language> { every { id } returns NOCTULE_SWIFT_LANGUAGE_ID }
         val element = mockk<PsiElement>()
@@ -202,6 +230,19 @@ class NoctuleSwiftPrimitiveAnnotatorTest {
         every { element.language } returns language
         every { element.text } returns text
         return element
+    }
+
+    private fun mockOperatorLeaf(
+        language: Language,
+        elementType: IElementType,
+        file: PsiFile,
+    ): PsiElement {
+        val node = mockk<ASTNode> { every { this@mockk.elementType } returns elementType }
+        return mockk {
+            every { this@mockk.language } returns language
+            every { this@mockk.node } returns node
+            every { containingFile } returns file
+        }
     }
 
     private companion object {

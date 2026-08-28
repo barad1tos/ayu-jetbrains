@@ -1,9 +1,11 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.progress.ProcessCanceledException
 import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxTransactionResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 
@@ -35,7 +37,7 @@ class SyntaxEditingSessionTest {
             )
 
         session.editDiscrete(config(70))
-        runtime.previewResult = SyntaxTransactionResult.Failed(IllegalStateException("preview"), emptyList())
+        runtime.previewResult = SyntaxTransactionResult.RolledBack(IllegalStateException("preview"))
         session.editDiscrete(config(80))
 
         assertEquals(listOf(config(70)), refreshed)
@@ -54,12 +56,29 @@ class SyntaxEditingSessionTest {
                 debounceFactory = { callback -> RecordingDebounce().also { it.callback = callback } },
             )
         val failure = IllegalStateException("preview")
-        runtime.previewResult = SyntaxTransactionResult.Failed(failure, emptyList())
+        runtime.previewResult = SyntaxTransactionResult.RolledBack(failure)
 
         session.editDiscrete(config(80))
 
         assertEquals(1, failures.size)
         assertSame(failure, failures.single())
+        assertEquals(config(80), session.pendingConfig())
+    }
+
+    @Test
+    fun `incomplete rollback schedules recovery from the persisted checkpoint`() {
+        val runtime = RecordingRuntime()
+        val session = editingSession(config(50), runtime, mutableListOf())
+        val failure = IllegalStateException("preview")
+        runtime.previewResult =
+            SyntaxTransactionResult.RecoveryRequired(
+                cause = failure,
+                rollbackFailures = listOf(IllegalStateException("rollback")),
+            )
+
+        session.editDiscrete(config(80))
+
+        assertEquals(listOf<Pair<SyntaxPresetConfig, RuntimeException>>(config(50) to failure), runtime.recoveries)
         assertEquals(config(80), session.pendingConfig())
     }
 
@@ -125,7 +144,7 @@ class SyntaxEditingSessionTest {
         val persisted = mutableListOf<SyntaxPresetConfig>()
         val session = editingSession(config(50), runtime, persisted)
         session.editDiscrete(config(70))
-        runtime.materializeResult = SyntaxTransactionResult.Failed(IllegalStateException("materialize"), emptyList())
+        runtime.materializeResult = SyntaxTransactionResult.RolledBack(IllegalStateException("materialize"))
 
         val result = session.apply()
 
@@ -345,6 +364,27 @@ class SyntaxEditingSessionTest {
         assertEquals(emptyList(), transition.effects)
     }
 
+    @Test
+    fun `dispose stops debounce after restore cancellation`() {
+        val runtime = RecordingRuntime()
+        val debounce = RecordingDebounce()
+        val session =
+            SyntaxEditingSession(
+                initialCheckpoint = config(50),
+                runtime = runtime,
+                persist = {},
+                debounceFactory = { callback -> debounce.also { it.callback = callback } },
+            )
+        session.editDiscrete(config(70))
+        val cancellation = ProcessCanceledException()
+        runtime.restoreException = cancellation
+
+        val thrown = assertFails { session.dispose() }
+
+        assertSame(cancellation, thrown)
+        assertEquals(1, debounce.disposals)
+    }
+
     private fun config(keyword: Int): SyntaxPresetConfig =
         SyntaxPresetConfig(
             selectedPreset = "CUSTOM",
@@ -370,8 +410,10 @@ class SyntaxEditingSessionTest {
         var previewResult: SyntaxTransactionResult = applied()
         var materializeResult: SyntaxTransactionResult = applied()
         var restoreResult: SyntaxTransactionResult = applied()
+        var restoreException: RuntimeException? = null
         var advances = 0
         var foreignSchemeReports = 0
+        val recoveries = mutableListOf<Pair<SyntaxPresetConfig, RuntimeException>>()
 
         override fun preview(config: SyntaxPresetConfig): SyntaxTransactionResult {
             previews += config
@@ -385,6 +427,7 @@ class SyntaxEditingSessionTest {
 
         override fun restore(config: SyntaxPresetConfig): SyntaxTransactionResult {
             restores += config
+            restoreException?.let { throw it }
             return restoreResult
         }
 
@@ -395,7 +438,9 @@ class SyntaxEditingSessionTest {
         override fun scheduleRecovery(
             config: SyntaxPresetConfig,
             failure: RuntimeException,
-        ) = Unit
+        ) {
+            recoveries += config to failure
+        }
 
         override fun showForeignScheme() {
             foreignSchemeReports++
@@ -408,6 +453,7 @@ class SyntaxEditingSessionTest {
         var callback: (() -> Unit)? = null
         var restarts = 0
         var stops = 0
+        var disposals = 0
 
         override fun restart() {
             restarts++
@@ -417,6 +463,8 @@ class SyntaxEditingSessionTest {
             stops++
         }
 
-        override fun dispose() = Unit
+        override fun dispose() {
+            disposals++
+        }
     }
 }

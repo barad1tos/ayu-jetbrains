@@ -80,6 +80,10 @@ internal sealed interface SyntaxSessionEvent {
         val failure: RuntimeException,
     ) : Runtime
 
+    data class RuntimeRecoveryRequired(
+        val failure: RuntimeException,
+    ) : Runtime
+
     data object ApplyRequested : Commit
 
     data object OkRequested : Commit
@@ -253,8 +257,10 @@ internal class SyntaxEditingSession(
         checkNotNull(state.data()) { "Closed syntax session has no pending configuration" }.pending
 
     fun dispose() {
-        if (state != SyntaxSessionState.Closed) cancel()
-        debounce.dispose()
+        runCleanupSteps(
+            { if (state != SyntaxSessionState.Closed) cancel() },
+            debounce::dispose,
+        )
     }
 
     private fun dispatch(event: SyntaxSessionEvent) {
@@ -327,7 +333,11 @@ internal class SyntaxEditingSession(
                     if (isRestore) SyntaxSessionEvent.RestoreSucceeded else SyntaxSessionEvent.RuntimeSucceeded
                 dispatch(event)
             }
-            is SyntaxTransactionResult.Failed -> {
+            is SyntaxTransactionResult.RecoveryRequired -> {
+                onRuntimeFailed(result.cause)
+                dispatch(SyntaxSessionEvent.RuntimeRecoveryRequired(result.cause))
+            }
+            is SyntaxTransactionResult.RolledBack -> {
                 onRuntimeFailed(result.cause)
                 val event =
                     if (isRestore) {
@@ -440,7 +450,19 @@ private object RuntimeTransitions {
         when (event) {
             SyntaxSessionEvent.RuntimeSucceeded -> succeeded(state)
             is SyntaxSessionEvent.RuntimeFailed -> operationFailed(state, event.failure)
+            is SyntaxSessionEvent.RuntimeRecoveryRequired -> recoveryRequired(state, event.failure)
         }
+
+    private fun recoveryRequired(
+        state: SyntaxSessionState,
+        failure: RuntimeException,
+    ): SyntaxSessionTransition {
+        val applying = state as? SyntaxSessionState.Applying ?: return SyntaxSessionTransition(state)
+        val failed = operationFailed(state, failure)
+        return failed.copy(
+            effects = failed.effects + SyntaxSessionEffect.ScheduleRecovery(applying.checkpoint, failure),
+        )
+    }
 
     private fun succeeded(state: SyntaxSessionState): SyntaxSessionTransition {
         val applying = state as? SyntaxSessionState.Applying ?: return SyntaxSessionTransition(state)

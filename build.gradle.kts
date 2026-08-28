@@ -376,6 +376,22 @@ intellijPlatformTesting {
     }
 }
 
+val syntaxContractGroups = syntaxRuntimeTargets.chunked(3)
+val syntaxContractGroupTasks =
+    syntaxContractGroups.mapIndexed { index, runtimes ->
+        tasks.register("syntaxContractGroup${index + 1}") {
+            group = "verification"
+            description = "Verify syntax contracts for ${runtimes.joinToString { it.id }}"
+            dependsOn(runtimes.map(SyntaxRuntimeTarget::taskName))
+        }
+    }
+
+tasks.register("syntaxContractAll") {
+    group = "verification"
+    description = "Verify every declared native syntax runtime contract"
+    dependsOn(syntaxContractGroupTasks)
+}
+
 intellijPlatform {
     pluginConfiguration {
         name = providers.gradleProperty("pluginName")

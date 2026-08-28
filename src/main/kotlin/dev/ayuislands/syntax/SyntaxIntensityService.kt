@@ -9,6 +9,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -113,12 +114,15 @@ class SyntaxIntensityService {
         val context = applyContext(config)
         val changes = schemeChanges(context)
         retireLegacyKeys(changes)
-        val result = applyChanges(context, changes, IdeSyntaxSchemeWriter(), journal = null)
-        if (result is SyntaxTransactionResult.Failed) {
-            result.rollbackFailures.forEach { failure ->
-                log.warn("Failed to roll back syntax scheme transaction", failure)
+        when (val result = applyChanges(context, changes, IdeSyntaxSchemeWriter(), journal = null)) {
+            is SyntaxTransactionResult.Applied -> Unit
+            is SyntaxTransactionResult.RecoveryRequired -> {
+                result.rollbackFailures.forEach { failure ->
+                    log.warn("Failed to roll back syntax scheme transaction", failure)
+                }
+                throw result.cause
             }
-            throw result.cause
+            is SyntaxTransactionResult.RolledBack -> throw result.cause
         }
     }
 
@@ -195,12 +199,20 @@ class SyntaxIntensityService {
     ): SyntaxTransactionResult {
         val previousFonts = replacementFonts
         replacementFonts = context.replacementFonts()
-        return when (val result = SyntaxSchemeTransaction(writer, ::publishSchemeChange).apply(changes, journal)) {
-            is SyntaxTransactionResult.Applied -> result
-            is SyntaxTransactionResult.Failed -> {
-                replacementFonts = previousFonts
-                result
+        return try {
+            when (val result = SyntaxSchemeTransaction(writer, ::publishSchemeChange).apply(changes, journal)) {
+                is SyntaxTransactionResult.Applied -> result
+                is SyntaxTransactionResult.Failure -> {
+                    replacementFonts = previousFonts
+                    result
+                }
             }
+        } catch (cancellation: ProcessCanceledException) {
+            replacementFonts = previousFonts
+            throw cancellation
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            replacementFonts = previousFonts
+            throw cancellation
         }
     }
 
