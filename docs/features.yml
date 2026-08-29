@@ -540,7 +540,7 @@ categories:
         title: "Per-language syntax tuning"
         keyword: "Syntax tuning"
         introduced: "2.7.0"
-        updated: "2.9.0"
+        updated: "2.8.7"
         tier: paid
         description: >
           Per-language sliders tune only primitives confirmed by the active
