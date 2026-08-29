@@ -22,6 +22,7 @@ internal data class SyntaxRuntime(
     val productId: String,
     val version: String,
     val candidateLanguages: Set<String>,
+    val allowsHighlightingRestart: Boolean = false,
     val marketplaceDependency: MarketplaceDependency? = null,
     val provisioning: RuntimeProvisioning = RuntimeProvisioning.Ready,
 )
@@ -100,6 +101,7 @@ internal object SyntaxRuntimeCatalog {
                 productId = "INTELLIJ_IDEA_COMMUNITY",
                 version = "2025.1",
                 candidateLanguages = setOf("Dart"),
+                allowsHighlightingRestart = true,
                 marketplaceDependency = MarketplaceDependency("Dart", "506.1.0"),
             ),
             SyntaxRuntime(
