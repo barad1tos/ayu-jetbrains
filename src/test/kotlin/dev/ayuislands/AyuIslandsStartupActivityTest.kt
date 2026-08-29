@@ -24,6 +24,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.org.objectweb.asm.ClassReader
 import org.jetbrains.org.objectweb.asm.ClassVisitor
 import org.jetbrains.org.objectweb.asm.MethodVisitor
@@ -36,6 +37,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -55,6 +57,25 @@ class AyuIslandsStartupActivityTest {
 
     // Tests that mock global objects restore them in a local finally block;
     // LoggedErrorProcessor.executeWith restores the default processor itself.
+
+    @Test
+    fun `startup initializes focused editor context before other project work`() {
+        val project = mockk<Project>()
+        val stop = SettingsContextInitialized()
+        val startup =
+            AyuIslandsStartupActivity(
+                initializeFocusedEditorContext = {
+                    throw stop
+                },
+            )
+
+        val thrown =
+            assertFailsWith<SettingsContextInitialized> {
+                runBlocking { startup.execute(project) }
+            }
+
+        assertSame(stop, thrown)
+    }
 
     @Test
     fun `license startup uses IntelliJ write-safe dispatcher`() {
@@ -1270,3 +1291,5 @@ class AyuIslandsStartupActivityTest {
             }
         }
 }
+
+private class SettingsContextInitialized : RuntimeException()

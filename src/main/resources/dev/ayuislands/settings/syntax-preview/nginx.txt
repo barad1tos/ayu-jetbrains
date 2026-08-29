@@ -1,0 +1,13 @@
+# Native Nginx preview
+http {
+    map $http_x_preview $preview_name {
+        default "Ayu";
+    }
+    server {
+        listen 8080;
+        location ^~ /preview/ {
+            add_header X-Preview $preview_name;
+            return 200 "syntax";
+        }
+    }
+}

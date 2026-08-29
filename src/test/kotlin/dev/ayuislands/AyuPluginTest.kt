@@ -69,6 +69,11 @@ class AyuPluginTest {
     }
 
     @Test
+    fun `syntax providers stay outside shared plugin lookup`() {
+        assertNull(AyuPlugin.markerClassName(PluginId.getId("dev.j-a.swift")))
+    }
+
+    @Test
     fun `findLoadedPlugin returns null when optional plugin marker class is unavailable`() {
         val app = mockk<Application>()
         val absentId = PluginId.getId("indent-rainbow.indent-rainbow")

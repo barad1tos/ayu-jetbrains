@@ -3,35 +3,58 @@ package dev.ayuislands.syntax
 import com.intellij.openapi.diagnostic.logger
 import java.util.concurrent.ConcurrentHashMap
 
+sealed interface SyntaxKeyRole {
+    sealed interface LanguageOwned : SyntaxKeyRole {
+        val languageId: String
+    }
+
+    data class Tunable(
+        override val languageId: String,
+        val primitive: PrimitiveCategory,
+    ) : LanguageOwned
+
+    data class Excluded(
+        override val languageId: String,
+        val reason: String,
+    ) : LanguageOwned
+
+    data class OutsideLanguageScope(
+        val reason: String,
+        val renderingPrimitive: PrimitiveCategory? = null,
+    ) : SyntaxKeyRole
+
+    data class Unknown(
+        val keyName: String,
+    ) : SyntaxKeyRole
+}
+
+internal val SyntaxKeyRole.effectivePrimitive: PrimitiveCategory?
+    get() =
+        when (this) {
+            is SyntaxKeyRole.Tunable -> primitive
+            is SyntaxKeyRole.OutsideLanguageScope -> renderingPrimitive
+            is SyntaxKeyRole.Excluded,
+            is SyntaxKeyRole.Unknown,
+            -> null
+        }
+
 /**
- * Classifies a `TextAttributesKey.externalName` to a [PrimitiveCategory] using
- * a language-aware two-step (D-06, INTENSITY-05):
+ * Total classifier for `TextAttributesKey.externalName` values.
  *
- *  1. Delegate to [SyntaxLanguageRegistry.classify] so its bucket inference
- *     and latched unknown-prefix logging fire for every key this method sees.
- *     The returned tag is intentionally discarded — the applicator caller
- *     (Plan 50-04) consults [SyntaxLanguageRegistry] itself when it needs the
- *     language tag for per-language preset-curve lookup. This step exists so
- *     CASCADE-bucket keys (`DEFAULT_STRING`, `DEFAULT_LINE_COMMENT`, …) still
- *     classify via the suffix rule and OTHER-bucket keys are NOT auto-null.
- *  2. Match the `keyName` against an ordered suffix-rule table. First match
- *     wins — more-specific suffixes (`DOC_COMMENT`, `STATIC_FIELD`) MUST come
- *     before less-specific ones (`COMMENT`, `KEYWORD`).
- *
- * Unknown suffixes return `null` and log INFO exactly once per (suffix,
- * session) via a Pattern A `ConcurrentHashMap.newKeySet` latch — never spam.
- *
- * Pure-compute object (no `@Service`, no IDE state). Thread-safe by
- * construction: immutable rule list + `ConcurrentHashMap`-backed latch.
- * No exception-handling primitives appear in this file because the classifier
- * does no I/O; the only operations are regex matching and set membership,
- * neither of which can fail in a recoverable way (Pattern B compliance).
+ * Language-owned keys become tunable or explicitly excluded. Known suffixes
+ * outside a language remain available to preset rendering but never become
+ * per-language controls. Unknown keys are retained as an explicit role and
+ * logged once per suffix.
  */
-object SyntaxCategoryRegistry {
+object SyntaxKeyRoleRegistry {
     private const val SUFFIX_LATCH_MAX_CHARS = 24
 
-    private val log = logger<SyntaxCategoryRegistry>()
+    private val log = logger<SyntaxKeyRoleRegistry>()
     private val warnedUnknownSuffixes = ConcurrentHashMap.newKeySet<String>()
+    private val excludedLanguageKeys =
+        mapOf(
+            "COFFEESCRIPT.CLASS_NAME" to "Provider emits JS.EXPORTED.CLASS for class names",
+        )
 
     /**
      * Ordered suffix-rule table. First match wins.
@@ -45,8 +68,8 @@ object SyntaxCategoryRegistry {
      *    `OPERATOR` family because some platforms emit
      *    `KOTLIN_FUNCTION_DECLARATION` and we want FUNCTION_DECL, not OPERATOR.
      *  - `CLASS_DECLARATION` / `CLASS_NAME` route to CLASS_DECL — at this
-     *    granularity class-references and class-declarations are NOT
-     *    distinguished (Plan 50-04 modulates them with the same curve).
+     *    granularity class references and declarations intentionally share
+     *    the same curve.
      *  - `INTERFACE_NAME` / `INTERFACE_DECLARATION` must beat CLASS_*; place
      *    INTERFACE BEFORE CLASS in the table.
      *  - `LOCAL_VARIABLE` must beat the generic VARIABLE family (no rule yet).
@@ -72,7 +95,10 @@ object SyntaxCategoryRegistry {
                 "LINE_COMMENT$|BLOCK_COMMENT$|COMMENT$|COMMENT_REFERENCE$|_COMMENT_",
                 "MARKDOWN_BLOCK_QUOTE_MARKER|MARKDOWN_FRONT_MATTER",
                 "IGNORE\\.COMMENT|IGNORE\\.UNUSED_ENTRY|COND_NOT_COMPILED",
+                "Scala (?:Line|Block) comment",
             )
+            // GraphQL directives are annotation-like metadata, not language directives.
+            addRules(PrimitiveCategory.ANNOTATION, "^GRAPHQL_DIRECTIVE$")
             // --- Swift instance method (must beat INSTANCE_FIELD) ----------
             addRules(
                 PrimitiveCategory.FUNCTION_DECL,
@@ -82,20 +108,26 @@ object SyntaxCategoryRegistry {
             addRules(
                 PrimitiveCategory.STATIC_FIELD,
                 "STATIC_FIELD|STATIC_FINAL_FIELD|STATIC_GETTER|STATIC_SETTER",
-                "STATIC_MEMBER|^Static field$|org\\.rust\\.STATIC|org\\.rust\\.MUT_STATIC|PHP_CONSTANT",
+                "STATIC_MEMBER_VARIABLE|STATIC_MEMBER_FIELD|^Static field$",
+                "org\\.rust\\.STATIC|org\\.rust\\.MUT_STATIC|PHP_CONSTANT",
                 "^Static property reference ID$",
                 "SWIFT\\.CONSTANT",
             )
             addRules(
                 PrimitiveCategory.INSTANCE_FIELD,
                 "INSTANCE_FIELD|INSTANCE_FINAL_FIELD|INSTANCE_GETTER|INSTANCE_SETTER",
-                "INSTANCE_MEMBER|INSTANCE_PROPERTY|TOP_LEVEL_GETTER|TOP_LEVEL_SETTER",
+                "INSTANCE_MEMBER_VARIABLE|INSTANCE_MEMBER_FIELD|INSTANCE_PROPERTY",
+                "TOP_LEVEL_GETTER|TOP_LEVEL_SETTER",
                 "TOP_LEVEL_VARIABLE|TOP_LEVEL_FUNCTION|PROPERTY_REFERENCE|HASH_KEY|TAG_KEY",
                 "TAG_VALUE|MAP_KEY|INSTANCE_PROPERTY_CUSTOM|PACKAGE_PROPERTY",
                 "INSTANCE_FIELD_ATTRIBUTES|SYNTHETIC_EXTENSION_PROPERTY|^Instance field$",
                 "LUA_FIELD|SWIFT_PROPERTY|SWIFT_GLOBAL_VARIABLE|Instance property reference|GO_TAG_TEXT",
+                "GO_STRUCT_(?:EXPORTED|LOCAL)_MEMBER$",
+                "RUBY_IVAR",
                 "SWIFT\\.GLOBAL_VARIABLE|SWIFT\\.PROPERTY",
-                "MAGIC_MEMBER_ACCESS|EDITORCONFIG_PROPERTY_KEY|DOTENV_KEY|HCL\\.BLOCK_ONLY_NAME_KEY",
+                "POWER_SHELL_PROPERTY_REF_NAME",
+                "MAGIC_MEMBER_ACCESS|EDITORCONFIG_PROPERTY_KEY|DOTENV_KEY",
+                "HCL\\.BLOCK_ONLY_NAME_KEY|HCL\\.PROPERTY_KEY",
             )
             // --- Functions / methods (must beat KEYWORD / OPERATOR) ---------
             addRules(
@@ -115,6 +147,8 @@ object SyntaxCategoryRegistry {
                 "KOTLIN_CONSTRUCTOR|TEAR_OFF|Method call|Method declaration",
                 "Groovy method declaration|Groovy constructor declaration|Groovy constructor call",
                 "LOCAL_FUNC|STD_API|POWER_SHELL_COMMAND_NAME|POWER_SHELL_METHOD_CALL_NAME",
+                "POWER_SHELL_METHOD_DECLARATION_NAME",
+                "GO_STRUCT_(?:EXPORTED|LOCAL)_MEMBER_CALL",
                 "RBS_TMETHOD_NAME|RBS_RUBY_SPECIFIC_CALLS",
                 "FUNCTION_REFERENCE|^Static method access$",
             )
@@ -125,6 +159,11 @@ object SyntaxCategoryRegistry {
                 "INTERFACE_NAME_ATTRIBUTES|PROTOCOL_REFERENCE|PROTOCOL_NAME|PROTOCOL_DECLARATION",
                 "KOTLIN_TRAIT|EXPORTED_INTERFACE",
                 "INTERFACE$|^Trait name$|^Interface name$|Scala Trait|RBS_TINTERFACEIDENT",
+            )
+            addRules(
+                PrimitiveCategory.TYPE_REF,
+                "GO_(?:EXPORTED|LOCAL)_STRUCT_REFERENCE",
+                "PY\\.ANNOTATION",
             )
             // --- Class / enum / struct (declarations + references) ----------
             addRules(
@@ -141,7 +180,8 @@ object SyntaxCategoryRegistry {
                 "^Enum name$|^Anonymous class name$|^Abstract class name$|Scala Class",
                 "Scala Object|Scala Given|Scala Abstract class|Scala Enum|GO_TYPE_SPECIFICATION",
                 "MAKEFILE_TARGET|MAKEFILE_SPECIAL_TARGET|MAKEFILE_PREREQUISITE|NGINX_TYPES",
-                "DART_EXTENSION$|DART_MIXIN|GRAPHQL_IDENTIFIER|QL_ENTITY",
+                "DART_EXTENSION$|DART_MIXIN|GRAPHQL_IDENTIFIER|QL_ENTITY|PUPPET_NAME",
+                "POWER_SHELL_TYPE_NAME",
                 "IntelliJComposableCallTextAttributes",
             )
             // --- Generics --------------------------------------------------
@@ -153,6 +193,7 @@ object SyntaxCategoryRegistry {
             // --- Keywords / modifiers --------------------------------------
             addRules(
                 PrimitiveCategory.KEYWORD,
+                "^HTTP_REQUEST_METHOD_TYPE$",
                 "KEYWORD($|S|_)|MODIFIER$|RESERVED_WORD$|KEYWORD_OPERATIONS$",
                 "DIRECTIVE$|HEADER$|TAG_NAME$|XML_NS_PREFIX|XML_TAG_DATA",
                 "DIRECTIVE_PREFIX|DIRECTIVE_COMMAND|DIRECTIVE_KEY|DIRECTIVE_VALUE",
@@ -161,7 +202,7 @@ object SyntaxCategoryRegistry {
                 "SELF_SUPER|DIRECTIVE_CONDITION|DIRECTIVE_FLAG|PREDEFINED_SYMBOL",
                 "REQUIRE_CALL|WORDS|MARKDOWN_HEADER|NGINX_IF|NGINX_GEO",
                 "NGINX_MAP|DROOLS_OPERATIONS|Scalatest keyword|Scala directive",
-                "Scala XML tag$|Scala XML tag name|GENERATED_ITEM|QUTE_BOOLEAN",
+                "Scala Keyword|Scala XML tag$|Scala XML tag name|GENERATED_ITEM|QUTE_BOOLEAN",
                 "JSONPATH\\.BOOLEAN|JSONPATH\\.OPERATIONS|JSONPATH\\.CONTEXT",
                 "IGNORE\\.NEGATION|IGNORE\\.SYNTAX|IGNORE\\.SLASH",
                 "IGNORE\\.SECTION|IGNORE\\.HEADER|MAKEFILE_FUNCTION$",
@@ -178,7 +219,7 @@ object SyntaxCategoryRegistry {
                 "ANONYMOUS_CLOSURE_PARAMETER",
                 "FUNCTION_PARAM|MAKEFILE_FUNCTION_PARAM|Closure parameter|Groovy parameter",
                 "Groovy reassigned parameter|Scala Parameter|Scala Named Argument",
-                "Scala Anonymous Parameter",
+                "Scala Anonymous Parameter|GHERKIN_TABLE_HEADER_CELL",
             )
             // --- Local variables -------------------------------------------
             addRules(
@@ -195,10 +236,10 @@ object SyntaxCategoryRegistry {
                 "TGLOBALIDENT$|TSYMBOL$|TNAMESPACE$|RBS_T|BATCH\\.EXPRESSION",
                 "DQL_PLACEHOLDER|DQL_EXPR|CRONEXP\\.IDENTIFIER|EDITORCONFIG_IDENTIFIER",
                 "EDITORCONFIG_PATTERN|EDITORCONFIG_SPECIAL_SYMBOL|EDITORCONFIG_VARIABLE",
+                "BATCH\\.ENVIRONMENT_VARIABLE_DEFINITION",
                 "NGINX_VARIABLE|NGINX_LUA_BLOCK_DIRECTIVE|HTTP_REQUEST_PROTOCOL",
                 "HTTP_REQUEST_PORT|HTTP_REQUEST_PARAMETER_NAME|HTTP_REQUEST_PARAMETER_VALUE",
                 "HTTP_REQUEST_FILE_VARIABLE_NAME|COOKIE_TOKEN|POWER_SHELL_VARIABLE",
-                "POWER_SHELL_PROPERTY_REF_NAME",
                 "QUTE_IDENTIFIER|QUTE_TAG_NAME|TIL\\.IDENTIFIER|TIL\\.PROPERTY_REFERENCE",
                 "TIL\\.RESOURCE_INSTANCE_REFERENCE|PROTO_IDENTIFIER|PROTOTEXT_IDENTIFIER",
                 "PROTO_ENUM_VALUE|PROTOTEXT_ENUM_VALUE|JSONPATH\\.IDENTIFIER|JSONPATH\\.FUNCTION",
@@ -213,12 +254,13 @@ object SyntaxCategoryRegistry {
                 "GString|FSTRING_FRAGMENT|REGEX$|REGEXP$|ESCAPE$",
                 "VALID_ESCAPE|INVALID_ESCAPE|^Valid string escape$|^Invalid string escape$",
                 "MARKDOWN_CODE_SPAN|INTERPOLATION",
-                "String Injection|VALUE$|CONTENT$",
+                "String Injection|VALUE$|CONTENT$|Scala String",
+                "PY\\.STRING\\.",
             )
             // --- Number literals -------------------------------------------
             addRules(
                 PrimitiveCategory.NUMBER_LITERAL,
-                "NUMBER$|INTEGER$|FLOAT$|HEX$|NUMBER_LITERAL$|^Number$",
+                "NUMBER$|INTEGER$|FLOAT$|HEX$|NUMBER_LITERAL$|^Number$|Scala Number",
             )
             // --- Annotations / decorators / metadata ------------------------
             addRules(
@@ -242,7 +284,7 @@ object SyntaxCategoryRegistry {
                 "^Closure braces$|^Operation sign$|^Braces$|^Brackets$|^Parentheses$|^Label$|JS\\.LABEL|BATCH\\.LABEL",
                 "BATCH\\.LABEL_REFERENCE|GOTO_LABEL|POWER_SHELL_LABEL_NAME",
                 "YAML_SCALAR_LIST|CSS\\.AMPERSAND|PROGUARD_WILDCARD|IGNORE\\.BRACKET",
-                "WILDCARD",
+                "WILDCARD|Scala (?:Assign|Braces|Brackets|Comma|Parentheses)",
             )
             // --- Type references / aliases ---------------------------------
             // PUBLIC_/PROTECTED_/PACKAGE_PRIVATE_/PRIVATE_REFERENCE are deliberately
@@ -252,6 +294,7 @@ object SyntaxCategoryRegistry {
             addRules(
                 PrimitiveCategory.TYPE_REF,
                 "TYPE_REFERENCE$|TYPE_NAME$|TYPE_ALIAS$|TYPE$|TYPEALIAS$|TYPEALIAS_REFERENCE",
+                "PRIMITIVE\\.TYPES$",
                 "ASSOCIATED_TYPE_DECLARATION",
                 "TYPE_HINT|PRIMITIVE_TYPE_HINT|PREDEFINED_SCOPE|PREDEFINED|Scala Type",
                 "Scala Predefined types|Scala Mutable Collection|Scala Immutable Collection",
@@ -270,35 +313,56 @@ object SyntaxCategoryRegistry {
         patterns.forEach { pattern -> add(Regex(pattern) to category) }
     }
 
-    /**
-     * Classify a `TextAttributesKey` external name into a [PrimitiveCategory].
-     *
-     * Returns `null` for unknown suffixes; logs INFO once per (suffix, session)
-     * via the Pattern A latch.
-     */
-    fun classify(keyName: String): PrimitiveCategory? {
-        // Step 1: language-aware delegation. Result is discarded — the
-        // applicator calls SyntaxLanguageRegistry itself when it needs the
-        // tag. We invoke it here so the unknown-prefix latched logging fires
-        // for the same set of keys this classifier processes (D-06 contract).
-        SyntaxLanguageRegistry.classify(keyName)
+    /** Declared tunable roles keyed by stable primitive storage ID. */
+    fun rolesFor(languageId: String): Map<String, SyntaxKeyRole.LanguageOwned> {
+        val specification = SyntaxLanguageRegistry.findByStorageId(languageId) ?: return emptyMap()
+        return specification.preview.files
+            .flatMap { it.demonstratedCategories }
+            .distinct()
+            .associate { primitive ->
+                primitive.specification.storageId to SyntaxKeyRole.Tunable(languageId, primitive)
+            }
+    }
 
-        // Step 2: ordered suffix-rule match.
-        for ((regex, category) in suffixRules) {
-            if (regex.containsMatchIn(keyName)) return category
+    fun classify(keyName: String): SyntaxKeyRole {
+        val language = SyntaxLanguageRegistry.classify(keyName)
+        val primitive = primitiveFor(keyName)
+        if (language.bucket == SyntaxLanguageRegistry.Bucket.LANGUAGE) {
+            excludedLanguageKeys[keyName]?.let { reason ->
+                return SyntaxKeyRole.Excluded(language.displayName, reason)
+            }
+            return if (primitive == null) {
+                SyntaxKeyRole.Excluded(language.displayName, "No supported primitive role")
+            } else {
+                SyntaxKeyRole.Tunable(language.displayName, primitive)
+            }
+        }
+        if (primitive != null) {
+            return SyntaxKeyRole.OutsideLanguageScope(
+                reason = "${language.bucket} keys are not per-language controls",
+                renderingPrimitive = primitive,
+            )
+        }
+        if (language.bucket != SyntaxLanguageRegistry.Bucket.OTHER) {
+            return SyntaxKeyRole.OutsideLanguageScope("${language.bucket} key")
+        }
+        logUnknownSuffix(keyName)
+        return SyntaxKeyRole.Unknown(keyName)
+    }
+
+    private fun primitiveFor(keyName: String): PrimitiveCategory? =
+        suffixRules.firstNotNullOfOrNull { (regex, category) ->
+            category.takeIf { regex.containsMatchIn(keyName) }
         }
 
+    private fun logUnknownSuffix(keyName: String) {
         val suffix =
             keyName
                 .substringAfterLast('_')
                 .substringAfterLast('.')
                 .take(SUFFIX_LATCH_MAX_CHARS)
         if (warnedUnknownSuffixes.add(suffix)) {
-            log.info(
-                "Unknown TextAttributesKey suffix '$suffix' for key '$keyName' — " +
-                    "preset will skip this key",
-            )
+            log.info("Unknown TextAttributesKey suffix '$suffix' for key '$keyName'")
         }
-        return null
     }
 }

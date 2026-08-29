@@ -1,0 +1,10 @@
+# Native HCL preview
+variable "preview" {
+  type = object({ name = string, count = number, enabled = bool })
+  default = { name = "Ayu", count = 42, enabled = true }
+}
+
+resource "local_file" "preview" {
+  filename = "${path.module}/preview.txt"
+  content  = var.preview.enabled ? var.preview.name : "none"
+}

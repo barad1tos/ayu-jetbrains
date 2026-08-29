@@ -3,9 +3,8 @@ package dev.ayuislands.glow
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
-import com.intellij.util.ui.UIUtil
+import dev.ayuislands.ui.logicalImage
 import java.awt.Color
-import java.awt.Component
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
@@ -258,7 +257,7 @@ class GlowRenderer {
         region: Rectangle,
         layers: List<GlowLayer>,
     ): FrameSlice {
-        val image = UIUtil.createImage(null as Component?, region.width, region.height, BufferedImage.TYPE_INT_ARGB)
+        val image = logicalImage(region.width, region.height)
         val g2 = image.createGraphics()
         try {
             g2.translate(-region.x, -region.y)
@@ -279,7 +278,7 @@ class GlowRenderer {
         frameHeight: Int,
         glowWidth: Int,
     ): FrameSlice {
-        val image = UIUtil.createImage(null as Component?, region.width, region.height, BufferedImage.TYPE_INT_ARGB)
+        val image = logicalImage(region.width, region.height)
         val g2 = image.createGraphics()
         try {
             g2.translate(-region.x, -region.y)

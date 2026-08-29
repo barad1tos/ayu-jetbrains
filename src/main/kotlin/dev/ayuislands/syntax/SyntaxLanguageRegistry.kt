@@ -3,6 +3,40 @@ package dev.ayuislands.syntax
 import com.intellij.openapi.diagnostic.logger
 import java.util.concurrent.ConcurrentHashMap
 
+data class LanguageSpecification(
+    val storageId: String,
+    val displayName: String,
+    val aliases: Set<String>,
+    val nativeProfiles: List<NativeProfile>,
+    val preview: PreviewBundle,
+    val semanticOnlyCategories: Set<PrimitiveCategory> = emptySet(),
+)
+
+data class NativeProfile(
+    val id: String,
+    val fileTypeNames: Set<String>,
+    val languageIds: Set<String>,
+    val exactFileNames: Set<String>,
+    val extensions: Set<String>,
+    val isDetectionProfile: Boolean = true,
+)
+
+data class PreviewBundle(
+    val files: List<PreviewFileSpec>,
+)
+
+data class PreviewFileSpec(
+    val fileName: String,
+    val resourceName: String,
+    val profileId: String,
+    val demonstratedCategories: Set<PrimitiveCategory>,
+)
+
+private data class NativeIdentityAliases(
+    val fileTypeNames: Set<String>,
+    val languageIds: Set<String>,
+)
+
 /**
  * Prefix-based classifier for syntax `TextAttributesKey.externalName` strings.
  *
@@ -11,14 +45,14 @@ import java.util.concurrent.ConcurrentHashMap
  * [Bucket.DIAGNOSTICS] (warnings/errors/typos — hidden from picker),
  * [Bucket.EDITOR_OVERLAY] (breakpoints/folded text/diff — hidden from picker),
  * or [Bucket.OTHER] (unknown prefix; logged once via [warnedUnknownPrefixes]
- * latch — Pattern A from [SyntaxOverlayLoader]).
+ * latch shared with [SyntaxOverlayLoader]).
  *
  * Also owns the closed catalog of 5 cascade keys eligible for per-language
- * materialization in Phase 50A — see [cascadeKeysInScope] and
- * [cascadeTargets]. Per Phase 50 RESEARCH OQ-04 the catalog is intentionally
+ * materialization — see [cascadeKeysInScope] and [cascadeTargets]. The catalog
+ * is intentionally
  * conservative (`DEFAULT_LINE_COMMENT` / `BLOCK_COMMENT` / `DOC_COMMENT` /
- * `STRING` / `NUMBER`); broader cascade keys are deferred until Wave 3
- * proves the materialization cycle does not double-apply.
+ * `STRING` / `NUMBER`); broader cascade keys require equivalent evidence that
+ * materialization cannot double-apply.
  *
  * Object (not `@Service`) — pure compute, no IDE state. Thread-safe by
  * construction (immutable maps + ConcurrentHashMap-backed unknown-prefix
@@ -27,11 +61,7 @@ import java.util.concurrent.ConcurrentHashMap
  *  - [Bucket] = CASCADE → cross-language baseline used to derive
  *    per-language materialized keys at apply time
  *  - [Bucket] / DIAGNOSTICS / EDITOR_OVERLAY / OTHER → hidden from picker;
- *    intensity does NOT modulate these (R-7 — pollution risk)
- *
- * References Phase 50 RESEARCH OQ-03 (full prefix map) + OQ-04
- * (cascade-targets table) + CONTEXT D-06 (prefix ownership) + D-07
- * (cross-language cascade materialized per-language).
+ *    intensity does not modulate these because they are not language-owned
  */
 object SyntaxLanguageRegistry {
     enum class Bucket { LANGUAGE, CASCADE, DIAGNOSTICS, EDITOR_OVERLAY, OTHER }
@@ -123,6 +153,25 @@ object SyntaxLanguageRegistry {
 
     private val cascadeTargetsMap: Map<String, Map<String, String>> = buildCascadeTargets()
 
+    private val languageSpecifications: List<LanguageSpecification> by lazy(::buildLanguageSpecifications)
+
+    private val specificationsById: Map<String, LanguageSpecification> by lazy {
+        languageSpecifications.associateBy(LanguageSpecification::storageId)
+    }
+
+    private val specificationsByAlias: Map<String, LanguageSpecification> by lazy {
+        buildMap {
+            for (specification in languageSpecifications) {
+                for (alias in specification.aliases) {
+                    val previous = put(alias.lowercase(), specification)
+                    check(previous == null || previous == specification) {
+                        "Language alias '$alias' belongs to both ${previous?.storageId} and ${specification.storageId}"
+                    }
+                }
+            }
+        }
+    }
+
     fun classify(keyName: String): LangTag {
         if (keyName in diagnosticsKeys) {
             return LangTag(keyName, keyName, Bucket.DIAGNOSTICS)
@@ -157,6 +206,12 @@ object SyntaxLanguageRegistry {
             .filter { it.bucket == Bucket.LANGUAGE }
             .sortedBy { it.displayName }
 
+    fun specifications(): List<LanguageSpecification> = languageSpecifications
+
+    fun findByStorageId(storageId: String): LanguageSpecification? = specificationsById[storageId]
+
+    fun resolveAlias(alias: String): LanguageSpecification? = specificationsByAlias[alias.lowercase()]
+
     fun cascadeTargets(
         languageTag: String,
         defaultCascadeKey: String,
@@ -175,12 +230,111 @@ object SyntaxLanguageRegistry {
 
     fun cascadeKeysInScope(): Set<String> = cascadeKeysInScopeSet
 
+    private fun buildLanguageSpecifications(): List<LanguageSpecification> {
+        val previews = SyntaxPreviewCatalog.entries().associateBy(SyntaxPreviewSpec::language)
+        return supportedLanguages().map { language ->
+            val preview =
+                checkNotNull(previews[language.displayName]) {
+                    "Missing preview declaration for ${language.displayName}"
+                }
+            val aliases =
+                buildSet {
+                    add(language.tag)
+                    add(language.displayName)
+                    if (language.tag == SWIFT_STORAGE_ID) add(NOCTULE_SWIFT_ALIAS)
+                    if (language.tag == BASH_STORAGE_ID) add(SHELL_SCRIPT_ALIAS)
+                }
+            LanguageSpecification(
+                storageId = language.displayName,
+                displayName = language.displayName,
+                aliases = aliases,
+                nativeProfiles =
+                    buildList {
+                        preview.fixtures.forEach { fixture ->
+                            add(
+                                NativeProfile(
+                                    id = "${language.displayName}:${fixture.profileName}",
+                                    fileTypeNames =
+                                        nativeFileTypeNames(
+                                            language.displayName,
+                                            language.tag,
+                                            fixture.fileType.standardName,
+                                        ),
+                                    languageIds =
+                                        aliases +
+                                            nativeIdentityAliases[language.displayName]?.languageIds.orEmpty() +
+                                            fixture.fileType.languageIds,
+                                    exactFileNames = nativeFileNames(language.displayName),
+                                    extensions =
+                                        nativeExtensions(
+                                            language.displayName,
+                                            fixture.fileType.extension,
+                                        ),
+                                    isDetectionProfile = fixture.isDetectionProfile,
+                                ),
+                            )
+                        }
+                        preview.detectionProfiles.forEach { profile ->
+                            add(
+                                NativeProfile(
+                                    id = "${language.displayName}:${profile.profileName}",
+                                    fileTypeNames = profile.fileTypeNames,
+                                    languageIds = aliases + profile.languageIds,
+                                    exactFileNames = nativeFileNames(language.displayName),
+                                    extensions = profile.extensions,
+                                ),
+                            )
+                        }
+                    },
+                preview =
+                    PreviewBundle(
+                        files =
+                            preview.fixtures.map { fixture ->
+                                PreviewFileSpec(
+                                    fileName = fixture.fileName,
+                                    resourceName = fixture.resourceName,
+                                    profileId = "${language.displayName}:${fixture.profileName}",
+                                    demonstratedCategories = fixture.demonstratedCategories,
+                                )
+                            },
+                    ),
+                semanticOnlyCategories = preview.semanticOnlyCategories,
+            )
+        }
+    }
+
+    private fun nativeFileTypeNames(
+        language: String,
+        languageId: String,
+        standardFileTypeName: String,
+    ): Set<String> =
+        buildSet {
+            add(standardFileTypeName)
+            addAll(nativeIdentityAliases[language]?.fileTypeNames.orEmpty())
+            if (languageId == SWIFT_STORAGE_ID) add(NOCTULE_SWIFT_ALIAS)
+        }
+
+    private fun nativeFileNames(language: String): Set<String> = exactNativeFileNames[language].orEmpty()
+
+    private fun nativeExtensions(
+        language: String,
+        defaultExtension: String,
+    ): Set<String> =
+        buildSet {
+            add(defaultExtension)
+            when (language) {
+                "HCL" -> add("tf")
+                "YAML" -> add("yml")
+            }
+        }
+
     private fun buildPrefixRules(): List<Pair<Regex, LangTag>> =
         spaceSeparatedRules() + pluginNamespacedRules() + dotNamespacedRules() + underscoreRules()
 
     private fun spaceSeparatedRules(): List<Pair<Regex, LangTag>> =
         listOf(
             Regex("^Scala ") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
+            Regex("^ScalaDoc ") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
             Regex("^Scalatest ") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
             Regex("^Groovy(doc)? ") to groovyTag,
         )
@@ -225,6 +379,7 @@ object SyntaxLanguageRegistry {
             Regex("^RUBY_") to LangTag("Ruby", "Ruby", Bucket.LANGUAGE),
             Regex("^SWIFT_") to LangTag("Swift", "Swift", Bucket.LANGUAGE),
             Regex("^MARKDOWN_") to LangTag("Markdown", "Markdown", Bucket.LANGUAGE),
+            Regex("^DQL_") to LangTag("DQL", "DQL", Bucket.LANGUAGE),
             Regex("^LUA_") to LangTag("Lua", "Lua", Bucket.LANGUAGE),
             Regex("^RBS_") to LangTag("Ruby", "Ruby", Bucket.LANGUAGE),
             Regex("^SCALA_") to LangTag("Scala", "Scala", Bucket.LANGUAGE),
@@ -251,7 +406,7 @@ object SyntaxLanguageRegistry {
             Regex("^PROTOTEXT_") to LangTag("ProtobufText", "Protobuf text", Bucket.LANGUAGE),
             Regex("^PROTO_") to LangTag("Protobuf", "Protobuf", Bucket.LANGUAGE),
             Regex("^ERL_") to LangTag("Erlang", "Erlang", Bucket.LANGUAGE),
-            Regex("^GITLAB_") to LangTag("GitLab", "GitLab CI", Bucket.LANGUAGE),
+            Regex("^GITLAB_") to LangTag("GitLab", GITLAB_CI_NAME, Bucket.LANGUAGE),
             Regex("^DOTENV_") to LangTag("dotenv", "dotenv", Bucket.LANGUAGE),
             Regex("^APPLE_") to LangTag("ApplePlist", "Apple plist", Bucket.LANGUAGE),
             Regex("^QL_") to LangTag("CodeQL", "CodeQL", Bucket.LANGUAGE),
@@ -296,9 +451,15 @@ object SyntaxLanguageRegistry {
                 mapOf(
                     "DEFAULT_LINE_COMMENT" to "Scala Line comment",
                     "DEFAULT_BLOCK_COMMENT" to "Scala Block comment",
-                    "DEFAULT_DOC_COMMENT" to "SCALA_DOC_COMMENT",
+                    "DEFAULT_DOC_COMMENT" to "ScalaDoc comment",
                     "DEFAULT_STRING" to "Scala String",
-                    "DEFAULT_NUMBER" to "SCALA_NUMBER",
+                    "DEFAULT_NUMBER" to "Scala Number",
+                ),
+            "Batch" to
+                mapOf(
+                    "DEFAULT_BLOCK_COMMENT" to "BATCH.COMMENT",
+                    "DEFAULT_STRING" to "BATCH.STRING",
+                    "DEFAULT_NUMBER" to "BATCH.NUMBER",
                 ),
             "Rust" to
                 mapOf(
@@ -349,5 +510,46 @@ object SyntaxLanguageRegistry {
                 mapOf(
                     "DEFAULT_LINE_COMMENT" to "BASH.LINE_COMMENT",
                 ),
+        )
+
+    private const val SWIFT_STORAGE_ID = "Swift"
+    private const val NOCTULE_SWIFT_ALIAS = "NoctuleSwift"
+    private const val BASH_STORAGE_ID = "Bash"
+    private const val SHELL_SCRIPT_ALIAS = "Shell Script"
+    private const val GITLAB_CI_NAME = "GitLab CI"
+
+    private val nativeIdentityAliases =
+        mapOf(
+            "Angular" to NativeIdentityAliases(setOf("Angular2Html"), setOf("Angular2Html")),
+            "Django" to NativeIdentityAliases(setOf("DjangoTemplate"), setOf("DjangoTemplate")),
+            "Docker" to NativeIdentityAliases(setOf("Dockerfile"), setOf("Dockerfile")),
+            "dotenv" to NativeIdentityAliases(setOf(".env file"), setOf("DotEnv")),
+            "FreeMarker" to NativeIdentityAliases(setOf("FTL"), setOf("FTL")),
+            "Gherkin" to NativeIdentityAliases(setOf("Cucumber"), setOf("Gherkin")),
+            GITLAB_CI_NAME to
+                NativeIdentityAliases(
+                    setOf("GitLabCiExpression"),
+                    setOf("GitLabCiExpressionLanguage"),
+                ),
+            "HTTP client" to NativeIdentityAliases(setOf("HTTP Request"), setOf("HTTP Request")),
+            "Objective-C" to NativeIdentityAliases(setOf("ObjectiveC"), setOf("ObjectiveC")),
+            "Protobuf text" to NativeIdentityAliases(setOf("prototext"), setOf("prototext")),
+            "Ruby" to NativeIdentityAliases(setOf("Ruby"), setOf("ruby")),
+            "Sass" to NativeIdentityAliases(setOf("SCSS"), setOf("SCSS")),
+            "Velocity" to NativeIdentityAliases(setOf("VTL"), setOf("VTL")),
+            "Vue" to NativeIdentityAliases(setOf("Vue.js"), setOf("Vue")),
+        )
+
+    private val exactNativeFileNames =
+        mapOf(
+            "Apple plist" to setOf("Info.plist"),
+            "Cron expression" to setOf("crontab"),
+            "Docker" to setOf("Dockerfile"),
+            "EditorConfig" to setOf(".editorconfig"),
+            GITLAB_CI_NAME to setOf(".gitlab-ci.yml"),
+            "Ignore files" to setOf(".gitignore"),
+            "Makefile" to setOf("Makefile"),
+            "Nginx" to setOf("nginx.conf"),
+            "dotenv" to setOf(".env"),
         )
 }

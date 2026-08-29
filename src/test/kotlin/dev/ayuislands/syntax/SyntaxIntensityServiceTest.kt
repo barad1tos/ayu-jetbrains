@@ -8,11 +8,17 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.JBColor
+import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.theme.EditorSchemeChange
+import dev.ayuislands.theme.EditorSchemeOverrides
+import dev.ayuislands.theme.EditorSchemeOwner
+import dev.ayuislands.theme.OverrideWriteResult
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -22,12 +28,17 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
 import java.awt.Font
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -68,6 +79,7 @@ class SyntaxIntensityServiceTest {
     private lateinit var ayuSettings: AyuIslandsSettings
     private lateinit var ayuState: AyuIslandsState
     private lateinit var props: PropertiesComponent
+    private lateinit var overrideCheckpoints: EditorSchemeOverrides.AttributeCheckpoints
     private val keyCache = mutableMapOf<String, TextAttributesKey>()
 
     @BeforeTest
@@ -117,6 +129,18 @@ class SyntaxIntensityServiceTest {
 
         mockkObject(EditorSchemeChange)
         every { EditorSchemeChange.publish() } returns Unit
+        mockkObject(EditorSchemeOverrides)
+        overrideCheckpoints = mockk()
+        every { EditorSchemeOverrides.checkpoints } returns overrideCheckpoints
+        every { EditorSchemeOverrides.restore(any(), EditorSchemeOwner.Syntax) } returns Unit
+        every { EditorSchemeOverrides.rearm(EditorSchemeOwner.Syntax, any(), any()) } returns Unit
+        every {
+            overrideCheckpoints.capture(any(), EditorSchemeOwner.Syntax, any())
+        } returns mockk(relaxed = true)
+        every { overrideCheckpoints.rollback(any()) } returns emptyList()
+        every {
+            EditorSchemeOverrides.writeAttributes(any(), EditorSchemeOwner.Syntax, any(), any())
+        } returns OverrideWriteResult.APPLIED
 
         loader = mockk(relaxed = true)
         val payload =
@@ -129,6 +153,7 @@ class SyntaxIntensityServiceTest {
         for (variant in listOf("Mirage", "Dark", "Light")) {
             every { loader.loadOverlayForVariant(variant) } returns payload
             every { loader.loadBaselineForVariant(variant) } returns payload
+            every { loader.fallbacksFor(variant) } returns emptyMap()
         }
         mockkObject(SyntaxOverlayLoader.Companion)
         every { SyntaxOverlayLoader.getInstance() } returns loader
@@ -155,6 +180,7 @@ class SyntaxIntensityServiceTest {
         every {
             SyntaxIntensityApplicator.compute(any())
         } returns payload
+        every { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) } returns emptyMap()
 
         every { mockApp.getService(SyntaxIntensityService::class.java) } returns SyntaxIntensityService()
         every { mockApp.getService(AyuIslandsSettings::class.java) } returns ayuSettings
@@ -211,6 +237,179 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 1) { EditorSchemeChange.publish() }
     }
 
+    @Test
+    fun `active operator replacement exposes exact font style to range highlighters`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = SyntaxPreset.CUSTOM.name,
+                subordinatePreset = SyntaxPreset.AMBIENT.name,
+                customOverrides = emptyMap(),
+                customStyles =
+                    mapOf(
+                        "Swift" to mapOf(PrimitiveCategory.OPERATOR.name to Font.PLAIN),
+                    ),
+                customEmphasis =
+                    mapOf(
+                        "Swift" to mapOf(PrimitiveCategory.OPERATOR.name to Font.BOLD),
+                    ),
+            ),
+        )
+
+        assertEquals(
+            Font.BOLD,
+            service.replacementFontType("Swift", PrimitiveCategory.OPERATOR),
+        )
+
+        service.apply(SyntaxPreset.AMBIENT, emptyMap())
+
+        assertNull(service.replacementFontType("Swift", PrimitiveCategory.OPERATOR))
+    }
+
+    @Test
+    fun `tunable categories return effective map without scheme writes or publication`() {
+        val expected = mapOf("Swift" to setOf(PrimitiveCategory.FUNCTION_DECL))
+        every { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) } returns expected
+        val service = SyntaxIntensityService()
+        service.apply(SyntaxPreset.AMBIENT, emptyMap())
+        clearMocks(loader, mockMirage, mockDark, mockLight, answers = false, recordedCalls = true)
+        clearMocks(EditorSchemeChange, SyntaxIntensityApplicator, answers = false, recordedCalls = true)
+
+        val result = service.tunableCategories(AyuVariant.MIRAGE)
+
+        assertEquals(expected, result)
+        verify(exactly = 0) { EditorSchemeChange.publish() }
+        verify(exactly = 0) { loader.loadBaselineForVariant(any()) }
+        verify(exactly = 0) { loader.loadOverlayForVariant(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.compute(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) }
+        verify(exactly = 0) { mockMirage.setAttributes(any(), any<TextAttributes>()) }
+        verify(exactly = 0) { mockDark.setAttributes(any(), any<TextAttributes>()) }
+        verify(exactly = 0) { mockLight.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `capabilities include inherited language keys omitted from computed writes`() {
+        val inheritedSwiftKey = TextAttributesKey.find("SWIFT.BRACKETS")
+        val inheritedSwiftAttributes = TextAttributes()
+        val capabilitySnapshots = mutableListOf<List<String>>()
+        every { loader.loadBaselineForVariant("Mirage") } returns
+            mapOf(
+                TextAttributesKey.find(PAYLOAD_KEY_NAME) to TextAttributes(),
+                inheritedSwiftKey to inheritedSwiftAttributes,
+            )
+        every { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) } answers {
+            capabilitySnapshots +=
+                firstArg<Map<TextAttributesKey, TextAttributes>>().keys.map { key -> key.externalName }
+            emptyMap()
+        }
+
+        SyntaxIntensityService().apply(SyntaxPreset.AMBIENT, emptyMap())
+
+        assertTrue(capabilitySnapshots.any { "SWIFT.BRACKETS" in it })
+    }
+
+    @Test
+    fun `apply restores syntax-owned attributes before writing the current pass`() {
+        SyntaxIntensityService().apply(SyntaxPreset.AMBIENT, emptyMap())
+
+        verify(exactly = 1) { EditorSchemeOverrides.restore(mockMirage, EditorSchemeOwner.Syntax) }
+        verify(exactly = 1) { EditorSchemeOverrides.restore(mockDark, EditorSchemeOwner.Syntax) }
+        verify(exactly = 1) { EditorSchemeOverrides.restore(mockLight, EditorSchemeOwner.Syntax) }
+    }
+
+    @Test
+    fun `inherited materialization uses exact-restoration ownership instead of a direct write`() {
+        val swiftFallback = TextAttributesKey.find("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.find("SWIFT.BRACKETS")
+        every { swiftBrackets.fallbackAttributeKey } returns swiftFallback
+        every { loader.loadBaselineForVariant("Mirage") } returns mapOf(swiftBrackets to TextAttributes())
+        every { loader.loadOverlayForVariant("Mirage") } returns emptyMap()
+        every { SyntaxIntensityApplicator.compute(any()) } answers {
+            val request = firstArg<SyntaxIntensityApplicator.Request>()
+            if (request.variantName == "Mirage") {
+                mapOf(swiftBrackets to TextAttributes().apply { foregroundColor = Color(0xCC, 0xCA, 0xC2) })
+            } else {
+                emptyMap()
+            }
+        }
+
+        SyntaxIntensityService().apply(SyntaxPreset.CUSTOM, emptyMap())
+
+        verify(exactly = 1) {
+            EditorSchemeOverrides.writeAttributes(
+                mockMirage,
+                EditorSchemeOwner.Syntax,
+                swiftBrackets,
+                any<TextAttributes>(),
+            )
+        }
+        verify(exactly = 0) { mockMirage.setAttributes(swiftBrackets, any<TextAttributes>()) }
+        verify(exactly = 1) {
+            EditorSchemeOverrides.rearm(
+                EditorSchemeOwner.Syntax,
+                listOf(mockMirage),
+                mapOf(mockMirage to setOf("SWIFT.BRACKETS")),
+            )
+        }
+    }
+
+    @Test
+    fun `syntax ownership restore propagates platform cancellation`() {
+        every {
+            EditorSchemeOverrides.restore(mockMirage, EditorSchemeOwner.Syntax)
+        } throws ProcessCanceledException()
+
+        assertFailsWith<ProcessCanceledException> {
+            SyntaxIntensityService().apply(SyntaxPreset.AMBIENT, emptyMap())
+        }
+
+        verify(exactly = 0) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `syntax ownership write propagates platform cancellation`() {
+        val swiftFallback = TextAttributesKey.find("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.find("SWIFT.BRACKETS")
+        every { swiftBrackets.fallbackAttributeKey } returns swiftFallback
+        every { loader.loadBaselineForVariant("Mirage") } returns mapOf(swiftBrackets to TextAttributes())
+        every { loader.loadOverlayForVariant("Mirage") } returns emptyMap()
+        every { SyntaxIntensityApplicator.compute(any()) } answers {
+            val request = firstArg<SyntaxIntensityApplicator.Request>()
+            if (request.variantName == "Mirage") {
+                mapOf(swiftBrackets to TextAttributes())
+            } else {
+                emptyMap()
+            }
+        }
+        every {
+            EditorSchemeOverrides.writeAttributes(
+                mockMirage,
+                EditorSchemeOwner.Syntax,
+                swiftBrackets,
+                any(),
+            )
+        } throws ProcessCanceledException()
+
+        assertFailsWith<ProcessCanceledException> {
+            SyntaxIntensityService().apply(SyntaxPreset.CUSTOM, emptyMap())
+        }
+
+        verify(exactly = 0) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `tunable categories fail open before a variant snapshot exists`() {
+        val result = SyntaxIntensityService().tunableCategories(AyuVariant.MIRAGE)
+
+        assertNull(result)
+        verify(exactly = 0) { loader.loadBaselineForVariant(any()) }
+        verify(exactly = 0) { loader.loadOverlayForVariant(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.compute(any()) }
+        verify(exactly = 0) { SyntaxIntensityApplicator.tunableCategories(any(), any(), any()) }
+        verify(exactly = 0) { EditorSchemeChange.publish() }
+    }
+
     // ---------- Test 4: R-7 delegates read-action handling ----------
 
     @Test
@@ -265,6 +464,477 @@ class SyntaxIntensityServiceTest {
         service.apply(SyntaxPreset.WHISPER, emptyMap())
 
         verify(exactly = 0) { solarizedScheme.setAttributes(any(), any<TextAttributes>()) }
+    }
+
+    @Test
+    fun `runtime preview writes only the active Ayu scheme`() {
+        val runtime = SyntaxIntensityService().openRuntimeSession()
+
+        runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+
+        val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
+        verify(exactly = 1) { mockMirage.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 0) { mockDark.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 0) { mockLight.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 1) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `runtime preview skips a foreign active scheme without publishing`() {
+        val foreign: EditorColorsScheme =
+            mockk(relaxed = true) {
+                every { name } returns "Solarized"
+                every { defaultBackground } returns Color.WHITE
+            }
+        every { mockManager.globalScheme } returns foreign
+        val runtime = SyntaxIntensityService().openRuntimeSession()
+
+        val result =
+            runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+
+        assertIs<SyntaxTransactionResult.Applied>(result)
+        verify(exactly = 0) { foreign.setAttributes(any(), any<TextAttributes>()) }
+        verify(exactly = 0) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `runtime cancel restores retained active checkpoints once`() {
+        val runtime = SyntaxIntensityService().openRuntimeSession()
+        runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+
+        val result = runtime.restore()
+
+        assertIs<SyntaxTransactionResult.Applied>(result)
+        verify(exactly = 1) { overrideCheckpoints.rollback(any()) }
+        verify(exactly = 2) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `service retains incomplete rollback for recovery before the next apply`() {
+        val darkCheckpoint = mockk<EditorSchemeOverrides.AttributesCheckpoint>(relaxed = true)
+        every {
+            overrideCheckpoints.capture(mockDark, EditorSchemeOwner.Syntax, any())
+        } returns darkCheckpoint
+        every {
+            EditorSchemeOverrides.restore(mockDark, EditorSchemeOwner.Syntax)
+        } throws IllegalStateException("write failed") andThen Unit
+        every {
+            overrideCheckpoints.rollback(darkCheckpoint)
+        } returns listOf(IllegalStateException("rollback failed")) andThen emptyList()
+        val service = SyntaxIntensityService()
+
+        assertFailsWith<IllegalStateException> {
+            service.apply(SyntaxPreset.WHISPER, emptyMap())
+        }
+        service.apply(SyntaxPreset.WHISPER, emptyMap())
+
+        verify(exactly = 2) { overrideCheckpoints.rollback(darkCheckpoint) }
+    }
+
+    @Test
+    fun `runtime cancel restores semantic font checkpoint`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        runtime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+
+        runtime.restore()
+
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `runtime cancel restores semantic fonts before a failed editor refresh`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        runtime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+        val refreshFailure = IllegalStateException("editor refresh")
+        every { EditorSchemeChange.publish() } throws refreshFailure andThen Unit
+
+        val failed = runtime.restore()
+
+        assertSame(refreshFailure, assertIs<SyntaxTransactionResult.RolledBack>(failed).cause)
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+        assertIs<SyntaxTransactionResult.Applied>(runtime.restore())
+    }
+
+    @Test
+    fun `closing after cancelled restore keeps recovery alive outside the settings session`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        runtime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+        val cancellation = ProcessCanceledException()
+        every { EditorSchemeChange.publish() } throws cancellation andThen Unit
+
+        assertSame(cancellation, assertFailsWith<ProcessCanceledException> { runtime.restore() })
+        val recovery = assertNotNull(runtime.close())
+
+        assertIs<SyntaxTransactionResult.Applied>(service.retryRecovery(recovery))
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `new preview clears retained recovery before writing newer syntax state`() {
+        val service = SyntaxIntensityService()
+        val firstRuntime = service.openRuntimeSession()
+        firstRuntime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+        val cancellation = ProcessCanceledException()
+        every { EditorSchemeChange.publish() } throws cancellation
+        assertSame(cancellation, assertFailsWith<ProcessCanceledException> { firstRuntime.restore() })
+        val retainedRecovery = assertNotNull(firstRuntime.close())
+        var publications = 0
+        every { EditorSchemeChange.publish() } answers { publications++ }
+
+        val newerPreview =
+            service
+                .openRuntimeSession()
+                .preview(SyntaxPresetConfig(selectedPreset = "NEON", customOverrides = emptyMap()))
+
+        assertIs<SyntaxTransactionResult.Applied>(newerPreview)
+        assertEquals(2, publications)
+        assertIs<SyntaxTransactionResult.Applied>(service.retryRecovery(retainedRecovery))
+        assertEquals(2, publications)
+    }
+
+    @Test
+    fun `new runtime captures fonts after retained recovery succeeds`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val firstRuntime = service.openRuntimeSession()
+        firstRuntime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+        every { overrideCheckpoints.rollback(any()) } returns
+            listOf(IllegalStateException("rollback failed")) andThen emptyList() andThen emptyList()
+
+        assertIs<SyntaxTransactionResult.RecoveryRequired>(firstRuntime.restore())
+        assertNotNull(firstRuntime.close())
+        val secondRuntime = service.openRuntimeSession()
+        secondRuntime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles =
+                    mapOf(
+                        "Kotlin" to mapOf("KEYWORD" to Font.BOLD.or(Font.ITALIC)),
+                    ),
+            ),
+        )
+
+        assertIs<SyntaxTransactionResult.Applied>(secondRuntime.restore())
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `active runtime recovers failed rollback before accepting a newer preview`() {
+        val service = SyntaxIntensityService()
+        val runtime = service.openRuntimeSession()
+        runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+        every { overrideCheckpoints.rollback(any()) } returns
+            listOf(IllegalStateException("rollback failed")) andThen emptyList()
+
+        assertIs<SyntaxTransactionResult.RecoveryRequired>(runtime.restore())
+        assertIs<SyntaxTransactionResult.Applied>(
+            runtime.preview(SyntaxPresetConfig(selectedPreset = "NEON", customOverrides = emptyMap())),
+        )
+
+        verify(exactly = 2) { overrideCheckpoints.rollback(any()) }
+        runtime.advance()
+    }
+
+    @Test
+    fun `direct reapply clears retained recovery before materializing saved syntax`() {
+        val service = SyntaxIntensityService()
+        val runtime = service.openRuntimeSession()
+        runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+        val cancellation = ProcessCanceledException()
+        every { EditorSchemeChange.publish() } throws cancellation
+        assertSame(cancellation, assertFailsWith<ProcessCanceledException> { runtime.restore() })
+        val retainedRecovery = assertNotNull(runtime.close())
+        var publications = 0
+        every { EditorSchemeChange.publish() } answers { publications++ }
+
+        service.apply(SyntaxPresetConfig(selectedPreset = "NEON", customOverrides = emptyMap()))
+
+        assertEquals(2, publications)
+        assertIs<SyntaxTransactionResult.Applied>(service.retryRecovery(retainedRecovery))
+        assertEquals(2, publications)
+    }
+
+    @Test
+    fun `direct reapply waits for active editing session to close`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        runtime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD.or(Font.ITALIC))),
+            ),
+        )
+
+        assertEquals(Font.ITALIC, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+        assertIs<SyntaxTransactionResult.Applied>(runtime.restore())
+        assertNull(runtime.close())
+        assertEquals(Font.BOLD.or(Font.ITALIC), service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `advancing an editing session discards an older deferred reapply`() {
+        val service = SyntaxIntensityService()
+        val runtime = service.openRuntimeSession()
+        runtime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+
+        runtime.advance()
+        assertNull(runtime.close())
+
+        assertEquals(Font.ITALIC, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `deferred reapply waits until retained session recovery succeeds`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        runtime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD.or(Font.ITALIC))),
+            ),
+        )
+        val refreshFailure = IllegalStateException("editor refresh")
+        every { EditorSchemeChange.publish() } throws refreshFailure andThen Unit andThen Unit
+
+        assertIs<SyntaxTransactionResult.RolledBack>(runtime.restore())
+        val recovery = assertNotNull(runtime.close())
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+
+        assertIs<SyntaxTransactionResult.Applied>(service.retryRecovery(recovery))
+        assertEquals(Font.BOLD.or(Font.ITALIC), service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `failed deferred reapply remains owned by the recovery ticket until retry succeeds`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        runtime.preview(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+            ),
+        )
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD.or(Font.ITALIC))),
+            ),
+        )
+        val restoreFailure = IllegalStateException("editor refresh")
+        val deferredFailure = IllegalStateException("deferred publish")
+        var publications = 0
+        every { EditorSchemeChange.publish() } answers {
+            publications++
+            when (publications) {
+                1 -> throw restoreFailure
+                3 -> throw deferredFailure
+            }
+        }
+
+        assertIs<SyntaxTransactionResult.RolledBack>(runtime.restore())
+        val recovery = assertNotNull(runtime.close())
+
+        val failedRetry = service.retryRecovery(recovery)
+        assertSame(deferredFailure, assertIs<SyntaxTransactionResult.RolledBack>(failedRetry).cause)
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+
+        assertIs<SyntaxTransactionResult.Applied>(service.retryRecovery(recovery))
+        assertEquals(Font.BOLD.or(Font.ITALIC), service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+        assertIs<SyntaxTransactionResult.Applied>(service.retryRecovery(recovery))
+    }
+
+    @Test
+    fun `cancelled deferred reapply restores recovery ticket ownership before propagation`() {
+        val service = SyntaxIntensityService()
+        val runtime = service.openRuntimeSession()
+        runtime.preview(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+        service.apply(SyntaxPresetConfig(selectedPreset = "NEON", customOverrides = emptyMap()))
+        val restoreFailure = IllegalStateException("editor refresh")
+        val cancellation = ProcessCanceledException()
+        var publications = 0
+        every { EditorSchemeChange.publish() } answers {
+            publications++
+            when (publications) {
+                1 -> throw restoreFailure
+                3 -> throw cancellation
+            }
+        }
+
+        assertIs<SyntaxTransactionResult.RolledBack>(runtime.restore())
+        val recovery = assertNotNull(runtime.close())
+
+        assertSame(cancellation, assertFailsWith<ProcessCanceledException> { service.retryRecovery(recovery) })
+        assertIs<SyntaxTransactionResult.Applied>(service.retryRecovery(recovery))
+        assertEquals(5, publications)
+        assertIs<SyntaxTransactionResult.Applied>(service.retryRecovery(recovery))
+    }
+
+    @Test
+    fun `clean runtime close preserves failed deferred reapply for the next session close`() {
+        val service = SyntaxIntensityService()
+        val runtime = service.openRuntimeSession()
+        service.apply(SyntaxPresetConfig(selectedPreset = "NEON", customOverrides = emptyMap()))
+        val deferredFailure = IllegalStateException("deferred publish")
+        every { EditorSchemeChange.publish() } throws deferredFailure andThen Unit andThen Unit
+
+        assertSame(deferredFailure, assertFailsWith<IllegalStateException> { runtime.close() })
+
+        assertNull(service.openRuntimeSession().close())
+        verify(exactly = 3) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `runtime cancellation restores semantic font checkpoint before propagation`() {
+        val service = SyntaxIntensityService()
+        service.apply(
+            SyntaxPresetConfig(
+                selectedPreset = "CUSTOM",
+                customOverrides = emptyMap(),
+                customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.BOLD)),
+            ),
+        )
+        val runtime = service.openRuntimeSession()
+        val cancellation = CancellationException("preview cancelled")
+        every { EditorSchemeChange.publish() } throws cancellation
+
+        val thrown =
+            assertFailsWith<CancellationException> {
+                runtime.preview(
+                    SyntaxPresetConfig(
+                        selectedPreset = "CUSTOM",
+                        customOverrides = emptyMap(),
+                        customStyles = mapOf("Kotlin" to mapOf("KEYWORD" to Font.ITALIC)),
+                    ),
+                )
+            }
+
+        assertSame(cancellation, thrown)
+        assertEquals(Font.BOLD, service.replacementFontType("Kotlin", PrimitiveCategory.KEYWORD))
+    }
+
+    @Test
+    fun `runtime materialization never runs legacy retirement outside direct apply`() {
+        val runtime = SyntaxIntensityService().openRuntimeSession()
+
+        runtime.materialize(SyntaxPresetConfig(selectedPreset = "WHISPER", customOverrides = emptyMap()))
+
+        for (keyName in RETIRED_KEY_NAMES) {
+            val retiredKey = TextAttributesKey.find(keyName)
+            verify(exactly = 0) {
+                mockMirage.setAttributes(retiredKey, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+                mockDark.setAttributes(retiredKey, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+                mockLight.setAttributes(retiredKey, AbstractColorsScheme.INHERITED_ATTRS_MARKER)
+            }
+        }
+        verify(exactly = 0) { props.setList(RETIREMENT_FLAG_KEY, any()) }
     }
 
     @Test
@@ -333,15 +1003,25 @@ class SyntaxIntensityServiceTest {
         verify(exactly = 1) { mockMirage.setAttributes(payloadKey, any<TextAttributes>()) }
     }
 
-    // ---------- Test 9: Pattern B per-key write isolation ----------
+    // Atomic scheme writes.
 
     @Test
-    fun `Pattern B - apply continues after RuntimeException on one scheme write`() {
-        every { mockMirage.setAttributes(any(), any<TextAttributes>()) } throws RuntimeException("simulated")
-        SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
-        verify(atLeast = 1) { mockDark.setAttributes(any(), any<TextAttributes>()) }
-        verify(atLeast = 1) { mockLight.setAttributes(any(), any<TextAttributes>()) }
-        verify(exactly = 1) { EditorSchemeChange.publish() }
+    fun `apply rolls back every target and publishes nothing after a write failure`() {
+        every { props.getList(RETIREMENT_FLAG_KEY) } returns
+            listOf("Ayu Islands Mirage", "Ayu Islands Dark", "Ayu Islands Light")
+        val payloadKey = TextAttributesKey.find(PAYLOAD_KEY_NAME)
+        every {
+            mockMirage.setAttributes(payloadKey, any<TextAttributes>())
+        } throws RuntimeException("simulated")
+
+        assertFailsWith<RuntimeException> {
+            SyntaxIntensityService().apply(SyntaxPreset.WHISPER, emptyMap())
+        }
+
+        verify(exactly = 3) { overrideCheckpoints.rollback(any()) }
+        verify(exactly = 0) { mockDark.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 0) { mockLight.setAttributes(payloadKey, any<TextAttributes>()) }
+        verify(exactly = 0) { EditorSchemeChange.publish() }
     }
 
     @Test
@@ -592,19 +1272,59 @@ class SyntaxIntensityServiceTest {
     }
 
     @Test
-    fun `reapplyForActiveLaf forwards config customStyles to compute`() {
+    fun `apply threads explicit scheme fallbacks through to compute`() {
+        val fallbacks = mapOf("SWIFT.BRACKETS" to "DEFAULT_BRACES")
+        every { loader.fallbacksFor("Mirage") } returns fallbacks
+
+        SyntaxIntensityService().apply(SyntaxPreset.CUSTOM, emptyMap())
+
+        verify(atLeast = 1) {
+            SyntaxIntensityApplicator.compute(
+                match { request -> request.variantName == "Mirage" && request.fallbacks == fallbacks },
+            )
+        }
+    }
+
+    @Test
+    fun `apply threads customEmphasis through to the applicator compute call`() {
+        val emphasis = mapOf("Kotlin" to mapOf("FUNCTION_DECLARATION" to Font.BOLD))
+
+        SyntaxIntensityService().apply(
+            config =
+                SyntaxPresetConfig(
+                    selectedPreset = "CUSTOM",
+                    customOverrides = emptyMap(),
+                    customEmphasis = emphasis,
+                ),
+        )
+
+        verify(atLeast = 1) {
+            SyntaxIntensityApplicator.compute(
+                match { request ->
+                    request.preset == SyntaxPreset.CUSTOM && request.customEmphasis == emphasis
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `reapplyForActiveLaf forwards config custom style and emphasis maps to compute`() {
         val styles = mapOf("Kotlin" to mapOf("COMMENT" to Font.ITALIC))
+        val emphasis = mapOf("Kotlin" to mapOf("FUNCTION_DECLARATION" to Font.BOLD))
         every { stateInstance.toPresetConfig() } returns
             SyntaxPresetConfig(
                 selectedPreset = "CUSTOM",
                 customOverrides = emptyMap(),
                 customStyles = styles,
+                customEmphasis = emphasis,
             )
         SyntaxIntensityService().reapplyForActiveLaf()
         verify(atLeast = 1) {
             SyntaxIntensityApplicator.compute(
                 match {
-                    it.preset == SyntaxPreset.CUSTOM && it.customStyles == styles
+                    it.preset == SyntaxPreset.CUSTOM &&
+                        it.customStyles == styles &&
+                        it.customEmphasis == emphasis
                 },
             )
         }

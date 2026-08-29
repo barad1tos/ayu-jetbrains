@@ -1,0 +1,19 @@
+#import <Foundation/Foundation.h>
+
+/// Renders values for preview.
+@protocol Previewing
+- (NSString *)render:(NSString *)value;
+@end
+
+@interface Preview : NSObject <Previewing>
+@property(nonatomic, copy) NSString *prefix;
++ (NSInteger)limit;
+@end
+
+@implementation Preview
++ (NSInteger)limit { return 42; }
+- (NSString *)render:(NSString *)value {
+    NSString *result = [self.prefix stringByAppendingString:value];
+    return result.length > 0 ? result : @"none";
+}
+@end

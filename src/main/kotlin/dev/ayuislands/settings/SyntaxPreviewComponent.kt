@@ -1,21 +1,29 @@
 package dev.ayuislands.settings
 
-import com.intellij.lang.Language
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
 import com.intellij.openapi.fileTypes.FileType
-import com.intellij.openapi.fileTypes.FileTypeManager
 import com.intellij.openapi.fileTypes.PlainTextFileType
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.testFramework.LightVirtualFile
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.syntax.LanguageSpecification
+import dev.ayuislands.syntax.NativeProfile
+import dev.ayuislands.syntax.PreviewFileSpec
+import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Dimension
@@ -23,8 +31,9 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
-import java.util.Locale
 import javax.swing.JComponent
+import javax.swing.JLabel
+import javax.swing.SwingConstants
 
 /**
  * Live preview of syntax-intensity colors rendered as a compact IDE scene.
@@ -32,21 +41,39 @@ import javax.swing.JComponent
  * The project tree is a lightweight frame, while the code pane is a native
  * [EditorTextField] so syntax colors come from the active IntelliJ editor
  * highlighter and color scheme instead of a hand-painted token imitation.
+ * The highlighter receives an in-memory file with the sample's real name and
+ * type, allowing language plugins to select the same lexer they use for files
+ * in the main editor.
  */
 internal class SyntaxPreviewComponent(
     private var variant: AyuVariant,
     private var language: String = DEFAULT_LANGUAGE,
+    private val previewCodeLoader: (String) -> String = ::loadPreviewCode,
+    private val previewResolver: NativePreviewResolver = NativePreviewResolver(),
+    private val previewFileFactory: (String, FileType, CharSequence) -> VirtualFile = ::createPreviewFile,
 ) : JComponent(),
     Disposable {
     private var previewSample: PreviewSample = sampleFor(language)
+    private var fileTypeResolution: PreviewFileType = resolvePreviewFileType(previewSample)
+    private val previewCodeCache = mutableMapOf<String, String>()
     private val editorField: EditorTextField = createEditorField()
+    private val recoveryLabel =
+        JLabel("", SwingConstants.CENTER).apply {
+            foreground = UIUtil.getContextHelpForeground()
+            isVisible = false
+        }
+    private val failedFactoryLanguages = mutableSetOf<String>()
+    private val failedNativeLanguages = mutableSetOf<String>()
+    private val failedPlainLanguages = mutableSetOf<String>()
+    private val failedResolutionLanguages = mutableSetOf<String>()
     private var isDisposed = false
 
     init {
         layout = null
         isOpaque = false
-        toolTipText = "Syntax color preview"
+        refreshFallbackTooltip(normalizeLanguage(language), fileTypeResolution)
         add(editorField)
+        add(recoveryLabel)
     }
 
     fun updatePreview(
@@ -57,21 +84,111 @@ internal class SyntaxPreviewComponent(
         val nextLanguage = normalizeLanguage(language)
         val nextSample = sampleFor(nextLanguage)
         if (nextLanguage != this.language || nextSample != previewSample) {
-            this.language = nextLanguage
-            previewSample = nextSample
-            val document = EditorFactory.getInstance().createDocument(nextSample.code)
-            editorField.setNewDocumentAndFileType(previewFileType(nextLanguage, nextSample), document)
+            selectSample(nextLanguage, nextSample)
         }
-        refreshEditorColorsScheme()
-        editorField.background = editorSurface()
+        refreshEditor()
+        editorField.background = surfacePalette().editor
         editorField.repaint()
         revalidate()
         repaint()
     }
 
-    private fun refreshEditorColorsScheme() {
-        val editor = editorField.getEditor(false) ?: return
-        editor.colorsScheme = previewColorsScheme(editor.colorsScheme)
+    fun showCapability(state: SyntaxCapabilityState?) {
+        val unavailable = state as? SyntaxCapabilityState.SupportUnavailable
+        recoveryLabel.text = LANGUAGE_SUPPORT_INSTRUCTION.takeIf { unavailable != null }.orEmpty()
+        recoveryLabel.isVisible = unavailable != null
+        editorField.isVisible = unavailable == null
+        revalidate()
+        repaint()
+    }
+
+    fun showPrimitive(category: PrimitiveCategory) {
+        val specification = SyntaxLanguageRegistry.findByStorageId(language) ?: return
+        val previewFileAndCode =
+            specification.preview.files
+                .asSequence()
+                .filter { category in it.demonstratedCategories }
+                .map { previewFile ->
+                    previewFile to
+                        previewCodeCache.getOrPut(previewFile.resourceName) {
+                            previewCodeLoader(previewFile.resourceName)
+                        }
+                }.minByOrNull { (_, code) -> code.length }
+                ?: return
+        val (previewFile, previewCode) = previewFileAndCode
+        val nextSample =
+            PreviewSample(
+                fileName = previewFile.fileName,
+                profile = specification.profile(previewFile),
+                code = previewCode,
+            )
+        if (nextSample == previewSample) return
+        selectSample(language, nextSample)
+        refreshEditor()
+        editorField.repaint()
+        revalidate()
+        repaint()
+    }
+
+    private fun selectSample(
+        nextLanguage: String,
+        nextSample: PreviewSample,
+    ) {
+        language = nextLanguage
+        previewSample = nextSample
+        fileTypeResolution = resolvePreviewFileType(nextSample)
+        val document = EditorFactory.getInstance().createDocument(nextSample.code)
+        editorField.setNewDocumentAndFileType(fileTypeResolution.fileType, document)
+        refreshFallbackTooltip(nextLanguage, fileTypeResolution)
+    }
+
+    private fun refreshEditor(editor: EditorEx? = editorField.getEditor(false)) {
+        editor ?: return
+        val previewScheme = previewColorsScheme(editor.colorsScheme)
+        editor.colorsScheme = previewScheme
+        installPreviewHighlighter(editor, previewScheme)
+    }
+
+    private fun installPreviewHighlighter(
+        editor: EditorEx,
+        scheme: EditorColorsScheme,
+    ) {
+        val project = editorField.project ?: return
+        val previewFile =
+            previewFileFactory(
+                previewSample.fileName,
+                fileTypeResolution.fileType,
+                previewSample.code,
+            )
+        val factory =
+            try {
+                EditorHighlighterFactory.getInstance()
+            } catch (runtime: RuntimeException) {
+                propagateCancellation(runtime)
+                if (failedFactoryLanguages.add(language)) {
+                    LOG.warn("Syntax highlighter service failed for preview language '$language'", runtime)
+                }
+                return
+            }
+        val highlighter =
+            try {
+                factory.createEditorHighlighter(previewFile, scheme, project)
+            } catch (runtime: RuntimeException) {
+                propagateCancellation(runtime)
+                if (failedNativeLanguages.add(language)) {
+                    LOG.warn("Native syntax highlighter failed for preview language '$language'", runtime)
+                }
+                try {
+                    factory.createEditorHighlighter(PlainTextFileType.INSTANCE, scheme, project)
+                } catch (fallbackFailure: RuntimeException) {
+                    propagateCancellation(fallbackFailure)
+                    if (failedPlainLanguages.add(language)) {
+                        LOG.warn("Plain-text highlighter failed for preview language '$language'", fallbackFailure)
+                    }
+                    return
+                }
+            }
+        editor.highlighter = highlighter
     }
 
     private fun previewColorsScheme(currentScheme: EditorColorsScheme): EditorColorsScheme {
@@ -96,6 +213,7 @@ internal class SyntaxPreviewComponent(
             (layout.editorWidth - JBUI.scale(EDITOR_INSET * 2)).coerceAtLeast(1),
             (layout.contentHeight - JBUI.scale(EDITOR_INSET * 2)).coerceAtLeast(1),
         )
+        recoveryLabel.bounds = editorField.bounds
     }
 
     override fun paintComponent(graphics: Graphics) {
@@ -105,7 +223,7 @@ internal class SyntaxPreviewComponent(
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
 
-            PreviewChromePainter.paintOuterPanel(g2, width, height, editorSurface())
+            PreviewChromePainter.paintOuterPanel(g2, width, height, surfacePalette().editor)
 
             val layout = PreviewChromePainter.layout(width, height)
             paintProjectPanel(g2, layout.padding, layout.padding, layout.projectWidth, layout.contentHeight)
@@ -127,14 +245,19 @@ internal class SyntaxPreviewComponent(
     }
 
     private fun createEditorField(): EditorTextField =
-        EditorTextField(
+        object : EditorTextField(
             previewSample.code,
             ProjectManager.getInstance().defaultProject,
-            previewFileType(language, previewSample),
-        ).apply {
+            fileTypeResolution.fileType,
+        ) {
+            override fun onEditorAdded(editor: Editor) {
+                super.onEditorAdded(editor)
+                if (editor is EditorEx) refreshEditor(editor)
+            }
+        }.apply {
             isViewer = true
             setDisposedWith(this@SyntaxPreviewComponent)
-            background = editorSurface()
+            background = surfacePalette().editor
             isOpaque = false
         }
 
@@ -150,7 +273,7 @@ internal class SyntaxPreviewComponent(
             panel =
                 PreviewChromeProjectPanel(
                     bounds = Rectangle(x, y, width, height),
-                    surface = panelSurface(),
+                    surface = surfacePalette().panel,
                     rows = projectRows(),
                     markerShape = PreviewChromeMarkerShape.ROUND,
                     textColor = UIUtil.getLabelForeground(),
@@ -165,15 +288,30 @@ internal class SyntaxPreviewComponent(
         width: Int,
         height: Int,
     ) {
-        PreviewChromePainter.paintPanelFrame(g2, Rectangle(x, y, width, height), editorSurface())
+        PreviewChromePainter.paintPanelFrame(g2, Rectangle(x, y, width, height), surfacePalette().editor)
     }
 
     private fun projectRows(): List<PreviewChromeProjectRow> =
-        listOf(PreviewChromeProjectRow(LANGUAGE_FILE_DOT, previewSample.fileName)) + PROJECT_ROW_TAIL
+        SyntaxLanguageRegistry
+            .findByStorageId(language)
+            ?.preview
+            ?.files
+            .orEmpty()
+            .map { previewFile -> PreviewChromeProjectRow(LANGUAGE_FILE_DOT, previewFile.fileName) }
+            .ifEmpty { listOf(PreviewChromeProjectRow(LANGUAGE_FILE_DOT, previewSample.fileName)) } + PROJECT_ROW_TAIL
 
-    private fun editorSurface(): Color = surfacePalette().editor
-
-    private fun panelSurface(): Color = surfacePalette().panel
+    private fun refreshFallbackTooltip(
+        language: String,
+        resolution: PreviewFileType,
+    ) {
+        toolTipText =
+            if (resolution.isPlainTextFallback) {
+                "Syntax highlighting for $language is unavailable in this IDE; " +
+                    "showing the native sample as plain text."
+            } else {
+                "Syntax color preview"
+            }
+    }
 
     private fun surfacePalette(): SurfacePalette =
         when (variant) {
@@ -201,17 +339,13 @@ internal class SyntaxPreviewComponent(
 
     private data class PreviewSample(
         val fileName: String,
-        val standardFileTypeName: String?,
-        val defaultExtension: String?,
+        val profile: NativeProfile?,
         val code: String,
     )
 
-    private data class PreviewSampleSpec(
-        val language: String,
-        val fileName: String,
-        val standardFileTypeName: String,
-        val defaultExtension: String,
-        val resourceName: String,
+    private data class PreviewFileType(
+        val fileType: FileType,
+        val isPlainTextFallback: Boolean,
     )
 
     internal companion object {
@@ -233,27 +367,12 @@ internal class SyntaxPreviewComponent(
                 PreviewChromeProjectRow(fixedColor(0xFFA759), "Types.kt"),
                 PreviewChromeProjectRow(fixedColor(0xFFD580), "build/"),
             )
-
-        private val PREVIEW_SAMPLE_SPECS =
-            listOf(
-                PreviewSampleSpec("Kotlin", "PresetPreview.kt", "Kotlin", "kt", "kotlin.txt"),
-                PreviewSampleSpec("Java", "PresetPreview.java", "JAVA", "java", "java.txt"),
-                PreviewSampleSpec("Python", "preset_preview.py", "Python", "py", "python.txt"),
-                PreviewSampleSpec("JavaScript", "preset-preview.js", "JavaScript", "js", "javascript.txt"),
-                PreviewSampleSpec("TypeScript", "preset-preview.ts", "TypeScript", "ts", "typescript.txt"),
-                PreviewSampleSpec("Go", "preset_preview.go", "Go", "go", "go.txt"),
-                PreviewSampleSpec("Rust", "preset_preview.rs", "Rust", "rs", "rust.txt"),
-                PreviewSampleSpec("CSS", "preview.css", "CSS", "css", "css.txt"),
-                PreviewSampleSpec("HTML", "preview.html", "HTML", "html", "html.txt"),
-                PreviewSampleSpec("JSON", "preview.json", "JSON", "json", "json.txt"),
-                PreviewSampleSpec("YAML", "preview.yaml", "YAML", "yaml", "yaml.txt"),
-                PreviewSampleSpec("Markdown", "preview.md", "Markdown", "md", "markdown.txt"),
-            ).associateBy(PreviewSampleSpec::language)
+        private val PLAIN_TEXT_PREVIEW =
+            PreviewFileType(PlainTextFileType.INSTANCE, isPlainTextFallback = true)
 
         private val DEFAULT_SAMPLE =
             PreviewSample(
                 "Preview.txt",
-                null,
                 null,
                 """
                 class Preview {
@@ -266,17 +385,48 @@ internal class SyntaxPreviewComponent(
 
         private fun fixedColor(rgb: Int): JBColor = JBColor(rgb, rgb)
 
+        private fun createPreviewFile(
+            name: String,
+            fileType: FileType,
+            content: CharSequence,
+        ): VirtualFile = LightVirtualFile(name, fileType, content)
+
+        @TestOnly
+        internal fun catalogLanguagesForTest(): Set<String> =
+            SyntaxLanguageRegistry.specifications().mapTo(linkedSetOf(), LanguageSpecification::storageId)
+
+        @TestOnly
+        internal fun categoriesForTest(language: String) =
+            SyntaxLanguageRegistry
+                .findByStorageId(language)
+                ?.preview
+                ?.files
+                .orEmpty()
+                .flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
         private fun normalizeLanguage(language: String): String =
             language.takeIf { it.isNotBlank() } ?: DEFAULT_LANGUAGE
 
         private fun sampleFor(language: String): PreviewSample =
-            PREVIEW_SAMPLE_SPECS[normalizeLanguage(language)]?.toPreviewSample() ?: DEFAULT_SAMPLE
+            SyntaxLanguageRegistry
+                .findByStorageId(normalizeLanguage(language))
+                ?.let(::firstPreviewSample)
+                ?: DEFAULT_SAMPLE
 
-        private fun PreviewSampleSpec.toPreviewSample(): PreviewSample =
+        private fun firstPreviewSample(specification: LanguageSpecification): PreviewSample {
+            val previewFile = specification.preview.files.firstOrNull() ?: return DEFAULT_SAMPLE
+            return previewFile.toPreviewSample(specification.profile(previewFile))
+        }
+
+        private fun LanguageSpecification.profile(previewFile: PreviewFileSpec) =
+            checkNotNull(nativeProfiles.firstOrNull { it.id == previewFile.profileId }) {
+                "Unknown native profile '${previewFile.profileId}' for '$storageId'"
+            }
+
+        private fun PreviewFileSpec.toPreviewSample(profile: NativeProfile): PreviewSample =
             PreviewSample(
                 fileName,
-                standardFileTypeName,
-                defaultExtension,
+                profile,
                 loadPreviewCode(resourceName),
             )
 
@@ -289,63 +439,22 @@ internal class SyntaxPreviewComponent(
             }
             return stream.bufferedReader(Charsets.UTF_8).use { it.readText().trimIndent() }
         }
+    }
 
-        private fun previewFileType(
-            language: String,
-            sample: PreviewSample,
-        ): FileType = availableFileType(language, sample) ?: PlainTextFileType.INSTANCE
-
-        internal fun preferredAvailableLanguage(
-            languages: List<String>,
-            preferred: String,
-        ): String =
-            languages.firstOrNull { it == preferred && hasFileType(it) }
-                ?: languages.firstOrNull(::hasFileType)
-                ?: languages.firstOrNull { it == preferred }
-                ?: languages.firstOrNull().orEmpty()
-
-        private fun hasFileType(language: String): Boolean = availableFileType(language, sampleFor(language)) != null
-
-        private fun availableFileType(
-            language: String,
-            sample: PreviewSample,
-        ): FileType? =
-            standardFileType(sample)
-                ?: registeredLanguageFileType(language)
-
-        private fun standardFileType(sample: PreviewSample): FileType? {
-            val standardName = sample.standardFileTypeName ?: return null
-            val extension = sample.defaultExtension
-            return try {
-                val fileType = FileTypeManager.getInstance().getStdFileType(standardName)
-                if (fileType.name.equals(standardName, ignoreCase = true) ||
-                    extension != null &&
-                    fileType.defaultExtension.equals(extension, ignoreCase = true)
-                ) {
-                    fileType
-                } else {
-                    null
+    private fun resolvePreviewFileType(sample: PreviewSample): PreviewFileType {
+        val profile = sample.profile ?: return PLAIN_TEXT_PREVIEW
+        return when (val resolution = previewResolver.resolve(sample.fileName, profile)) {
+            is NativePreviewResolution.Resolved ->
+                PreviewFileType(resolution.fileType, isPlainTextFallback = false)
+            is NativePreviewResolution.Unavailable -> PLAIN_TEXT_PREVIEW
+            is NativePreviewResolution.LookupFailed -> {
+                if (failedResolutionLanguages.add(language)) {
+                    LOG.warn("Native file type lookup failed for preview language '$language'", resolution.failure)
                 }
-            } catch (exception: RuntimeException) {
-                LOG.debug("Standard file type '$standardName' unavailable for syntax preview", exception)
-                null
+                PLAIN_TEXT_PREVIEW
             }
         }
-
-        private fun registeredLanguageFileType(languageDisplayName: String): FileType? =
-            try {
-                val normalizedDisplayName = languageDisplayName.lowercase(Locale.ROOT)
-                val language =
-                    Language.getRegisteredLanguages().firstOrNull {
-                        it.displayName.lowercase(Locale.ROOT) == normalizedDisplayName
-                    }
-                language?.let { FileTypeManager.getInstance().findFileTypeByLanguage(it) }
-            } catch (exception: RuntimeException) {
-                LOG.debug(
-                    "Registered language lookup failed for syntax preview language '$languageDisplayName'",
-                    exception,
-                )
-                null
-            }
     }
 }
+
+private fun propagateCancellation(failure: RuntimeException) = rethrowPreviewCancellation(failure)

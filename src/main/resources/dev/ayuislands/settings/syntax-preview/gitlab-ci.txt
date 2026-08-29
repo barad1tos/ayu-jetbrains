@@ -1,0 +1,2 @@
+$BRANCH == "main" || $PIPELINE_SOURCE == "merge_request_event"
+($TAG =~ /^v\d+\.\d+\.\d+$/ || $IS_PROTECTED) && $DEPLOY_TARGET != ""

@@ -111,6 +111,11 @@ internal class SettingsSession(
         participants.forEach { it.participant.reset() }
     }
 
+    fun cancel(): List<SettingsCleanupFailure> {
+        requireOpen()
+        return cleanUp(participants, SettingsParticipant::cancel)
+    }
+
     fun close(): List<SettingsCleanupFailure> {
         if (phase == Phase.CLOSED) return emptyList()
 
@@ -122,27 +127,34 @@ internal class SettingsSession(
         }
     }
 
-    private fun dispose(entries: List<NamedSettingsParticipant>): List<SettingsCleanupFailure> {
+    private fun dispose(entries: List<NamedSettingsParticipant>): List<SettingsCleanupFailure> =
+        cleanUp(entries, SettingsParticipant::dispose)
+
+    private fun cleanUp(
+        entries: List<NamedSettingsParticipant>,
+        operation: (SettingsParticipant) -> Unit,
+    ): List<SettingsCleanupFailure> {
         val failures = mutableListOf<SettingsCleanupFailure>()
-        var cancellation: Throwable? = null
-
-        for (entry in entries.asReversed()) {
-            try {
-                runCatchingPreservingCancellation { entry.participant.dispose() }
-                    .exceptionOrNull()
-                    ?.let { failures += SettingsCleanupFailure(entry.name, it) }
-            } catch (failure: ProcessCanceledException) {
-                cancellation = recordCancellation(cancellation, failure)
-            } catch (failure: CancellationException) {
-                cancellation = recordCancellation(cancellation, failure)
-            }
-        }
-
-        cancellation?.let { failure ->
-            failures.forEach { failure.addSuppressed(it.cause) }
-            throw failure
-        }
+        cleanUpFrom(entries.lastIndex, entries, operation, failures)
         return failures
+    }
+
+    private fun cleanUpFrom(
+        index: Int,
+        entries: List<NamedSettingsParticipant>,
+        operation: (SettingsParticipant) -> Unit,
+        failures: MutableList<SettingsCleanupFailure>,
+    ) {
+        if (index < 0) return
+        val (name, participant) = entries[index]
+        val operationFailure =
+            try {
+                runCatchingPreservingCancellation { operation(participant) }
+                    .exceptionOrNull()
+            } finally {
+                cleanUpFrom(index - 1, entries, operation, failures)
+            }
+        operationFailure?.let { failures += SettingsCleanupFailure(name, it) }
     }
 
     private fun runBuildStep(
@@ -166,9 +178,11 @@ internal class SettingsSession(
         try {
             cleanup().forEach { failure.addSuppressed(it.cause) }
         } catch (cleanupCancellation: ProcessCanceledException) {
-            failure.addSuppressed(cleanupCancellation)
+            if (cleanupCancellation !== failure) cleanupCancellation.addSuppressed(failure)
+            throw cleanupCancellation
         } catch (cleanupCancellation: CancellationException) {
-            failure.addSuppressed(cleanupCancellation)
+            if (cleanupCancellation !== failure) cleanupCancellation.addSuppressed(failure)
+            throw cleanupCancellation
         }
     }
 
@@ -186,11 +200,6 @@ internal class SettingsSession(
             throw cleanupCancellation
         }
     }
-
-    private fun recordCancellation(
-        recorded: Throwable?,
-        next: Throwable,
-    ): Throwable = recorded?.also { it.addSuppressed(next) } ?: next
 
     private fun requireOpen() {
         check(phase == Phase.OPEN) { "Settings session is not open" }

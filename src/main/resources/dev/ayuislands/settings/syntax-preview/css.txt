@@ -1,6 +1,9 @@
-.preview {
-    color: #ffcc66;
-    padding: 12px;
-    /* tune declarations */
-    border-radius: 6px;
+@media (min-width: 42rem) {
+    .preview-card[data-preview="ayu"] {
+        --accent: #ffcc66;
+        color: var(--accent);
+        padding: 12px;
+        background-image: url("preview.svg");
+        /* tuned declaration */
+    }
 }

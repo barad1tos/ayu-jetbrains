@@ -1,5 +1,6 @@
 package dev.ayuislands.accent
 
+import com.intellij.ide.impl.ProjectUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
@@ -33,13 +34,12 @@ import kotlin.test.assertTrue
  * resolver → apply → swap-cache sync) from drifting.
  *
  * Uses the real [AccentApplicator] object but mocks every collaborator:
- *  - [com.intellij.openapi.wm.IdeFocusManager] is left unmocked → returns the headless
- *    no-op manager whose `lastFocusedFrame` is `null`, so these tests exercise the
- *    [ProjectManager] fallback path. Primary-path coverage (real focused frame) is left
- *    to manual smoke / IDE integration; the production fallback chain is documented in
- *    the helper's own KDoc.
- *  - [ProjectManager.getInstance] for the fallback focused-project pick (first
- *    non-default, non-disposed open project)
+ *  - [ProjectUtil.getActiveProject] defaults to `null`, with an explicit test proving that
+ *    its active-project result wins over stale focus state
+ *  - [com.intellij.openapi.wm.IdeFocusManager] defaults to the headless no-op manager whose
+ *    `lastFocusedFrame` is `null`, with explicit tests for focused-frame fallbacks
+ *  - [ProjectManager.getInstance] for the final fallback pick (first non-default,
+ *    non-disposed open project)
  *  - [AccentResolver.resolve] for the resolver call (covered independently in AccentResolverTest)
  *  - A partial mock on [AccentApplicator] itself to intercept `apply(hex)` — we only care that
  *    the helper forwards the resolver's output, not the full UIManager side-effect chain
@@ -50,6 +50,8 @@ class AccentApplicatorFocusedProjectTest {
 
     @BeforeTest
     fun setUp() {
+        mockkStatic(ProjectUtil::class)
+        every { ProjectUtil.getActiveProject() } returns null
         mockkStatic(ProjectManager::class)
         mockkObject(AccentResolver)
         mockkObject(AccentApplicator, recordPrivateCalls = false)
@@ -187,6 +189,36 @@ class AccentApplicatorFocusedProjectTest {
         assertEquals("#FOCUSED", applied)
         verify(exactly = 1) { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) }
         verify(exactly = 0) { AccentResolver.resolve(otherProject, any<AccentContext>()) }
+    }
+
+    @Test
+    fun `applyForFocusedProject prefers platform active project over stale focused frame`() {
+        val activeProject = stubProject(isDefault = false, isDisposed = false)
+        val staleFocusedProject = stubProject(isDefault = false, isDisposed = false)
+        every { ProjectUtil.getActiveProject() } returns activeProject
+
+        val staleFocusedFrame =
+            mockk<IdeFrame> {
+                every { project } returns staleFocusedProject
+            }
+        val focusManager =
+            mockk<IdeFocusManager> {
+                every { lastFocusedFrame } returns staleFocusedFrame
+            }
+        mockkStatic(IdeFocusManager::class)
+        every { IdeFocusManager.getGlobalInstance() } returns focusManager
+
+        val manager = mockk<ProjectManager>()
+        every { manager.openProjects } returns arrayOf(staleFocusedProject, activeProject)
+        every { ProjectManager.getInstance() } returns manager
+        every { AccentResolver.resolve(activeProject, ayu(AyuVariant.MIRAGE)) } returns "#ACTIVE"
+        every { AccentResolver.resolve(staleFocusedProject, ayu(AyuVariant.MIRAGE)) } returns "#STALE"
+
+        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+
+        assertEquals("#ACTIVE", applied)
+        verify(exactly = 1) { AccentResolver.resolve(activeProject, ayu(AyuVariant.MIRAGE)) }
+        verify(exactly = 0) { AccentResolver.resolve(staleFocusedProject, any<AccentContext>()) }
     }
 
     @Test

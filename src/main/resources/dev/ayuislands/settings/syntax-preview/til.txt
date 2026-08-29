@@ -1,0 +1,8 @@
+${"Ayu".render(
+  42,
+  var.image_id,
+  path.module,
+  1 + (2 * 3),
+  true && !false,
+  aws_instance.preview.id[0]
+)}

@@ -1,0 +1,1 @@
+^(?<name>Ayu|Islands)-[A-Z][a-z]+-\d{2,4}(?=\.(?:kt|swift)$)

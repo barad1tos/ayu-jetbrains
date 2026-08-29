@@ -59,7 +59,11 @@ internal fun SettingsApplyResult.Failed.toConfigurationException(): Configuratio
     }
 }
 
-class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
+class AyuIslandsConfigurable internal constructor(
+    private val settingsContext: () -> SettingsOpenContext,
+) : BoundConfigurable("Ayu Islands") {
+    constructor() : this(SettingsOpenContextSource()::capture)
+
     private val log = logger<AyuIslandsConfigurable>()
 
     private companion object {
@@ -75,11 +79,17 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     private var session: SettingsSession? = null
 
     override fun createPanel(): DialogPanel {
+        val openContext = settingsContext()
         closeSession()
         val pluginVersion = resolvePluginVersion()
         val variant = AyuVariant.detect()
         val nextSession = SettingsSession(::refreshGlow)
-        val contentTabs = AyuSettingsComposition(variant, nextSession).buildContentTabs()
+        val contentTabs =
+            AyuSettingsComposition(
+                variant = variant,
+                session = nextSession,
+                openContext = openContext,
+            ).buildContentTabs()
         session = nextSession
 
         val settings = AyuIslandsSettings.getInstance()
@@ -381,9 +391,19 @@ class AyuIslandsConfigurable : BoundConfigurable("Ayu Islands") {
     }
 
     private fun closeSession() {
-        session?.close()?.forEach { failure ->
-            log.warn("Settings cleanup failed for ${failure.participant}", failure.cause)
-        }
+        val closingSession = session ?: return
         session = null
+        runCleanupSteps(
+            {
+                closingSession.cancel().forEach { failure ->
+                    log.warn("Settings cancel failed for ${failure.participant}", failure.cause)
+                }
+            },
+            {
+                closingSession.close().forEach { failure ->
+                    log.warn("Settings cleanup failed for ${failure.participant}", failure.cause)
+                }
+            },
+        )
     }
 }

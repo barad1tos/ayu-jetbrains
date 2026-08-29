@@ -8,5 +8,7 @@ interface SettingsParticipant {
 
     fun reset()
 
+    fun cancel() = Unit
+
     fun dispose() = Unit
 }

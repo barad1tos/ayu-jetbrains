@@ -1,0 +1,6 @@
+# Native ignore patterns
+build/
+!important.txt
+**/generated/
+*.log
+[Aa]yu-*.tmp

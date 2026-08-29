@@ -105,7 +105,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "66af5671"
+          last_verified_sha: "76feb123"
           last_verified_date: "2026-08-09"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
@@ -127,7 +127,7 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "66af5671"
+          last_verified_sha: "76feb123"
           last_verified_date: "2026-08-09"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
@@ -324,8 +324,8 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "5a40a1cb"
-          last_verified_date: "2026-08-09"
+          last_verified_sha: "585c8161"
+          last_verified_date: "2026-08-28"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
 
       - id: glow-waveform
@@ -532,6 +532,21 @@ categories:
           On the first launch after an upgrade, a release showcase tab
           opens automatically with captioned screenshots of the marquee
           features. Reopen anytime via Tools → Ayu Islands → Show What's New.
+
+  syntax:
+    title: "Syntax tuning"
+    features:
+      - id: syntax-tuning
+        title: "Per-language syntax tuning"
+        keyword: "Syntax tuning"
+        introduced: "2.7.0"
+        updated: "2.9.0"
+        tier: paid
+        description: >
+          Per-language sliders tune only primitives confirmed by the active
+          language support. Bold and Italic are additive by default; an
+          explicit Replace inherited style option applies an exact font style.
+          Hidden, unknown, and previously stored cells remain unchanged.
 
   free-tier:
     title: "Free tier — complete theme"

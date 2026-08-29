@@ -1,7 +1,8 @@
-class Greeter:
-    # Greet the user.
-    def greet(self, name: str) -> None:
-        msg = "hello"
-        count = 42
-        if msg:
-            print(name, count)
+from functools import lru_cache
+
+@lru_cache
+def render[Value](value: Value) -> str:
+    """Format one value for preview."""
+    prefix = "Ayu"
+    count = 42  # tuned local
+    return prefix + str(value) if count > 0 else "none"

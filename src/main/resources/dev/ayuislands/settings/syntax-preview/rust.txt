@@ -1,8 +1,13 @@
-pub fn greet(name: &str) {
-    let msg = "hello";
-    let count = 42;
-    // print greeting
-    if !msg.is_empty() {
-        println!("{}", name);
+/// Renders values for preview.
+#[derive(Debug)]
+struct Preview<Value> { prefix: &'static str, value: Value }
+
+impl<Value: ToString> Preview<Value> {
+    const LIMIT: usize = 42;
+
+    /// Formats one value.
+    fn render(&self, suffix: &str) -> String {
+        let result = self.prefix.to_owned() + suffix; // tuned local
+        if result.len() > 0 { result } else { "none".into() }
     }
 }

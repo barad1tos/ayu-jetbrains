@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+  {# Native Django template preview #}
+  {% if items %}
+    <section class="preview">{{ items|length }} items</section>
+  {% else %}
+    <p>Nothing to preview</p>
+  {% endif %}
+{% endblock %}

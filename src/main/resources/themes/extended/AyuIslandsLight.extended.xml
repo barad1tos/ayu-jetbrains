@@ -1,6 +1,57 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <scheme name="Ayu Islands Light Extended" version="142">
   <attributes>
+    <!-- Runtime-observed language keys stay sparse so native fallback attributes remain authoritative. -->
+    <option name="CSS.PARENTHESES"><value /></option>
+    <option name="CSS.COLON"><value /></option>
+    <option name="CSS.BRACES"><value /></option>
+    <option name="CSS.DOT"><value /></option>
+    <option name="CSS.SEMICOLON"><value /></option>
+    <option name="CSS.STRING"><value /></option>
+    <option name="HTTP_REQUEST_ENVIRONMENT_VARIABLE"><value /></option>
+    <option name="HTTP_REQUEST_SEPARATOR"><value /></option>
+    <option name="DOCKER_DOT"><value /></option>
+    <option name="DOCKER_BRACKETS"><value /></option>
+    <option name="DOCKER_COMMA"><value /></option>
+    <option name="PHP_SEMICOLON"><value /></option>
+    <option name="PHP_BRACES"><value /></option>
+    <option name="PHP_PARENTHESES"><value /></option>
+    <option name="PHP_BRACKETS"><value /></option>
+    <option name="MAKEFILE_STRING"><value /></option>
+    <option name="MAKEFILE_BRACES"><value /></option>
+    <option name="MAKEFILE_PARENTHESES"><value /></option>
+    <option name="MAKEFILE_COMMENT"><value /></option>
+    <option name="JS.EXPORTED.CLASS"><value /></option>
+    <option name="JS.BRACES"><value /></option>
+    <option name="JS.OPERATION_SIGN"><value /></option>
+    <option name="JS.SEMICOLON"><value /></option>
+    <option name="JS.PARENTHS"><value /></option>
+    <option name="JS.DOT"><value /></option>
+    <option name="JS.DOC_TYPE"><value /></option>
+    <option name="SASS_CLASS_NAME"><value /></option>
+    <option name="SASS_INTERPOLATION"><value /></option>
+    <option name="SASS_IDENTIFIER"><value /></option>
+    <option name="TS.CLASS"><value /></option>
+    <option name="TS.PRIMITIVE.TYPES"><value /></option>
+    <option name="COFFEESCRIPT.FUNCTION" baseAttributes="COFFEESCRIPT.FUNCTION_NAME" />
+    <option name="COFFEESCRIPT.STRING_LITERAL" baseAttributes="COFFEESCRIPT.STRING" />
+    <option name="DART_BRACES" baseAttributes="DEFAULT_BRACES" />
+    <option name="DART_COLON" baseAttributes="DEFAULT_OPERATION_SIGN" />
+    <option name="DART_DOC_COMMENT" baseAttributes="DEFAULT_DOC_COMMENT" />
+    <option name="DART_DOT" baseAttributes="DEFAULT_DOT" />
+    <option name="DART_LOCAL_VARIABLE_DECLARATION" baseAttributes="DEFAULT_LOCAL_VARIABLE" />
+    <option name="DART_LOCAL_VARIABLE_REFERENCE" baseAttributes="DEFAULT_LOCAL_VARIABLE" />
+    <option name="DART_NUMBER" baseAttributes="DEFAULT_NUMBER" />
+    <option name="DART_OPERATION_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
+    <option name="DART_PARENTH" baseAttributes="DEFAULT_PARENTHS" />
+    <option name="DART_SEMICOLON" baseAttributes="DEFAULT_SEMICOLON" />
+    <option name="DART_STRING" baseAttributes="DEFAULT_STRING" />
+    <option name="TIL.BRACES" baseAttributes="DEFAULT_BRACES" />
+    <option name="TIL.BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
+    <option name="TIL.COMMA" baseAttributes="DEFAULT_COMMA" />
+    <option name="TIL.DOT" baseAttributes="DEFAULT_DOT" />
+    <option name="PUPPET_NAME" baseAttributes="PUPPET_CLASS_NAME" />
+    <option name="PUPPET_SQ_STRING" baseAttributes="PUPPET_STRING" />
     <!-- Noctule Swift semantic token keys must carry concrete values here:
          the runtime syntax-intensity overlay skips baseAttributes-only entries. -->
     <option name="SWIFT.IDENTIFIER"><value><option name="FOREGROUND" value="5C6166" /></value></option>
@@ -133,6 +184,13 @@
         <option name="FONT_TYPE" value="3" />
       </value>
     </option>
+    <option name="GO_STRUCT_EXPORTED_MEMBER"><value /></option>
+    <option name="GO_LINE_COMMENT"><value /></option>
+    <option name="GO_BRACES"><value /></option>
+    <option name="GO_PARENTHESES"><value /></option>
+    <option name="GO_OPERATOR"><value /></option>
+    <option name="GO_DOT"><value /></option>
+    <option name="GO_COMMA"><value /></option>
     <option name="GO_STRUCT_EXPORTED_MEMBER_CALL">
       <value>
         <option name="FOREGROUND" value="EBA400" />
@@ -775,6 +833,18 @@
       <value>
         <option name="FOREGROUND" value="FA8532" />
       </value>
+    </option>
+    <option name="SLIM_STATIC_CONTENT">
+      <value />
+    </option>
+    <option name="RUBY_COLON">
+      <value />
+    </option>
+    <option name="RUBY_DOT">
+      <value />
+    </option>
+    <option name="RUBY_PARENTHESES">
+      <value />
     </option>
     <option name="org.rust.METHOD_CALL">
       <value>
@@ -1429,6 +1499,12 @@
         <option name="FONT_TYPE" value="0" />
       </value>
     </option>
+    <option name="GRAPHQL_DIRECTIVE" baseAttributes="DEFAULT_METADATA" />
+    <option name="GRAPHQL_TYPE_NAME" baseAttributes="DEFAULT_CLASS_NAME" />
+    <option name="GRAPHQL_PARENTHESES" baseAttributes="DEFAULT_PARENTHS" />
+    <option name="GRAPHQL_COLON" baseAttributes="DEFAULT_SEMICOLON" />
+    <option name="GRAPHQL_BRACES" baseAttributes="DEFAULT_BRACES" />
+    <option name="GRAPHQL_BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
     <option name="DOCKER_KEYWORD">
       <value>
         <option name="FOREGROUND" value="FA8532" />
@@ -2047,6 +2123,9 @@
         <option name="FONT_TYPE" value="1" />
       </value>
     </option>
+    <option name="POWER_SHELL_LINE_COMMENT" baseAttributes="DEFAULT_LINE_COMMENT" />
+    <option name="POWER_SHELL_STRING" baseAttributes="DEFAULT_STRING" />
+    <option name="POWER_SHELL_METHOD_DECLARATION_NAME" baseAttributes="DEFAULT_FUNCTION_DECLARATION" />
     <option name="POWER_SHELL_NUMBER">
       <value>
         <option name="FOREGROUND" value="A37ACC" />
@@ -2365,6 +2444,13 @@
         <option name="FONT_TYPE" value="0" />
       </value>
     </option>
+    <option name="BATCH.COMMENT" baseAttributes="DEFAULT_BLOCK_COMMENT" />
+    <option name="BATCH.STRING" baseAttributes="DEFAULT_STRING" />
+    <option name="BATCH.ENVIRONMENT_VARIABLE_DEFINITION" baseAttributes="DEFAULT_CONSTANT" />
+    <option name="BATCH.OPERATION_SIGN" baseAttributes="DEFAULT_OPERATION_SIGN" />
+    <option name="BATCH.BRACES" baseAttributes="DEFAULT_BRACES" />
+    <option name="BATCH.BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
+    <option name="BATCH.PARENTHS" baseAttributes="DEFAULT_PARENTHS" />
     <option name="GITLAB_CI_EXPRESSION_IDENTIFIER">
       <value>
         <option name="FOREGROUND" value="F07171" />
@@ -2478,6 +2564,11 @@
     <option name="Scala Keyword" baseAttributes="DEFAULT_KEYWORD" />
     <option name="Scala Number" baseAttributes="DEFAULT_NUMBER" />
     <option name="Scala String" baseAttributes="DEFAULT_STRING" />
+    <option name="Scala Brackets" baseAttributes="DEFAULT_BRACKETS" />
+    <option name="Scala Braces" baseAttributes="DEFAULT_BRACES" />
+    <option name="Scala Parentheses" baseAttributes="DEFAULT_PARENTHS" />
+    <option name="Scala Comma" baseAttributes="DEFAULT_COMMA" />
+    <option name="Scala Assign" baseAttributes="DEFAULT_OPERATION_SIGN" />
     <option name="Scala Valid escape in string" baseAttributes="DEFAULT_VALID_STRING_ESCAPE" />
     <option name="Scala Invalid escape in string" baseAttributes="DEFAULT_INVALID_STRING_ESCAPE" />
     <option name="Interpolated String Injection">
@@ -2743,6 +2834,9 @@
       <value>
         <option name="FOREGROUND" value="FA8532" />
       </value>
+    </option>
+    <option name="DQL_IDENTIFIER">
+      <value />
     </option>
     <option name="RUBY_CONSTANT_DEF_ID">
       <value>

@@ -1,0 +1,13 @@
+import javascript
+
+/** A call rendered in the syntax preview. */
+class PreviewCall extends CallExpr {
+  PreviewCall() { this.getCalleeName() = "render" }
+  predicate matches(int limit) {
+    exists(string name | name = "Ayu" and limit > 0)
+  }
+}
+
+from PreviewCall call, int count
+where count = 42 and call.matches(count)
+select call, "Preview call"

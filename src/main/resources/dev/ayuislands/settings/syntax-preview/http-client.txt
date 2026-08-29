@@ -1,0 +1,11 @@
+### Preview request
+@host = https://example.com
+
+POST {{host}}/preview?count=42
+Content-Type: application/json
+X-Preview: Ayu
+
+{
+  "name": "Ayu Islands",
+  "enabled": true
+}

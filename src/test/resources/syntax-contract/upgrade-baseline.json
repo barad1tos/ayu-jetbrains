@@ -1,0 +1,1149 @@
+{
+  "capturedFromHead": "2e1cb3b0732df456d46cd8502f7acc12275a6a2a",
+  "editorBackgrounds": {
+    "Dark": "#FF0D1017",
+    "Mirage": "#FF1F2430",
+    "Light": "#FFFCFCFC"
+  },
+  "trackedKeys": [
+    "JAVA_KEYWORD",
+    "JAVA_STRING",
+    "KOTLIN_FUNCTION_DECLARATION",
+    "KOTLIN_LINE_COMMENT",
+    "SWIFT.BRACKETS",
+    "SWIFT.OPERATOR",
+    "JS.KEYWORD",
+    "HTML_TAG_NAME",
+    "XML_TAG_DATA"
+  ],
+  "baselineAttributes": {
+    "JAVA_KEYWORD": {
+      "key": "JAVA_KEYWORD",
+      "foreground": "#FFFFCC66",
+      "fontType": 1
+    },
+    "JAVA_STRING": {
+      "key": "JAVA_STRING",
+      "foreground": "#FFD5FF80",
+      "fontType": 0
+    },
+    "KOTLIN_FUNCTION_DECLARATION": {
+      "key": "KOTLIN_FUNCTION_DECLARATION",
+      "foreground": "#FF73D0FF",
+      "fontType": 2
+    },
+    "KOTLIN_LINE_COMMENT": {
+      "key": "KOTLIN_LINE_COMMENT",
+      "fontType": 2
+    },
+    "DEFAULT_LINE_COMMENT": {
+      "key": "DEFAULT_LINE_COMMENT",
+      "foreground": "#FF5C6773",
+      "fontType": 2
+    },
+    "SWIFT.BRACKETS": {
+      "key": "SWIFT.BRACKETS",
+      "fontType": 2
+    },
+    "DEFAULT_BRACKETS": {
+      "key": "DEFAULT_BRACKETS",
+      "foreground": "#FFCCCAC2",
+      "fontType": 0
+    },
+    "SWIFT.OPERATOR": {
+      "key": "SWIFT.OPERATOR",
+      "fontType": 2
+    },
+    "DEFAULT_OPERATION_SIGN": {
+      "key": "DEFAULT_OPERATION_SIGN",
+      "foreground": "#FFF29E74",
+      "fontType": 0
+    },
+    "JS.KEYWORD": {
+      "key": "JS.KEYWORD",
+      "foreground": "#FFFF8F40",
+      "fontType": 0
+    },
+    "HTML_TAG_NAME": {
+      "key": "HTML_TAG_NAME",
+      "foreground": "#FFD5FF80",
+      "fontType": 0
+    },
+    "XML_TAG_DATA": {
+      "key": "XML_TAG_DATA",
+      "foreground": "#FF95E6CB",
+      "fontType": 0
+    }
+  },
+  "overlayAttributes": {
+    "JAVA_KEYWORD": {
+      "key": "JAVA_KEYWORD",
+      "foreground": "#FFFF9940",
+      "background": "#FF101820",
+      "effectColor": "#FF73D0FF",
+      "effectType": "WAVE_UNDERSCORE",
+      "errorStripeColor": "#FFFF3333",
+      "fontType": 1
+    }
+  },
+  "fallbacks": {
+    "KOTLIN_LINE_COMMENT": "DEFAULT_LINE_COMMENT",
+    "SWIFT.BRACKETS": "DEFAULT_BRACKETS",
+    "SWIFT.OPERATOR": "DEFAULT_OPERATION_SIGN"
+  },
+  "scenarios": [
+    {
+      "id": "dark-whisper",
+      "variant": "Dark",
+      "preset": "WHISPER",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFFA95F",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFDFFF9F",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF92DAFF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF383E45",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFD1D1D1",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFEDAD8D",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFFA15F",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFDFFF9F",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FFAEECD7",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "dark-ambient",
+      "variant": "Dark",
+      "preset": "AMBIENT",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF9940",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFD5FF80",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF73D0FF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF5C6773",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFCCCAC2",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFF29E74",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF8F40",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFD5FF80",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF95E6CB",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "dark-neon",
+      "variant": "Dark",
+      "preset": "NEON",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF7E0D",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF40BFFF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF5479A0",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFC9C4B0",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFF98E59",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF710D",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF6CDCB7",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "dark-cyberpunk",
+      "variant": "Dark",
+      "preset": "CYBERPUNK",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFF57200",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFB8FF29",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF1CB3FF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF3677BF",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFDDCD8D",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFFF8243",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFF56500",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFB8FF29",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF4FD5A9",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "dark-custom",
+      "variant": "Dark",
+      "preset": "CUSTOM",
+      "subordinatePreset": "NEON",
+      "customOverrides": {
+        "Swift": {
+          "OPERATOR": 73
+        },
+        "Java": {
+          "KEYWORD": 62
+        },
+        "Future Language": {
+          "FUTURE_PRIMITIVE": 19
+        }
+      },
+      "customStyles": {
+        "Swift": {
+          "OPERATOR": 0
+        },
+        "Java": {
+          "STRING_LITERAL": 1
+        }
+      },
+      "customEmphasis": {
+        "Kotlin": {
+          "FUNCTION_DECL": 2
+        }
+      },
+      "readability": {
+        "dimComments": true,
+        "softenDocumentation": true,
+        "quietOperators": true,
+        "emphasizeDeclarations": true
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF8E2B",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFC4FF4D",
+          "fontType": 1
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF00A5F8",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF374F69",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FF9E9980",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFC96636",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF710D",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF6CDCB7",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "mirage-whisper",
+      "variant": "Mirage",
+      "preset": "WHISPER",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFFA95F",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFDFFF9F",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF92DAFF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF383E45",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFD1D1D1",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFEDAD8D",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFFA15F",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFDFFF9F",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FFAEECD7",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "mirage-ambient",
+      "variant": "Mirage",
+      "preset": "AMBIENT",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF9940",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFD5FF80",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF73D0FF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF5C6773",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFCCCAC2",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFF29E74",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF8F40",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFD5FF80",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF95E6CB",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "mirage-neon",
+      "variant": "Mirage",
+      "preset": "NEON",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF7E0D",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF40BFFF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF5479A0",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFC9C4B0",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFF98E59",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF710D",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF6CDCB7",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "mirage-cyberpunk",
+      "variant": "Mirage",
+      "preset": "CYBERPUNK",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFF57200",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFB8FF29",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF1CB3FF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF3677BF",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFDDCD8D",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFFF8243",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFF56500",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFB8FF29",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF4FD5A9",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "mirage-custom",
+      "variant": "Mirage",
+      "preset": "CUSTOM",
+      "subordinatePreset": "NEON",
+      "customOverrides": {
+        "Swift": {
+          "OPERATOR": 73
+        },
+        "Java": {
+          "KEYWORD": 62
+        },
+        "Future Language": {
+          "FUTURE_PRIMITIVE": 19
+        }
+      },
+      "customStyles": {
+        "Swift": {
+          "OPERATOR": 0
+        },
+        "Java": {
+          "STRING_LITERAL": 1
+        }
+      },
+      "customEmphasis": {
+        "Kotlin": {
+          "FUNCTION_DECL": 2
+        }
+      },
+      "readability": {
+        "dimComments": true,
+        "softenDocumentation": true,
+        "quietOperators": true,
+        "emphasizeDeclarations": true
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF8E2B",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFC4FF4D",
+          "fontType": 1
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF00A5F8",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF3E5773",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFA29D85",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFCD6A3B",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF710D",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF6CDCB7",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "light-whisper",
+      "variant": "Light",
+      "preset": "WHISPER",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFFA95F",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFDFFF9F",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF92DAFF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF383E45",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFD1D1D1",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFEDAD8D",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFFA15F",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFDFFF9F",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FFAEECD7",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "light-ambient",
+      "variant": "Light",
+      "preset": "AMBIENT",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF9940",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFD5FF80",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF73D0FF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF5C6773",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFCCCAC2",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFF29E74",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF8F40",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFD5FF80",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF95E6CB",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "light-neon",
+      "variant": "Light",
+      "preset": "NEON",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF7E0D",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF40BFFF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF5479A0",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFC9C4B0",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFF98E59",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF710D",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF6CDCB7",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "light-cyberpunk",
+      "variant": "Light",
+      "preset": "CYBERPUNK",
+      "subordinatePreset": "AMBIENT",
+      "customOverrides": {},
+      "customStyles": {},
+      "customEmphasis": {},
+      "readability": {
+        "dimComments": false,
+        "softenDocumentation": false,
+        "quietOperators": false,
+        "emphasizeDeclarations": false
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFF57200",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFB8FF29",
+          "fontType": 0
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF1CB3FF",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF3677BF",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFDDCD8D",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFFF8243",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFF56500",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFB8FF29",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF4FD5A9",
+          "fontType": 0
+        }
+      ]
+    },
+    {
+      "id": "light-custom",
+      "variant": "Light",
+      "preset": "CUSTOM",
+      "subordinatePreset": "NEON",
+      "customOverrides": {
+        "Swift": {
+          "OPERATOR": 73
+        },
+        "Java": {
+          "KEYWORD": 62
+        },
+        "Future Language": {
+          "FUTURE_PRIMITIVE": 19
+        }
+      },
+      "customStyles": {
+        "Swift": {
+          "OPERATOR": 0
+        },
+        "Java": {
+          "STRING_LITERAL": 1
+        }
+      },
+      "customEmphasis": {
+        "Kotlin": {
+          "FUNCTION_DECL": 2
+        }
+      },
+      "readability": {
+        "dimComments": true,
+        "softenDocumentation": true,
+        "quietOperators": true,
+        "emphasizeDeclarations": true
+      },
+      "expectedAttributes": [
+        {
+          "key": "JAVA_KEYWORD",
+          "foreground": "#FFFF8E2B",
+          "background": "#FF101820",
+          "effectColor": "#FF73D0FF",
+          "effectType": "WAVE_UNDERSCORE",
+          "errorStripeColor": "#FFFF3333",
+          "fontType": 1
+        },
+        {
+          "key": "JAVA_STRING",
+          "foreground": "#FFC4FF4D",
+          "fontType": 1
+        },
+        {
+          "key": "KOTLIN_FUNCTION_DECLARATION",
+          "foreground": "#FF00A5F8",
+          "fontType": 2
+        },
+        {
+          "key": "KOTLIN_LINE_COMMENT",
+          "foreground": "#FF97ADC4",
+          "fontType": 2
+        },
+        {
+          "key": "SWIFT.BRACKETS",
+          "foreground": "#FFD3CDB2",
+          "fontType": 0
+        },
+        {
+          "key": "SWIFT.OPERATOR",
+          "foreground": "#FFFE9A68",
+          "fontType": 0
+        },
+        {
+          "key": "JS.KEYWORD",
+          "foreground": "#FFFF710D",
+          "fontType": 0
+        },
+        {
+          "key": "HTML_TAG_NAME",
+          "foreground": "#FFC4FF4D",
+          "fontType": 0
+        },
+        {
+          "key": "XML_TAG_DATA",
+          "foreground": "#FF6CDCB7",
+          "fontType": 0
+        }
+      ]
+    }
+  ]
+}

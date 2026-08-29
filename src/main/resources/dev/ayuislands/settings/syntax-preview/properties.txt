@@ -1,0 +1,5 @@
+# Native properties preview
+preview.name=Ayu\ Islands
+preview.count=42
+preview.enabled=true
+preview.message=${preview.name}\: syntax

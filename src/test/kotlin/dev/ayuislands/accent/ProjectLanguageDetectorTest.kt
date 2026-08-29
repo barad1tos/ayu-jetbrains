@@ -11,13 +11,19 @@ import com.intellij.openapi.projectRoots.SdkTypeId
 import com.intellij.openapi.roots.ProjectRootManager
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import io.mockk.clearMocks
+import io.mockk.clearStaticMockk
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
-import io.mockk.unmockkAll
+import io.mockk.unmockkObject
+import io.mockk.unmockkStatic
 import io.mockk.verify
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.TestInstance
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -34,28 +40,53 @@ import kotlin.test.assertNull
  * case that exposed a ConcurrentHashMap null-value NPE in the cache delegate; the
  * rest lock in the detection rules.
  */
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ProjectLanguageDetectorTest {
-    @BeforeTest
-    fun setUp() {
+    @BeforeAll
+    fun installSharedMocks() {
         mockkStatic(ProjectRootManager::class)
         mockkStatic(ModuleManager::class)
+        mockkObject(ProjectLanguageScanner)
+        mockkObject(AccentMappingsSettings.Companion)
+    }
+
+    @BeforeTest
+    fun setUp() {
+        clearStaticMockk(ProjectRootManager::class)
+        clearStaticMockk(ModuleManager::class)
+        clearMocks(ProjectLanguageScanner, AccentMappingsSettings.Companion)
         // ProjectLanguageScanner is the new primary path; default it to emptyMap()
         // so existing SDK/module-fallback tests (which pre-date the scanner) exercise
         // the legacy path — their fixtures don't set up a ProjectFileIndex and the
         // fallback is what they're really asserting against.
-        mockkObject(ProjectLanguageScanner)
         every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
         val mappingsSettings = mockk<AccentMappingsSettings>()
         every { mappingsSettings.state } returns AccentMappingsState()
-        mockkObject(AccentMappingsSettings.Companion)
         every { AccentMappingsSettings.getInstance() } returns mappingsSettings
         ProjectLanguageDetector.clear()
     }
 
     @AfterTest
     fun tearDown() {
-        unmockkAll()
+        unmockTestOverrides()
         ProjectLanguageDetector.clear()
+    }
+
+    @AfterAll
+    fun uninstallSharedMocks() {
+        unmockkObject(ProjectLanguageScanner, AccentMappingsSettings.Companion)
+        unmockkStatic(ProjectRootManager::class, ModuleManager::class)
+    }
+
+    private fun unmockTestOverrides() {
+        unmockkObject(
+            ProjectLanguageScanAsync,
+            AyuVariant.Companion,
+            AccentResolver,
+            AccentApplicator,
+            dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion,
+        )
+        unmockkStatic(ApplicationManager::class, javax.swing.SwingUtilities::class)
     }
 
     @Test

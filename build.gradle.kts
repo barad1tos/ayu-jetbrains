@@ -2,6 +2,7 @@ import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.models.ProductRelease
 import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
 buildscript {
     repositories { mavenCentral() }
@@ -24,13 +25,219 @@ version = providers.gradleProperty("pluginVersion").get()
 
 val integrationPlugins =
     listOf(
+        "Dart" to "506.1.0",
+        "com.intellij.lang.jsgraphql" to "251.23774.318",
+        "com.intellij.plugin.adernov.powershell" to "2.10.0",
+        "com.redhat.devtools.lsp4ij" to "0.20.1",
         "dev.j-a.swift" to "1.11.1.435-251",
+        "org.intellij.scala" to "2025.1.22",
+        "org.intellij.plugins.hcl" to "251.23774.426",
+        "pl.thedeem.dql" to "1.10.0",
         "com.nasller.CodeGlancePro" to "2.0.2",
         "indent-rainbow.indent-rainbow" to "2.2.0",
     )
 
+val syntaxPreviewTestPlugins =
+    listOf(
+        "com.intellij.modules.json",
+        "com.intellij.properties",
+        "com.jetbrains.sh",
+        "org.intellij.plugins.markdown",
+        "org.jetbrains.kotlin",
+        "org.jetbrains.plugins.yaml",
+    )
+
+val verifiedIdeGroups: Map<String, List<Pair<IntelliJPlatformType, String>>> =
+    mapOf(
+        "A1" to
+            listOf(
+                IntelliJPlatformType.IntellijIdeaCommunity to "2025.1",
+                IntelliJPlatformType.IntellijIdeaCommunity to "2025.2.3",
+                IntelliJPlatformType.IntellijIdea to "2025.3.3",
+            ),
+        "A2" to
+            listOf(
+                IntelliJPlatformType.PhpStorm to "2025.3.3",
+                IntelliJPlatformType.WebStorm to "2025.3.3",
+                IntelliJPlatformType.CLion to "2025.3.3",
+            ),
+        "B" to
+            listOf(
+                IntelliJPlatformType.GoLand to "2025.1.3",
+                IntelliJPlatformType.PyCharm to "2025.1.3",
+                IntelliJPlatformType.DataGrip to "2025.1.3",
+                IntelliJPlatformType.Rider to "2025.1.3",
+                IntelliJPlatformType.RubyMine to "2025.1.3",
+            ),
+    )
+
+data class SyntaxRuntimeTarget(
+    val id: String,
+    val taskName: String,
+    val ide: Pair<IntelliJPlatformType, String>,
+    val bundledPlugins: List<String> = emptyList(),
+    val enabledMarketplacePlugins: Set<String> = emptySet(),
+)
+
+fun verifiedIde(type: IntelliJPlatformType): Pair<IntelliJPlatformType, String> =
+    verifiedIdeGroups
+        .values
+        .flatten()
+        .single { (candidateType) -> candidateType == type }
+
+fun testFrameworkVersionRange(buildNumber: String): String = "[${buildNumber.substringBefore('.')}, $buildNumber]"
+
+val communityIde = verifiedIdeGroups.getValue("A1").first()
+val communityBundledPlugins = listOf("org.intellij.groovy") + syntaxPreviewTestPlugins
+val webStormBundledPlugins =
+    listOf(
+        "AngularJS",
+        "JavaScript",
+        "com.intellij.css",
+        "com.jetbrains.restClient",
+        "gherkin",
+        "org.jetbrains.plugins.sass",
+    )
+val ideaUltimateBundledPlugins =
+    listOf(
+        "Docker",
+        "com.intellij.freemarker",
+        "com.intellij.quarkus",
+        "com.intellij.velocity",
+        "idea.plugin.protoeditor",
+        "org.editorconfig.editorconfigjetbrains",
+    )
+val syntaxRuntimeTargets =
+    listOf(
+        SyntaxRuntimeTarget(
+            id = "idea-community",
+            taskName = "syntaxContractIdeaCommunity",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+        ),
+        SyntaxRuntimeTarget(
+            id = "idea-ultimate",
+            taskName = "syntaxContractIdeaUltimate",
+            ide = verifiedIde(IntelliJPlatformType.IntellijIdea),
+            bundledPlugins = ideaUltimateBundledPlugins,
+        ),
+        SyntaxRuntimeTarget(
+            "webstorm",
+            "syntaxContractWebStorm",
+            verifiedIde(IntelliJPlatformType.WebStorm),
+            webStormBundledPlugins,
+        ),
+        SyntaxRuntimeTarget(
+            id = "webstorm-gitlab-ci",
+            taskName = "syntaxContractWebStormGitLabCi",
+            ide = verifiedIde(IntelliJPlatformType.WebStorm),
+            bundledPlugins =
+                listOf(
+                    "Git4Idea",
+                    "org.jetbrains.plugins.gitlab",
+                    "org.jetbrains.plugins.yaml",
+                ),
+        ),
+        SyntaxRuntimeTarget(
+            "phpstorm",
+            "syntaxContractPhpStorm",
+            verifiedIde(IntelliJPlatformType.PhpStorm),
+            bundledPlugins = listOf("com.jetbrains.php"),
+        ),
+        SyntaxRuntimeTarget(
+            "clion",
+            "syntaxContractCLion",
+            verifiedIde(IntelliJPlatformType.CLion),
+            bundledPlugins = listOf("name.kropp.intellij.makefile"),
+        ),
+        SyntaxRuntimeTarget(
+            "goland",
+            "syntaxContractGoLand",
+            verifiedIde(IntelliJPlatformType.GoLand),
+            bundledPlugins = listOf("org.jetbrains.plugins.go"),
+        ),
+        SyntaxRuntimeTarget(
+            "pycharm",
+            "syntaxContractPyCharm",
+            verifiedIde(IntelliJPlatformType.PyCharm),
+            bundledPlugins = listOf("PythonCore", "com.intellij.lang.puppet", "ru.adelf.idea.dotenv"),
+        ),
+        SyntaxRuntimeTarget(
+            "pycharm-django",
+            "syntaxContractPyCharmDjango",
+            verifiedIde(IntelliJPlatformType.PyCharm),
+            bundledPlugins = listOf("PythonCore", "Pythonid", "com.intellij.python.django"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "dynatrace-dql",
+            taskName = "syntaxContractDynatraceDql",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("pl.thedeem.dql"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "dart",
+            taskName = "syntaxContractDart",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("Dart", "com.redhat.devtools.lsp4ij"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "graphql",
+            taskName = "syntaxContractGraphql",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("com.intellij.lang.jsgraphql"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "hcl",
+            taskName = "syntaxContractHcl",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("org.intellij.plugins.hcl"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "scala",
+            taskName = "syntaxContractScala",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("org.intellij.scala"),
+        ),
+        SyntaxRuntimeTarget(
+            id = "powershell",
+            taskName = "syntaxContractPowerShell",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("com.intellij.plugin.adernov.powershell"),
+        ),
+        SyntaxRuntimeTarget(
+            "rubymine",
+            "syntaxContractRubyMine",
+            verifiedIde(IntelliJPlatformType.RubyMine),
+            bundledPlugins =
+                listOf(
+                    "com.intellij.modules.json",
+                    "org.coffeescript",
+                    "org.jetbrains.plugins.ruby",
+                    "org.jetbrains.plugins.haml",
+                    "org.jetbrains.plugins.slim",
+                    "org.jetbrains.plugins.yaml",
+                ),
+        ),
+        SyntaxRuntimeTarget(
+            id = "noctule-swift",
+            taskName = "syntaxContractNoctuleSwift",
+            ide = communityIde,
+            bundledPlugins = communityBundledPlugins,
+            enabledMarketplacePlugins = setOf("dev.j-a.swift"),
+        ),
+    )
+
 kotlin {
     jvmToolchain(21)
+    compilerOptions {
+        apiVersion.set(KotlinVersion.KOTLIN_2_2)
+    }
 }
 
 repositories {
@@ -52,6 +259,7 @@ dependencies {
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
         testBundledPlugin("org.intellij.groovy")
+        syntaxPreviewTestPlugins.forEach(::testBundledPlugin)
     }
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testImplementation("io.mockk:mockk:${providers.gradleProperty("mockkVersion").get()}")
@@ -68,6 +276,7 @@ tasks.test {
 
 tasks.register<Test>("integrationTest") {
     val unitTest = tasks.named<Test>("test").get()
+    val syntaxRuntimeId = providers.systemProperty("syntaxRuntimeId").orElse("idea-community")
 
     useJUnitPlatform()
     include("**/integration/**")
@@ -83,6 +292,7 @@ tasks.register<Test>("integrationTest") {
         },
     )
     systemProperties(unitTest.systemProperties)
+    systemProperty("syntaxRuntimeId", syntaxRuntimeId.get())
     group = "verification"
     description = "Run integration tests with IDE fixtures"
     dependsOn("prepareTest")
@@ -100,6 +310,101 @@ tasks {
                 listOf("-Dayu.islands.dev=true")
             }
     }
+}
+
+intellijPlatformTesting {
+    testIde {
+        syntaxRuntimeTargets.forEach { runtime ->
+            register(runtime.taskName) {
+                val (targetType, targetVersion) = runtime.ide
+                val frameworkVersion =
+                    task.map { testTask -> testFrameworkVersionRange(testTask.productInfo.buildNumber) }
+                val javaTestRuntime =
+                    configurations.detachedConfiguration().apply {
+                        dependencies.addAllLater(
+                            task.map { testTask ->
+                                val bundledRuntime = testTask.platformPath.resolve("lib/idea_rt.jar").toFile()
+                                if (bundledRuntime.isFile) {
+                                    emptyList()
+                                } else {
+                                    listOf(
+                                        project.dependencies.create(
+                                            "com.jetbrains.intellij.java:java-rt:" +
+                                                testFrameworkVersionRange(testTask.productInfo.buildNumber),
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                    }
+
+                type = targetType
+                version = targetVersion
+                testFramework(TestFrameworkType.Platform, frameworkVersion)
+                plugins {
+                    bundledPlugins(runtime.bundledPlugins)
+                    disablePlugins(
+                        integrationPlugins
+                            .map { (pluginId, _) -> pluginId }
+                            .filterNot(runtime.enabledMarketplacePlugins::contains),
+                    )
+                }
+                task {
+                    val requiredPluginIds =
+                        listOf("com.ayuislands.theme") + runtime.bundledPlugins
+                    group = "verification"
+                    description = "Verify the native syntax contract in isolated runtime '${runtime.id}'"
+                    useJUnitPlatform()
+                    include("**/integration/NativePreviewContractTest*")
+                    jvmArgumentProviders +=
+                        CommandLineArgumentProvider {
+                            listOf("-Didea.required.plugins.id=${requiredPluginIds.joinToString(",")}")
+                        }
+                    systemProperty("syntaxRuntimeId", runtime.id)
+                    systemProperty(
+                        "syntaxContractReportDir",
+                        layout.buildDirectory
+                            .dir("reports/syntax-contract/${runtime.id}")
+                            .get()
+                            .asFile.absolutePath,
+                    )
+                    classpath += javaTestRuntime
+                    maxParallelForks = 1
+                }
+            }
+        }
+    }
+}
+
+val syntaxContractGroups = syntaxRuntimeTargets.chunked(3)
+val syntaxContractMatrixSize = providers.gradleProperty("syntaxContractMatrixSize")
+val syntaxContractGroupTasks =
+    syntaxContractGroups.mapIndexed { index, runtimes ->
+        tasks.register("syntaxContractGroup${index + 1}") {
+            group = "verification"
+            description = "Verify syntax contracts for ${runtimes.joinToString { it.id }}"
+            dependsOn(runtimes.map(SyntaxRuntimeTarget::taskName))
+        }
+    }
+
+tasks.register("verifySyntaxContractMatrix") {
+    group = "verification"
+    description = "Verify that CI schedules every declared syntax contract group"
+    doLast {
+        val configuredSize =
+            syntaxContractMatrixSize.orNull?.toIntOrNull()
+                ?: error("Provide -PsyntaxContractMatrixSize=<CI matrix job count>")
+        check(configuredSize == syntaxContractGroups.size) {
+            "Syntax contract CI matrix has $configuredSize groups, but the runtime catalog requires " +
+                "${syntaxContractGroups.size}"
+        }
+    }
+}
+
+tasks.register("syntaxContractAll") {
+    group = "verification"
+    description = "Verify every declared native syntax runtime contract"
+    dependsOn(syntaxContractGroupTasks)
 }
 
 intellijPlatform {
@@ -138,43 +443,20 @@ intellijPlatform {
             //
             // RustRover 2025.1.3 excluded from Group B: corrupted CDN artifact
             // (InvalidIdeException: missing Core plugin).
-            val ideGroups: Map<String, List<Pair<IntelliJPlatformType, String>>> =
-                mapOf(
-                    "A1" to
-                        listOf(
-                            IntelliJPlatformType.IntellijIdeaCommunity to "2025.1",
-                            IntelliJPlatformType.IntellijIdeaCommunity to "2025.2.3",
-                            IntelliJPlatformType.IntellijIdea to "2025.3.3",
-                        ),
-                    "A2" to
-                        listOf(
-                            IntelliJPlatformType.PhpStorm to "2025.3.3",
-                            IntelliJPlatformType.WebStorm to "2025.3.3",
-                            IntelliJPlatformType.CLion to "2025.3.3",
-                        ),
-                    "B" to
-                        listOf(
-                            IntelliJPlatformType.GoLand to "2025.1.3",
-                            IntelliJPlatformType.PyCharm to "2025.1.3",
-                            IntelliJPlatformType.DataGrip to "2025.1.3",
-                            IntelliJPlatformType.Rider to "2025.1.3",
-                            IntelliJPlatformType.RubyMine to "2025.1.3",
-                        ),
-                )
             val wanted =
                 when (val group = providers.systemProperty("verifyGroup").orNull) {
-                    null -> ideGroups.keys + "C"
+                    null -> verifiedIdeGroups.keys + "C"
                     "A" -> setOf("A1", "A2")
                     "C" -> setOf("C")
-                    in ideGroups.keys -> setOf(group)
+                    in verifiedIdeGroups.keys -> setOf(group)
                     else ->
                         error(
                             "Unknown verifyGroup '$group' — expected A1, A2, A, B, C, or unset",
                         )
                 }
             wanted
-                .filter { it in ideGroups }
-                .flatMap { ideGroups.getValue(it) }
+                .filter { it in verifiedIdeGroups }
+                .flatMap { verifiedIdeGroups.getValue(it) }
                 .forEach { (type, version) ->
                     create(type, version)
                 }
@@ -200,6 +482,12 @@ tasks.named("detekt") {
 }
 
 kover {
+    currentProject {
+        instrumentation {
+            disabledForTestTasks.addAll(syntaxRuntimeTargets.map(SyntaxRuntimeTarget::taskName))
+        }
+    }
+
     reports {
         filters {
             excludes {

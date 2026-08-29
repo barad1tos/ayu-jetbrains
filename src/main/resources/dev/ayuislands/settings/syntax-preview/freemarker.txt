@@ -1,0 +1,10 @@
+<#-- Native FreeMarker preview -->
+<#assign limit = 42>
+<#macro render value>
+  <#if value?has_content && limit gt 0>
+    ${"Ayu"}: ${value}
+  <#else>
+    none
+  </#if>
+</#macro>
+<@render value="syntax" />

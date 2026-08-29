@@ -1,0 +1,12 @@
+/// Renders a value for preview.
+@MainActor protocol Previewing<Value> {
+    func render(_ value: Value) -> String
+}
+final class Preview<Value>: Previewing {
+    static let limit = 42
+    private let prefix = "Ayu"
+    func render(_ value: Value) -> String {
+        let result = prefix + ": \(value)" // tuned local
+        return result
+    }
+}

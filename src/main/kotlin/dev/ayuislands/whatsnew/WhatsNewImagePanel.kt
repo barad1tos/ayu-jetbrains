@@ -2,10 +2,11 @@ package dev.ayuislands.whatsnew
 
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
+import com.intellij.util.ui.ImageUtil
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import dev.ayuislands.ui.logicalImage
 import java.awt.AlphaComposite
-import java.awt.Component
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -271,16 +272,13 @@ internal class WhatsNewImagePanel(
         @JvmStatic
         internal fun toBufferedImage(image: Image): BufferedImage {
             if (image is BufferedImage) return image
-            val w = image.getWidth(null).coerceAtLeast(1)
-            val h = image.getHeight(null).coerceAtLeast(1)
-            val copy = UIUtil.createImage(null as Component?, w, h, BufferedImage.TYPE_INT_ARGB)
-            val g = copy.createGraphics()
-            try {
-                g.drawImage(image, 0, 0, null)
-            } finally {
-                g.dispose()
+
+            val width = image.getWidth(null)
+            val height = image.getHeight(null)
+            if (width <= 0 || height <= 0) {
+                return logicalImage(width.coerceAtLeast(1), height.coerceAtLeast(1))
             }
-            return copy
+            return ImageUtil.toBufferedImage(image)
         }
 
         /**

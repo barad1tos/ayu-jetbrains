@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.rotation.HslColor
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertSame
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.awt.Font
 import kotlin.math.abs
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 
 /**
@@ -23,7 +25,7 @@ import kotlin.test.assertNotNull
  *  3.  Saturation lower clamp [0f].
  *  4.  Lightness lower clamp [0.10f].
  *  5.  Lightness upper clamp [0.95f].
- *  6.  Hue invariant under every preset / language / category.
+ *  6.  Hue invariant for representative Java and Kotlin keys under every preset.
  *  7.  Pattern B clone discipline — baseline `TextAttributes` instances are
  *      never mutated, and the output value is a distinct instance.
  *  8.  H10 non-null contract — every emitted `TextAttributes` is non-null.
@@ -195,11 +197,11 @@ class SyntaxIntensityApplicatorTest {
     // --- Test 6 — Hue invariant ------------------------------------------
 
     @Test
-    fun `hue is invariant under every preset and category for a colored baseline`() {
+    fun `hue is invariant for representative Java and Kotlin keys across every preset`() {
         val coloredFg = Color(0xE6, 0xB6, 0x73) // ayu orange-yellow, hue ~36
         val baselineHsl = HslColor.fromColor(coloredFg)
         for (preset in SyntaxPreset.entries) {
-            for ((key, _) in CATEGORY_KEYS) {
+            for (key in REPRESENTATIVE_HUE_KEYS) {
                 val baseline = mapOf(key to attrsWithFg(coloredFg))
                 val result =
                     compute(
@@ -321,7 +323,7 @@ class SyntaxIntensityApplicatorTest {
         // "FOOBAR_GARBAGE_SUFFIX_NEVERMATCHES" must not match any suffix rule.
         val unknownKey = TextAttributesKey.createTextAttributesKey("FOOBAR_NEVERMATCHES_XYZZY")
         // Sanity — confirm the classifier returns null for this key.
-        assertEquals(null, SyntaxCategoryRegistry.classify(unknownKey.externalName))
+        assertEquals(null, SyntaxKeyRoleRegistry.classify(unknownKey.externalName).effectivePrimitive)
 
         val baseline =
             mapOf(
@@ -598,6 +600,224 @@ class SyntaxIntensityApplicatorTest {
             )
         val attrs = assertNotNull(result[javaKeywordKey])
         assertEquals(Font.BOLD, attrs.fontType, "omitted customStyles must leave the source fontType intact")
+    }
+
+    @Test
+    fun `legacy custom style remains a replacement when emphasis is absent`() {
+        val source = attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC }
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaKeywordKey to source),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customStyles = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                    ),
+            )
+
+        assertEquals(Font.BOLD, assertNotNull(result[javaKeywordKey]).fontType)
+    }
+
+    @Test
+    fun `bold emphasis combines with inherited italic`() {
+        val source = attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC }
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaKeywordKey to source),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customEmphasis = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                    ),
+            )
+
+        assertEquals(Font.BOLD or Font.ITALIC, assertNotNull(result[javaKeywordKey]).fontType)
+    }
+
+    @Test
+    fun `emphasis layers after the legacy replacement`() {
+        val source = attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.PLAIN }
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaKeywordKey to source),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customStyles = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                        customEmphasis = mapOf("Java" to mapOf("KEYWORD" to Font.ITALIC)),
+                    ),
+            )
+
+        assertEquals(Font.BOLD or Font.ITALIC, assertNotNull(result[javaKeywordKey]).fontType)
+    }
+
+    @Test
+    fun `named preset ignores custom emphasis`() {
+        val source = attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.PLAIN }
+        val result =
+            compute(
+                preset = SyntaxPreset.NEON,
+                customOverrides = emptyMap(),
+                baseline = mapOf(javaKeywordKey to source),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customEmphasis = mapOf("Java" to mapOf("KEYWORD" to Font.BOLD)),
+                    ),
+            )
+
+        assertEquals(Font.PLAIN, assertNotNull(result[javaKeywordKey]).fontType)
+    }
+
+    @Test
+    fun `empty custom emphasis preserves fixed legacy output attributes`() {
+        val baseline =
+            mapOf(
+                javaKeywordKey to attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC },
+                javaCommentKey to attrsWithFg(Color(0x99, 0x99, 0x99)),
+            )
+        val actual =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = baseline,
+                overlay = emptyMap(),
+                options = ComputeOptions(customEmphasis = emptyMap()),
+            )
+        val expected =
+            mapOf(
+                javaKeywordKey to attrsWithFg(Color(0xCC, 0xCC, 0xCC)).apply { fontType = Font.ITALIC },
+                javaCommentKey to attrsWithFg(Color(0x99, 0x99, 0x99)),
+            )
+
+        assertEquals(expected, actual)
+    }
+
+    @Test
+    fun `custom intensity resolves an inherited Swift operator without mutating its sources`() {
+        val inheritedForeground = Color(0xCC, 0xCA, 0xC2)
+        val defaultBrackets = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.createTextAttributesKey("SWIFT.BRACKETS", defaultBrackets)
+        val defaultAttributes = attrsWithFg(inheritedForeground).apply { fontType = Font.ITALIC }
+        val inheritedAttributes = TextAttributes()
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = mapOf("Swift" to mapOf("OPERATOR" to 75)),
+                baseline =
+                    linkedMapOf(
+                        defaultBrackets to defaultAttributes,
+                        swiftBrackets to inheritedAttributes,
+                    ),
+                overlay = emptyMap(),
+            )
+
+        val output = assertNotNull(result[swiftBrackets], "A tuned inherited Swift token must be materialized")
+        assertNotNull(output.foregroundColor, "The slider must transform the fallback foreground")
+        assertEquals(Font.ITALIC, output.fontType, "Intensity-only tuning must preserve the fallback font style")
+        assertEquals(inheritedForeground.rgb, defaultAttributes.foregroundColor?.rgb)
+        assertEquals(null, inheritedAttributes.foregroundColor, "The inherited source must stay sparse")
+    }
+
+    @Test
+    fun `untuned inherited language key stays absent from every preset output`() {
+        val defaultBraces = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACES")
+        val cssBraces = TextAttributesKey.createTextAttributesKey("CSS.BRACES", defaultBraces)
+        val fallback = attrsWithFg(Color(0xCC, 0xCA, 0xC2))
+        val baseline = linkedMapOf(defaultBraces to fallback)
+        val overlay = linkedMapOf(cssBraces to TextAttributes())
+
+        SyntaxPreset.entries.forEach { preset ->
+            val result =
+                compute(
+                    preset = preset,
+                    customOverrides = emptyMap(),
+                    baseline = baseline,
+                    overlay = overlay,
+                )
+
+            assertFalse(result.containsKey(cssBraces), "$preset must preserve the inherited user-visible style")
+        }
+    }
+
+    @Test
+    fun `custom emphasis on an inherited Swift operator preserves the resolved Ayu color`() {
+        val defaultBrackets = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.createTextAttributesKey("SWIFT.BRACKETS", defaultBrackets)
+        val inheritedForeground = Color(0xCC, 0xCA, 0xC2)
+        val fallback = attrsWithFg(inheritedForeground).apply { fontType = Font.ITALIC }
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = linkedMapOf(defaultBrackets to fallback, swiftBrackets to TextAttributes()),
+                overlay = emptyMap(),
+                options =
+                    ComputeOptions(
+                        customEmphasis = mapOf("Swift" to mapOf("OPERATOR" to Font.BOLD)),
+                    ),
+            )
+
+        val output = assertNotNull(result[swiftBrackets], "A styled inherited Swift token must be materialized")
+        assertEquals(
+            inheritedForeground.rgb,
+            output.foregroundColor?.rgb,
+            "An explicit style must clone the Ayu fallback color instead of falling through to editor gray",
+        )
+        assertEquals(Font.BOLD or Font.ITALIC, output.fontType)
+    }
+
+    @Test
+    fun `explicit regular style removes inherited italic from a Swift operator`() {
+        val defaultBrackets = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACKETS")
+        val swiftBrackets = TextAttributesKey.createTextAttributesKey("SWIFT.BRACKETS", defaultBrackets)
+        val fallback = attrsWithFg(Color(0xCC, 0xCA, 0xC2)).apply { fontType = Font.ITALIC }
+
+        val result =
+            compute(
+                preset = SyntaxPreset.CUSTOM,
+                customOverrides = emptyMap(),
+                baseline = linkedMapOf(defaultBrackets to fallback, swiftBrackets to TextAttributes()),
+                overlay = emptyMap(),
+                options = ComputeOptions(customStyles = mapOf("Swift" to mapOf("OPERATOR" to Font.PLAIN))),
+            )
+
+        val output = assertNotNull(result[swiftBrackets])
+        assertEquals(Font.PLAIN, output.fontType)
+        assertEquals(fallback.foregroundColor?.rgb, output.foregroundColor?.rgb)
+    }
+
+    @Test
+    fun `explicit XML fallback styles a Swift key registered before its language plugin`() {
+        val defaultBraces = TextAttributesKey.createTextAttributesKey("DEFAULT_BRACES")
+        val earlySwiftBrackets = TextAttributesKey.find("SWIFT.ORDERING_BRACKETS")
+        TextAttributesKey.createTextAttributesKey("SWIFT.ORDERING_BRACKETS", defaultBraces)
+        val fallback = attrsWithFg(Color(0xCC, 0xCA, 0xC2)).apply { fontType = Font.ITALIC }
+
+        val result =
+            SyntaxIntensityApplicator.compute(
+                SyntaxIntensityApplicator.Request(
+                    preset = SyntaxPreset.CUSTOM,
+                    variantName = "Mirage",
+                    editorBg = Color(0x1F, 0x24, 0x30),
+                    baseline = linkedMapOf(defaultBraces to fallback, earlySwiftBrackets to TextAttributes()),
+                    overlay = emptyMap(),
+                    customStyles = mapOf("Swift" to mapOf("OPERATOR" to Font.PLAIN)),
+                    fallbacks = mapOf("SWIFT.ORDERING_BRACKETS" to "DEFAULT_BRACES"),
+                ),
+            )
+
+        val output = assertNotNull(result[earlySwiftBrackets])
+        assertEquals(Font.PLAIN, output.fontType)
+        assertEquals(fallback.foregroundColor?.rgb, output.foregroundColor?.rgb)
     }
 
     // --- Test 15 — Signed chroma intent resolver -------------------------
@@ -1204,6 +1424,92 @@ class SyntaxIntensityApplicatorTest {
         assertEquals(commentFg.rgb, comment.rgb, "Emphasize declarations must not rewrite unrelated categories")
     }
 
+    @Test
+    fun `tunable categories group direct and cascade targets by language`() {
+        val defaultString = TextAttributesKey.find("DEFAULT_STRING")
+        val swiftString = TextAttributesKey.find("SWIFT_STRING")
+        val swiftFunction = TextAttributesKey.find("SWIFT.FUNCTION_DECLARATION")
+        val jsonString = TextAttributesKey.find("JSON.STRING")
+        val request =
+            SyntaxIntensityApplicator.Request(
+                preset = SyntaxPreset.AMBIENT,
+                variantName = "Mirage",
+                editorBg = Color(0x1F, 0x24, 0x30),
+                baseline =
+                    linkedMapOf(
+                        defaultString to attrsWithFg(Color(0xD5, 0xFF, 0x80)),
+                        swiftString to TextAttributes(),
+                        swiftFunction to attrsWithFg(Color(0xFF, 0xCC, 0x66)),
+                        jsonString to attrsWithFg(Color(0xD5, 0xFF, 0x80)),
+                    ),
+                overlay = emptyMap(),
+            )
+
+        val categories =
+            SyntaxIntensityApplicator.tunableCategories(
+                baseline = request.baseline,
+                overlay = request.overlay,
+                fallbacks = mapOf("SWIFT_STRING" to "DEFAULT_STRING"),
+            )
+
+        assertEquals(
+            setOf(PrimitiveCategory.FUNCTION_DECL, PrimitiveCategory.STRING_LITERAL),
+            categories["Swift"],
+        )
+        assertEquals(setOf(PrimitiveCategory.STRING_LITERAL), categories["JSON"])
+        assertFalse(categories.containsKey("Default"), "cascade source buckets are not user-selectable languages")
+    }
+
+    @Test
+    fun `tunable categories return an immutable snapshot`() {
+        val categories =
+            SyntaxIntensityApplicator.tunableCategories(
+                baseline = mapOf(javaKeywordKey to attrsWithFg(Color(0xFF, 0xCC, 0x66))),
+                overlay = emptyMap(),
+                fallbacks = emptyMap(),
+            )
+
+        assertFailsWith<UnsupportedOperationException> {
+            (categories as MutableMap<String, Set<PrimitiveCategory>>)["Java"] = emptySet()
+        }
+        assertFailsWith<UnsupportedOperationException> {
+            (categories.getValue("Java") as MutableSet<PrimitiveCategory>).clear()
+        }
+    }
+
+    @Test
+    fun `tunable categories exclude background-only keys and retain inherited foregrounds`() {
+        val markdownCodeSpan = TextAttributesKey.find("MARKDOWN_CODE_SPAN")
+        val swiftBrackets = TextAttributesKey.find("SWIFT.BRACKETS")
+        val defaultBrackets = TextAttributesKey.find("DEFAULT_BRACKETS")
+        val backgroundOnly =
+            TextAttributes().also { attributes ->
+                attributes.backgroundColor = Color(0x24, 0x29, 0x36)
+            }
+        val baseline =
+            linkedMapOf(
+                markdownCodeSpan to backgroundOnly,
+                swiftBrackets to TextAttributes(),
+                defaultBrackets to attrsWithFg(Color(0xCC, 0xCA, 0xC2)),
+            )
+
+        val categories =
+            SyntaxIntensityApplicator.tunableCategories(
+                baseline = baseline,
+                overlay = emptyMap(),
+                fallbacks = mapOf("SWIFT.BRACKETS" to "DEFAULT_BRACKETS"),
+            )
+
+        assertFalse(
+            PrimitiveCategory.STRING_LITERAL in categories["Markdown"].orEmpty(),
+            "A background-only key must not expose a foreground intensity slider",
+        )
+        assertTrue(
+            PrimitiveCategory.OPERATOR in categories["Swift"].orEmpty(),
+            "An inherited key with an Ayu foreground fallback must remain tunable",
+        )
+    }
+
     // --- Helpers ---------------------------------------------------------
 
     private fun transformVia(
@@ -1236,6 +1542,7 @@ class SyntaxIntensityApplicatorTest {
         val customStyles: Map<String, Map<String, Int>> = emptyMap(),
         val editorBg: Color = Color(0x1F, 0x24, 0x30),
         val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
+        val customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
     )
 
     private fun compute(
@@ -1256,6 +1563,7 @@ class SyntaxIntensityApplicatorTest {
                 subordinatePreset = options.subordinatePreset,
                 customStyles = options.customStyles,
                 readabilityOptions = options.readabilityOptions,
+                customEmphasis = options.customEmphasis,
             ),
         )
 
@@ -1324,13 +1632,11 @@ class SyntaxIntensityApplicatorTest {
         // FontStyleOverride.BOLD_ITALIC.fontType — the combined java.awt.Font bitmask (3).
         private const val BOLD_ITALIC_MASK = 3
 
-        // Map of TextAttributesKey -> expected (language, category) so the hue
-        // invariant test exercises a variety of category buckets.
-        private val CATEGORY_KEYS: List<Pair<TextAttributesKey, Pair<String, PrimitiveCategory>>> =
+        private val REPRESENTATIVE_HUE_KEYS: List<TextAttributesKey> =
             listOf(
-                TextAttributesKey.createTextAttributesKey("JAVA_KEYWORD") to ("Java" to PrimitiveCategory.KEYWORD),
-                TextAttributesKey.createTextAttributesKey("JAVA_LINE_COMMENT") to ("Java" to PrimitiveCategory.COMMENT),
-                TextAttributesKey.createTextAttributesKey("KOTLIN_KEYWORD") to ("Kotlin" to PrimitiveCategory.KEYWORD),
+                TextAttributesKey.createTextAttributesKey("JAVA_KEYWORD"),
+                TextAttributesKey.createTextAttributesKey("JAVA_LINE_COMMENT"),
+                TextAttributesKey.createTextAttributesKey("KOTLIN_KEYWORD"),
             )
     }
 }

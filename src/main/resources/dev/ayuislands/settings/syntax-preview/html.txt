@@ -1,5 +1,7 @@
-<section class="preview">
-    <!-- tune tags and text -->
-    <h1>Hello</h1>
-    <span data-count="42">Ayu Islands</span>
+<!doctype html>
+<section class="preview" data-count="42">
+    <!-- Tuned tags and attributes -->
+    <preview-card title="Ayu Islands">
+        <strong>Hello&nbsp;preview</strong>
+    </preview-card>
 </section>

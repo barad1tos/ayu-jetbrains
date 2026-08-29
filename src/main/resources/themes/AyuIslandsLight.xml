@@ -225,6 +225,7 @@
                 <option name="FONT_TYPE" value="2" />
             </value>
         </option>
+        <option name="BASH.STRING" baseAttributes="DEFAULT_STRING" />
 
         <!-- Bookmarks -->
         <option name="BOOKMARKS_ATTRIBUTES">
@@ -2019,6 +2020,7 @@
                 <option name="BACKGROUND" value="F0F1F2" />
             </value>
         </option>
+        <option name="MARKDOWN_HEADER_MARKER" baseAttributes="DEFAULT_KEYWORD" />
         <option name="MARKDOWN_HEADER_LEVEL_1">
             <value>
                 <option name="FOREGROUND" value="86B300" />
@@ -2388,6 +2390,7 @@
         <!-- Regexp -->
         <option name="REGEXP.BRACES" baseAttributes="DEFAULT_BRACES" />
         <option name="REGEXP.BRACKETS" baseAttributes="DEFAULT_BRACKETS" />
+        <option name="REGEXP.COMMA" baseAttributes="DEFAULT_COMMA" />
         <option name="REGEXP.CHARACTER">
             <value>
                 <option name="FOREGROUND" value="86B300" />

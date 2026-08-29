@@ -1,12 +1,17 @@
+//go:build preview
+
 package preview
 
-import "fmt"
+import "fmt" // tuned import
 
-// Greeter prints a greeting.
-func Greet(name string) {
-    msg := "hello"
-    count := 42
-    if len(msg) > 0 {
-        fmt.Println(name, count)
-    }
+type Previewing interface { Render(value string) string }
+type Preview struct { Prefix string }
+
+const limit = 42
+
+// Render formats one value.
+func (p Preview) Render(value string) string {
+    result := p.Prefix + ": " + value
+    if len(result) > 0 { return fmt.Sprint(result, limit) }
+    return "none"
 }

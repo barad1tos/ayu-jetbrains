@@ -6,6 +6,8 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.TextAttributes
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
@@ -19,8 +21,11 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class EditorSchemeOverridesTest {
     private val editorColorsManager = mockk<EditorColorsManager>()
@@ -131,6 +136,26 @@ class EditorSchemeOverridesTest {
     }
 
     @Test
+    fun `restore preserves a key edited externally after Ayu acquired it`() {
+        val syntaxKey = TextAttributesKey.find("TEST_EXTERNALLY_EDITED_SYNTAX_ATTRIBUTES")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes)
+
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.ORANGE),
+        )
+        val external = fullAttributes(Color.GREEN)
+        attributes[syntaxKey] = external
+
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+
+        assertEquals(external, attributes[syntaxKey])
+    }
+
+    @Test
     fun `inherited attributes remain inherited after restore`() {
         val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
         val inheritedAttributes = mutableMapOf(attributesKey to fullAttributes(Color.RED))
@@ -199,8 +224,199 @@ class EditorSchemeOverridesTest {
     }
 
     @Test
+    fun `syntax ownership restores exact direct attributes after runtime state is lost`() {
+        val syntaxKey = TextAttributesKey.find("TEST_SYNTAX_ATTRIBUTES")
+        val original = fullAttributes(Color.RED)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to original)
+        val scheme = scheme(attributes = attributes)
+
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.ORANGE),
+        )
+        EditorSchemeOverrides.reset()
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+
+        assertEquals(original, attributes[syntaxKey])
+    }
+
+    @Test
+    fun `inactive syntax cell rearms after reset without overwriting an active external edit`() {
+        val syntaxKey = TextAttributesKey.find("TEST_REARMED_SYNTAX_ATTRIBUTES")
+        val original = fullAttributes(Color.RED)
+        val external = fullAttributes(Color.GREEN)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to original)
+        val scheme = scheme(attributes = attributes)
+
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.ORANGE),
+        )
+        attributes[syntaxKey] = external
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.YELLOW),
+        )
+        EditorSchemeOverrides.rearm(
+            EditorSchemeOwner.Syntax,
+            listOf(scheme),
+            mapOf(scheme to setOf(syntaxKey.externalName)),
+        )
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.BLUE),
+        )
+        assertEquals(external, attributes[syntaxKey], "an active external edit must retain ownership")
+
+        EditorSchemeOverrides.rearm(
+            EditorSchemeOwner.Syntax,
+            listOf(scheme),
+            mapOf(scheme to emptySet()),
+        )
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.BLUE),
+        )
+        assertEquals(Color.BLUE, attributes[syntaxKey]?.foregroundColor)
+
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+        assertEquals(external, attributes[syntaxKey], "re-added tuning must restore the post-edit user value")
+    }
+
+    @Test
+    fun `targeted syntax rearm leaves other schemes relinquished`() {
+        val syntaxKey = TextAttributesKey.find("TEST_TARGETED_REARM_ATTRIBUTES")
+        val firstExternal = fullAttributes(Color.GREEN)
+        val secondExternal = fullAttributes(Color.CYAN)
+        val firstAttributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to fullAttributes(Color.RED))
+        val secondAttributes = mutableMapOf<TextAttributesKey, TextAttributes?>(syntaxKey to fullAttributes(Color.BLUE))
+        val firstScheme = scheme(name = "First", attributes = firstAttributes)
+        val secondScheme = scheme(name = "Second", attributes = secondAttributes)
+
+        listOf(firstScheme, secondScheme).forEach { scheme ->
+            EditorSchemeOverrides.writeAttributes(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                syntaxKey,
+                fullAttributes(Color.ORANGE),
+            )
+        }
+        firstAttributes[syntaxKey] = firstExternal
+        secondAttributes[syntaxKey] = secondExternal
+        listOf(firstScheme, secondScheme).forEach { scheme ->
+            EditorSchemeOverrides.writeAttributes(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                syntaxKey,
+                fullAttributes(Color.YELLOW),
+            )
+        }
+
+        EditorSchemeOverrides.rearm(
+            EditorSchemeOwner.Syntax,
+            listOf(firstScheme),
+            mapOf(firstScheme to emptySet()),
+        )
+        EditorSchemeOverrides.writeAttributes(
+            firstScheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.MAGENTA),
+        )
+        EditorSchemeOverrides.writeAttributes(
+            secondScheme,
+            EditorSchemeOwner.Syntax,
+            syntaxKey,
+            fullAttributes(Color.MAGENTA),
+        )
+
+        assertEquals(Color.MAGENTA, firstAttributes[syntaxKey]?.foregroundColor)
+        assertEquals(secondExternal, secondAttributes[syntaxKey])
+    }
+
+    @Test
+    fun `syntax checkpoint restores direct values and ownership metadata`() {
+        val ownedKey = TextAttributesKey.find("TEST_CHECKPOINT_OWNED_ATTRIBUTES")
+        val directKey = TextAttributesKey.find("TEST_CHECKPOINT_DIRECT_ATTRIBUTES")
+        val originalOwned = fullAttributes(Color.RED)
+        val appliedOwned = fullAttributes(Color.ORANGE)
+        val originalDirect = fullAttributes(Color.GREEN)
+        val attributes =
+            mutableMapOf<TextAttributesKey, TextAttributes?>(
+                ownedKey to originalOwned,
+                directKey to originalDirect,
+            )
+        val scheme = scheme(attributes = attributes)
+        EditorSchemeOverrides.writeAttributes(
+            scheme,
+            EditorSchemeOwner.Syntax,
+            ownedKey,
+            appliedOwned,
+        )
+        val checkpoint =
+            EditorSchemeOverrides.checkpoints.capture(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                setOf(ownedKey, directKey),
+            )
+
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+        scheme.setAttributes(directKey, fullAttributes(Color.YELLOW))
+        val rollbackFailures = EditorSchemeOverrides.checkpoints.rollback(checkpoint)
+
+        assertEquals(emptyList(), rollbackFailures)
+        assertEquals(appliedOwned, attributes[ownedKey])
+        assertEquals(originalDirect, attributes[directKey])
+        assertTrue(EditorSchemeOverrides.hasState(scheme, EditorSchemeOwner.Syntax))
+
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+        assertEquals(originalOwned, attributes[ownedKey])
+    }
+
+    @Test
+    fun `checkpoint rollback finishes remaining entries before propagating cancellation`() {
+        val cancelledKey = TextAttributesKey.find("TEST_CHECKPOINT_CANCELLED_ATTRIBUTES")
+        val restoredKey = TextAttributesKey.find("TEST_CHECKPOINT_RESTORED_ATTRIBUTES")
+        val cancelledOriginal = fullAttributes(Color.RED)
+        val restoredOriginal = fullAttributes(Color.GREEN)
+        val attributes =
+            mutableMapOf<TextAttributesKey, TextAttributes?>(
+                cancelledKey to cancelledOriginal,
+                restoredKey to restoredOriginal,
+            )
+        val cancellation = ProcessCanceledException()
+        val scheme = scheme(attributes = attributes)
+        val checkpoint =
+            EditorSchemeOverrides.checkpoints.capture(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                linkedSetOf(cancelledKey, restoredKey),
+            )
+        scheme.setAttributes(cancelledKey, fullAttributes(Color.ORANGE))
+        scheme.setAttributes(restoredKey, fullAttributes(Color.YELLOW))
+        every { scheme.setAttributes(cancelledKey, any()) } throws cancellation
+
+        val thrown = assertFails { EditorSchemeOverrides.checkpoints.rollback(checkpoint) }
+
+        assertSame(cancellation, thrown)
+        assertEquals(Color.ORANGE, attributes[cancelledKey]?.foregroundColor)
+        assertEquals(restoredOriginal, attributes[restoredKey])
+    }
+
+    @Test
     fun `editable copy inherits the canonical restoration ledger`() {
-        val canonicalColors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val originalColor = ColorUtil.toAlpha(Color.RED, TEST_ALPHA)
+        val canonicalColors = mutableMapOf<ColorKey, Color?>(colorKey to originalColor)
         val canonical = scheme(name = "Ayu Islands Mirage", colors = canonicalColors)
         var current = canonical
         every { editorColorsManager.globalScheme } answers { current }
@@ -213,7 +429,7 @@ class EditorSchemeOverridesTest {
 
         AyuEditorSchemeScope.restore(elementOwner)
 
-        assertEquals(Color.RED, editableColors[colorKey])
+        assertEquals(originalColor, editableColors[colorKey])
     }
 
     private fun scheme(
@@ -273,4 +489,8 @@ class EditorSchemeOverridesTest {
             effectType = EffectType.WAVE_UNDERSCORE
             fontType = 3
         }
+
+    private companion object {
+        const val TEST_ALPHA = 96
+    }
 }

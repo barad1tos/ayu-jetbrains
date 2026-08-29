@@ -1,8 +1,12 @@
-export function greet(name) {
-    const msg = "hello";
-    const count = 42;
-    // print greeting
-    if (msg.length > 0) {
-        console.log(name, count);
+/** Renders values for preview. */
+@sealed
+export class Preview {
+    static limit = 42;
+    prefix = "Ayu";
+
+    /** Formats one value. */
+    render(value) {
+        const result = this.prefix + ": " + value; // tuned local
+        return result.length > 0 ? result : "none";
     }
 }

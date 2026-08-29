@@ -1,0 +1,6 @@
+<!-- Angular template preview -->
+<section *ngIf="items.length > 0" [class.active]="isActive" (click)="select(items[0])">
+    <article *ngFor="let item of items; index as index" [attr.data-index]="index">
+        {{ item.name | uppercase }}
+    </article>
+</section>

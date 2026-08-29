@@ -34,7 +34,7 @@ private const val WHISPER_DOC_LIGHT = -0.04f
 
 // COMMENT base (Whisper): legacy "dim = darker" — a literal additive lightness
 // drop (absoluteLightness path) so the HSL pipeline output lands within ±10 RGB
-// units per channel of Phase 49 RGB×0.6 dim on the medium-cool comment
+// units per channel of the legacy RGB×0.6 dim on the medium-cool comment
 // baselines. Determined empirically against #5C6773 and #787B80 baselines; the
 // 0.48 readability floor is intentionally NOT applied on this path (see
 // SyntaxIntensityApplicator.transformForeground).
@@ -57,14 +57,14 @@ private const val NEON_DOC_SAT = 0.10f
 private const val CYBERPUNK_LOW_S_SAT = 0.45f
 private const val CYBERPUNK_LOW_S_LIGHT = 0.07f
 
-// Per-language override values for the top-12 languages (D-10). Each
+// Per-language override values for the representative top-12 languages. Each
 // constant maps to exactly one (preset × language × category) cell.
 // Per-language Whisper COMMENT overrides — each constant differs from the
 // base AND from sibling-language overrides so the override-consultation
-// test (Test 8) and the top-12 coverage gate (Test 9) see a delta per
+// override and coverage contracts see a delta per
 // language. They ride the absoluteLightness path (literal L down, NOT the
 // signed-intent flip) so comments dim downward; tolerance to RGB×0.6 still
-// verified by SyntaxPresetCurvesTest Test 4.
+// verified by SyntaxPresetCurvesTest.
 private const val WHIS_JAVA_CMT_S = -0.02f
 private const val WHIS_JAVA_CMT_L = -0.17f
 private const val WHIS_KOTLIN_CMT_S = -0.01f
@@ -107,8 +107,7 @@ private const val MAX_LIGHT_SWING = 0.17f
 /**
  * Per-(preset × language × category) saturation + lightness delta lookup for
  * the syntax-intensity applicator. Sparse: per-language overrides only for the
- * top-12 languages; remaining languages inherit the per-preset base table
- * (D-10).
+ * top-12 languages; remaining languages inherit the per-preset base table.
  *
  * Delta semantics: `saturationDelta` and `lightnessDelta` are both in
  * `[-1f, +1f]`. Saturation is always additive (it self-clamps to `[0f, 1f]`, so
@@ -147,8 +146,8 @@ object SyntaxPresetCurves {
     // literals, annotation, generics) carry a NEGATIVE chroma intent (saturation
     // 0) so they wash out instead of being pushed paler by an additive L.
     // LOW-S tokens keep an additive S drop. COMMENT rides the absoluteLightness
-    // path so it dims downward, approximating Phase 49 DIMMED_COMMENTS (RGB×0.6)
-    // — verified by SyntaxPresetCurvesTest Test 4 within ±10 RGB units/channel.
+    // path so it dims downward, approximating the legacy DIMMED_COMMENTS
+    // recipe (RGB×0.6) within ±10 RGB units/channel.
     private val WHISPER_BASE: Map<PrimitiveCategory, CategoryCurve> =
         mapOf(
             PrimitiveCategory.FUNCTION_DECL to CategoryCurve(0f, WHISPER_HIGH_S_INTENT),
@@ -216,10 +215,9 @@ object SyntaxPresetCurves {
             PrimitiveCategory.DOCUMENTATION to CategoryCurve(CYBERPUNK_LOW_S_SAT, CYBERPUNK_LOW_S_LIGHT),
         )
 
-    // Sparse per-language overrides — top-12 languages by D-10. Each entry
-    // overrides a single (preset × language × category) cell. The
-    // SyntaxPresetCurvesTest coverage gate (Test 9) enforces that each of
-    // the 12 languages appears in at least one preset's override map.
+    // Sparse per-language overrides for the representative top-12 languages.
+    // Each entry overrides one (preset × language × category) cell; the
+    // coverage contract requires every listed language to appear.
     private val LANGUAGE_OVERRIDES: Map<SyntaxPreset, Map<String, Map<PrimitiveCategory, CategoryCurve>>> =
         mapOf(
             SyntaxPreset.WHISPER to
@@ -298,8 +296,10 @@ object SyntaxPresetCurves {
         category: PrimitiveCategory,
     ): CategoryCurve {
         LANGUAGE_OVERRIDES[preset]?.get(language)?.get(category)?.let { return it }
-        return baseFor(preset)[category] ?: CategoryCurve.IDENTITY
+        return baseFor(preset).getValue(category)
     }
+
+    internal fun definedCategories(preset: SyntaxPreset): Set<PrimitiveCategory> = baseFor(preset).keys
 
     /**
      * Map a Custom drill-down slider position `0..100` to a [CategoryCurve].

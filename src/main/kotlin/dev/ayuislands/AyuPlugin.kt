@@ -66,7 +66,7 @@ internal object AyuPlugin {
             logPluginLookupFailure(exception)
         }
 
-    private fun markerClassName(pluginId: PluginId): String? =
+    internal fun markerClassName(pluginId: PluginId): String? =
         when (pluginId.idString) {
             ID_STRING -> AyuPlugin::class.java.name
             CODE_GLANCE_PRO_ID -> CODE_GLANCE_PRO_MARKER_CLASS

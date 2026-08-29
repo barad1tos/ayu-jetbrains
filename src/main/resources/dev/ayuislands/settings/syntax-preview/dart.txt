@@ -1,0 +1,16 @@
+/// Renders values for preview.
+abstract interface class Previewing<T> {
+  String render(T value);
+}
+
+@deprecated
+final class Preview<T> implements Previewing<T> {
+  static const int limit = 42;
+  final String prefix;
+  Preview(this.prefix);
+
+  String render(T value) {
+    final String result = '$prefix: $value';
+    return result.isNotEmpty && limit > 0 ? result : 'none';
+  }
+}

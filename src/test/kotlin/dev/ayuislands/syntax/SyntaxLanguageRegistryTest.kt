@@ -10,17 +10,22 @@ import kotlin.test.assertTrue
  * classification table (≥30 entries across underscore, dot-namespaced,
  * space-separated, and plugin-namespaced buckets per RESEARCH OQ-03), the
  * cross-cutting CASCADE / DIAGNOSTICS / EDITOR_OVERLAY routing, the unknown-
- * prefix OTHER fallback with log-once latch, and the [supportedLanguages]
+ * prefix OTHER fallback with log-once latch, and the [SyntaxLanguageRegistry.supportedLanguages]
  * picker contract (≥26 LANGUAGE entries, no non-LANGUAGE leaks,
  * alphabetical sort by displayName).
  */
 class SyntaxLanguageRegistryTest {
     private data class Row(
         val key: String,
-        val tag: String,
-        val displayName: String,
-        val bucket: SyntaxLanguageRegistry.Bucket,
-    )
+        val expected: SyntaxLanguageRegistry.LangTag,
+    ) {
+        constructor(
+            key: String,
+            tag: String,
+            displayName: String,
+            bucket: SyntaxLanguageRegistry.Bucket,
+        ) : this(key, SyntaxLanguageRegistry.LangTag(tag, displayName, bucket))
+    }
 
     private val languageRows =
         listOf(
@@ -52,6 +57,7 @@ class SyntaxLanguageRegistryTest {
             Row("CSS.PROPERTY", "CSS", "CSS", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("BASH.KEYWORD", "Bash", "Bash", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("HCL.IDENTIFIER", "HCL", "HCL", SyntaxLanguageRegistry.Bucket.LANGUAGE),
+            Row("DQL_PLACEHOLDER", "DQL", "DQL", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             Row("JSON.PROPERTY_KEY", "JSON", "JSON", SyntaxLanguageRegistry.Bucket.LANGUAGE),
             // Space-separated bucket — verifies space-rule fires before underscore-rule
             Row("Scala Line comment", "Scala", "Scala", SyntaxLanguageRegistry.Bucket.LANGUAGE),
@@ -119,11 +125,11 @@ class SyntaxLanguageRegistryTest {
 
     @Test
     fun `classify routes language prefixes to expected tag display bucket`() {
-        for (row in languageRows) {
-            val tag = SyntaxLanguageRegistry.classify(row.key)
-            assertEquals(row.tag, tag.tag, "tag for ${row.key}")
-            assertEquals(row.displayName, tag.displayName, "displayName for ${row.key}")
-            assertEquals(row.bucket, tag.bucket, "bucket for ${row.key}")
+        for ((key, expected) in languageRows) {
+            val tag = SyntaxLanguageRegistry.classify(key)
+            assertEquals(expected.tag, tag.tag, "tag for $key")
+            assertEquals(expected.displayName, tag.displayName, "displayName for $key")
+            assertEquals(expected.bucket, tag.bucket, "bucket for $key")
         }
     }
 
@@ -180,19 +186,83 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
-    fun `supportedLanguages returns at least 26 LANGUAGE entries`() {
-        val supported = SyntaxLanguageRegistry.supportedLanguages()
-        assertTrue(supported.size >= 26, "expected >=26 LANGUAGE entries, got ${supported.size}")
+    fun `supportedLanguages preserves the advertised language contract`() {
+        val supported = SyntaxLanguageRegistry.supportedLanguages().mapTo(linkedSetOf()) { it.displayName }
+
+        assertEquals(
+            setOf(
+                "Angular",
+                "Apple plist",
+                "Bash",
+                "C# (ReSharper)",
+                "CodeQL",
+                "CoffeeScript",
+                "Cron expression",
+                "CSS",
+                "Dart",
+                "Django",
+                "Docker",
+                "dotenv",
+                "DQL",
+                "Drools",
+                "EditorConfig",
+                "Erlang",
+                "FreeMarker",
+                "Gherkin",
+                "GitLab CI",
+                "Go",
+                "GraphQL",
+                "Groovy",
+                "HAML",
+                "HCL",
+                "HTML",
+                "HTTP client",
+                "Ignore files",
+                "Java",
+                "JavaScript",
+                "JSON",
+                "JSONPath",
+                "Kotlin",
+                "Lua",
+                "Makefile",
+                "Markdown",
+                "Nginx",
+                "Objective-C",
+                "PHP",
+                "PowerShell",
+                "Properties files",
+                "Protobuf",
+                "Protobuf text",
+                "Puppet",
+                "Python",
+                "Qute",
+                "RegExp",
+                "Ruby",
+                "Rust",
+                "Sass",
+                "Scala",
+                "Slim",
+                "Swift",
+                "TIL",
+                "TypeScript",
+                "Velocity",
+                "Vue",
+                "Windows Batch",
+                "XML",
+                "YAML",
+            ),
+            supported,
+        )
     }
 
     @Test
     fun `supportedLanguages excludes non-LANGUAGE buckets`() {
         val supported = SyntaxLanguageRegistry.supportedLanguages()
-        for (entry in supported) {
+        for ((tag, displayName, bucket) in supported) {
             assertEquals(
                 SyntaxLanguageRegistry.Bucket.LANGUAGE,
-                entry.bucket,
-                "supportedLanguages must not leak bucket=${entry.bucket} (${entry.tag})",
+                bucket,
+                "supportedLanguages must not leak bucket=$bucket ($tag/$displayName)",
             )
         }
     }
@@ -223,6 +293,12 @@ class SyntaxLanguageRegistryTest {
     }
 
     @Test
+    fun `Scala cascades target runtime-owned native keys`() {
+        assertEquals("ScalaDoc comment", SyntaxLanguageRegistry.cascadeTargets("Scala", "DEFAULT_DOC_COMMENT"))
+        assertEquals("Scala Number", SyntaxLanguageRegistry.cascadeTargets("Scala", "DEFAULT_NUMBER"))
+    }
+
+    @Test
     fun `unknown-prefix latch does not flood when classify is called many times for the same key`() {
         // No direct log capture without IntelliJ test fixture; we assert the side-effect-
         // free contract: repeated classify returns the same OTHER tag and does not throw.
@@ -235,5 +311,158 @@ class SyntaxLanguageRegistryTest {
             SyntaxLanguageRegistry.supportedLanguages().any { it.bucket == SyntaxLanguageRegistry.Bucket.OTHER },
             "OTHER must never leak into supportedLanguages",
         )
+    }
+
+    @Test
+    fun `language specifications have unique stable ids aliases profiles and previews`() {
+        val specifications = SyntaxLanguageRegistry.specifications()
+
+        assertEquals(
+            specifications.size,
+            specifications.map { it.storageId }.toSet().size,
+            "Language storage IDs must be unique",
+        )
+        for (language in specifications) {
+            assertEquals(language, SyntaxLanguageRegistry.findByStorageId(language.storageId))
+            assertTrue(language.aliases.isNotEmpty(), "${language.storageId} must declare at least one alias")
+            assertTrue(language.nativeProfiles.isNotEmpty(), "${language.storageId} must declare a native profile")
+            assertTrue(language.preview.files.isNotEmpty(), "${language.storageId} must declare preview evidence")
+            for (alias in language.aliases) {
+                assertEquals(language, SyntaxLanguageRegistry.resolveAlias(alias), "alias $alias")
+            }
+        }
+    }
+
+    @Test
+    fun `Swift specification accepts Noctule as a runtime identity`() {
+        val swift = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Swift"))
+
+        assertTrue(
+            swift.nativeProfiles
+                .single()
+                .fileTypeNames
+                .contains("NoctuleSwift"),
+        )
+    }
+
+    @Test
+    fun `Windows Batch exposes only runtime-backed primitives`() {
+        val batch = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Windows Batch"))
+        val primitives = batch.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
+        assertEquals(
+            setOf(
+                PrimitiveCategory.KEYWORD,
+                PrimitiveCategory.LOCAL_VAR,
+                PrimitiveCategory.STRING_LITERAL,
+                PrimitiveCategory.NUMBER_LITERAL,
+                PrimitiveCategory.COMMENT,
+                PrimitiveCategory.OPERATOR,
+            ),
+            primitives,
+        )
+    }
+
+    @Test
+    fun `Ruby exposes only runtime-backed primitives`() {
+        val ruby = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Ruby"))
+        val primitives = ruby.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
+        assertTrue(PrimitiveCategory.INSTANCE_FIELD in primitives)
+        assertFalse(PrimitiveCategory.INTERFACE_DECL in primitives)
+    }
+
+    @Test
+    fun `Swift exposes only Noctule-backed primitives`() {
+        val swift = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Swift"))
+        val primitives = swift.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
+        assertTrue(PrimitiveCategory.INTERFACE_DECL in primitives)
+        assertFalse(PrimitiveCategory.TYPE_REF in primitives)
+        assertFalse(PrimitiveCategory.GENERICS in primitives)
+        assertFalse(PrimitiveCategory.STATIC_FIELD in primitives)
+        assertFalse(PrimitiveCategory.DOCUMENTATION in primitives)
+    }
+
+    @Test
+    fun `Gherkin exposes only runtime-backed primitives`() {
+        val gherkin = requireNotNull(SyntaxLanguageRegistry.findByStorageId("Gherkin"))
+        val primitives = gherkin.preview.files.flatMapTo(linkedSetOf(), PreviewFileSpec::demonstratedCategories)
+
+        assertTrue(PrimitiveCategory.PARAMETER in primitives)
+        assertFalse(PrimitiveCategory.STRING_LITERAL in primitives)
+    }
+
+    @Test
+    fun `CoffeeScript records descriptor-backed semantic primitives`() {
+        val coffeeScript = requireNotNull(SyntaxLanguageRegistry.findByStorageId("CoffeeScript"))
+
+        assertEquals(
+            setOf(PrimitiveCategory.PARAMETER),
+            coffeeScript.semanticOnlyCategories,
+        )
+    }
+
+    @Test
+    fun `native profiles include runtime identities`() {
+        val expectedIdentities =
+            mapOf(
+                "Angular" to (setOf("Angular2Html") to setOf("Angular2Html")),
+                "Django" to (setOf("DjangoTemplate") to setOf("DjangoTemplate")),
+                "Docker" to (setOf("Dockerfile") to setOf("Dockerfile")),
+                "dotenv" to (setOf(".env file") to setOf("DotEnv")),
+                "FreeMarker" to (setOf("FTL") to setOf("FTL")),
+                "Gherkin" to (setOf("Cucumber") to setOf("Gherkin")),
+                "GitLab CI" to
+                    (setOf("GitLabCiExpression") to setOf("GitLabCiExpressionLanguage")),
+                "HTTP client" to (setOf("HTTP Request") to setOf("HTTP Request")),
+                "Objective-C" to (setOf("ObjectiveC") to setOf("ObjectiveC")),
+                "Protobuf text" to (setOf("prototext") to setOf("prototext")),
+                "Ruby" to (setOf("Ruby") to setOf("ruby")),
+                "Sass" to (setOf("SCSS") to setOf("SCSS")),
+                "Velocity" to (setOf("VTL") to setOf("VTL")),
+                "Vue" to (setOf("Vue.js") to setOf("Vue")),
+            )
+
+        expectedIdentities.forEach { (language, identity) ->
+            val profile = requireNotNull(SyntaxLanguageRegistry.findByStorageId(language)).nativeProfiles.single()
+
+            assertTrue(profile.fileTypeNames.containsAll(identity.first), language)
+            assertTrue(profile.languageIds.containsAll(identity.second), language)
+        }
+    }
+
+    @Test
+    fun `TIL previews lexical HIL and semantic Terraform surfaces`() {
+        val til = requireNotNull(SyntaxLanguageRegistry.findByStorageId("TIL"))
+        val previews = til.preview.files.associateBy(PreviewFileSpec::fileName)
+        val profiles = til.nativeProfiles.associateBy(NativeProfile::id)
+        val hilProfile = requireNotNull(profiles[requireNotNull(previews["preview.hil"]).profileId])
+        val terraformProfile = requireNotNull(profiles[requireNotNull(previews["preview.tf"]).profileId])
+        val legacyProfile = requireNotNull(profiles["TIL:legacy"])
+
+        assertEquals(setOf("preview.hil", "preview.tf"), previews.keys)
+        assertEquals(setOf("TIL:default", "TIL:terraform", "TIL:legacy"), profiles.keys)
+        assertTrue(hilProfile.fileTypeNames.contains("HIL"))
+        assertTrue(hilProfile.languageIds.contains("HIL"))
+        assertEquals(setOf("hil"), hilProfile.extensions)
+        assertTrue(terraformProfile.fileTypeNames.contains("Terraform"))
+        assertTrue(terraformProfile.languageIds.containsAll(setOf("HCL-Terraform", "Terraform/OpenTofu")))
+        assertTrue(terraformProfile.extensions.contains("tf"))
+        assertFalse(terraformProfile.isDetectionProfile)
+        assertTrue(legacyProfile.fileTypeNames.contains("HCL"))
+        assertTrue(legacyProfile.languageIds.contains("TIL"))
+        assertEquals(setOf("tf"), legacyProfile.extensions)
+        assertTrue(legacyProfile.isDetectionProfile)
+    }
+
+    @Test
+    fun `GitLab CI previews native expressions while matching its YAML host file`() {
+        val gitLabCi = requireNotNull(SyntaxLanguageRegistry.findByStorageId("GitLab CI"))
+        val profile = gitLabCi.nativeProfiles.single()
+        val preview = gitLabCi.preview.files.single()
+
+        assertEquals("preview.gitlabciexpression", preview.fileName)
+        assertEquals(setOf(".gitlab-ci.yml"), profile.exactFileNames)
     }
 }

@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.color.AccentHsl
 import dev.ayuislands.rotation.HslColor
 import java.awt.Color
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
@@ -15,12 +16,12 @@ import kotlin.math.abs
  * `Map<TextAttributesKey, TextAttributes>`. No IDE singleton, no platform
  * I/O — fully testable in unit tests.
  *
- * Language-aware curve lookup (Codex HIGH #4): each baseline key's language
+ * Language-aware curve lookup: each baseline key's language
  * is derived from `key.externalName` via [SyntaxLanguageRegistry.classify] →
  * [SyntaxLanguageRegistry.LangTag.displayName]; the resulting language name
  * is the input to [SyntaxPresetCurves.curveFor]. The `variantName` parameter
- * is used ONLY for the R-1 caller-contract WARN — it never reaches the curve
- * lookup as a "language" mistake.
+ * is used only for the white-background diagnostic and never participates in
+ * language lookup.
  *
  * Math: parse baseline foreground via [HslColor.fromColor], then:
  *  - saturation is additive (`hsl.saturation + saturationDelta`), self-clamped
@@ -40,13 +41,13 @@ import kotlin.math.abs
  * as its floor so the COMMENT dim can reach the legacy RGB×0.6 tolerance.
  * Hue invariant by construction.
  *
- * Custom font style (Part A backend): under `preset == CUSTOM` the per-cell
- * `customStyles` map (language -> category -> `java.awt.Font` bitmask) sets
- * the clone's `fontType` after the foreground transform. The two fields are
- * independent `TextAttributes` slots, so the style set is orthogonal to the
- * hue/color math — a cell may carry a style with no slider, or a slider with
- * no style. Sparse: an absent cell leaves `fontType` untouched (inherits the
- * source style). Named / AMBIENT presets never read `customStyles`.
+ * Custom font style: under `preset == CUSTOM` the per-cell
+ * `customStyles` replacement map (language -> category -> `java.awt.Font`
+ * bitmask) sets the clone's `fontType` after the foreground transform.
+ * `customEmphasis` is a separate additive map: it ORs its bitmask into the
+ * resolved source or replacement style. Both maps are sparse; absent cells
+ * leave `fontType` untouched (inherits the source style). Named / AMBIENT
+ * presets never read either map.
  *
  * Readability modifiers are a second semantic layer after the selected preset
  * has resolved. They never write Custom slider cells: comments, docs, and
@@ -54,28 +55,30 @@ import kotlin.math.abs
  * small chroma-intent boost. The user's Custom sparse map stays manual
  * per-language tuning only.
  *
- * Pattern B clone discipline: baseline / overlay `TextAttributes` instances
+ * Baseline and overlay `TextAttributes` instances
  * are NEVER mutated. Every output value is a fresh clone obtained via
  * `source.clone()` and the cloned instance is the only thing the applicator
  * writes to (both `foregroundColor` and `fontType`).
  *
- * H10 fix carried forward: no `null` is ever emitted as a value — the
+ * No `null` is ever emitted as a value because the
  * platform's `EditorColorsSchemeImpl.setAttributes(key, attrs)` declares
  * the second parameter `@NotNull`. The applicator's emit path always uses
- * the cloned (non-null) TextAttributes; keys that don't classify into a
- * [PrimitiveCategory] or whose source has no foreground simply don't get
- * an entry in the result map (skip-vs-null write).
+ * the cloned (non-null) TextAttributes. Keys that don't classify into a
+ * [PrimitiveCategory] are skipped. A source without its own foreground stays
+ * skipped unless Custom contains an explicit cell for it; that opt-in path
+ * resolves and clones the registered [TextAttributesKey.fallbackAttributeKey]
+ * from the Ayu source maps before changing the requested foreground/style.
  *
- * R-1 caller contract (D-09, RB-4): the applicator takes `editorBg: Color`
+ * The applicator takes `editorBg: Color`
  * as a parameter — it does NOT call [dev.ayuislands.syntax.RgbBlend.fallbackEditorBgFor]
  * itself. The mitigation for `EditorColorsScheme.defaultBackground == Color.WHITE`
- * on a dark variant is the SERVICE caller's responsibility (Plan 50-05).
+ * on a dark variant is the service caller's responsibility.
  * If a dark variant arrives here with `Color.WHITE`, the applicator latches
  * a one-time WARN per `(variant, session)` so the regression is visible in
  * `idea.log` without spamming.
  *
- * Pattern B note: there is NO `runCatching` and NO broad `catch` in this
- * file. The pure-compute path has no exception sources beyond
+ * The pure-compute path has no `runCatching` or broad `catch`; its only
+ * exception sources are
  * [HslColor.fromColor] / [HslColor.toColor], which `require()`-validate
  * inputs already clamped to `[0, 1]` / `[0, 360]` by the caller. Any
  * `IllegalArgumentException` from a malformed delta is a programming bug
@@ -97,6 +100,8 @@ object SyntaxIntensityApplicator {
         val subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
         val customStyles: Map<String, Map<String, Int>> = emptyMap(),
         val readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
+        val customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
+        val fallbacks: Map<String, String> = emptyMap(),
     )
 
     fun compute(request: Request): Map<TextAttributesKey, TextAttributes> {
@@ -115,20 +120,26 @@ object SyntaxIntensityApplicator {
                 subordinatePreset = subordinatePreset,
                 customStyles = request.customStyles,
                 readabilityOptions = request.readabilityOptions,
+                customEmphasis = request.customEmphasis,
                 editorBg = request.editorBg,
             )
-        val sources = AttributeSources(baseline, overlay)
+        val sources = AttributeSources(baseline, overlay, request.fallbacks)
         val keys = LinkedHashSet<TextAttributesKey>()
         keys.addAll(baseline.keys)
         keys.addAll(overlay.keys)
         for (key in keys) {
             val source = overlay[key] ?: baseline[key] ?: continue
-            val category = SyntaxCategoryRegistry.classify(key.externalName) ?: continue
+            val role = SyntaxKeyRoleRegistry.classify(key.externalName)
+            val category = role.effectivePrimitive ?: continue
             val langTag = SyntaxLanguageRegistry.classify(key.externalName)
-            val language = langTag.displayName
+            val language = (role as? SyntaxKeyRole.Tunable)?.languageId ?: langTag.displayName
             val curve = resolveCurve(preset, language, category, customOverrides, subordinatePreset)
             val transformed =
-                transformedAttributes(source, curve, context, language, category)
+                transformedAttributes(
+                    TokenInput(key, source, curve, language, category),
+                    context,
+                    sources,
+                )
                     ?: continue
             result[key] = transformed
             if (langTag.bucket == SyntaxLanguageRegistry.Bucket.CASCADE &&
@@ -142,16 +153,45 @@ object SyntaxIntensityApplicator {
                 )
             }
         }
-        // `request.editorBg` participates in the R-1 contract guard above but does
-        // not feed the per-key transform; the parameter exists so the
-        // applicator stays language-aware AND signature-stable for Plan
-        // 50-05's service caller, which will pass the resolved editor
-        // background for diagnostic logging.
+        // `request.editorBg` participates in the contract guard above but does
+        // not feed the per-key transform. The service supplies the resolved
+        // editor background for diagnostic logging.
         check(request.editorBg.alpha in 0..MAX_RGB_CHANNEL) {
             "editorBg alpha out of range: ${request.editorBg.alpha}"
         }
         return result
     }
+
+    internal fun tunableCategories(
+        baseline: Map<TextAttributesKey, TextAttributes>,
+        overlay: Map<TextAttributesKey, TextAttributes>,
+        fallbacks: Map<String, String>,
+    ): Map<String, Set<PrimitiveCategory>> {
+        val sources = AttributeSources(baseline, overlay, fallbacks)
+        val keys = LinkedHashSet<TextAttributesKey>()
+        keys.addAll(baseline.keys)
+        keys.addAll(overlay.keys)
+        val categories = linkedMapOf<String, MutableSet<PrimitiveCategory>>()
+        for (key in keys) {
+            if (!hasTunableForeground(key, sources)) continue
+            val role = SyntaxKeyRoleRegistry.classify(key.externalName)
+            if (role is SyntaxKeyRole.Tunable) {
+                categories.getOrPut(role.languageId) { linkedSetOf() }.add(role.primitive)
+            }
+        }
+        val snapshot =
+            categories.mapValues { (_, values) ->
+                Collections.unmodifiableSet(LinkedHashSet(values))
+            }
+        return Collections.unmodifiableMap(snapshot)
+    }
+
+    private fun hasTunableForeground(
+        key: TextAttributesKey,
+        sources: AttributeSources,
+    ): Boolean =
+        sourceAttributes(key.externalName, sources)?.foregroundColor != null ||
+            resolveFallbackAttributes(key, sources)?.foregroundColor != null
 
     private data class TransformContext(
         val preset: SyntaxPreset,
@@ -159,12 +199,14 @@ object SyntaxIntensityApplicator {
         val subordinatePreset: SyntaxPreset,
         val customStyles: Map<String, Map<String, Int>>,
         val readabilityOptions: SyntaxReadabilityOptions,
+        val customEmphasis: Map<String, Map<String, Int>>,
         val editorBg: Color,
     )
 
     private data class AttributeSources(
         val baseline: Map<TextAttributesKey, TextAttributes>,
         val overlay: Map<TextAttributesKey, TextAttributes>,
+        val fallbacks: Map<String, String>,
     )
 
     private data class CascadeSource(
@@ -173,32 +215,118 @@ object SyntaxIntensityApplicator {
         val attributes: TextAttributes,
     )
 
+    private data class TokenInput(
+        val key: TextAttributesKey,
+        val source: TextAttributes,
+        val curve: CategoryCurve,
+        val language: String,
+        val category: PrimitiveCategory,
+    )
+
     private fun transformedAttributes(
-        source: TextAttributes,
-        curve: CategoryCurve,
+        input: TokenInput,
         context: TransformContext,
-        language: String,
-        category: PrimitiveCategory,
+        sources: AttributeSources,
     ): TextAttributes? {
-        val sourceForeground = source.foregroundColor ?: return null
-        val clone = source.clone()
+        val sourceForeground =
+            input.source.foregroundColor
+                ?: return transformInherited(input, context, sources)
+        val clone = input.source.clone()
         clone.foregroundColor =
             transformForeground(
                 fg = sourceForeground,
-                curve = curve,
+                curve = input.curve,
                 readabilityOptions = context.readabilityOptions,
-                category = category,
+                category = input.category,
                 editorBg = context.editorBg,
             )
-        // Sparse per-category font style — gated to the Custom drill-down.
-        // fontType and foregroundColor are independent TextAttributes fields,
-        // so the style set is orthogonal to the hue/color transform above.
-        // An absent cell leaves clone.fontType untouched.
+        // The legacy per-category style remains a replacement. Additive
+        // emphasis is layered over that resolved style only for Custom.
         if (context.preset == SyntaxPreset.CUSTOM) {
-            context.customStyles[language]?.get(category.name)?.let { clone.fontType = it }
+            context.customStyles[input.language]?.get(input.category.name)?.let { legacyStyle ->
+                clone.fontType = legacyStyle
+            }
+            context.customEmphasis[input.language]?.get(input.category.name)?.let { emphasis ->
+                clone.fontType = clone.fontType or emphasis
+            }
         }
         return clone
     }
+
+    private fun transformInherited(
+        input: TokenInput,
+        context: TransformContext,
+        sources: AttributeSources,
+    ): TextAttributes? {
+        if (context.preset != SyntaxPreset.CUSTOM) return null
+        val intensity = context.customOverrides[input.language]?.get(input.category.name)
+        val legacyStyle = context.customStyles[input.language]?.get(input.category.name)
+        val emphasis = context.customEmphasis[input.language]?.get(input.category.name)
+        if (intensity == null && legacyStyle == null && emphasis == null) return null
+
+        val inherited = resolveFallbackAttributes(input.key, sources) ?: return null
+        val output = inherited.clone()
+        var hasOverride = false
+        if (intensity != null) {
+            inherited.foregroundColor?.let { foreground ->
+                output.foregroundColor =
+                    transformForeground(
+                        fg = foreground,
+                        curve = input.curve,
+                        readabilityOptions = context.readabilityOptions,
+                        category = input.category,
+                        editorBg = context.editorBg,
+                    )
+                output.fontType = inherited.fontType
+                hasOverride = true
+            }
+        }
+        if (legacyStyle != null || emphasis != null) {
+            val resolvedStyle = legacyStyle ?: inherited.fontType
+            output.fontType = resolvedStyle or (emphasis ?: 0)
+            hasOverride = true
+        }
+        return output.takeIf { hasOverride }
+    }
+
+    private fun resolveFallbackAttributes(
+        key: TextAttributesKey,
+        sources: AttributeSources,
+    ): TextAttributes? {
+        val visited = mutableSetOf<String>()
+        val initialFallbackName = fallbackName(key.externalName, key, sources) ?: return null
+
+        var currentFallbackName: String = initialFallbackName
+        while (visited.add(currentFallbackName)) {
+            val fallback = findKey(currentFallbackName, sources)
+            val attributes = sourceAttributes(currentFallbackName, sources)
+            if (attributes?.foregroundColor != null) return attributes
+            val nextFallbackName = fallbackName(currentFallbackName, fallback, sources) ?: return null
+            currentFallbackName = nextFallbackName
+        }
+        return null
+    }
+
+    private fun fallbackName(
+        keyName: String,
+        key: TextAttributesKey,
+        sources: AttributeSources,
+    ): String? {
+        val configuredFallbackName = sources.fallbacks[keyName]
+        if (configuredFallbackName != null) return configuredFallbackName
+        return key.fallbackAttributeKey?.externalName
+    }
+
+    private fun sourceAttributes(
+        keyName: String,
+        sources: AttributeSources,
+    ): TextAttributes? =
+        sources.overlay.entries
+            .firstOrNull { it.key.externalName == keyName }
+            ?.value
+            ?: sources.baseline.entries
+                .firstOrNull { it.key.externalName == keyName }
+                ?.value
 
     private fun materializeCascadeTargets(
         cascadeSource: CascadeSource,
@@ -206,11 +334,11 @@ object SyntaxIntensityApplicator {
         sources: AttributeSources,
         result: MutableMap<TextAttributesKey, TextAttributes>,
     ) {
-        for (target in SyntaxLanguageRegistry.cascadeTargetsFor(cascadeSource.defaultKeyName)) {
-            val targetKey = findKey(target.keyName, sources)
+        for ((languageTag, keyName) in SyntaxLanguageRegistry.cascadeTargetsFor(cascadeSource.defaultKeyName)) {
+            val targetKey = findKey(keyName, sources)
             val targetSource = sources.overlay[targetKey] ?: sources.baseline[targetKey]
             if (targetSource?.foregroundColor != null) continue
-            val language = target.language.displayName
+            val language = languageTag.displayName
             val curve =
                 resolveCurve(
                     context.preset,
@@ -221,11 +349,15 @@ object SyntaxIntensityApplicator {
                 )
             val transformed =
                 transformedAttributes(
-                    cascadeSource.attributes,
-                    curve,
+                    TokenInput(
+                        targetKey,
+                        cascadeSource.attributes,
+                        curve,
+                        language,
+                        cascadeSource.category,
+                    ),
                     context,
-                    language,
-                    cascadeSource.category,
+                    sources,
                 )
                     ?: continue
             result[targetKey] = transformed
@@ -353,7 +485,7 @@ object SyntaxIntensityApplicator {
         ) {
             log.warn(
                 "editorBg arrived as Color.WHITE for dark variant '$variantName' — " +
-                    "caller must resolve via RgbBlend.fallbackEditorBgFor (R-1)",
+                    "caller must resolve via RgbBlend.fallbackEditorBgFor",
             )
         }
     }
