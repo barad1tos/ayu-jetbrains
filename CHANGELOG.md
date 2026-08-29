@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.8.7] - 2026-08-29
 
 - [Paid] **Universal per-language syntax tuning** — Custom syntax settings now
   follow the active file in the active project window and expose only controls
