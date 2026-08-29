@@ -15,6 +15,7 @@ import com.intellij.openapi.fileTypes.UnknownFileType
 import com.intellij.psi.TokenType
 import com.intellij.psi.tree.IElementType
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixture4TestCase
+import com.intellij.testFramework.fixtures.impl.CodeInsightTestFixtureImpl
 import dev.ayuislands.settings.ConditionalAbsence
 import dev.ayuislands.settings.HighlightEvidence
 import dev.ayuislands.settings.HighlightEvidenceCollector
@@ -399,7 +400,20 @@ class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
             ) {
                 "No syntax highlighter for ${previewFile.fileName}"
             }
-        val highlightInfos = myFixture.doHighlighting()
+        val fixture = myFixture as CodeInsightTestFixtureImpl
+        val previewText = fixture.editor.document.text
+        fixture.canChangeDocumentDuringHighlighting(runtime.allowsHighlightingRestart)
+        val highlightInfos =
+            try {
+                fixture.doHighlighting()
+            } finally {
+                fixture.canChangeDocumentDuringHighlighting(false)
+            }
+        assertEquals(
+            "${runtime.id} changed ${previewFile.fileName} during native highlighting",
+            previewText,
+            fixture.editor.document.text,
+        )
         val semanticKeys =
             highlightInfos.mapTo(linkedSetOf()) { info ->
                 (info.forcedTextAttributesKey ?: info.type.attributesKey).externalName
