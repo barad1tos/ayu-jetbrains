@@ -171,39 +171,45 @@ internal object EditorSchemeOverrides {
             saved: CheckpointEntry,
         ): List<RuntimeException> =
             buildList {
-                var cancellation: RuntimeException? = null
-                try {
-                    writeValue(scheme, entry, saved.directValue)
-                } catch (failure: RuntimeException) {
-                    if (failure.isCancellation()) {
-                        cancellation = failure
-                    } else {
-                        add(failure)
+                var cancellation =
+                    attemptRestore(this) {
+                        writeValue(scheme, entry, saved.directValue)
                     }
-                }
-                try {
-                    val state = saved.overrideState
-                    if (state == null) {
-                        schemeStates.remove(entry)
-                    } else {
-                        schemeStates[entry] = state.snapshot()
+                cancellation =
+                    attemptRestore(this, cancellation) {
+                        val state = saved.overrideState
+                        if (state == null) {
+                            schemeStates.remove(entry)
+                        } else {
+                            schemeStates[entry] = state.snapshot()
+                        }
+                        val metadata = saved.metadataValue
+                        if (metadata == null) {
+                            scheme.metaProperties.remove(entry.metadataKey)
+                        } else {
+                            scheme.metaProperties.setProperty(entry.metadataKey, metadata)
+                        }
                     }
-                    val metadata = saved.metadataValue
-                    if (metadata == null) {
-                        scheme.metaProperties.remove(entry.metadataKey)
-                    } else {
-                        scheme.metaProperties.setProperty(entry.metadataKey, metadata)
-                    }
-                } catch (failure: RuntimeException) {
-                    if (failure.isCancellation()) {
-                        cancellation = cancellation.record(failure)
-                    } else {
-                        add(failure)
-                    }
-                }
                 cancellation?.let { cancelled ->
                     forEach(cancelled::addSuppressed)
                     throw cancelled
+                }
+            }
+
+        private fun attemptRestore(
+            failures: MutableList<RuntimeException>,
+            cancellation: RuntimeException? = null,
+            action: () -> Unit,
+        ): RuntimeException? =
+            try {
+                action()
+                cancellation
+            } catch (failure: RuntimeException) {
+                if (failure.isCancellation()) {
+                    cancellation.record(failure)
+                } else {
+                    failures += failure
+                    cancellation
                 }
             }
     }
