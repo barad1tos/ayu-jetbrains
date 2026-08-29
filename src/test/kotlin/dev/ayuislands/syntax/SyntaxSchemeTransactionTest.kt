@@ -49,6 +49,26 @@ class SyntaxSchemeTransactionTest {
     }
 
     @Test
+    fun `publisher failure remains recoverable after every checkpoint rolls back`() {
+        val writer = RecordingWriter()
+        val ledger = SyntaxRecoveryLedger()
+        val failure = IllegalStateException("publish")
+        var publishes = 0
+
+        val failed =
+            SyntaxSchemeTransaction(writer) {
+                publishes++
+                throw failure
+            }.apply(listOf(change("Mirage", "JAVA_KEYWORD")), ledger)
+        val recovered = ledger.restore(writer) { publishes++ }
+
+        assertSame(failure, assertIs<SyntaxTransactionResult.RolledBack>(failed).cause)
+        assertIs<SyntaxTransactionResult.Applied>(recovered)
+        assertEquals(2, publishes)
+        assertEquals(listOf("Mirage"), writer.rolledBack)
+    }
+
+    @Test
     fun `rollback failures are reported without abandoning later checkpoints`() {
         val first = change("Mirage", "JAVA_KEYWORD")
         val second = change("Dark", "KOTLIN_KEYWORD")
@@ -62,15 +82,15 @@ class SyntaxSchemeTransactionTest {
     }
 
     @Test
-    fun `failed rollback checkpoint remains restorable through the journal`() {
+    fun `failed rollback checkpoint remains restorable through the ledger`() {
         val writer = RecordingWriter(failOn = "Dark", rollbackFailureOn = "Dark")
-        val journal = SyntaxSchemeJournal()
+        val ledger = SyntaxRecoveryLedger()
 
-        SyntaxSchemeTransaction(writer) {}.apply(listOf(change("Dark", "KOTLIN_KEYWORD")), journal)
+        SyntaxSchemeTransaction(writer) {}.apply(listOf(change("Dark", "KOTLIN_KEYWORD")), ledger)
         writer.rollbackFailureOn = null
         writer.rolledBack.clear()
 
-        journal.restore(writer) {}
+        ledger.restore(writer) {}
 
         assertEquals(listOf("Dark"), writer.rolledBack)
     }
@@ -78,7 +98,7 @@ class SyntaxSchemeTransactionTest {
     @Test
     fun `thrown rollback failure retains its checkpoint and continues restoration`() {
         val writer = RecordingWriter(failOn = "Light", rollbackExceptionOn = "Dark")
-        val journal = SyntaxSchemeJournal()
+        val ledger = SyntaxRecoveryLedger()
 
         val result =
             SyntaxSchemeTransaction(writer) {}.apply(
@@ -87,7 +107,7 @@ class SyntaxSchemeTransactionTest {
                     change("Dark", "KOTLIN_KEYWORD"),
                     change("Light", "SWIFT.KEYWORD"),
                 ),
-                journal,
+                ledger,
             )
 
         val failure = assertIs<SyntaxTransactionResult.RecoveryRequired>(result)
@@ -96,7 +116,7 @@ class SyntaxSchemeTransactionTest {
 
         writer.rollbackExceptionOn = null
         writer.rolledBack.clear()
-        journal.restore(writer) {}
+        ledger.restore(writer) {}
 
         assertEquals(listOf("Dark"), writer.rolledBack)
     }
@@ -122,18 +142,18 @@ class SyntaxSchemeTransactionTest {
     }
 
     @Test
-    fun `journal cancellation finishes rollback before rethrowing the original instance`() {
+    fun `ledger cancellation finishes rollback before rethrowing the original instance`() {
         val writer = RecordingWriter()
-        val journal = SyntaxSchemeJournal()
+        val ledger = SyntaxRecoveryLedger()
         val transaction = SyntaxSchemeTransaction(writer) {}
-        transaction.apply(listOf(change("Mirage", "JAVA_KEYWORD")), journal)
-        transaction.apply(listOf(change("Dark", "KOTLIN_KEYWORD")), journal)
+        transaction.apply(listOf(change("Mirage", "JAVA_KEYWORD")), ledger)
+        transaction.apply(listOf(change("Dark", "KOTLIN_KEYWORD")), ledger)
         val cancellation = ProcessCanceledException()
         writer.rollbackCancellationOn = "Dark"
         writer.rollbackCancellation = cancellation
         writer.rolledBack.clear()
 
-        val thrown = assertFails { journal.restore(writer) {} }
+        val thrown = assertFails { ledger.restore(writer) {} }
 
         assertSame(cancellation, thrown)
         assertEquals(listOf("Dark", "Mirage"), writer.rolledBack)
@@ -156,17 +176,17 @@ class SyntaxSchemeTransactionTest {
     }
 
     @Test
-    fun `journal restores successful transactions in reverse order and publishes once`() {
+    fun `ledger restores successful transactions in reverse order and publishes once`() {
         val writer = RecordingWriter()
-        val journal = SyntaxSchemeJournal()
+        val ledger = SyntaxRecoveryLedger()
         var publishes = 0
         val transaction = SyntaxSchemeTransaction(writer) { publishes++ }
 
-        transaction.apply(listOf(change("Mirage first", "JAVA_KEYWORD")), journal)
-        transaction.apply(listOf(change("Mirage second", "KOTLIN_KEYWORD")), journal)
+        transaction.apply(listOf(change("Mirage first", "JAVA_KEYWORD")), ledger)
+        transaction.apply(listOf(change("Mirage second", "KOTLIN_KEYWORD")), ledger)
         publishes = 0
 
-        val result = journal.restore(writer) { publishes++ }
+        val result = ledger.restore(writer) { publishes++ }
 
         assertIs<SyntaxTransactionResult.Applied>(result)
         assertEquals(listOf("Mirage second", "Mirage first"), writer.rolledBack)
@@ -175,34 +195,48 @@ class SyntaxSchemeTransactionTest {
     }
 
     @Test
-    fun `advancing journal releases retained checkpoints without restoring`() {
+    fun `advancing ledger releases retained checkpoints without restoring`() {
         val writer = RecordingWriter()
-        val journal = SyntaxSchemeJournal()
+        val ledger = SyntaxRecoveryLedger()
 
         SyntaxSchemeTransaction(writer) {}.apply(
             listOf(
                 change("Mirage", "JAVA_KEYWORD"),
                 change("Dark", "KOTLIN_KEYWORD"),
             ),
-            journal,
+            ledger,
         )
-        journal.advance(writer)
+        ledger.advance(writer)
 
         assertEquals(listOf("Mirage", "Dark"), writer.released)
         assertEquals(emptyList(), writer.rolledBack)
     }
 
     @Test
-    fun `failed transaction rolls back its checkpoints without adding them to journal`() {
+    fun `advancing ledger refuses to release an incomplete rollback checkpoint`() {
+        val writer = RecordingWriter(failOn = "Dark", rollbackFailureOn = "Dark")
+        val ledger = SyntaxRecoveryLedger()
+
+        SyntaxSchemeTransaction(writer) {}.apply(
+            listOf(change("Dark", "KOTLIN_KEYWORD")),
+            ledger,
+        )
+
+        assertFails { ledger.advance(writer) }
+        assertEquals(emptyList(), writer.released)
+    }
+
+    @Test
+    fun `failed transaction rolls back its checkpoints without adding them to ledger`() {
         val writer = RecordingWriter(failOn = "Dark")
-        val journal = SyntaxSchemeJournal()
+        val ledger = SyntaxRecoveryLedger()
         val transaction = SyntaxSchemeTransaction(writer) {}
-        transaction.apply(listOf(change("Mirage", "JAVA_KEYWORD")), journal)
+        transaction.apply(listOf(change("Mirage", "JAVA_KEYWORD")), ledger)
         writer.failOn = "Dark"
 
-        transaction.apply(listOf(change("Dark", "KOTLIN_KEYWORD")), journal)
+        transaction.apply(listOf(change("Dark", "KOTLIN_KEYWORD")), ledger)
         writer.rolledBack.clear()
-        journal.restore(writer) {}
+        ledger.restore(writer) {}
 
         assertEquals(listOf("Mirage"), writer.rolledBack)
     }

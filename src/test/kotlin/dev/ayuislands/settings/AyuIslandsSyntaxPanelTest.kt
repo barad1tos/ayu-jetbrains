@@ -16,6 +16,7 @@ import com.intellij.ui.InplaceButton
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.intellij.util.xmlb.XmlSerializer
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.syntax.FontEmphasis
@@ -121,6 +122,7 @@ class AyuIslandsSyntaxPanelTest {
         every { runtimeSession.preview(any()) } returns applied
         every { runtimeSession.materialize(any()) } returns applied
         every { runtimeSession.restore() } returns applied
+        every { runtimeSession.close() } returns null
 
         mockkObject(LicenseChecker)
         // Default: licensed. Individual tests override to false where needed.
@@ -192,6 +194,16 @@ class AyuIslandsSyntaxPanelTest {
         } finally {
             syntaxPanel.dispose()
         }
+    }
+
+    @Test
+    fun `disposing syntax panel releases runtime ownership after editing cleanup`() {
+        val syntaxPanel = AyuIslandsSyntaxPanel()
+        buildFullSyntaxPanel(syntaxPanel)
+
+        syntaxPanel.dispose()
+
+        verify(exactly = 1) { runtimeSession.close() }
     }
 
     @Test
@@ -402,15 +414,35 @@ class AyuIslandsSyntaxPanelTest {
         val beforeEmphasis = stateBase.customEmphasis.toMap()
         val syntaxPanel = panelWithLoadedState()
 
-        invokeOnPresetChosen(syntaxPanel, SyntaxPreset.NEON)
+        try {
+            invokeOnPresetChosen(syntaxPanel, SyntaxPreset.NEON)
+            syntaxPanel.apply()
 
-        assertEquals(beforeOverrides, stateBase.customOverrides)
-        assertEquals(beforeStyles, stateBase.customStyles)
-        assertEquals(beforeEmphasis, stateBase.customEmphasis)
-        assertTrue(stateBase.dimComments)
-        assertTrue(stateBase.softenDocumentation)
-        assertTrue(stateBase.quietOperators)
-        assertTrue(stateBase.emphasizeDeclarations)
+            assertEquals(SyntaxPreset.NEON.name, stateBase.selectedPreset)
+            assertEquals(beforeOverrides, stateBase.customOverrides)
+            assertEquals(beforeStyles, stateBase.customStyles)
+            assertEquals(beforeEmphasis, stateBase.customEmphasis)
+            assertTrue(stateBase.dimComments)
+            assertTrue(stateBase.softenDocumentation)
+            assertTrue(stateBase.quietOperators)
+            assertTrue(stateBase.emphasizeDeclarations)
+
+            val reloaded =
+                XmlSerializer.deserialize(
+                    XmlSerializer.serialize(stateBase),
+                    SyntaxIntensityBaseState::class.java,
+                )
+            assertEquals(SyntaxPreset.NEON.name, reloaded.selectedPreset)
+            assertEquals(beforeOverrides, reloaded.customOverrides)
+            assertEquals(beforeStyles, reloaded.customStyles)
+            assertEquals(beforeEmphasis, reloaded.customEmphasis)
+            assertTrue(reloaded.dimComments)
+            assertTrue(reloaded.softenDocumentation)
+            assertTrue(reloaded.quietOperators)
+            assertTrue(reloaded.emphasizeDeclarations)
+        } finally {
+            syntaxPanel.dispose()
+        }
     }
 
     // ---------- Test 2 - pill selection previews without persistence ----------

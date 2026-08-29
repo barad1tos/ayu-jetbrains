@@ -71,6 +71,7 @@ internal class SyntaxPanelSession(
         runCleanupSteps(
             { Disposer.dispose(lifetime) },
             editing::dispose,
+            runtime::close,
         )
     }
 

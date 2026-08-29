@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  - Atomic scheme writes: every target is computed before mutation, then
  *    [SyntaxSchemeTransaction] checkpoints only the touched attributes. Any
  *    write or publisher failure attempts to restore every checkpoint. An
- *    incomplete rollback remains journaled and blocks a later direct apply
+ *    incomplete rollback remains in the recovery ledger and blocks a later direct apply
  *    until recovery succeeds.
  *  - Inherited-key ownership: Custom may materialize a language key whose
  *    color normally comes from a registered fallback. [IdeSyntaxSchemeWriter]
@@ -91,11 +91,13 @@ class SyntaxIntensityService {
     private val unlicensedCustomLogged = AtomicBoolean(false)
     private val directApplyLock = Any()
     private val directWriter = IdeSyntaxSchemeWriter()
-    private val directJournal = SyntaxSchemeJournal()
+    private val directRecovery = SyntaxRecoveryLedger()
+    private val runtimeCoordinator = SyntaxRuntimeCoordinator()
 
     @Volatile
     private var replacementFonts: Map<String, Map<String, Int>> = emptyMap()
 
+    /** Convenience overload for [apply] that builds a complete preset configuration. */
     fun apply(
         preset: SyntaxPreset,
         customOverrides: Map<String, Map<String, Int>>,
@@ -115,9 +117,21 @@ class SyntaxIntensityService {
         )
     }
 
-    fun apply(config: SyntaxPresetConfig) {
+    /**
+     * Requests application of a complete syntax configuration.
+     *
+     * While a live Settings runtime owns reversible preview state, the request is deferred until all live
+     * runtimes close and any recovery retained at close completes. A newer deferred request replaces the
+     * older one. If the active Settings session commits successfully, its committed preview becomes
+     * authoritative and discards deferred requests as stale; this method may therefore return without
+     * applying the supplied configuration.
+     */
+    fun apply(config: SyntaxPresetConfig) = runtimeCoordinator.requestApply(config, ::applyDirectly)
+
+    private fun applyDirectly(config: SyntaxPresetConfig) {
         synchronized(directApplyLock) {
-            when (val recovery = directJournal.restore(directWriter, ::publishSchemeChange)) {
+            runtimeCoordinator.recoverRetained(::retryRecovery)?.rethrow()
+            when (val recovery = directRecovery.restore(directWriter, publish = EditorSchemeChange::publish)) {
                 is SyntaxTransactionResult.Applied -> Unit
                 is SyntaxTransactionResult.RecoveryRequired -> {
                     recovery.rollbackFailures.forEach { failure ->
@@ -130,13 +144,13 @@ class SyntaxIntensityService {
             val context = applyContext(config)
             val changes = schemeChanges(context)
             retireLegacyKeys(changes)
-            when (val result = applyChanges(context, changes, directWriter, directJournal)) {
-                is SyntaxTransactionResult.Applied -> directJournal.advance(directWriter)
+            when (val result = applyChanges(context, changes, directWriter, directRecovery)) {
+                is SyntaxTransactionResult.Applied -> directRecovery.advance(directWriter)
                 is SyntaxTransactionResult.RecoveryRequired -> {
                     result.rollbackFailures.forEach { failure ->
                         log.warn(ROLLBACK_FAILURE_MESSAGE, failure)
                     }
-                    val recovery = directJournal.restore(directWriter, ::publishSchemeChange)
+                    val recovery = directRecovery.restore(directWriter, publish = EditorSchemeChange::publish)
                     if (recovery is SyntaxTransactionResult.Failure) {
                         recovery.cause.takeIf { it !== result.cause }?.let(result.cause::addSuppressed)
                         if (recovery is SyntaxTransactionResult.RecoveryRequired) {
@@ -152,27 +166,30 @@ class SyntaxIntensityService {
         }
     }
 
-    internal fun openRuntimeSession(): SyntaxRuntimeSession = SyntaxRuntimeSession()
+    internal fun openRuntimeSession(): SyntaxRuntimeSession = runtimeCoordinator.openRuntime(::SyntaxRuntimeSession)
+
+    internal fun retryRecovery(ticket: SyntaxRecoveryTicket): SyntaxTransactionResult =
+        runtimeCoordinator.retryRecovery(ticket, SyntaxRuntimeSession::retryRecovery, ::applyDirectly)
 
     internal fun preview(
         config: SyntaxPresetConfig,
         writer: SyntaxSchemeWriter,
-        journal: SyntaxSchemeJournal,
+        ledger: SyntaxRecoveryLedger,
     ): SyntaxTransactionResult {
         val context = applyContext(config)
         val change =
             activeSchemeChange(context, emptySet())
                 ?: return SyntaxTransactionResult.Applied(emptySet(), emptySet())
-        return applyChanges(context, listOf(change), writer, journal)
+        return applyChanges(context, listOf(change), writer, ledger)
     }
 
     internal fun materialize(
         config: SyntaxPresetConfig,
         writer: SyntaxSchemeWriter,
-        journal: SyntaxSchemeJournal?,
+        ledger: SyntaxRecoveryLedger?,
     ): SyntaxTransactionResult {
         val context = applyContext(config)
-        return applyChanges(context, schemeChanges(context), writer, journal)
+        return applyChanges(context, schemeChanges(context), writer, ledger)
     }
 
     private fun schemeChanges(context: ApplyContext): List<SyntaxSchemeChange> {
@@ -195,7 +212,13 @@ class SyntaxIntensityService {
     }
 
     private fun retireLegacyKeys(changes: List<SyntaxSchemeChange>) {
-        val retirement = RetirementPass(retiredSchemeNames())
+        val retiredSchemeNames =
+            PropertiesComponent
+                .getInstance()
+                .getList(RETIREMENT_FLAG_KEY)
+                ?.toSet()
+                .orEmpty()
+        val retirement = RetirementPass(retiredSchemeNames)
         changes.forEach { change -> retireKeys(change.scheme, change.label, retirement) }
         retirement.commitRepaired()
     }
@@ -221,12 +244,12 @@ class SyntaxIntensityService {
         context: ApplyContext,
         changes: List<SyntaxSchemeChange>,
         writer: SyntaxSchemeWriter,
-        journal: SyntaxSchemeJournal?,
+        ledger: SyntaxRecoveryLedger?,
     ): SyntaxTransactionResult {
         val previousFonts = replacementFonts
         replacementFonts = context.replacementFonts()
         return try {
-            when (val result = SyntaxSchemeTransaction(writer, ::publishSchemeChange).apply(changes, journal)) {
+            when (val result = SyntaxSchemeTransaction(writer, EditorSchemeChange::publish).apply(changes, ledger)) {
                 is SyntaxTransactionResult.Applied -> result
                 is SyntaxTransactionResult.Failure -> {
                     replacementFonts = previousFonts
@@ -577,35 +600,117 @@ class SyntaxIntensityService {
         }
     }
 
-    private fun retiredSchemeNames(): Set<String> =
-        PropertiesComponent.getInstance().getList(RETIREMENT_FLAG_KEY)?.toSet() ?: emptySet()
-
-    private fun publishSchemeChange() {
-        EditorSchemeChange.publish()
-    }
-
     internal inner class SyntaxRuntimeSession(
         private val writer: SyntaxSchemeWriter = IdeSyntaxSchemeWriter(),
-        private val journal: SyntaxSchemeJournal = SyntaxSchemeJournal(),
+        private val recovery: SyntaxRecoveryLedger = SyntaxRecoveryLedger(),
     ) {
-        private var fontCheckpoint = replacementFonts
+        private var fontCheckpoint: Map<String, Map<String, Int>>? = null
+        private var lifecycle: RuntimeSessionLifecycle = RuntimeSessionLifecycle.Open
+        private var lastFailure: RuntimeException? = null
 
         fun preview(config: SyntaxPresetConfig): SyntaxTransactionResult =
-            this@SyntaxIntensityService.preview(config, writer, journal)
+            execute { this@SyntaxIntensityService.preview(config, writer, recovery) }
 
         fun materialize(config: SyntaxPresetConfig): SyntaxTransactionResult =
-            this@SyntaxIntensityService.materialize(config, writer, journal)
+            execute { this@SyntaxIntensityService.materialize(config, writer, recovery) }
 
-        fun restore(): SyntaxTransactionResult {
-            val result = journal.restore(writer, EditorSchemeChange::publish)
-            if (result is SyntaxTransactionResult.Applied) replacementFonts = fontCheckpoint
-            return result
-        }
+        fun restore(): SyntaxTransactionResult = execute(::restoreCheckpoint)
 
         fun advance() {
-            journal.advance(writer)
+            requireOpen()
+            recovery.advance(writer)
             fontCheckpoint = replacementFonts
+            runtimeCoordinator.discardDeferredApply()
         }
+
+        fun close(): SyntaxRecoveryTicket? {
+            var isReleased = false
+            val ticket =
+                when (val current = lifecycle) {
+                    RuntimeSessionLifecycle.Open -> {
+                        isReleased = true
+                        if (!recovery.hasRecoveryWork) {
+                            lifecycle = RuntimeSessionLifecycle.Closed
+                            null
+                        } else {
+                            val ticket =
+                                SyntaxRecoveryTicket(
+                                    lastFailure
+                                        ?: IllegalStateException("Syntax preview closed before restoration completed"),
+                                )
+                            lifecycle = RuntimeSessionLifecycle.RecoveryOwned(ticket)
+                            ticket
+                        }
+                    }
+                    is RuntimeSessionLifecycle.RecoveryOwned -> current.ticket
+                    RuntimeSessionLifecycle.Closed -> null
+                }
+            if (isReleased) runtimeCoordinator.closeRuntime(this, ticket, ::applyDirectly)
+            return ticket
+        }
+
+        internal fun retryRecovery(): SyntaxTransactionResult {
+            check(lifecycle is RuntimeSessionLifecycle.RecoveryOwned) {
+                "Only retained syntax sessions can retry recovery"
+            }
+            return track(::restoreCheckpoint)
+        }
+
+        internal fun finishRecovery(ticket: SyntaxRecoveryTicket) {
+            check(lifecycle == RuntimeSessionLifecycle.RecoveryOwned(ticket)) {
+                "Syntax recovery ticket does not own this runtime session"
+            }
+            lifecycle = RuntimeSessionLifecycle.Closed
+        }
+
+        private fun restoreCheckpoint(): SyntaxTransactionResult =
+            recovery.restore(
+                writer = writer,
+                afterRollback = { replacementFonts = fontCheckpoint ?: replacementFonts },
+                publish = EditorSchemeChange::publish,
+            )
+
+        private fun execute(operation: () -> SyntaxTransactionResult): SyntaxTransactionResult {
+            requireOpen()
+            runtimeCoordinator.recoverRetained(::retryRecovery)?.let { failure ->
+                lastFailure = failure.cause
+                return failure
+            }
+            if (fontCheckpoint == null) fontCheckpoint = replacementFonts
+            if (recovery.hasPendingFailure) {
+                val recoveryResult = track(::restoreCheckpoint)
+                if (recoveryResult is SyntaxTransactionResult.Failure) return recoveryResult
+            }
+            return track(operation)
+        }
+
+        private fun track(operation: () -> SyntaxTransactionResult): SyntaxTransactionResult =
+            try {
+                operation().also { result ->
+                    lastFailure = (result as? SyntaxTransactionResult.Failure)?.cause
+                }
+            } catch (failure: RuntimeException) {
+                lastFailure = failure
+                throw failure
+            }
+
+        private fun requireOpen() {
+            check(lifecycle == RuntimeSessionLifecycle.Open) { "Syntax runtime session is closed" }
+        }
+    }
+
+    internal class SyntaxRecoveryTicket internal constructor(
+        internal val failure: RuntimeException,
+    )
+
+    private sealed interface RuntimeSessionLifecycle {
+        data object Open : RuntimeSessionLifecycle
+
+        data class RecoveryOwned(
+            val ticket: SyntaxRecoveryTicket,
+        ) : RuntimeSessionLifecycle
+
+        data object Closed : RuntimeSessionLifecycle
     }
 
     companion object {
@@ -732,6 +837,111 @@ class SyntaxIntensityService {
         fun getInstance(): SyntaxIntensityService {
             val app = ApplicationManager.getApplication()
             return app.getService(SyntaxIntensityService::class.java)
+        }
+    }
+}
+
+private class SyntaxRuntimeCoordinator {
+    private val lock = Any()
+    private val activeRuntimes = mutableSetOf<SyntaxIntensityService.SyntaxRuntimeSession>()
+    private val retainedRecoveries =
+        linkedMapOf<SyntaxIntensityService.SyntaxRecoveryTicket, SyntaxIntensityService.SyntaxRuntimeSession>()
+    private var deferredConfig: SyntaxPresetConfig? = null
+
+    fun requestApply(
+        config: SyntaxPresetConfig,
+        applyConfig: (SyntaxPresetConfig) -> Unit,
+    ) {
+        synchronized(lock) {
+            if (activeRuntimes.isNotEmpty()) {
+                deferredConfig = config
+            } else {
+                deferredConfig = null
+                applyConfig(config)
+            }
+        }
+    }
+
+    fun openRuntime(
+        factory: () -> SyntaxIntensityService.SyntaxRuntimeSession,
+    ): SyntaxIntensityService.SyntaxRuntimeSession =
+        synchronized(lock) {
+            factory().also(activeRuntimes::add)
+        }
+
+    fun retryRecovery(
+        ticket: SyntaxIntensityService.SyntaxRecoveryTicket,
+        recover: (SyntaxIntensityService.SyntaxRuntimeSession) -> SyntaxTransactionResult,
+        applyConfig: (SyntaxPresetConfig) -> Unit,
+    ): SyntaxTransactionResult =
+        synchronized(lock) {
+            val runtime =
+                retainedRecoveries[ticket]
+                    ?: return SyntaxTransactionResult.Applied(emptySet(), emptySet())
+            val result = recover(runtime)
+            if (result is SyntaxTransactionResult.Applied) {
+                retainedRecoveries.remove(ticket)
+                val deferredFailure =
+                    try {
+                        applyDeferredIfReady(applyConfig)
+                    } catch (cancellation: ProcessCanceledException) {
+                        retainedRecoveries[ticket] = runtime
+                        throw cancellation
+                    } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                        retainedRecoveries[ticket] = runtime
+                        throw cancellation
+                    }
+                if (deferredFailure != null) {
+                    retainedRecoveries[ticket] = runtime
+                    return SyntaxTransactionResult.RolledBack(deferredFailure)
+                }
+                runtime.finishRecovery(ticket)
+            }
+            result
+        }
+
+    fun recoverRetained(
+        recover: (SyntaxIntensityService.SyntaxRecoveryTicket) -> SyntaxTransactionResult,
+    ): SyntaxTransactionResult.Failure? {
+        val tickets = synchronized(lock) { retainedRecoveries.keys.toList() }
+        tickets.forEach { ticket ->
+            val result = recover(ticket)
+            if (result is SyntaxTransactionResult.Failure) return result
+        }
+        return null
+    }
+
+    fun closeRuntime(
+        runtime: SyntaxIntensityService.SyntaxRuntimeSession,
+        recoveryTicket: SyntaxIntensityService.SyntaxRecoveryTicket?,
+        applyConfig: (SyntaxPresetConfig) -> Unit,
+    ) {
+        synchronized(lock) {
+            check(activeRuntimes.remove(runtime)) { "Syntax runtime session is not active" }
+            recoveryTicket?.let { retainedRecoveries[it] = runtime }
+            applyDeferredIfReady(applyConfig)?.let { throw it }
+        }
+    }
+
+    fun discardDeferredApply() {
+        synchronized(lock) {
+            deferredConfig = null
+        }
+    }
+
+    private fun applyDeferredIfReady(applyConfig: (SyntaxPresetConfig) -> Unit): RuntimeException? {
+        if (activeRuntimes.isNotEmpty() || retainedRecoveries.isNotEmpty()) return null
+        val config = deferredConfig ?: return null
+        return try {
+            applyConfig(config)
+            if (deferredConfig == config) deferredConfig = null
+            null
+        } catch (cancellation: ProcessCanceledException) {
+            throw cancellation
+        } catch (cancellation: kotlinx.coroutines.CancellationException) {
+            throw cancellation
+        } catch (failure: RuntimeException) {
+            failure
         }
     }
 }

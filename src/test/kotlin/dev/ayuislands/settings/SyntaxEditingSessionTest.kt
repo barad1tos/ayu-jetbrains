@@ -68,18 +68,27 @@ class SyntaxEditingSessionTest {
     @Test
     fun `incomplete preview rollback waits for explicit restore before recovery`() {
         val runtime = RecordingRuntime()
-        val session = editingSession(config(50), runtime, mutableListOf())
-        val failure = IllegalStateException("preview")
+        val reportedFailures = mutableListOf<RuntimeException>()
+        val session =
+            SyntaxEditingSession(
+                initialCheckpoint = config(50),
+                runtime = runtime,
+                persist = {},
+                onRuntimeFailed = reportedFailures::add,
+                debounceFactory = { callback -> RecordingDebounce().also { it.callback = callback } },
+            )
+        val failure: RuntimeException = IllegalStateException("preview")
+        val rollbackFailure: RuntimeException = IllegalStateException("rollback")
         runtime.previewResult =
             SyntaxTransactionResult.RecoveryRequired(
                 cause = failure,
-                rollbackFailures = listOf(IllegalStateException("rollback")),
+                rollbackFailures = listOf(rollbackFailure),
             )
 
         session.editDiscrete(config(80))
 
-        assertEquals(emptyList(), runtime.recoveries)
         assertEquals(config(80), session.pendingConfig())
+        assertEquals(listOf(rollbackFailure, failure), reportedFailures)
 
         session.cancel()
 
@@ -280,7 +289,7 @@ class SyntaxEditingSessionTest {
         val commit = SyntaxSessionReducer.reduce(live, SyntaxSessionEvent.ApplyRequested)
         val commitRuntime = SyntaxSessionReducer.reduce(commit.state, SyntaxSessionEvent.RuntimeSucceeded)
         assertEquals(
-            listOf(SyntaxSessionEffect.Persist(appliedConfig, close = false)),
+            listOf(SyntaxSessionEffect.Persist(appliedConfig)),
             commitRuntime.effects,
         )
         val persisted = SyntaxSessionReducer.reduce(commitRuntime.state, SyntaxSessionEvent.PersistenceSucceeded)
@@ -294,14 +303,14 @@ class SyntaxEditingSessionTest {
         assertEquals(
             listOf(
                 SyntaxSessionEffect.StopDebounce,
-                SyntaxSessionEffect.Restore(appliedConfig, close = true),
+                SyntaxSessionEffect.Restore(appliedConfig),
             ),
             cancel.effects,
         )
     }
 
     @Test
-    fun `cancel restore failure closes and schedules persisted recovery`() {
+    fun `cancel restore failure closes without moving recovery into the UI reducer`() {
         val checkpoint = config(50)
         val pending = config(80)
         val restoring =
@@ -316,17 +325,11 @@ class SyntaxEditingSessionTest {
         val transition = SyntaxSessionReducer.reduce(restoring, SyntaxSessionEvent.RestoreFailed(failure))
 
         assertIs<SyntaxSessionState.Closed>(transition.state)
-        assertEquals(
-            listOf(
-                SyntaxSessionEffect.ScheduleRecovery(checkpoint, failure),
-                SyntaxSessionEffect.Close,
-            ),
-            transition.effects,
-        )
+        assertEquals(listOf(SyntaxSessionEffect.Close), transition.effects)
     }
 
     @Test
-    fun `cancel recovery requirement closes and schedules recovery once`() {
+    fun `cancel recovery requirement reports failure once before runtime disposal`() {
         val runtime = RecordingRuntime()
         val debounce = RecordingDebounce()
         val session =
@@ -343,11 +346,11 @@ class SyntaxEditingSessionTest {
                 rollbackFailures = listOf(IllegalStateException("rollback failed")),
             )
 
-        session.cancel()
+        val result = session.cancel()
         session.dispose()
 
+        assertIs<SyntaxRestoreResult.Failed>(result)
         assertEquals(listOf(config(50)), runtime.restores)
-        assertEquals(1, runtime.recoveries.size)
     }
 
     @Test
@@ -391,6 +394,19 @@ class SyntaxEditingSessionTest {
 
         assertEquals(closed, transition.state)
         assertEquals(emptyList(), transition.effects)
+    }
+
+    @Test
+    fun `closed editing session rejects new edits apply and reset`() {
+        val runtime = RecordingRuntime()
+        val session = editingSession(config(50), runtime, mutableListOf())
+        session.editDiscrete(config(70))
+        session.cancel()
+
+        assertFails { session.editDiscrete(config(80)) }
+        assertFails { session.apply(config(80)) }
+        assertFails { session.reset() }
+        assertSame(SyntaxRestoreResult.Restored, session.cancel())
     }
 
     @Test
@@ -461,7 +477,6 @@ class SyntaxEditingSessionTest {
         var restoreException: RuntimeException? = null
         var advances = 0
         var foreignSchemeReports = 0
-        val recoveries = mutableListOf<Pair<SyntaxPresetConfig, RuntimeException>>()
 
         override fun preview(config: SyntaxPresetConfig): SyntaxTransactionResult {
             previews += config
@@ -481,13 +496,6 @@ class SyntaxEditingSessionTest {
 
         override fun advance() {
             advances++
-        }
-
-        override fun scheduleRecovery(
-            config: SyntaxPresetConfig,
-            failure: RuntimeException,
-        ) {
-            recoveries += config to failure
         }
 
         override fun showForeignScheme() {

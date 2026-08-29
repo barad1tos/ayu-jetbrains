@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProcessCanceledException
 import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxTransactionResult
@@ -9,7 +10,6 @@ import kotlin.coroutines.cancellation.CancellationException
 internal enum class SyntaxSessionIntent {
     PREVIEW,
     COMMIT,
-    COMMIT_AND_CLOSE,
     RESTORE_AND_STAY,
     RESTORE_AND_CLOSE,
 }
@@ -82,8 +82,6 @@ internal sealed interface SyntaxSessionEvent {
 
     data object ApplyRequested : Commit
 
-    data object OkRequested : Commit
-
     data object PersistenceSucceeded : Commit
 
     data class PersistenceFailed(
@@ -93,8 +91,6 @@ internal sealed interface SyntaxSessionEvent {
     data object FrameworkResetRequested : Restore
 
     data object CancelRequested : Restore
-
-    data object WindowCloseRequested : Restore
 
     data object RestoreSucceeded : Restore
 
@@ -123,17 +119,10 @@ internal sealed interface SyntaxSessionEffect {
 
     data class Persist(
         val config: SyntaxPresetConfig,
-        val close: Boolean,
     ) : SyntaxSessionEffect
 
     data class Restore(
         val config: SyntaxPresetConfig,
-        val close: Boolean,
-    ) : SyntaxSessionEffect
-
-    data class ScheduleRecovery(
-        val config: SyntaxPresetConfig,
-        val failure: RuntimeException,
     ) : SyntaxSessionEffect
 
     data class RecordRelinquishment(
@@ -158,11 +147,6 @@ internal interface SyntaxEditingRuntime {
     fun restore(config: SyntaxPresetConfig): SyntaxTransactionResult
 
     fun advance()
-
-    fun scheduleRecovery(
-        config: SyntaxPresetConfig,
-        failure: RuntimeException,
-    )
 
     fun recordRelinquishment(keyId: String) = Unit
 
@@ -201,19 +185,23 @@ internal class SyntaxEditingSession(
     private val onRuntimeFailed: (RuntimeException) -> Unit = {},
     debounceFactory: ((() -> Unit) -> SyntaxDebounce) = ::SwingSyntaxDebounce,
 ) {
+    private val log = logger<SyntaxEditingSession>()
     private var state: SyntaxSessionState = SyntaxSessionState.Synced(initialCheckpoint)
     private var restoreFailure: RuntimeException? = null
     private val debounce = debounceFactory { dispatch(SyntaxSessionEvent.DebounceElapsed) }
 
     fun editDiscrete(config: SyntaxPresetConfig) {
+        requireOpen()
         dispatch(SyntaxSessionEvent.EditDiscrete(config))
     }
 
     fun editSlider(config: SyntaxPresetConfig) {
+        requireOpen()
         dispatch(SyntaxSessionEvent.EditSlider(config))
     }
 
     fun sliderReleased() {
+        requireOpen()
         dispatch(SyntaxSessionEvent.SliderReleased)
     }
 
@@ -226,6 +214,7 @@ internal class SyntaxEditingSession(
     }
 
     fun apply(config: SyntaxPresetConfig = pendingConfig()): SyntaxCommitResult {
+        requireOpen()
         dispatch(SyntaxSessionEvent.Stage(config))
         dispatch(SyntaxSessionEvent.ApplyRequested)
         val failed = state as? SyntaxSessionState.Failed
@@ -233,6 +222,7 @@ internal class SyntaxEditingSession(
     }
 
     fun reset(): SyntaxRestoreResult {
+        requireOpen()
         restoreFailure = null
         dispatch(SyntaxSessionEvent.FrameworkResetRequested)
         return restoreResult()
@@ -259,6 +249,10 @@ internal class SyntaxEditingSession(
         )
     }
 
+    private fun requireOpen() {
+        check(state != SyntaxSessionState.Closed) { "Syntax editing session is closed" }
+    }
+
     private fun dispatch(event: SyntaxSessionEvent) {
         val transition = SyntaxSessionReducer.reduce(state, event)
         state = transition.state
@@ -276,10 +270,6 @@ internal class SyntaxEditingSession(
             is SyntaxSessionEffect.ApplyRuntime -> applyRuntime(effect)
             is SyntaxSessionEffect.Persist -> persist(effect.config)
             is SyntaxSessionEffect.Restore -> restore(effect.config)
-            is SyntaxSessionEffect.ScheduleRecovery -> {
-                restoreFailure = effect.failure
-                runtime.scheduleRecovery(effect.config, effect.failure)
-            }
             is SyntaxSessionEffect.RecordRelinquishment -> runtime.recordRelinquishment(effect.keyId)
             SyntaxSessionEffect.ShowForeignScheme -> runtime.showForeignScheme()
             SyntaxSessionEffect.Close -> debounce.dispose()
@@ -290,9 +280,7 @@ internal class SyntaxEditingSession(
         val result =
             when (effect.intent) {
                 SyntaxSessionIntent.PREVIEW -> runtime.preview(effect.config)
-                SyntaxSessionIntent.COMMIT,
-                SyntaxSessionIntent.COMMIT_AND_CLOSE,
-                -> runtime.materialize(effect.config)
+                SyntaxSessionIntent.COMMIT -> runtime.materialize(effect.config)
                 SyntaxSessionIntent.RESTORE_AND_STAY,
                 SyntaxSessionIntent.RESTORE_AND_CLOSE,
                 -> return
@@ -334,7 +322,14 @@ internal class SyntaxEditingSession(
                 dispatch(event)
             }
             is SyntaxTransactionResult.Failure -> {
+                if (result is SyntaxTransactionResult.RecoveryRequired) {
+                    result.rollbackFailures.forEach { failure ->
+                        log.warn("Failed to roll back syntax preview state", failure)
+                        onRuntimeFailed(failure)
+                    }
+                }
                 onRuntimeFailed(result.cause)
+                if (isRestore) restoreFailure = result.cause
                 val event =
                     if (isRestore) {
                         SyntaxSessionEvent.RestoreFailed(result.cause)
@@ -459,17 +454,10 @@ private object RuntimeTransitions {
                         SyntaxSessionState.Live(applying.checkpoint, applying.pending)
                     },
                 )
-            SyntaxSessionIntent.COMMIT,
-            SyntaxSessionIntent.COMMIT_AND_CLOSE,
-            ->
+            SyntaxSessionIntent.COMMIT ->
                 SyntaxSessionTransition(
                     applying,
-                    listOf(
-                        SyntaxSessionEffect.Persist(
-                            applying.pending,
-                            close = applying.intent == SyntaxSessionIntent.COMMIT_AND_CLOSE,
-                        ),
-                    ),
+                    listOf(SyntaxSessionEffect.Persist(applying.pending)),
                 )
             SyntaxSessionIntent.RESTORE_AND_STAY,
             SyntaxSessionIntent.RESTORE_AND_CLOSE,
@@ -484,34 +472,21 @@ private object CommitTransitions {
         event: SyntaxSessionEvent.Commit,
     ): SyntaxSessionTransition =
         when (event) {
-            SyntaxSessionEvent.ApplyRequested -> request(state, close = false)
-            SyntaxSessionEvent.OkRequested -> request(state, close = true)
+            SyntaxSessionEvent.ApplyRequested -> request(state)
             SyntaxSessionEvent.PersistenceSucceeded -> persistenceSucceeded(state)
             is SyntaxSessionEvent.PersistenceFailed -> operationFailed(state, event.failure)
         }
 
-    private fun request(
-        state: SyntaxSessionState,
-        close: Boolean,
-    ): SyntaxSessionTransition {
-        if (state is SyntaxSessionState.Synced) {
-            return if (close) {
-                SyntaxSessionTransition(SyntaxSessionState.Closed, listOf(SyntaxSessionEffect.Close))
-            } else {
-                SyntaxSessionTransition(state)
-            }
-        }
+    private fun request(state: SyntaxSessionState): SyntaxSessionTransition {
+        if (state is SyntaxSessionState.Synced) return SyntaxSessionTransition(state)
         val data = state.data() ?: return SyntaxSessionTransition(state)
-        val intent = if (close) SyntaxSessionIntent.COMMIT_AND_CLOSE else SyntaxSessionIntent.COMMIT
-        return applyingTransition(data, data.pending, intent)
+        return applyingTransition(data, data.pending, SyntaxSessionIntent.COMMIT)
     }
 
     private fun persistenceSucceeded(state: SyntaxSessionState): SyntaxSessionTransition {
         val applying = state as? SyntaxSessionState.Applying ?: return SyntaxSessionTransition(state)
         return when (applying.intent) {
             SyntaxSessionIntent.COMMIT -> SyntaxSessionTransition(SyntaxSessionState.Synced(applying.pending))
-            SyntaxSessionIntent.COMMIT_AND_CLOSE ->
-                SyntaxSessionTransition(SyntaxSessionState.Closed, listOf(SyntaxSessionEffect.Close))
             else -> SyntaxSessionTransition(state)
         }
     }
@@ -524,9 +499,7 @@ private object RestoreTransitions {
     ): SyntaxSessionTransition =
         when (event) {
             SyntaxSessionEvent.FrameworkResetRequested -> request(state, close = false)
-            SyntaxSessionEvent.CancelRequested,
-            SyntaxSessionEvent.WindowCloseRequested,
-            -> request(state, close = true)
+            SyntaxSessionEvent.CancelRequested -> request(state, close = true)
             SyntaxSessionEvent.RestoreSucceeded -> succeeded(state)
             is SyntaxSessionEvent.RestoreFailed -> failed(state, event.failure)
         }
@@ -548,7 +521,7 @@ private object RestoreTransitions {
             SyntaxSessionState.Applying(data.checkpoint, data.pending, data.lastApplied, intent),
             listOf(
                 SyntaxSessionEffect.StopDebounce,
-                SyntaxSessionEffect.Restore(data.checkpoint, close),
+                SyntaxSessionEffect.Restore(data.checkpoint),
             ),
         )
     }
@@ -573,10 +546,7 @@ private object RestoreTransitions {
             SyntaxSessionIntent.RESTORE_AND_CLOSE ->
                 SyntaxSessionTransition(
                     SyntaxSessionState.Closed,
-                    listOf(
-                        SyntaxSessionEffect.ScheduleRecovery(applying.checkpoint, failure),
-                        SyntaxSessionEffect.Close,
-                    ),
+                    listOf(SyntaxSessionEffect.Close),
                 )
             SyntaxSessionIntent.RESTORE_AND_STAY -> operationFailed(state, failure)
             else -> SyntaxSessionTransition(state)

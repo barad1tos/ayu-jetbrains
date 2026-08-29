@@ -103,24 +103,50 @@ internal class IdeSyntaxSchemeWriter : SyntaxSchemeWriter {
     }
 }
 
-/** Retains successful transaction checkpoints until Apply advances or Cancel restores them. */
-internal class SyntaxSchemeJournal {
-    private val checkpoints = mutableListOf<SyntaxSchemeCheckpoint>()
+/**
+ * Retains reversible syntax work across runtime boundaries.
+ *
+ * Successful preview checkpoints remain until Apply advances or Cancel restores them. Failed rollback
+ * checkpoints and a publication that still needs retry remain explicit recovery debt until restoration
+ * completes; neither may be released by advancing the session.
+ */
+internal class SyntaxRecoveryLedger {
+    private var rollbackState: RollbackRecovery = RollbackRecovery.Clean
+    private var publication: PublicationRecovery = PublicationRecovery.Synchronized
+
+    val hasRecoveryWork: Boolean
+        get() = rollbackState.entries.isNotEmpty() || publication == PublicationRecovery.Pending
+
+    val hasPendingFailure: Boolean
+        get() =
+            rollbackState.entries.any { it is RecoveryCheckpoint.Incomplete } ||
+                publication == PublicationRecovery.Pending
 
     fun restore(
         writer: SyntaxSchemeWriter,
+        afterRollback: () -> Unit = {},
         publish: () -> Unit,
     ): SyntaxTransactionResult {
-        if (checkpoints.isEmpty()) return SyntaxTransactionResult.Applied(emptySet(), emptySet())
-        val rollback = rollback(writer, checkpoints)
-        checkpoints.retainAll(rollback.incompleteCheckpoints)
-        rollback.rethrowCancellation()
-        if (rollback.failures.isNotEmpty()) {
-            return SyntaxTransactionResult.RecoveryRequired(rollback.failures.first(), rollback.failures)
+        if (rollbackState.entries.isNotEmpty()) {
+            val attempt = rollback(writer, rollbackState.entries.map(RecoveryCheckpoint::checkpoint))
+            rollbackState =
+                RollbackRecovery.retaining(
+                    attempt.incompleteCheckpoints.map(RecoveryCheckpoint::Incomplete),
+                )
+            publication = PublicationRecovery.Pending
+            attempt.rethrowCancellation()
+            if (attempt.failures.isNotEmpty()) {
+                return SyntaxTransactionResult.RecoveryRequired(attempt.failures.first(), attempt.failures)
+            }
+            rollbackState = RollbackRecovery.Clean
+            afterRollback()
         }
-        checkpoints.clear()
+        if (publication == PublicationRecovery.Synchronized) {
+            return SyntaxTransactionResult.Applied(emptySet(), emptySet())
+        }
         return try {
             publish()
+            publication = PublicationRecovery.Synchronized
             SyntaxTransactionResult.Applied(emptySet(), emptySet())
         } catch (cancellation: ProcessCanceledException) {
             throw cancellation
@@ -132,13 +158,64 @@ internal class SyntaxSchemeJournal {
     }
 
     fun advance(writer: SyntaxSchemeWriter) {
-        checkpoints.forEach(writer::release)
-        checkpoints.clear()
+        check(!hasPendingFailure) { "Cannot advance syntax state while recovery is pending" }
+        rollbackState.entries.map(RecoveryCheckpoint::checkpoint).forEach(writer::release)
+        rollbackState = RollbackRecovery.Clean
+        publication = PublicationRecovery.Synchronized
     }
 
-    internal fun retain(retained: List<SyntaxSchemeCheckpoint>) {
-        checkpoints += retained
+    internal fun retainUndo(retained: List<SyntaxSchemeCheckpoint>) {
+        rollbackState =
+            RollbackRecovery.retaining(
+                rollbackState.entries + retained.map(RecoveryCheckpoint::Undo),
+            )
     }
+
+    internal fun retainIncompleteRollback(retained: List<SyntaxSchemeCheckpoint>) {
+        rollbackState =
+            RollbackRecovery.retaining(
+                rollbackState.entries + retained.map(RecoveryCheckpoint::Incomplete),
+            )
+    }
+
+    internal fun requirePublication() {
+        publication = PublicationRecovery.Pending
+    }
+}
+
+private sealed interface RecoveryCheckpoint {
+    val checkpoint: SyntaxSchemeCheckpoint
+
+    data class Undo(
+        override val checkpoint: SyntaxSchemeCheckpoint,
+    ) : RecoveryCheckpoint
+
+    data class Incomplete(
+        override val checkpoint: SyntaxSchemeCheckpoint,
+    ) : RecoveryCheckpoint
+}
+
+private sealed interface RollbackRecovery {
+    val entries: List<RecoveryCheckpoint>
+
+    data object Clean : RollbackRecovery {
+        override val entries: List<RecoveryCheckpoint> = emptyList()
+    }
+
+    data class Retained(
+        override val entries: List<RecoveryCheckpoint>,
+    ) : RollbackRecovery
+
+    companion object {
+        fun retaining(entries: List<RecoveryCheckpoint>): RollbackRecovery =
+            if (entries.isEmpty()) Clean else Retained(entries.toList())
+    }
+}
+
+private sealed interface PublicationRecovery {
+    data object Synchronized : PublicationRecovery
+
+    data object Pending : PublicationRecovery
 }
 
 /** Applies a fully computed syntax plan as one publish-or-rollback transaction. */
@@ -148,15 +225,17 @@ internal class SyntaxSchemeTransaction(
 ) {
     fun apply(
         changes: List<SyntaxSchemeChange>,
-        journal: SyntaxSchemeJournal? = null,
+        ledger: SyntaxRecoveryLedger? = null,
     ): SyntaxTransactionResult {
         val checkpoints = mutableListOf<SyntaxSchemeCheckpoint>()
+        var publicationAttempted = false
         return try {
             changes.forEach { change -> checkpoints += writer.checkpoint(change) }
             val relinquishedKeys =
                 changes.flatMapTo(linkedSetOf()) { change -> writer.write(change) }
+            publicationAttempted = true
             publish()
-            if (journal == null) checkpoints.forEach(writer::release) else journal.retain(checkpoints)
+            if (ledger == null) checkpoints.forEach(writer::release) else ledger.retainUndo(checkpoints)
             SyntaxTransactionResult.Applied(
                 changedKeys =
                     changes.flatMapTo(linkedSetOf()) { change ->
@@ -166,7 +245,8 @@ internal class SyntaxSchemeTransaction(
             )
         } catch (failure: RuntimeException) {
             val rollback = rollback(writer, checkpoints)
-            journal?.retain(rollback.incompleteCheckpoints)
+            ledger?.retainIncompleteRollback(rollback.incompleteCheckpoints)
+            if (publicationAttempted) ledger?.requirePublication()
             rollback.rethrowCancellation(failure)
             if (rollback.failures.isEmpty()) {
                 SyntaxTransactionResult.RolledBack(failure)
