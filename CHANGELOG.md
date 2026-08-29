@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+- [Paid] **Universal per-language syntax tuning** — Custom syntax settings now
+  follow the active file in the active project window and expose only controls
+  supported by the installed language tooling. Tune intensity against a
+  representative native preview with immediate editor feedback; Apply keeps
+  the result, while Cancel restores the exact previous scheme and preferences.
+  Existing presets and saved choices remain unchanged until edited.
+- [Paid] **Bold and Italic for individual syntax primitives** — each available
+  language primitive can independently add Bold, Italic, or both while keeping
+  its inherited color and font style, with an explicit option to replace the
+  inherited style when needed.
+- [Fix] **Reliable startup in IntelliJ Platform 2025.1** — coroutine-backed Ayu
+  features now retain metadata compatible with the oldest supported IDE
+  runtime instead of failing when the platform reads newer debug metadata.
+- [Fix] **Stable Retina preview and Glow buffers** — offscreen rendering keeps
+  logical-pixel geometry on HiDPI displays instead of multiplying cache size
+  and memory use with the ambient display scale.
+
 ## [2.8.6] - 2026-08-23
 
 - [Fix] **Contained chaotic waveform borders** — Chaotic ECG traces stay
