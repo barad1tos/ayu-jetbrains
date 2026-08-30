@@ -230,6 +230,41 @@ class UpdateNotifierTest {
     }
 
     @Test
+    fun `2_8_7 balloon lists syntax and rendering changes`() {
+        state.lastSeenVersion = "2.8.6"
+        every {
+            AyuPlugin.findLoadedPlugin(any<PluginId>())
+        } returns descriptor
+        every { descriptor.version } returns "2.8.7"
+
+        val notification = mockk<Notification>(relaxed = true)
+        val group = mockk<NotificationGroup>(relaxed = true)
+        val groupManager = mockk<NotificationGroupManager>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+        every { groupManager.getNotificationGroup("Ayu Islands") } returns group
+        every {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns notification
+
+        UpdateNotifier.showIfUpdated(project)
+
+        assertEquals("2.8.7", state.lastSeenVersion)
+        verify(exactly = 1) {
+            group.createNotification(
+                "Ayu Islands updated to 2.8.7",
+                match<String> { body ->
+                    body.contains("[Paid] Custom syntax tuning follows the active language") &&
+                        body.contains("[Paid] Individual syntax primitives can add Bold, Italic, or both") &&
+                        body.contains("[Fix] Ayu starts reliably in IntelliJ Platform 2025.1 IDEs") &&
+                        body.contains("[Fix] Retina preview and Glow buffers keep logical-pixel sizing")
+                },
+                NotificationType.INFORMATION,
+            )
+        }
+        verify(exactly = 1) { notification.notify(project) }
+    }
+
+    @Test
     fun `updates lastSeenVersion on first install without notification`() {
         state.lastSeenVersion = null
         every {

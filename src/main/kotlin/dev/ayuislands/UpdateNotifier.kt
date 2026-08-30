@@ -70,6 +70,13 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.7" to
+                releaseNotes(
+                    "[Paid] Custom syntax tuning follows the active language and shows supported controls",
+                    "[Paid] Individual syntax primitives can add Bold, Italic, or both",
+                    "[Fix] Ayu starts reliably in IntelliJ Platform 2025.1 IDEs",
+                    "[Fix] Retina preview and Glow buffers keep logical-pixel sizing",
+                ),
             "2.8.6" to
                 releaseNotes(
                     "[Fix] Chaotic ECG traces stay inside their editor and tool-window islands",
