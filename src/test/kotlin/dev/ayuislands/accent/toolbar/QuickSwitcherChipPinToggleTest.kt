@@ -3,6 +3,7 @@ package dev.ayuislands.accent.toolbar
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
@@ -27,11 +28,14 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.event.MouseEvent
 import javax.swing.JComponent
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -340,5 +344,117 @@ class QuickSwitcherChipPinToggleTest {
 
         assertFalse(state.projectAccents.containsKey(PROJECT_KEY))
         verify(exactly = 1) { mockSwap.notifyExternalApply(failedPaint) }
+    }
+
+    @Test
+    fun `pin restores previous state before propagating platform cancellation`() {
+        val cancelled = ProcessCanceledException()
+        state.projectAccents["/unavailable"] = "#123456"
+        val previousPins = state.projectAccents.toMap()
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+        val chip = QuickSwitcherChipComponent()
+
+        val thrown = assertFailsWith<RuntimeException> { chip.dispatchEvent(innerClick(chip)) }
+
+        assertSame(cancelled, thrown)
+        assertEquals(previousPins, state.projectAccents)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `unpin restores previous state before propagating platform cancellation`() {
+        val cancelled = ProcessCanceledException()
+        state.projectAccents["/first"] = "#654321"
+        state.projectAccents[PROJECT_KEY] = "#FFB454"
+        every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
+        state.projectAccents["/unavailable"] = "#123456"
+        val previousPins = state.projectAccents.toMap()
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+        val chip = QuickSwitcherChipComponent()
+
+        val thrown = assertFailsWith<RuntimeException> { chip.dispatchEvent(innerClick(chip)) }
+
+        assertSame(cancelled, thrown)
+        assertEquals(previousPins, state.projectAccents)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `pin restores previous state before propagating coroutine cancellation`() {
+        val cancelled = CancellationException("cancelled accent")
+        state.projectAccents["/unavailable"] = "#123456"
+        val previousPins = state.projectAccents.toMap()
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+        val chip = QuickSwitcherChipComponent()
+
+        val thrown = assertFailsWith<RuntimeException> { chip.dispatchEvent(innerClick(chip)) }
+
+        assertSame(cancelled, thrown)
+        assertEquals(previousPins, state.projectAccents)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `unpin restores previous state before propagating coroutine cancellation`() {
+        val cancelled = CancellationException("cancelled accent")
+        state.projectAccents["/first"] = "#654321"
+        state.projectAccents[PROJECT_KEY] = "#FFB454"
+        every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
+        state.projectAccents["/unavailable"] = "#123456"
+        val previousPins = state.projectAccents.toMap()
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+        val chip = QuickSwitcherChipComponent()
+
+        val thrown = assertFailsWith<RuntimeException> { chip.dispatchEvent(innerClick(chip)) }
+
+        assertSame(cancelled, thrown)
+        assertEquals(previousPins, state.projectAccents)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `chip refresh propagates platform cancellation from resolve`() {
+        val cancelled = ProcessCanceledException()
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } throws cancelled
+        val chip = QuickSwitcherChipComponent()
+
+        val thrown = assertFailsWith<RuntimeException> { chip.refreshFromFocusedProject() }
+
+        assertSame(cancelled, thrown)
+    }
+
+    @Test
+    fun `chip refresh propagates coroutine cancellation from resolve`() {
+        val cancelled = CancellationException("cancelled refresh")
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } throws cancelled
+        val chip = QuickSwitcherChipComponent()
+
+        val thrown = assertFailsWith<RuntimeException> { chip.refreshFromFocusedProject() }
+
+        assertSame(cancelled, thrown)
+    }
+
+    @Test
+    fun `cancelled unpin restores prior pin and preserves other pin edits`() {
+        val cancelled = ProcessCanceledException()
+        state.projectAccents["/first"] = "#123456"
+        state.projectAccents[PROJECT_KEY] = "#abcdef"
+        state.projectAccents["/last"] = "#654321"
+        every { AccentResolver.source(mockProject) } returns AccentResolver.Source.PROJECT_OVERRIDE
+        every { AccentApplicator.applyFromHexString(any()) } answers {
+            state.projectAccents["/first"] = "#112233"
+            state.projectAccents["/new"] = "#445566"
+            throw cancelled
+        }
+        val chip = QuickSwitcherChipComponent()
+
+        val thrown = assertFailsWith<RuntimeException> { chip.dispatchEvent(innerClick(chip)) }
+
+        assertSame(cancelled, thrown)
+        assertEquals(setOf("/first", PROJECT_KEY, "/last", "/new"), state.projectAccents.keys)
+        assertEquals("#112233", state.projectAccents["/first"])
+        assertEquals("#abcdef", state.projectAccents[PROJECT_KEY])
+        assertEquals("#654321", state.projectAccents["/last"])
+        assertEquals("#445566", state.projectAccents["/new"])
     }
 }

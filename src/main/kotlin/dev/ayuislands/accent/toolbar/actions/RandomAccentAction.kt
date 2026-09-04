@@ -9,6 +9,7 @@ import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -41,6 +42,7 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
                     AccentContext.External -> ContrastAwareColorGenerator.generate(AyuVariant.MIRAGE)
                 }
             } catch (exception: RuntimeException) {
+                exception.rethrowIfCancelled()
                 LOG.warn("Random: generate failed", exception)
                 return
             }
@@ -53,6 +55,7 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
                 LOG.warn("Random: applyFromHexString rejected hex=$hex")
             }
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.warn("Random: apply failed hex=$hex", exception)
         }
     }

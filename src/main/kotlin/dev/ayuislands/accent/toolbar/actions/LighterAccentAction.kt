@@ -11,6 +11,7 @@ import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.color.AccentHsl
 import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 
@@ -38,6 +39,7 @@ class LighterAccentAction : DumbAwareAction("Lighter", "Lighten the current acce
             try {
                 AccentResolver.resolve(project, context)
             } catch (exception: RuntimeException) {
+                exception.rethrowIfCancelled()
                 LOG.warn("Lighter: resolve failed", exception)
                 return
             }
@@ -53,6 +55,7 @@ class LighterAccentAction : DumbAwareAction("Lighter", "Lighten the current acce
                 LOG.warn("Lighter: applyFromHexString rejected hex=$newHex")
             }
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.warn("Lighter: apply failed hex=$newHex", exception)
         }
     }

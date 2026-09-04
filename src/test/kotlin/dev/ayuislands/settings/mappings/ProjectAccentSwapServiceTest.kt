@@ -3,6 +3,7 @@ package dev.ayuislands.settings.mappings
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
@@ -37,10 +38,12 @@ import java.awt.event.WindowEvent
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -67,8 +70,7 @@ class ProjectAccentSwapServiceTest {
         // Default: IR integration enabled. The disabled-IR test flips this to
         // assert the gate skips `IR.apply` on the same-hex branch.
         state.irIntegrationEnabled = true
-        // Default: previous apply completed cleanly, so notifyExternalApply's
-        // torn-apply gate lets cache writes through. The gate tests flip this.
+        // Restart metadata is independent of each invocation's cache outcome.
         state.lastApplyOk = true
 
         mockkObject(AyuIslandsSettings.Companion)
@@ -157,6 +159,37 @@ class ProjectAccentSwapServiceTest {
             matched.second,
             "LOG.error must carry the ORIGINAL exception so triage doesn't lose the stack",
         )
+    }
+
+    @Test
+    fun `window activation propagates cancellation without reporting failure`() {
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+        val capturedErrors = mutableListOf<Throwable?>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processError(
+                    category: String,
+                    message: String,
+                    details: Array<out String>,
+                    throwable: Throwable?,
+                ): Set<Action> {
+                    capturedErrors += throwable
+                    return java.util.EnumSet.noneOf(Action::class.java)
+                }
+            }
+
+        for (cancellation in listOf(ProcessCanceledException(), CancellationException("cancelled"))) {
+            every { AccentApplicator.applyFromHexString(any()) } throws cancellation
+            LoggedErrorProcessor.executeWith<Throwable>(processor) {
+                assertSame(
+                    cancellation,
+                    assertFailsWith<RuntimeException> { service.onWindowActivatedForTest(makeEvent(window)) },
+                )
+            }
+        }
+        assertTrue(capturedErrors.isEmpty(), "Cancellation must not be logged as an application failure")
     }
 
     @Test
@@ -493,6 +526,38 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
+    fun `visual tear forces full apply when returning to the previous accent`() {
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returnsMany
+            listOf("#FFCC66", "#DFBFFF", "#FFCC66")
+        every { AccentApplicator.applyFromHexString("#DFBFFF") } returns
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of("#DFBFFF")),
+                listOf(AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("partial paint"))),
+            )
+        val service = ProjectAccentSwapService()
+
+        repeat(3) { service.onWindowActivatedForTest(makeEvent(window)) }
+
+        verify(exactly = 2) { AccentApplicator.applyFromHexString("#FFCC66") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#DFBFFF") }
+        verify(exactly = 3) { ComponentTreeRefresher.walkAndNotify(project, window) }
+    }
+
+    @Test
+    fun `rejected input preserves the previous visual cache`() {
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
+
+        service.notifyExternalApply(AccentApplyOutcome.Rejected("invalid"))
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
     fun `completed outcome primes cache despite a stale torn flag`() {
         state.lastApplyOk = false
         val (window, project) = wireMatchingFrame()
@@ -507,11 +572,8 @@ class ProjectAccentSwapServiceTest {
 
     @Test
     fun `focus-swap apply does not prime the cache when the apply tears`() {
-        // The internal write site must route through the same torn-apply gate:
-        // applyFromHexString returning true only proves the hex shape was valid.
-        // If the plan tore (lastApplyOk=false), priming the cache would freeze
-        // the tear behind the same-hex branch; the swap path must keep retrying
-        // on every activation instead — pre-plan behavior.
+        // A visual Torn outcome must keep retrying on every activation even
+        // when persisted restart metadata still claims an earlier clean apply.
         state.lastApplyOk = true
         every { AccentApplicator.applyFromHexString(any()) } answers {
             AccentApplyOutcome.Torn(

@@ -14,6 +14,7 @@ import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -100,10 +101,12 @@ class ProjectAccentSwapService : Disposable {
         // dispatcher. AWT does not remove failing listeners, so the listener would keep firing
         // — but each failure would dump a generic uncaught-exception trace into idea.log (SEVERE
         // in some IDE builds, which triggers a user-visible error balloon) with no project /
-        // hex context. The catch here converts that into an actionable LOG.error.
+        // hex context. Ordinary failures become actionable LOG.error entries;
+        // platform and coroutine cancellation still propagate to the caller.
         try {
             handleWindowActivated(event)
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.error("Project accent swap failed on window activation", exception)
         }
     }
@@ -226,11 +229,12 @@ class ProjectAccentSwapService : Disposable {
         }
     }
 
-    /** Cache only a completed visual application, independently of persisted restart metadata. */
+    /** Cache completed visuals; a partial visual apply invalidates the previously cached accent. */
     @RequiresEdt
     internal fun notifyExternalApply(outcome: AccentApplyOutcome) {
         if (!outcome.visualsApplied) {
-            LOG.warn("Swap cache not updated: accent visuals did not complete ($outcome)")
+            if (outcome is AccentApplyOutcome.Torn) lastAppliedHex = null
+            LOG.warn("Accent visuals did not complete; swap cache is '$lastAppliedHex' ($outcome)")
             return
         }
         lastAppliedHex =

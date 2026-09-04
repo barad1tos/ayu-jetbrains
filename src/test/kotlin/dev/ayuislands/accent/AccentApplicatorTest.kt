@@ -2570,12 +2570,10 @@ class AccentApplicatorTest {
         every { ChromeBaseColors.forgetPluginTint(any()) } returns Unit
     }
 
-    // apply() with an invalid hex returns false AND posts a user-visible
-    // notification on the "Ayu Islands" group. A prior apply() returned Unit
-    // and silently swallowed corruption — a regression that let a single bad
-    // hex in per-project XML go undiagnosed.
+    // Invalid input returns Rejected and posts an "Ayu Islands" notification
+    // so a malformed persisted color cannot silently inherit prior success.
     @Test
-    fun `apply with invalid hex returns false and notifies the user`() {
+    fun `invalid hex is rejected and notifies the user`() {
         mockkStatic(com.intellij.notification.Notifications.Bus::class)
         every {
             com.intellij.notification.Notifications.Bus

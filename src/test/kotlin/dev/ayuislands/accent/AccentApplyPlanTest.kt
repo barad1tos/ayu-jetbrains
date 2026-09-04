@@ -175,8 +175,8 @@ class AccentApplyPlanTest {
 
     @Test
     fun `torn outcome refuses an empty failure list by construction`() {
-        // AccentApplicator logs `failures.first()` on Torn — an empty-failures
-        // Torn would crash the logging path, so the type rejects it outright.
+        // A Torn outcome needs a cause; requireClean preserves the first
+        // failure as its primary exception and attaches the remaining causes.
         val hex = requireNotNull(AccentHex.of("#FFCC66"))
         assertFailsWith<IllegalArgumentException> {
             AccentApplyOutcome.Torn(hex, emptyList())

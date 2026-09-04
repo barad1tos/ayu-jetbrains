@@ -15,6 +15,7 @@ import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.PopupSwatch
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -108,6 +109,7 @@ internal class QuickSwitcherAccentGrid {
         return try {
             AccentResolver.resolve(project, context)
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.warn("Accent resolve failed for grid construction", exception)
             AYU_ACCENT_PRESETS.first().hex
         }
@@ -125,6 +127,7 @@ internal class QuickSwitcherAccentGrid {
                 LOG.warn("Accent preset apply rejected hex=$raw")
             }
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.warn("Accent preset apply failed hex=$raw", exception)
         }
     }

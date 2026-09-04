@@ -28,5 +28,9 @@ internal fun captureAccentFailure(
         AccentApplyStepFailure(step, IllegalStateException(operation, failure))
     }
 
-private fun RuntimeException.isAccentCancellation(): Boolean =
+internal fun RuntimeException.rethrowIfCancelled() {
+    if (isAccentCancellation()) throw this
+}
+
+internal fun RuntimeException.isAccentCancellation(): Boolean =
     this is ProcessCanceledException || this is CancellationException

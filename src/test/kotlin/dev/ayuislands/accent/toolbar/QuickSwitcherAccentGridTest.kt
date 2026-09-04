@@ -2,6 +2,7 @@ package dev.ayuislands.accent.toolbar
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProcessCanceledException
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentApplyOutcome
@@ -27,11 +28,14 @@ import java.awt.Color
 import java.awt.GridLayout
 import javax.swing.JLabel
 import javax.swing.JPanel
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -544,6 +548,31 @@ class QuickSwitcherAccentGridTest {
         assertTrue(firstSwatch.isEnabled, "Swatch must stay enabled after a swallowed RuntimeException")
     }
 
+    @Test
+    fun `swatch click propagates platform cancellation`() {
+        assertApplyCancellation(ProcessCanceledException())
+    }
+
+    @Test
+    fun `swatch click propagates coroutine cancellation`() {
+        assertApplyCancellation(CancellationException("cancelled apply"))
+    }
+
+    private fun assertApplyCancellation(cancelled: RuntimeException) {
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+        val grid = QuickSwitcherAccentGrid()
+        val north = (grid.component as JPanel).components.filterIsInstance<JPanel>().first()
+        val firstSwatch = north.components.first() as PopupSwatch
+        firstSwatch.setSize(36, 24)
+        firstSwatch.dispatchEvent(makePress(firstSwatch))
+
+        val thrown =
+            assertFailsWith<RuntimeException> {
+                firstSwatch.dispatchEvent(makeRelease(firstSwatch))
+            }
+        assertSame(cancelled, thrown)
+    }
+
     private fun makePress(source: javax.swing.JComponent) =
         java.awt.event.MouseEvent(
             source,
@@ -614,5 +643,25 @@ class QuickSwitcherAccentGridTest {
         assertTrue(chosen.selected)
         assertEquals(1, swatches.count { it.selected })
         verify(exactly = 1) { swapService.notifyExternalApply(failedPaint) }
+    }
+
+    @Test
+    fun `grid construction propagates platform cancellation from resolve`() {
+        val cancelled = ProcessCanceledException()
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { QuickSwitcherAccentGrid() }
+
+        assertSame(cancelled, thrown)
+    }
+
+    @Test
+    fun `grid construction propagates coroutine cancellation from resolve`() {
+        val cancelled = CancellationException("cancelled resolve")
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { QuickSwitcherAccentGrid() }
+
+        assertSame(cancelled, thrown)
     }
 }

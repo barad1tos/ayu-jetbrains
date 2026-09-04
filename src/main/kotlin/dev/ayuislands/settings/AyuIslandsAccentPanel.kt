@@ -15,6 +15,7 @@ import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.AccentRotationService
@@ -666,6 +667,7 @@ class AyuIslandsAccentPanel : SettingsParticipant {
             AccentApplicator.applyForFocusedProject(currentVariant)
             return
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.error(
                 "Failed to apply resolved accent for focused project " +
                     "(variant=$currentVariant, fallbackHex=$effectiveAccent); falling back to global",
@@ -682,6 +684,7 @@ class AyuIslandsAccentPanel : SettingsParticipant {
             try {
                 AccentApplicator.applyFromHexString(effectiveAccent)
             } catch (exception: RuntimeException) {
+                exception.rethrowIfCancelled()
                 LOG.error(
                     "Global accent fallback also failed (variant=$currentVariant, hex=$effectiveAccent); " +
                         "Settings panel leaving visible accent unchanged",
@@ -699,6 +702,7 @@ class AyuIslandsAccentPanel : SettingsParticipant {
         try {
             ProjectAccentSwapService.getInstance().notifyExternalApply(fallbackOutcome)
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.warn(
                 "Global accent applied but swap-cache sync failed " +
                     "(variant=$currentVariant, hex=$effectiveAccent); " +
