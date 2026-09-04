@@ -237,6 +237,11 @@ object AccentApplicator {
         // worker. Context-shaped steps guard with checkNotNull so a plan bug
         // that schedules them without their input fails with a precise message
         // (surfaced as that step's failure) instead of an NPE.
+        val containedFailures = mutableListOf<AccentApplyStepFailure>()
+        val recordFailure: (AccentApplyStepFailure) -> Unit = { failure ->
+            containedFailures += failure
+            log.warn("Accent apply torn at ${failure.step} (hex=$trimmedHex)", failure.error)
+        }
         val workers: Map<AccentApplyStep, () -> Unit> =
             buildMap {
                 put(AccentApplyStep.ApplyAlwaysOnUiKeys) {
@@ -248,6 +253,7 @@ object AccentApplicator {
                         accent,
                         checkNotNull(context) { "ApplyElements planned without accent context" },
                         isChromeAllowed,
+                        onFailure = recordFailure,
                     )
                 }
                 put(AccentApplyStep.ApplyTabUnderline) {
@@ -289,27 +295,25 @@ object AccentApplicator {
                 // write, leaving the flag false so the startup listener
                 // (AyuIslandsAppListener.appFrameCreated) falls through to the
                 // resolver rather than trusting the cached hex.
-                put(AccentApplyStep.MarkApplyClean) { state.lastApplyOk = true }
-                put(AccentApplyStep.PublishAccentChanged) { publishAccentChanged(accentHex) }
+                put(AccentApplyStep.MarkApplyClean) { state.lastApplyOk = containedFailures.isEmpty() }
+                put(AccentApplyStep.PublishAccentChanged) {
+                    if (containedFailures.isEmpty()) {
+                        publishAccentChanged(accentHex, recordFailure)
+                    }
+                }
             }
 
         AccentApplyPlanRunner.run(
             plan = applyPlanFor(context),
             executeStep = { step -> workers.getValue(step)() },
         ) { failures ->
-            val outcome = AccentApplyOutcome.of(accentHex, failures)
-            if (outcome is AccentApplyOutcome.Torn) {
-                val first = outcome.failures.first()
-                log.warn(
-                    "Accent apply torn at ${first.step} (hex=$trimmedHex, " +
-                        "lastApplyOk=${state.lastApplyOk}); later steps (if any) were skipped",
-                    first.error,
-                )
+            for ((step, error) in failures) {
+                log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
             }
         }
     }
 
-/**
+    /**
      * Publish [AccentChangedTopic.TOPIC] once per usable open project AFTER
      * `state.lastApplyOk = true` so subscribers (toolbar stripe, toolbar chip)
      * only fire on a fully-painted apply. Extracted from [apply] to keep the
@@ -322,7 +326,10 @@ object AccentApplicator {
      * window's resolution layer (project A may carry a project-override while
      * project B is global).
      */
-    private fun publishAccentChanged(accentHex: AccentHex) {
+    private fun publishAccentChanged(
+        accentHex: AccentHex,
+        onFailure: (AccentApplyStepFailure) -> Unit,
+    ) {
         val publisher =
             ApplicationManager
                 .getApplication()
@@ -330,19 +337,13 @@ object AccentApplicator {
                 .syncPublisher(AccentChangedTopic.TOPIC)
         for (openProject in ProjectManager.getInstance().openProjects) {
             if (!openProject.isUsable()) continue
-            try {
+            captureAccentFailure(
+                AccentApplyStep.PublishAccentChanged,
+                "Publish accent for ${openProject.name}",
+            ) {
                 val source = AccentResolver.source(openProject)
-                // Pattern K — the [AccentHex] parameter is the validated
-                // proof; pass it straight through to the listener so
-                // subscribers receive the typed wrapper and never see a raw
-                // `String`.
                 publisher.accentChanged(openProject, accentHex, source)
-            } catch (exception: RuntimeException) {
-                log.warn(
-                    "AccentChangedTopic publish failed for ${openProject.name}",
-                    exception,
-                )
-            }
+            }?.let(onFailure)
         }
     }
 
@@ -608,23 +609,17 @@ object AccentApplicator {
     private fun neutralizeOrRevert(
         element: AccentElement,
         variant: AyuVariant?,
-    ) {
-        try {
-            if (variant != null) {
-                element.applyNeutral(variant)
-            } else {
-                element.revert()
-            }
-        } catch (exception: RuntimeException) {
-            log.warn("Failed to neutralize ${element.displayName}", exception)
+    ): AccentApplyStepFailure? =
+        captureAccentFailure(AccentApplyStep.ApplyElements, "Neutralize ${element.displayName}") {
+            if (variant != null) element.applyNeutral(variant) else element.revert()
         }
-    }
 
     private fun applyElements(
         state: AyuIslandsState,
         accent: Color,
         context: AccentContext,
         isPremiumAllowed: Boolean,
+        onFailure: (AccentApplyStepFailure) -> Unit,
     ) {
         if (context == AccentContext.External) {
             EP_NAME.extensionList
@@ -640,6 +635,7 @@ object AccentApplicator {
                 state = state,
                 accent = accent,
                 isAllowed = canTintExternalChrome(state, context, isPremiumAllowed),
+                onFailure = onFailure,
             )
             return
         }
@@ -647,7 +643,7 @@ object AccentApplicator {
 
         val variant = context.variant
         for (element in EP_NAME.extensionList) {
-            applyElement(state, element, accent, variant, isPremiumAllowed)
+            applyElement(state, element, accent, variant, isPremiumAllowed)?.let(onFailure)
         }
     }
 
@@ -657,53 +653,31 @@ object AccentApplicator {
         accent: Color,
         variant: AyuVariant?,
         isPremiumAllowed: Boolean,
-    ) {
+    ): AccentApplyStepFailure? {
         AyuEditorSchemeScope.observeElementEnabled(
             element.id,
             ChromeTintContext.isToggleEnabled(state, element.id),
         )
         if (element.id.group == AccentGroup.CHROME && !isPremiumAllowed) {
-            neutralizeOrRevert(element, variant)
-            return
+            return neutralizeOrRevert(element, variant)
         }
         if (!isElementEnabled(state, element.id, isPremiumAllowed)) {
-            neutralizeOrRevert(element, variant)
-            return
+            return neutralizeOrRevert(element, variant)
         }
         val conflict = ConflictRegistry.getConflictFor(element.id)
         if (conflict != null && !canForceOverride(state, element.id, isPremiumAllowed)) {
-            neutralizeOrRevert(element, variant)
-            return
+            return neutralizeOrRevert(element, variant)
         }
         if (conflict != null) {
             log.warn(
                 "Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}",
             )
         }
-        try {
-            element.apply(accent)
-        } catch (exception: RuntimeException) {
-            log.warn(
-                "Failed to apply accent to ${element.displayName}",
-                exception,
-            )
-            // A partial apply can leave UIManager / live peers in a
-            // mixed tinted+stock state; a subsequent `ChromeBaseColors.get()`
-            // would capture those tinted values as the stock baseline and
-            // poison the cache for the rest of the session. Roll back this
-            // element so the next apply starts from a clean slate.
-            // Narrow the catch to RuntimeException so
-            // Error / CancellationException still propagate and don't get
-            // demoted to a WARN line.
-            try {
-                element.revert()
-            } catch (revertException: RuntimeException) {
-                log.warn(
-                    "Revert after failed apply also failed for ${element.displayName}",
-                    revertException,
-                )
-            }
-        }
+        return captureAccentFailure(
+            step = AccentApplyStep.ApplyElements,
+            operation = "Apply ${element.displayName}",
+            rollback = { element.revert() },
+        ) { element.apply(accent) }
     }
 
     /**
@@ -950,14 +924,15 @@ internal object ExternalChromeOwnership {
         state: AyuIslandsState,
         accent: Color,
         isAllowed: Boolean,
+        onFailure: (AccentApplyStepFailure) -> Unit,
     ) {
         if (!isAllowed) {
-            revertAll(elements)
+            revertAll(elements, onFailure)
             return
         }
         for (element in elements) {
             if (element.id.group != AccentGroup.CHROME) continue
-            applyElement(element, state, accent)
+            applyElement(element, state, accent)?.let(onFailure)
         }
     }
 
@@ -990,12 +965,11 @@ internal object ExternalChromeOwnership {
         element: AccentElement,
         state: AyuIslandsState,
         accent: Color,
-    ) {
+    ): AccentApplyStepFailure? {
         val conflict = ConflictRegistry.getConflictFor(element.id)
         val isForced = element.id.name in state.forceOverrides
         if (!ChromeTintContext.isToggleEnabled(state, element.id) || (conflict != null && !isForced)) {
-            revertOne(element)
-            return
+            return revertOne(element)
         }
         if (conflict != null) {
             log.warn("Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}")
@@ -1004,15 +978,14 @@ internal object ExternalChromeOwnership {
         val chromeElement = element as? AbstractChromeElement
         if (chromeElement == null) {
             logTypeMismatch(element)
-            return
+            return null
         }
-        try {
-            chromeElement.applyExternal(accent) {
-                ownedElements.add(element.id)
-            }
-        } catch (exception: RuntimeException) {
-            log.warn("Failed to apply external chrome accent to ${element.displayName}", exception)
-            revertOne(element)
+        return captureAccentFailure(
+            step = AccentApplyStep.ApplyElements,
+            operation = "Apply external chrome ${element.displayName}",
+            rollback = { revertOne(element)?.let { throw it.error } },
+        ) {
+            chromeElement.applyExternal(accent) { ownedElements.add(element.id) }
         }
     }
 
@@ -1024,21 +997,23 @@ internal object ExternalChromeOwnership {
         )
     }
 
-    private fun revertAll(elements: List<AccentElement>) {
+    private fun revertAll(
+        elements: List<AccentElement>,
+        onFailure: (AccentApplyStepFailure) -> Unit,
+    ) {
         if (ownedElements.isEmpty()) return
         for (element in elements) {
-            revertOne(element)
+            revertOne(element)?.let(onFailure)
         }
     }
 
-    private fun revertOne(element: AccentElement) {
-        if (!ownedElements.remove(element.id)) return
-        try {
-            element.revert()
-        } catch (exception: RuntimeException) {
-            ownedElements.add(element.id)
-            log.warn("Failed to restore external chrome surface ${element.displayName}", exception)
-        }
+    private fun revertOne(element: AccentElement): AccentApplyStepFailure? {
+        if (!ownedElements.remove(element.id)) return null
+        return captureAccentFailure(
+            step = AccentApplyStep.ApplyElements,
+            operation = "Restore external chrome ${element.displayName}",
+            rollback = { ownedElements.add(element.id) },
+        ) { element.revert() }
     }
 }
 

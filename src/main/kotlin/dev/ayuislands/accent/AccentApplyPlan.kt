@@ -117,8 +117,8 @@ internal sealed interface AccentApplyOutcome {
     ) : AccentApplyOutcome
 
     /**
-     * A step threw; later steps (if any) were skipped. The persisted clean
-     * flag is false unless the sole failure was the final
+     * A step or contained operation failed; independent work may have continued.
+     * The persisted clean flag is false unless all failures belong to
      * [AccentApplyStep.PublishAccentChanged], which runs after
      * [AccentApplyStep.MarkApplyClean] already flipped it true.
      */

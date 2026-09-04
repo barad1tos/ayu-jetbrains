@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictEntry
@@ -47,6 +48,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -1105,6 +1107,7 @@ class AccentApplicatorTest {
         every { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) } returns Unit
 
         AccentApplicator.applyFromHexString("#AABBCC")
+        assertFalse(state.lastApplyOk)
 
         verify(exactly = 2) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
         verify(exactly = 1) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) }
@@ -1382,6 +1385,69 @@ class AccentApplicatorTest {
         verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
     }
 
+    @Test
+    fun `contained element failure leaves apply marked torn`() {
+        val broken = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        val survivor = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        every { broken.apply(any()) } throws IllegalStateException("element failed")
+        mockEpExtensionList(listOf(broken, survivor))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+        state.cgpIntegrationEnabled = false
+
+        AccentApplicator.applyFromHexString("#5CCFE6")
+
+        verify(exactly = 1) { broken.revert() }
+        verify(exactly = 1) { survivor.apply(any()) }
+        assertFalse(state.lastApplyOk)
+    }
+
+    @Test
+    fun `element cancellation restores element and escapes apply`() {
+        val cancelled = ProcessCanceledException()
+        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        every { element.apply(any()) } throws cancelled
+        mockEpExtensionList(listOf(element))
+
+        assertSame(
+            cancelled,
+            assertFailsWith<ProcessCanceledException> {
+                AccentApplicator.applyFromHexString("#5CCFE6")
+            },
+        )
+        verify(exactly = 1) { element.revert() }
+        assertFalse(state.lastApplyOk)
+    }
+
+    @Test
+    fun `later cancellation preserves an earlier element failure diagnostic`() {
+        val failed = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        val cancelled = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        every { failed.apply(any()) } throws IllegalStateException("first element failure")
+        every { cancelled.apply(any()) } throws ProcessCanceledException()
+        mockEpExtensionList(listOf(failed, cancelled))
+        val warnings = mutableListOf<Throwable>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    t: Throwable?,
+                ): Boolean {
+                    if (t != null) warnings += t
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            assertFailsWith<ProcessCanceledException> {
+                AccentApplicator.applyFromHexString("#5CCFE6")
+            }
+        }
+
+        assertTrue(warnings.any { it.cause?.message == "first element failure" })
+    }
+
     // Tests for public revertAll() method
 
     @Test
@@ -1475,7 +1541,7 @@ class AccentApplicatorTest {
         AccentApplicator.revertAll()
 
         assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
-        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().single() === failedStore.scheme)
+        assertSame(failedStore.scheme, AyuEditorSchemeScope.claimedAccentSchemes().single())
         cleanedStore.assertOriginalValues()
     }
 
@@ -1944,7 +2010,10 @@ class AccentApplicatorTest {
 
         val accent = Color.decode("#FFCC66")
         // Must not propagate either the apply or the revert exception.
-        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
+        val failures = invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
+        val cause = requireNotNull(failures.single().error.cause)
+        assertEquals("apply broke", cause.message)
+        assertEquals("revert broke too", cause.suppressed.single().message)
 
         // Revert WAS attempted on the failing element, even though it
         // threw — locks that the cleanup path runs unconditionally after
@@ -2177,7 +2246,8 @@ class AccentApplicatorTest {
         targetState: AyuIslandsState,
         accent: Color,
         context: AccentContext,
-    ) {
+    ): List<AccentApplyStepFailure> {
+        val capturedFailures = mutableListOf<AccentApplyStepFailure>()
         val method =
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyElements" }
@@ -2188,7 +2258,9 @@ class AccentApplicatorTest {
             accent,
             context,
             LicenseChecker.isLicensedOrGrace(),
+            { failure: AccentApplyStepFailure -> capturedFailures += failure },
         )
+        return capturedFailures
     }
 
     // Helper for invoking private methods that accept nullable parameters
