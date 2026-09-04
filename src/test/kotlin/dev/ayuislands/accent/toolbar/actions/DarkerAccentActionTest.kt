@@ -7,6 +7,7 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
@@ -56,7 +57,11 @@ class DarkerAccentActionTest {
 
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns mockProject
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
 
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFCC66"
@@ -135,7 +140,9 @@ class DarkerAccentActionTest {
         val expected = AccentHsl.darken(AccentHex.unsafeOf("#FFCC66")).value
         DarkerAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(expected) }
-        verify(exactly = 1) { mockSwap.notifyExternalApply(expected) }
+        verify(
+            exactly = 1,
+        ) { mockSwap.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(expected)))) }
     }
 
     @Test

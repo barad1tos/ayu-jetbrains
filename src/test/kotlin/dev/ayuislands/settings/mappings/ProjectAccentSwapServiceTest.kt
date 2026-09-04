@@ -8,7 +8,11 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentApplyStep
+import dev.ayuislands.accent.AccentApplyStepFailure
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
@@ -81,7 +85,11 @@ class ProjectAccentSwapServiceTest {
         // cleanly; per-test verifies still scope the assertion to whichever
         // case is under test.
         mockkObject(IndentRainbowSync)
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any(), any()) } just Runs
         every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
@@ -212,7 +220,7 @@ class ProjectAccentSwapServiceTest {
         every { AccentResolver.resolve(project, AccentContext.External) } returns "#AABBCC"
         val service = ProjectAccentSwapService()
 
-        service.notifyExternalApply("#AABBCC")
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC"))))
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 1) { AccentResolver.resolve(project, AccentContext.External) }
@@ -291,7 +299,7 @@ class ProjectAccentSwapServiceTest {
 
         // Rotation tick path: external apply pushed a DIFFERENT color into UIManager
         // (because the tick resolved for a different focused project) and synced the cache.
-        service.notifyExternalApply("#DFBFFF")
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#DFBFFF"))))
 
         // Alt-tab back to the original project. Resolver still returns the override color;
         // cache-hex is lavender; the handler must notice the drift and re-apply cyan.
@@ -455,7 +463,7 @@ class ProjectAccentSwapServiceTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
 
-        service.notifyExternalApply("#FFCC66") // priming write
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
         service.onWindowActivatedForTest(makeEvent(window))
 
         // resolve was called (project changed from null to projectA) but apply was skipped
@@ -465,21 +473,36 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
-    fun `notifyExternalApply refuses to prime the cache after a torn apply`() {
-        // Pattern D, torn half: a mid-step throw leaves lastApplyOk=false, meaning
-        // the hex was never fully painted. Priming the cache anyway would make the
-        // next same-hex WINDOW_ACTIVATED skip the re-apply that self-heals the
-        // tear — so the write must be gated on the clean flag.
+    fun `current torn outcome cannot inherit a stale clean flag`() {
+        state.lastApplyOk = true
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+        val outcome =
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of("#FFCC66")),
+                listOf(
+                    AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("element")),
+                ),
+            )
+
+        service.notifyExternalApply(outcome)
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
+    }
+
+    @Test
+    fun `completed outcome primes cache despite a stale torn flag`() {
         state.lastApplyOk = false
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
 
-        service.notifyExternalApply("#FFCC66") // gated: must NOT prime the cache
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
         service.onWindowActivatedForTest(makeEvent(window))
 
-        // The swap re-applies (self-heal) because the torn hex never entered the cache.
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     @Test
@@ -489,7 +512,15 @@ class ProjectAccentSwapServiceTest {
         // If the plan tore (lastApplyOk=false), priming the cache would freeze
         // the tear behind the same-hex branch; the swap path must keep retrying
         // on every activation instead — pre-plan behavior.
-        state.lastApplyOk = false
+        state.lastApplyOk = true
+        every { AccentApplicator.applyFromHexString(any()) } answers {
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of(firstArg<String>())),
+                listOf(
+                    AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("paint")),
+                ),
+            )
+        }
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
@@ -509,7 +540,7 @@ class ProjectAccentSwapServiceTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
 
-        service.notifyExternalApply("#FFCC66")
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }

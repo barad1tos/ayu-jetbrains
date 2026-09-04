@@ -6,12 +6,13 @@ import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.every
-import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertSame
@@ -48,7 +49,9 @@ class ScanCompletionAccentRefresherTest {
         subscriber.scanCompleted(ScanOutcome.Detected("kotlin"))
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
+        verify(exactly = 1) {
+            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
+        }
     }
 
     @Test
@@ -65,7 +68,9 @@ class ScanCompletionAccentRefresherTest {
         subscriber.scanCompleted(ScanOutcome.Polyglot)
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
+        verify(exactly = 1) {
+            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
+        }
     }
 
     @Test
@@ -78,7 +83,8 @@ class ScanCompletionAccentRefresherTest {
         val project = stubProject()
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
         val subscriber = installRefresher(project)
 
         subscriber.scanCompleted(ScanOutcome.Unavailable)
@@ -96,7 +102,8 @@ class ScanCompletionAccentRefresherTest {
         val focusedProject = stubProject()
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns focusedProject
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
         val subscriber = installRefresher(scannedProject)
 
         subscriber.scanCompleted(ScanOutcome.Detected("kotlin"))
@@ -115,7 +122,8 @@ class ScanCompletionAccentRefresherTest {
         every { AyuVariant.detect() } returns null
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
         val subscriber = installRefresher(project)
 
         subscriber.scanCompleted(ScanOutcome.Detected("kotlin"))
@@ -130,7 +138,8 @@ class ScanCompletionAccentRefresherTest {
         // writing UIManager entries for a dead project's swap-cache.
         val project = stubProject()
         mockkObject(AccentApplicator)
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
         val subscriber = installRefresher(project)
         every { project.isDisposed } returns true
 
@@ -175,7 +184,8 @@ class ScanCompletionAccentRefresherTest {
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } throws RuntimeException("resolver boom")
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
         val subscriber = installRefresher(project)
 
         // Must not throw — the runCatching contains the resolver.
@@ -187,14 +197,14 @@ class ScanCompletionAccentRefresherTest {
 
     @Test
     fun `rejected hex suppresses the swap-cache publish`() {
-        // applyFromHexString returns false for a rejected hex (user-facing
+        // applyFromHexString returns Rejected for an invalid hex (user-facing
         // notification already fired inside the applicator). Publishing the
         // rejected value to the swap cache would make the next
-        // WINDOW_ACTIVATED treat an unapplied color as current — the Boolean
+        // WINDOW_ACTIVATED treat an unapplied color as current — the rejection
         // gate must suppress notifyExternalApply.
         val project = stubProject()
         val swapService = wireHappyApplyChain(project)
-        every { AccentApplicator.applyFromHexString(any()) } returns false
+        every { AccentApplicator.applyFromHexString(any()) } answers { AccentApplyOutcome.Rejected(firstArg()) }
         val subscriber = installRefresher(project)
 
         subscriber.scanCompleted(ScanOutcome.Detected("kotlin"))
@@ -259,13 +269,16 @@ class ScanCompletionAccentRefresherTest {
      * Returns the swap-service mock for publish assertions.
      */
     private fun wireHappyApplyChain(project: Project): ProjectAccentSwapService {
+        mockkStatic(SwingUtilities::class)
+        every { SwingUtilities.isEventDispatchThread() } returns true
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         mockkObject(ProjectAccentSwapService.Companion)
         every { ProjectAccentSwapService.getInstance() } returns swapService

@@ -241,7 +241,12 @@ class AccentChangedPublishTest {
             }
 
         LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            AccentApplicator.apply(AccentHex.of("#DFBFFF")!!)
+            val outcome =
+                kotlin.test.assertIs<AccentApplyOutcome.Torn>(
+                    AccentApplicator.apply(requireNotNull(AccentHex.of("#DFBFFF"))),
+                )
+            assertTrue(outcome.visualsApplied)
+            kotlin.test.assertEquals(AccentApplyStep.PublishAccentChanged, outcome.failures.single().step)
         }
 
         verify(exactly = 1) {

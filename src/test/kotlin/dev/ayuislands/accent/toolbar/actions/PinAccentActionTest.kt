@@ -7,7 +7,9 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -29,7 +31,7 @@ import kotlin.test.assertTrue
 /**
  * Locks [PinAccentAction]'s Pattern J two-level gate (`isAyuActive && licensed`),
  * `AccentMappingsState.projectAccents` writer path (shared / personal pin-lane
- * split deferred), and Pattern D Boolean gate on `notifyExternalApply`.
+ * split deferred), and Pattern D rejection gate on `notifyExternalApply`.
  */
 class PinAccentActionTest {
     private val mockApp = mockk<Application>(relaxed = true)
@@ -57,7 +59,11 @@ class PinAccentActionTest {
 
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns mockProject
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
 
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#7F52FF"
@@ -137,15 +143,21 @@ class PinAccentActionTest {
     }
 
     @Test
-    fun `actionPerformed calls notifyExternalApply only when applyFromHexString returns true (Pattern D)`() {
-        // Pattern D Boolean gate.
-        every { AccentApplicator.applyFromHexString("#7F52FF") } returns true
+    fun `actionPerformed calls notifyExternalApply only when applyFromHexString accepts the hex (Pattern D)`() {
+        // Pattern D rejection gate.
+        every { AccentApplicator.applyFromHexString("#7F52FF") } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         PinAccentAction().actionPerformed(newEvent())
-        verify(exactly = 1) { mockSwap.notifyExternalApply("#7F52FF") }
+        verify(exactly = 1) {
+            mockSwap.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#7F52FF"))))
+        }
 
         // When apply rejects, swap must NOT be published.
         io.mockk.clearMocks(mockSwap)
-        every { AccentApplicator.applyFromHexString("#7F52FF") } returns false
+        every { AccentApplicator.applyFromHexString("#7F52FF") } answers { AccentApplyOutcome.Rejected(firstArg()) }
         PinAccentAction().actionPerformed(newEvent())
         verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
     }

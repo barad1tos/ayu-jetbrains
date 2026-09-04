@@ -4,6 +4,9 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentApplyStep
+import dev.ayuislands.accent.AccentApplyStepFailure
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
@@ -112,8 +115,12 @@ class QuickSwitcherAccentGridTest {
     }
 
     @Test
-    fun `click invokes applyFromHexString AND notifyExternalApply when apply returns true (Pattern D)`() {
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+    fun `click invokes applyFromHexString AND notifyExternalApply when apply accepts the hex (Pattern D)`() {
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         mockkObject(ProjectAccentSwapService.Companion)
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
@@ -126,12 +133,16 @@ class QuickSwitcherAccentGridTest {
         firstSwatch.dispatchEvent(makeRelease(firstSwatch))
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString(AYU_ACCENT_PRESETS.first().hex) }
-        verify(exactly = 1) { swapService.notifyExternalApply(AYU_ACCENT_PRESETS.first().hex) }
+        verify(exactly = 1) {
+            swapService.notifyExternalApply(
+                AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(AYU_ACCENT_PRESETS.first().hex))),
+            )
+        }
     }
 
     @Test
-    fun `click does NOT call notifyExternalApply when apply returns false (Pattern D inverse)`() {
-        every { AccentApplicator.applyFromHexString(any()) } returns false
+    fun `click does NOT call notifyExternalApply when apply rejects the hex (Pattern D inverse)`() {
+        every { AccentApplicator.applyFromHexString(any()) } answers { AccentApplyOutcome.Rejected(firstArg()) }
         mockkObject(ProjectAccentSwapService.Companion)
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
@@ -261,7 +272,11 @@ class QuickSwitcherAccentGridTest {
         every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
         mockkStatic(com.intellij.ui.ColorPicker::class)
@@ -310,7 +325,11 @@ class QuickSwitcherAccentGridTest {
         every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
         mockkObject(ProjectAccentSwapService.Companion)
@@ -333,7 +352,9 @@ class QuickSwitcherAccentGridTest {
         val links = collectActionLinks(south)
         links[0].doClick()
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#0F00AB") }
-        verify(exactly = 1) { swap.notifyExternalApply("#0F00AB") }
+        verify(
+            exactly = 1,
+        ) { swap.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#0F00AB")))) }
     }
 
     @Test
@@ -363,7 +384,11 @@ class QuickSwitcherAccentGridTest {
         every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
         mockkObject(AccentHex.Companion)
@@ -435,7 +460,11 @@ class QuickSwitcherAccentGridTest {
         // User-space restamp coverage. After applyPreset(hex), exactly one
         // swatch is selected (the clicked one); previously-selected swatches clear.
         // Locks the for-each restamp in `QuickSwitcherAccentGrid`.
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         mockkObject(ProjectAccentSwapService.Companion)
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
@@ -461,7 +490,11 @@ class QuickSwitcherAccentGridTest {
     @Test
     fun `clicking a swatch in external context persists manual external accent`() {
         every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         mockkObject(ProjectAccentSwapService.Companion)
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
@@ -546,5 +579,40 @@ class QuickSwitcherAccentGridTest {
             if (child is java.awt.Container) collectJLabels(child, out)
         }
         return out
+    }
+
+    @Test
+    fun `torn paint preserves manual external accent and selected swatch`() {
+        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
+        mockkObject(ProjectAccentSwapService.Companion)
+        val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
+        every { ProjectAccentSwapService.getInstance() } returns swapService
+        val state = AyuIslandsState()
+        val settings = mockk<AyuIslandsSettings>(relaxed = true)
+        every { settings.state } returns state
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+        val grid = QuickSwitcherAccentGrid()
+        val north = (grid.component as JPanel).components.filterIsInstance<JPanel>().first()
+        val swatches = north.components.filterIsInstance<PopupSwatch>()
+        val chosen = swatches[1]
+        val failedPaint =
+            AccentApplyOutcome.Torn(
+                chosen.hex,
+                listOf(
+                    AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("paint")),
+                ),
+            )
+        every { AccentApplicator.applyFromHexString(chosen.hex.value) } returns failedPaint
+
+        chosen.setSize(36, 24)
+        chosen.dispatchEvent(makePress(chosen))
+        chosen.dispatchEvent(makeRelease(chosen))
+
+        assertEquals(chosen.hex.value, state.externalThemeAccent)
+        assertEquals(ExternalAccentSource.MANUAL.name, state.externalThemeAccentSource)
+        assertTrue(chosen.selected)
+        assertEquals(1, swatches.count { it.selected })
+        verify(exactly = 1) { swapService.notifyExternalApply(failedPaint) }
     }
 }

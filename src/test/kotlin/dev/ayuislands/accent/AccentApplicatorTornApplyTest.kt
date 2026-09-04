@@ -197,11 +197,16 @@ class AccentApplicatorTornApplyTest {
     }
 
     @Test
-    fun `applyFromHexString still reports the dispatch as accepted on a torn apply`() {
-        // The Boolean contract is validation + scheduling, not paint completion —
-        // torn-state signaling belongs to lastApplyOk / trustedCachedAccent.
-        val accepted = AccentApplicator.applyFromHexString("#FFCC66")
-        assertTrue(accepted)
+    fun `applyFromHexString returns the failed invocation`() {
+        val outcome: Any = AccentApplicator.applyFromHexString("#FFCC66")
+        val torn = kotlin.test.assertIs<AccentApplyOutcome.Torn>(outcome)
+        assertEquals(AccentApplyStep.SyncIndentRainbow, torn.failures.single().step)
+        assertEquals(
+            "synthetic tear",
+            torn.failures
+                .single()
+                .error.message,
+        )
         assertFalse(state.lastApplyOk)
     }
 }

@@ -7,7 +7,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.CodeGlanceProIntegration
 import dev.ayuislands.accent.conflict.ConflictRegistry
@@ -217,6 +219,9 @@ class PluginsPanelTest {
 
     @Test
     fun `external theme toggle persists opt-in`() {
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
         val pluginsPanel = PluginsPanel()
         val dialogPanel = buildDialogPanel(pluginsPanel)
         val checkbox =
@@ -235,7 +240,8 @@ class PluginsPanelTest {
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns null
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(AccentContext.External) } returns "#AABBCC"
+        every { AccentApplicator.applyForFocusedProject(AccentContext.External) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
         mockkObject(GlowOverlayManager)
         every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
 
@@ -316,7 +322,7 @@ class PluginsPanelTest {
         mockkObject(AccentApplicator)
         every {
             AccentApplicator.applyForFocusedProject(any<AccentContext>())
-        } returns "#AABBCC"
+        } returns AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
 
         val pluginsPanel = PluginsPanel()
         val dialogPanel = buildDialogPanel(pluginsPanel)
@@ -351,7 +357,7 @@ class PluginsPanelTest {
         mockkObject(AccentApplicator)
         every {
             AccentApplicator.applyForFocusedProject(any<AccentContext>())
-        } returns "#AABBCC"
+        } returns AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
 
         val pluginsPanel = PluginsPanel()
         val dialogPanel = buildDialogPanel(pluginsPanel)
@@ -384,7 +390,7 @@ class PluginsPanelTest {
         mockkObject(AccentApplicator)
         every {
             AccentApplicator.applyForFocusedProject(any<AccentContext>())
-        } returns "#AABBCC"
+        } returns AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
 
         val pluginsPanel = PluginsPanel()
         val dialogPanel = buildDialogPanel(pluginsPanel)

@@ -10,6 +10,7 @@ import com.intellij.ui.components.ActionLink
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
@@ -115,10 +116,10 @@ internal class QuickSwitcherAccentGrid {
     private fun applyPreset(hex: AccentHex) {
         val raw = hex.value
         try {
-            val applied = AccentApplicator.applyFromHexString(raw)
-            if (applied) {
+            val outcome = AccentApplicator.applyFromHexString(raw)
+            if (outcome !is AccentApplyOutcome.Rejected) {
                 AccentContext.detectQuickSwitcher()?.persistExternalManualAccentIfNeeded(raw)
-                ProjectAccentSwapService.getInstance().notifyExternalApply(raw)
+                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
                 swatches.forEach { swatch -> swatch.setSelected(swatch.hex.value.equals(raw, ignoreCase = true)) }
             } else {
                 LOG.warn("Accent preset apply rejected hex=$raw")

@@ -10,6 +10,7 @@ import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.WindowManager
@@ -33,6 +34,7 @@ import dev.ayuislands.ui.ComponentTreeRefresher
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.awt.Window
+import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -183,39 +185,10 @@ object AccentApplicator {
             ),
         )
 
-    /**
-     * Applies [accentHex] across UIManager, editor keys, and the EP chain.
-     *
-     * Takes an [AccentHex] whose `#RRGGBB` shape is proven by construction —
-     * no internal regex, no `NumberFormatException` path through [Color.decode].
-     * Callers with a raw `String` from an untrusted boundary should use the
-     * top-level [applyFromHexString] helper which centralizes the
-     * notification-on-bad-hex + `false` return contract.
-     *
-     * Cache write ordering: [AyuIslandsState.lastAppliedAccentHex] is written BEFORE the EP
-     * iteration runs, not after — a mid-EP throw would otherwise drop the anti-flicker
-     * cache and re-flash Gold on the next startup. The paired
-     * [AyuIslandsState.lastApplyOk] flag is reset to `false` before EP iteration and
-     * flipped to `true` only by the [AccentApplyStep.MarkApplyClean] step, so the
-     * startup listener can distinguish "cached hex from a clean apply" from "cached hex
-     * from a torn apply" and fall back to the resolver in the torn case. A throwing
-     * step aborts the plan ([AccentApplyFailurePolicy.AbortOnFirstFailure]) and is
-     * contained into an [AccentApplyOutcome.Torn] WARN — it never reaches the caller.
-     *
-     * ### Threading contract
-     *
-     * Synchronous when called on the EDT; posts the full plan via
-     * [AccentApplyPlanRunner] when called off-EDT. The ordering invariant —
-     * applyElements / editor keys / repaint all happen BEFORE the method
-     * returns on EDT — is load-bearing for callers that publish follow-on
-     * cache state (for example [ProjectAccentSwapService.notifyExternalApply]
-     * reached via [applyForFocusedProject]): those callers MUST already be on
-     * the EDT so their cache write happens after the full apply sequence.
-     * Off-EDT callers get scheduling semantics only — paint completion is
-     * asynchronous, and the `lastApplyOk` flag on [AyuIslandsState] is the
-     * correct signal for "apply finished cleanly" in those flows.
-     */
-    fun apply(accentHex: AccentHex) {
+    /** Apply synchronously on EDT, retaining restart metadata and returning this invocation's outcome. */
+    @RequiresEdt
+    internal fun apply(accentHex: AccentHex): AccentApplyOutcome {
+        check(SwingUtilities.isEventDispatchThread()) { "Accent application must run on EDT" }
         val trimmedHex = accentHex.value
         val accent = accentHex.toColor()
         val state = AyuIslandsSettings.getInstance().state
@@ -303,100 +276,30 @@ object AccentApplicator {
                 }
             }
 
-        AccentApplyPlanRunner.run(
-            plan = applyPlanFor(context),
-            executeStep = { step -> workers.getValue(step)() },
-        ) { failures ->
-            for ((step, error) in failures) {
-                log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
-            }
+        val failures =
+            AccentApplyPlanRunner.runNow(
+                plan = applyPlanFor(context),
+                executeStep = { step -> workers.getValue(step)() },
+            )
+        for ((step, error) in failures) {
+            log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
         }
+        return AccentApplyOutcome.of(accentHex, containedFailures + failures)
     }
 
-    /**
-     * Publish [AccentChangedTopic.TOPIC] once per usable open project AFTER
-     * `state.lastApplyOk = true` so subscribers (toolbar stripe, toolbar chip)
-     * only fire on a fully-painted apply. Extracted from [apply] to keep the
-     * outer method's cognitive complexity below the IDE inspector's cap.
-     *
-     * Application-scoped: one apply may legitimately affect every open window;
-     * per-project filtering belongs to the subscriber. Per-project try/catch
-     * isolates Pattern B — a throwing subscriber must NOT tear down the apply
-     * pipeline. Source is re-resolved per project so subscribers see THIS
-     * window's resolution layer (project A may carry a project-override while
-     * project B is global).
-     */
-    private fun publishAccentChanged(
-        accentHex: AccentHex,
-        onFailure: (AccentApplyStepFailure) -> Unit,
-    ) {
-        val publisher =
-            ApplicationManager
-                .getApplication()
-                .messageBus
-                .syncPublisher(AccentChangedTopic.TOPIC)
-        for (openProject in ProjectManager.getInstance().openProjects) {
-            if (!openProject.isUsable()) continue
-            captureAccentFailure(
-                AccentApplyStep.PublishAccentChanged,
-                "Publish accent for ${openProject.name}",
-            ) {
-                val source = AccentResolver.source(openProject)
-                publisher.accentChanged(openProject, accentHex, source)
-            }?.let(onFailure)
-        }
-    }
-
-    /**
-     * Convenience wrapper around [AccentResolver.resolve] + [apply] for the "currently focused
-     * project" use case. Called from the settings panels (Accent / Elements / Plugins), the
-     * LAF listener, and the rotation tick. Pre-helper, those sites hand-wired variants of
-     * the same sequence and were *inconsistent*: only the rotation path called
-     * [ProjectAccentSwapService.notifyExternalApply]; the panels and LAF listener skipped it,
-     * leaving the swap-cache stale and causing one redundant apply on the next WINDOW_ACTIVATED.
-     *
-     * Centralizing the sequence makes focused-project selection, override-priority resolution,
-     * and swap-cache synchronization uniformly correct across callers. Returns the applied
-     * hex so callers can log or display it.
-     *
-     * Note: [dev.ayuislands.AyuIslandsStartupActivity] is NOT a caller — it operates on the
-     * specific project the platform hands it, not the focused one, so it bypasses this helper
-     * and calls [AccentResolver.resolve] + [apply] directly with that project.
-     *
-     * EDT-only. Neither this helper nor [resolveFocusedProject] self-dispatch; only the
-     * inner [apply] call hops to the EDT internally via [AccentApplyPlanRunner], and that hop
-     * does NOT rescue the preceding [resolveFocusedProject] + [AccentResolver.resolve]
-     * steps (the first traverses EDT-only platform APIs, the second reads settings state
-     * that may race off-EDT). [ProjectAccentSwapService.notifyExternalApply] is likewise
-     * a bare volatile write with no dispatch. Callers MUST already be on the EDT.
-     */
+    /** Resolve the focused project's existing override chain and update the cache from its outcome. */
     @RequiresEdt
-    fun applyForFocusedProject(context: AccentContext): String {
+    internal fun applyForFocusedProject(context: AccentContext): AccentApplyOutcome {
         val focusedProject = resolveFocusedProject()
         val hex = AccentResolver.resolve(focusedProject, context)
-        // apply returns a validation flag. If the resolver hands back a hex
-        // that fails shape validation (corrupted per-project override, manual
-        // XML edit, future resolver bug), skip the swap-cache publish so the
-        // cache does not drift to a hex that was never actually painted; the
-        // apply call surfaces the user-visible notification for that case.
-        // The torn-apply half of the same invariant (valid hex, mid-step
-        // throw) is gated inside [ProjectAccentSwapService.notifyExternalApply],
-        // which consults the persisted clean flag before recording the hex.
-        val applied = applyFromHexString(hex)
-        // Pattern D — regression lock: if you remove this gate, the swap cache
-        // will publish hexes that `applyFromHexString` rejected (malformed XML,
-        // manual edits, rotation palette bug) and drift from the paint state.
-        // The `AccentApplicatorFocusedProjectTest` "skips swap cache publish
-        // when applyFromHexString rejects the resolver output" test must fail
-        // first if you touch this branch.
-        if (applied) {
-            ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
-        }
-        return hex
+        val outcome = applyFromHexString(hex)
+        ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
+        return outcome
     }
 
     @RequiresEdt
-    fun applyForFocusedProject(variant: AyuVariant): String = applyForFocusedProject(AccentContext.Ayu(variant))
+    internal fun applyForFocusedProject(variant: AyuVariant): AccentApplyOutcome =
+        applyForFocusedProject(AccentContext.Ayu(variant))
 
     /**
      * Resolves the *actually* focused project — the one whose window is currently on top
@@ -862,19 +765,10 @@ object AccentApplicator {
         CodeGlanceProIntegration.syncCodeGlanceProViewport(hex, context)
     }
 
-    /**
-     * String-accepting entry point for callers that hold a raw hex from an
-     * untrusted boundary (persisted XML, settings-panel input, resolver
-     * output that is still `String`).
-     * Validates the shape via [AccentHex.of], surfaces the user-visible
-     * notification + returns `false` on rejection, and forwards to [apply]
-     * on success.
-     *
-     * Deliberately NOT named `apply(String)` — MockK's `every { apply(any()) }`
-     * can't resolve across overloads of the same name, so tests that lock in
-     * the cache-publish ordering against the apply path would all break.
-     */
-    fun applyFromHexString(accentHex: String): Boolean {
+    /** Reject malformed input without mutating preferences or the restart cache. */
+    @RequiresEdt
+    internal fun applyFromHexString(accentHex: String): AccentApplyOutcome {
+        check(SwingUtilities.isEventDispatchThread()) { "Accent application must run on EDT" }
         val accent =
             AccentHex.of(accentHex) ?: run {
                 log.warn("AccentApplicator.apply: invalid hex '$accentHex' — skipping apply")
@@ -901,13 +795,24 @@ object AccentApplicator {
                             NotificationType.WARNING,
                         ),
                     )
+                } catch (cancelled: ProcessCanceledException) {
+                    throw cancelled
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (exception: RuntimeException) {
                     log.warn("AccentApplicator invalid-hex notification failed to post", exception)
                 }
-                return false
+                return AccentApplyOutcome.Rejected(accentHex)
             }
-        apply(accent)
-        return true
+        return apply(accent)
+    }
+
+    /** Complete inline on EDT or after one queued EDT turn; cancellation does not invoke the callback. */
+    internal fun requestApply(
+        accentHex: String,
+        onComplete: (AccentApplyOutcome) -> Unit,
+    ) {
+        AccentApplyPlanRunner.dispatch { onComplete(applyFromHexString(accentHex)) }
     }
 }
 
@@ -1061,10 +966,37 @@ internal fun resolveUnderlineHeight(
 }
 
 /**
- * File-scope extension because [AccentApplicator] is at the cap of its
- * `TooManyFunctions` budget; moving this trivial guard out of the object
- * frees one function slot for `publishAccentChanged` extracted from [AccentApplicator.apply].
- * Shape preserved exactly so the 6+ existing call-sites and the tests'
- * commentary stay accurate.
+ * Publish [AccentChangedTopic.TOPIC] once per usable open project AFTER
+ * `state.lastApplyOk = true` so subscribers (toolbar stripe, toolbar chip)
+ * only fire on a fully-painted apply. Extracted from [AccentApplicator.apply] to keep the
+ * outer method's cognitive complexity below the IDE inspector's cap.
+ *
+ * Application-scoped: one apply may legitimately affect every open window;
+ * per-project filtering belongs to the subscriber. Per-project try/catch
+ * isolates Pattern B — a throwing subscriber must NOT tear down the apply
+ * pipeline. Source is re-resolved per project so subscribers see THIS
+ * window's resolution layer (project A may carry a project-override while
+ * project B is global).
  */
+private fun publishAccentChanged(
+    accentHex: AccentHex,
+    onFailure: (AccentApplyStepFailure) -> Unit,
+) {
+    val publisher =
+        ApplicationManager
+            .getApplication()
+            .messageBus
+            .syncPublisher(AccentChangedTopic.TOPIC)
+    for (openProject in ProjectManager.getInstance().openProjects) {
+        if (!openProject.isUsable()) continue
+        captureAccentFailure(
+            AccentApplyStep.PublishAccentChanged,
+            "Publish accent for ${openProject.name}",
+        ) {
+            val source = AccentResolver.source(openProject)
+            publisher.accentChanged(openProject, accentHex, source)
+        }?.let(onFailure)
+    }
+}
+
 private fun com.intellij.openapi.project.Project.isUsable(): Boolean = !isDefault && !isDisposed

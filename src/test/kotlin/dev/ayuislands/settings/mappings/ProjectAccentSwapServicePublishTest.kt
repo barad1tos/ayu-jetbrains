@@ -7,6 +7,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentHex
@@ -75,7 +76,11 @@ class ProjectAccentSwapServicePublishTest {
         mockkObject(AyuVariant.Companion)
         mockkObject(ComponentTreeRefresher)
         mockkObject(IndentRainbowSync)
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
         every {
             IndentRainbowSync.apply(any<AyuVariant>(), any())

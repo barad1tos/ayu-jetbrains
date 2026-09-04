@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.licensing.LicenseChecker
@@ -56,9 +57,9 @@ class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to
         // goes through the app-level map below (FOLLOWUP-PIN-LANE-SPLIT).
         AccentMappingsSettings.getInstance().state.projectAccents[key] = hex
         try {
-            val applied = AccentApplicator.applyFromHexString(hex)
-            if (applied) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            val outcome = AccentApplicator.applyFromHexString(hex)
+            if (outcome !is AccentApplyOutcome.Rejected) {
+                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
             } else {
                 LOG.warn("Pin: applyFromHexString rejected hex=$hex")
             }

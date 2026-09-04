@@ -8,6 +8,7 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
@@ -151,9 +152,9 @@ internal class QuickSwitcherChipComponent : JLabel() {
             // pin path lands on the just-written override — `AccentResolver`
             // reads `mappings` directly.
             val targetHex = AccentResolver.resolve(project, variant)
-            val applied = AccentApplicator.applyFromHexString(targetHex)
-            if (applied) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(targetHex)
+            val outcome = AccentApplicator.applyFromHexString(targetHex)
+            if (outcome !is AccentApplyOutcome.Rejected) {
+                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
             } else {
                 LOG.warn("Pin toggle: applyFromHexString rejected hex=$targetHex; rolling back")
                 restorePin(mappings, key, previousPin)
@@ -202,22 +203,10 @@ internal class QuickSwitcherChipComponent : JLabel() {
         connectionParent = parent
         val conn = ApplicationManager.getApplication().messageBus.connect(parent)
         connection = conn
-        // Object expression rather than SAM lambda: [AccentChangeListener] is
-        // a `fun interface` for the IntelliJ MessageBus listener shape, but
-        // Kotlin's SAM conversion of a value-class parameter (`AccentHex`)
-        // can fail to bridge, throwing [AbstractMethodError] at fan-out time.
-        // See KDoc on the interface.
         conn.subscribe(
             AccentChangedTopic.TOPIC,
-            @Suppress("ObjectLiteralToLambda")
-            object : AccentChangeListener {
-                override fun accentChanged(
-                    project: com.intellij.openapi.project.Project,
-                    hex: AccentHex,
-                    source: AccentResolver.Source,
-                ) {
-                    SwingUtilities.invokeLater { refreshFromFocusedProject() }
-                }
+            AccentChangeListener { _, _, _ ->
+                SwingUtilities.invokeLater { refreshFromFocusedProject() }
             },
         )
         conn.subscribe(

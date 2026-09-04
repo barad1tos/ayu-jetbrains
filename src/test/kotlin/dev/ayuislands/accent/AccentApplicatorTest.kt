@@ -46,6 +46,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -1368,21 +1369,54 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `apply posts to invokeLater when not on EDT`() {
+    fun `queued requests mutate only on EDT and report their own result`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
+        val queued = mutableListOf<Runnable>()
+        val completed = mutableListOf<AccentApplyOutcome>()
+        val previousHex = state.lastAppliedAccentHex
+        val previousClean = state.lastApplyOk
         every { SwingUtilities.isEventDispatchThread() } returns false
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
-            firstArg<Runnable>().run()
+            queued += firstArg<Runnable>()
         }
 
-        AccentApplicator.applyFromHexString("#FFCC66")
+        AccentApplicator.requestApply("#FFCC66") { completed += it }
+        AccentApplicator.requestApply("#5CCFE6") { completed += it }
 
-        verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
-        verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
-        verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
+        assertEquals(previousHex, state.lastAppliedAccentHex)
+        assertEquals(previousClean, state.lastApplyOk)
+        assertTrue(completed.isEmpty())
+        verify(exactly = 0) { UIManager.put(any<String>(), any()) }
+        assertEquals(2, queued.size)
+        every { SwingUtilities.isEventDispatchThread() } returns true
+        queued[0].run()
+        assertEquals(
+            "#FFCC66",
+            assertIs<AccentApplyOutcome.Applied>(completed.single())
+                .accentHex.value,
+        )
+        queued[1].run()
+        assertEquals(
+            listOf("#FFCC66", "#5CCFE6"),
+            completed.map {
+                assertIs<AccentApplyOutcome.Applied>(it)
+                    .accentHex.value
+            },
+        )
+    }
+
+    @Test
+    fun `direct off EDT apply fails before state mutation`() {
+        val previousHex = state.lastAppliedAccentHex
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        assertFailsWith<IllegalStateException> {
+            AccentApplicator.applyFromHexString("#5CCFE6")
+        }
+        assertEquals(previousHex, state.lastAppliedAccentHex)
+        verify(exactly = 0) { UIManager.put(any<String>(), any()) }
     }
 
     @Test
@@ -1395,7 +1429,8 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
-        AccentApplicator.applyFromHexString("#5CCFE6")
+        val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#5CCFE6"))
+        assertEquals(AccentApplyStep.ApplyElements, outcome.failures.single().step)
 
         verify(exactly = 1) { broken.revert() }
         verify(exactly = 1) { survivor.apply(any()) }
@@ -1570,6 +1605,7 @@ class AccentApplicatorTest {
         AccentApplicator.revertAll()
 
         assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
+        every { SwingUtilities.isEventDispatchThread() } returns true
         callback.captured.run()
         assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().isEmpty())
     }
@@ -1605,6 +1641,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(emptyList())
         every { SwingUtilities.isEventDispatchThread() } returns false
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
+            every { SwingUtilities.isEventDispatchThread() } returns true
             firstArg<Runnable>().run()
         }
 
@@ -2547,7 +2584,7 @@ class AccentApplicatorTest {
 
         val result = AccentApplicator.applyFromHexString("garbage-hex")
 
-        assertEquals(false, result, "Invalid hex must return false from applyFromHexString()")
+        assertTrue(result is AccentApplyOutcome.Rejected, "Invalid hex must be rejected")
         verify(exactly = 1) {
             com.intellij.notification.Notifications.Bus
                 .notify(any())
@@ -2565,7 +2602,7 @@ class AccentApplicatorTest {
         val source = sourceFile.readText()
         val edtGuard =
             Regex(
-                """@RequiresEdt\s*\n\s*fun\s+applyForFocusedProject""",
+                """@RequiresEdt\s*\n\s*internal\s+fun\s+applyForFocusedProject""",
                 RegexOption.DOT_MATCHES_ALL,
             )
         assertTrue(

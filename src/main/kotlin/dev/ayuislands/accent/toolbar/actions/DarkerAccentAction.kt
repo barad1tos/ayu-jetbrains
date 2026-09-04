@@ -5,6 +5,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
@@ -44,10 +45,10 @@ class DarkerAccentAction : DumbAwareAction("Darker", "Darken the current accent 
         // wrap via `unsafeOf` to lift the contract into the type (Pattern K).
         val newHex = AccentHsl.darken(AccentHex.unsafeOf(currentHex)).value
         try {
-            val applied = AccentApplicator.applyFromHexString(newHex)
-            if (applied) {
+            val outcome = AccentApplicator.applyFromHexString(newHex)
+            if (outcome !is AccentApplyOutcome.Rejected) {
                 context.persistExternalManualAccentIfNeeded(newHex)
-                ProjectAccentSwapService.getInstance().notifyExternalApply(newHex)
+                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
             } else {
                 LOG.warn("Darker: applyFromHexString rejected hex=$newHex")
             }

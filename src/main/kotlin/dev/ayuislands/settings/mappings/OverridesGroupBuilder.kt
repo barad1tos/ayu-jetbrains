@@ -11,6 +11,7 @@ import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.table.JBTable
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentDetectorLookup
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentHexPolicy
@@ -325,9 +326,9 @@ internal class OverridesGroupBuilder(
                 // bound yet — same helper every apply path ultimately converges on.
                 val project = parentProject ?: AccentApplicator.resolveFocusedProject()
                 val hex = AccentResolver.resolve(project, variant)
-                val applied = AccentApplicator.applyFromHexString(hex)
-                if (applied) {
-                    ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+                val outcome = AccentApplicator.applyFromHexString(hex)
+                if (outcome !is AccentApplyOutcome.Rejected) {
+                    ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
                 } else {
                     LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
                 }

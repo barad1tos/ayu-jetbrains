@@ -6,7 +6,9 @@ import com.intellij.openapi.actionSystem.Presentation
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.licensing.LicenseChecker
@@ -50,7 +52,11 @@ class RandomAccentActionTest {
         every { LicenseChecker.isLicensedOrGrace() } returns true
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
 
         mockkObject(ContrastAwareColorGenerator)
         every { ContrastAwareColorGenerator.generate(any()) } returns "#5CCFE6"
@@ -121,11 +127,13 @@ class RandomAccentActionTest {
         RandomAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { ContrastAwareColorGenerator.generate(AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
-        verify(exactly = 1) { mockSwap.notifyExternalApply("#5CCFE6") }
+        verify(exactly = 1) {
+            mockSwap.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#5CCFE6"))))
+        }
 
         // Pattern D rejection path — no swap publish
         clearMocks(mockSwap)
-        every { AccentApplicator.applyFromHexString(any()) } returns false
+        every { AccentApplicator.applyFromHexString(any()) } answers { AccentApplyOutcome.Rejected(firstArg()) }
         RandomAccentAction().actionPerformed(newEvent())
         verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
     }
