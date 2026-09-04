@@ -4,12 +4,15 @@ import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogPanel
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.ui.TitledSeparator
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
@@ -36,9 +39,12 @@ import java.io.File
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JEditorPane
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 
 /**
  * Locks in the [AyuIslandsAccentPanel.applyWithFallback] failure-recovery contract:
@@ -88,7 +94,8 @@ class AyuIslandsAccentPanelTest {
 
     @Test
     fun `applyWithFallback happy path delegates to applyForFocusedProject and skips fallback`() {
-        every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } returns "#ABCDEF"
+        every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#ABCDEF")))
 
         val panel = AyuIslandsAccentPanel()
         panel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66")
@@ -107,7 +114,11 @@ class AyuIslandsAccentPanelTest {
         // to prevent (next WINDOW_ACTIVATED would redundantly re-apply).
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
-        every { AccentApplicator.applyFromHexString("#FFCC66") } returns true
+        every { AccentApplicator.applyFromHexString("#FFCC66") } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
 
         val panel = AyuIslandsAccentPanel()
         LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
@@ -115,7 +126,9 @@ class AyuIslandsAccentPanelTest {
         }
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
+        verify(exactly = 1) {
+            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
+        }
     }
 
     @Test
@@ -149,8 +162,16 @@ class AyuIslandsAccentPanelTest {
         // save" dialog on a path where the user's intent was actually applied.
         every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
             IllegalStateException("override hex corrupted")
-        every { AccentApplicator.applyFromHexString("#FFCC66") } returns true
-        every { swapService.notifyExternalApply("#FFCC66") } throws
+        every { AccentApplicator.applyFromHexString("#FFCC66") } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
+        every {
+            swapService.notifyExternalApply(
+                AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))),
+            )
+        } throws
             IllegalStateException("swap service disposed mid-save")
 
         val expectedWarnSubstring = "swap-cache sync failed"
@@ -181,7 +202,9 @@ class AyuIslandsAccentPanelTest {
         }
 
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
+        verify(exactly = 1) {
+            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
+        }
         kotlin.test.assertEquals(
             1,
             capturedWarns.size,
@@ -346,7 +369,7 @@ class AyuIslandsAccentPanelTest {
             accentPanel.overrides.setPendingFallbackAccent("/tmp/locked", "#AABBCC")
             every { LicenseChecker.isLicensedOrGrace() } returns false
 
-            kotlin.test.assertFailsWith<IllegalStateException> { accentPanel.apply() }
+            assertFailsWith<IllegalStateException> { accentPanel.apply() }
 
             kotlin.test.assertEquals(storedAccent, state.mirageAccent)
             verify(exactly = 0) { settings.setAccentForVariant(any(), any()) }
@@ -484,5 +507,101 @@ class AyuIslandsAccentPanelTest {
             current = current.parent
         }
         return current === root && root.isVisible
+    }
+
+    @Test
+    fun `applyWithFallback propagates platform cancellation from focused apply`() {
+        val cancelled = ProcessCanceledException()
+        every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws cancelled
+        val accentPanel = AyuIslandsAccentPanel()
+
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            val thrown =
+                assertFailsWith<RuntimeException> { accentPanel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66") }
+            assertSame(cancelled, thrown)
+        }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        verify(exactly = 0) { swapService.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `applyWithFallback propagates platform cancellation from fallback apply`() {
+        val cancelled = ProcessCanceledException()
+        every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
+            IllegalStateException("invalid override")
+        every { AccentApplicator.applyFromHexString("#FFCC66") } throws cancelled
+        val accentPanel = AyuIslandsAccentPanel()
+
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            val thrown =
+                assertFailsWith<RuntimeException> { accentPanel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66") }
+            assertSame(cancelled, thrown)
+        }
+        verify(exactly = 0) { swapService.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `applyWithFallback propagates platform cancellation from cache sync`() {
+        val cancelled = ProcessCanceledException()
+        every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
+            IllegalStateException("invalid override")
+        every { AccentApplicator.applyFromHexString("#FFCC66") } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
+        every { swapService.notifyExternalApply(any()) } throws cancelled
+        val accentPanel = AyuIslandsAccentPanel()
+
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            val thrown =
+                assertFailsWith<RuntimeException> { accentPanel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66") }
+            assertSame(cancelled, thrown)
+        }
+    }
+
+    @Test
+    fun `applyWithFallback propagates coroutine cancellation from focused apply`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws cancelled
+        val accentPanel = AyuIslandsAccentPanel()
+
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            val thrown =
+                assertFailsWith<RuntimeException> { accentPanel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66") }
+            assertSame(cancelled, thrown)
+        }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+        verify(exactly = 0) { swapService.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `applyWithFallback propagates coroutine cancellation from fallback apply`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
+            IllegalStateException("invalid override")
+        every { AccentApplicator.applyFromHexString("#FFCC66") } throws cancelled
+        val accentPanel = AyuIslandsAccentPanel()
+
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            val thrown =
+                assertFailsWith<RuntimeException> { accentPanel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66") }
+            assertSame(cancelled, thrown)
+        }
+        verify(exactly = 0) { swapService.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `applyWithFallback propagates coroutine cancellation from cache sync`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE) } throws
+            IllegalStateException("invalid override")
+        every { AccentApplicator.applyFromHexString("#FFCC66") } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
+        every { swapService.notifyExternalApply(any()) } throws cancelled
+        val accentPanel = AyuIslandsAccentPanel()
+
+        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors()) {
+            val thrown =
+                assertFailsWith<RuntimeException> { accentPanel.applyWithFallback(AyuVariant.MIRAGE, "#FFCC66") }
+            assertSame(cancelled, thrown)
+        }
     }
 }

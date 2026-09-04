@@ -111,14 +111,44 @@ internal data class AccentApplyStepFailure(
  * flag itself remains the cross-restart torn-state marker.
  */
 internal sealed interface AccentApplyOutcome {
+    /** Invalid input; no application was attempted. */
+    data class Rejected(
+        val rawHex: String,
+    ) : AccentApplyOutcome
+
+    val isClean: Boolean
+        get() = this is Applied
+
+    val visualsApplied: Boolean
+        get() =
+            when (this) {
+                is Applied -> true
+                is Rejected -> false
+                is Torn -> failures.all { it.step == AccentApplyStep.PublishAccentChanged }
+            }
+
+    /** Escalate inside an existing orchestration failure boundary, retaining all causes. */
+    fun requireClean() {
+        when (this) {
+            is Applied -> Unit
+            is Rejected -> throw IllegalArgumentException("Accent rejected: $rawHex")
+            is Torn -> {
+                val failure =
+                    IllegalStateException("Accent apply failed for ${accentHex.value}", failures.first().error)
+                failures.drop(1).forEach { failure.addSuppressed(it.error) }
+                throw failure
+            }
+        }
+    }
+
     /** Every step of the plan completed. */
     data class Applied(
         val accentHex: AccentHex,
     ) : AccentApplyOutcome
 
     /**
-     * A step threw; later steps (if any) were skipped. The persisted clean
-     * flag is false unless the sole failure was the final
+     * A step or contained operation failed; independent work may have continued.
+     * The persisted clean flag is false unless all failures belong to
      * [AccentApplyStep.PublishAccentChanged], which runs after
      * [AccentApplyStep.MarkApplyClean] already flipped it true.
      */
@@ -135,7 +165,7 @@ internal sealed interface AccentApplyOutcome {
         fun of(
             accentHex: AccentHex,
             failures: List<AccentApplyStepFailure>,
-        ): AccentApplyOutcome = if (failures.isEmpty()) Applied(accentHex) else Torn(accentHex, failures)
+        ): AccentApplyOutcome = if (failures.isEmpty()) Applied(accentHex) else Torn(accentHex, failures.toList())
     }
 }
 

@@ -9,6 +9,8 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.rotation.AccentRotationService
@@ -16,7 +18,6 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.just
-import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -26,6 +27,7 @@ import io.mockk.verify
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -67,9 +69,8 @@ class TrialLifecycleIntegrationTest {
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
-        // Stubbed applies report success, so the persisted clean flag must read
-        // clean too — ThemeReapplication's tear-escalation check consults it.
-        state.lastApplyOk = true
+        mockkStatic(SwingUtilities::class)
+        every { SwingUtilities.isEventDispatchThread() } returns true
         settings = mockk()
         every { settings.state } returns state
         every { settings.getAccentForVariant(any()) } returns "#FFCC66"
@@ -98,7 +99,8 @@ class TrialLifecycleIntegrationTest {
         System.clearProperty("ayu.islands.dev")
 
         mockkObject(AccentApplicator)
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs

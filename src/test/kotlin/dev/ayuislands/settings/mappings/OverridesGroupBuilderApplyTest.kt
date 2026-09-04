@@ -7,6 +7,8 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DefaultActionGroup
 import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.actionSystem.ex.ActionManagerEx
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -14,6 +16,8 @@ import com.intellij.ui.CommonActionsPanel
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.table.JBTable
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
@@ -84,7 +88,11 @@ class OverridesGroupBuilderApplyTest {
     @Test
     fun `apply persists complete pending state before resolver applicator and swap`() {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        every { AccentApplicator.applyFromHexString("#AABBCC") } returns true
+        every { AccentApplicator.applyFromHexString("#AABBCC") } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
         val project = mockk<Project>(relaxed = true)
@@ -126,12 +134,12 @@ class OverridesGroupBuilderApplyTest {
             verify(exactly = 1) {
                 AccentResolver.resolve(project, AyuVariant.MIRAGE)
                 AccentApplicator.applyFromHexString("#AABBCC")
-                swapService.notifyExternalApply("#AABBCC")
+                swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC"))))
             }
             verifyOrder {
                 AccentResolver.resolve(project, AyuVariant.MIRAGE)
                 AccentApplicator.applyFromHexString("#AABBCC")
-                swapService.notifyExternalApply("#AABBCC")
+                swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC"))))
             }
         } finally {
             builder.dispose()
@@ -197,9 +205,9 @@ class OverridesGroupBuilderApplyTest {
                     val presentation = Presentation()
                     val event = mockk<AnActionEvent>(relaxed = true)
                     every { event.presentation } returns presentation
-                    action.update(event)
+                    updateInTest(action, event)
                     assertFalse(presentation.isEnabled, "$button must disable after license loss")
-                    action.actionPerformed(event)
+                    action.performInTest(event)
                 }
             }
             assertEquals(listOf(projectMapping), draft.projectMappings)
@@ -232,7 +240,7 @@ class OverridesGroupBuilderApplyTest {
             var changeCount = 0
             builder.addPendingChangeListener { changeCount += 1 }
 
-            actionGroups.tableAction(isProject = true, text = "Remove").actionPerformed(mockk(relaxed = true))
+            actionGroups.tableAction(isProject = true, text = "Remove").performInTest(mockk(relaxed = true))
 
             assertTrue(draft.projectMappings.isEmpty())
             assertEquals(1, draft.languageMappings.size)
@@ -265,7 +273,7 @@ class OverridesGroupBuilderApplyTest {
             var changeCount = 0
             builder.addPendingChangeListener { changeCount += 1 }
 
-            actionGroups.tableAction(isProject = false, text = "Remove").actionPerformed(mockk(relaxed = true))
+            actionGroups.tableAction(isProject = false, text = "Remove").performInTest(mockk(relaxed = true))
 
             assertEquals(1, draft.projectMappings.size)
             assertEquals(projectMapping.canonicalPath, draft.projectMappings.single().canonicalPath)
@@ -309,7 +317,7 @@ class OverridesGroupBuilderApplyTest {
         actions.decorateLanguageTable()
 
         SwingUtilities.invokeAndWait {
-            actionGroups.tableAction(isProject = true, text = "Add").actionPerformed(mockk(relaxed = true))
+            actionGroups.tableAction(isProject = true, text = "Add").performInTest(mockk(relaxed = true))
         }
         assertEquals(
             listOf(ProjectMapping("/tmp/added-project", "Added project", "#AABBCC")),
@@ -318,7 +326,7 @@ class OverridesGroupBuilderApplyTest {
         assertTrue(draft.languageMappings.isEmpty())
 
         SwingUtilities.invokeAndWait {
-            actionGroups.tableAction(isProject = false, text = "Add").actionPerformed(mockk(relaxed = true))
+            actionGroups.tableAction(isProject = false, text = "Add").performInTest(mockk(relaxed = true))
         }
         assertEquals(listOf(LanguageMapping("kotlin", "Kotlin", "#112233")), draft.languageMappings)
     }
@@ -362,13 +370,13 @@ class OverridesGroupBuilderApplyTest {
         actions.decorateLanguageTable()
 
         SwingUtilities.invokeAndWait {
-            actionGroups.tableAction(isProject = true, text = "Edit Color").actionPerformed(mockk(relaxed = true))
+            actionGroups.tableAction(isProject = true, text = "Edit Color").performInTest(mockk(relaxed = true))
         }
         assertEquals("#334455", draft.projectMappings.single().hex)
         assertEquals("#112233", draft.languageMappings.single().hex)
 
         SwingUtilities.invokeAndWait {
-            actionGroups.tableAction(isProject = false, text = "Edit Color").actionPerformed(mockk(relaxed = true))
+            actionGroups.tableAction(isProject = false, text = "Edit Color").performInTest(mockk(relaxed = true))
         }
         assertEquals("#667788", draft.languageMappings.single().hex)
     }
@@ -399,14 +407,14 @@ class OverridesGroupBuilderApplyTest {
             val event = mockk<AnActionEvent>(relaxed = true)
             every { event.presentation } returns presentation
 
-            pinAction.update(event)
+            updateInTest(pinAction, event)
             assertTrue(presentation.isEnabled)
 
             every { LicenseChecker.isLicensedOrGrace() } returns false
-            pinAction.update(event)
+            updateInTest(pinAction, event)
             assertFalse(presentation.isEnabled)
 
-            pinAction.actionPerformed(event)
+            pinAction.performInTest(event)
             assertTrue(draft.projectMappings.isEmpty())
         } finally {
             builder.dispose()
@@ -446,13 +454,13 @@ class OverridesGroupBuilderApplyTest {
                     hex = "#5CCFE6",
                 )
 
-            pinAction.actionPerformed(event)
+            pinAction.performInTest(event)
 
             assertEquals(listOf(expectedMapping), draft.projectMappings)
-            pinAction.update(event)
+            updateInTest(pinAction, event)
             assertFalse(presentation.isEnabled)
 
-            pinAction.actionPerformed(event)
+            pinAction.performInTest(event)
             assertEquals(listOf(expectedMapping), draft.projectMappings)
         } finally {
             builder.dispose()
@@ -469,7 +477,11 @@ class OverridesGroupBuilderApplyTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { AccentApplicator.resolveFocusedProject() } returns focusedProject
         every { AccentResolver.resolve(focusedProject, AyuVariant.MIRAGE) } returns "#5CCFE6"
-        every { AccentApplicator.applyFromHexString("#5CCFE6") } returns true
+        every { AccentApplicator.applyFromHexString("#5CCFE6") } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         val swapService = mockk<ProjectAccentSwapService>(relaxed = true)
         every { ProjectAccentSwapService.getInstance() } returns swapService
         val state = AccentMappingsState()
@@ -487,6 +499,23 @@ class OverridesGroupBuilderApplyTest {
         } finally {
             builder.dispose()
         }
+    }
+
+    private fun AnAction.performInTest(event: AnActionEvent) {
+        val actionManager = mockk<ActionManagerEx>(relaxed = true)
+        every { event.actionManager } returns actionManager
+        every { actionManager.performWithActionCallbacks(any(), any(), any()) } answers {
+            thirdArg<Runnable>().run()
+        }
+        ActionUtil.performActionDumbAwareWithCallbacks(this, event)
+    }
+
+    private fun updateInTest(
+        action: AnAction,
+        event: AnActionEvent,
+    ) {
+        every { event.project } returns null
+        ActionUtil.performDumbAwareUpdate(action, event, false)
     }
 
     private fun buildGroup(

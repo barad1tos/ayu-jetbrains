@@ -5,8 +5,11 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.isAccentCancellation
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -43,6 +46,7 @@ class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to
             try {
                 AccentResolver.resolve(project, variant)
             } catch (exception: RuntimeException) {
+                exception.rethrowIfCancelled()
                 LOG.warn("Pin: resolve failed", exception)
                 return
             }
@@ -54,15 +58,25 @@ class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to
         // Follow-up: split shared vs personal pin lanes — write to .idea/
         // for shared pins, app-level state for personal. Today everything
         // goes through the app-level map below (FOLLOWUP-PIN-LANE-SPLIT).
-        AccentMappingsSettings.getInstance().state.projectAccents[key] = hex
+        val pins = AccentMappingsSettings.getInstance().state.projectAccents
+        val previousPin = pins[key]
+        pins[key] = hex
         try {
-            val applied = AccentApplicator.applyFromHexString(hex)
-            if (applied) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            val outcome = AccentApplicator.applyFromHexString(hex)
+            if (outcome !is AccentApplyOutcome.Rejected) {
+                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
             } else {
                 LOG.warn("Pin: applyFromHexString rejected hex=$hex")
             }
         } catch (exception: RuntimeException) {
+            if (exception.isAccentCancellation()) {
+                if (previousPin == null) {
+                    pins.remove(key)
+                } else {
+                    pins[key] = previousPin
+                }
+                throw exception
+            }
             LOG.warn("Pin: apply failed hex=$hex", exception)
         }
     }

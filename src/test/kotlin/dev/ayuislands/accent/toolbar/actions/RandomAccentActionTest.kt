@@ -1,12 +1,18 @@
 package dev.ayuislands.accent.toolbar.actions
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.actionSystem.ex.ActionManagerEx
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProcessCanceledException
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.licensing.LicenseChecker
@@ -21,11 +27,14 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -50,7 +59,11 @@ class RandomAccentActionTest {
         every { LicenseChecker.isLicensedOrGrace() } returns true
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
 
         mockkObject(ContrastAwareColorGenerator)
         every { ContrastAwareColorGenerator.generate(any()) } returns "#5CCFE6"
@@ -121,11 +134,13 @@ class RandomAccentActionTest {
         RandomAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { ContrastAwareColorGenerator.generate(AyuVariant.MIRAGE) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#5CCFE6") }
-        verify(exactly = 1) { mockSwap.notifyExternalApply("#5CCFE6") }
+        verify(exactly = 1) {
+            mockSwap.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#5CCFE6"))))
+        }
 
         // Pattern D rejection path — no swap publish
         clearMocks(mockSwap)
-        every { AccentApplicator.applyFromHexString(any()) } returns false
+        every { AccentApplicator.applyFromHexString(any()) } answers { AccentApplyOutcome.Rejected(firstArg()) }
         RandomAccentAction().actionPerformed(newEvent())
         verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
     }
@@ -163,5 +178,78 @@ class RandomAccentActionTest {
         RandomAccentAction().actionPerformed(newEvent())
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
         verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates platform cancellation from generate`() {
+        val cancelled = ProcessCanceledException()
+        every { ContrastAwareColorGenerator.generate(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { RandomAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates platform cancellation from apply`() {
+        val cancelled = ProcessCanceledException()
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { RandomAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates platform cancellation from cache sync`() {
+        val cancelled = ProcessCanceledException()
+        every { mockSwap.notifyExternalApply(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { RandomAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+    }
+
+    @Test
+    fun `action propagates coroutine cancellation from generate`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { ContrastAwareColorGenerator.generate(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { RandomAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates coroutine cancellation from apply`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { RandomAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates coroutine cancellation from cache sync`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { mockSwap.notifyExternalApply(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { RandomAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+    }
+
+    private fun AnAction.performInTest(event: AnActionEvent) {
+        val actionManager = mockk<ActionManagerEx>(relaxed = true)
+        every { event.actionManager } returns actionManager
+        every { actionManager.performWithActionCallbacks(any(), any(), any()) } answers {
+            thirdArg<Runnable>().run()
+        }
+        ActionUtil.performActionDumbAwareWithCallbacks(this, event)
     }
 }

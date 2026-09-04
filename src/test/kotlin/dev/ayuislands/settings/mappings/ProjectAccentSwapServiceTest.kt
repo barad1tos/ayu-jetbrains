@@ -3,12 +3,17 @@ package dev.ayuislands.settings.mappings
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentApplyStep
+import dev.ayuislands.accent.AccentApplyStepFailure
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.indent.IndentRainbowSync
@@ -33,10 +38,12 @@ import java.awt.event.WindowEvent
 import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -63,8 +70,7 @@ class ProjectAccentSwapServiceTest {
         // Default: IR integration enabled. The disabled-IR test flips this to
         // assert the gate skips `IR.apply` on the same-hex branch.
         state.irIntegrationEnabled = true
-        // Default: previous apply completed cleanly, so notifyExternalApply's
-        // torn-apply gate lets cache writes through. The gate tests flip this.
+        // Restart metadata is independent of each invocation's cache outcome.
         state.lastApplyOk = true
 
         mockkObject(AyuIslandsSettings.Companion)
@@ -81,7 +87,11 @@ class ProjectAccentSwapServiceTest {
         // cleanly; per-test verifies still scope the assertion to whichever
         // case is under test.
         mockkObject(IndentRainbowSync)
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any()) } just Runs
         every { AccentApplicator.syncCodeGlanceProViewportForSwap(any(), any()) } just Runs
         every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
@@ -152,6 +162,37 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
+    fun `window activation propagates cancellation without reporting failure`() {
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+        val capturedErrors = mutableListOf<Throwable?>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processError(
+                    category: String,
+                    message: String,
+                    details: Array<out String>,
+                    throwable: Throwable?,
+                ): Set<Action> {
+                    capturedErrors += throwable
+                    return java.util.EnumSet.noneOf(Action::class.java)
+                }
+            }
+
+        for (cancellation in listOf(ProcessCanceledException(), CancellationException("cancelled"))) {
+            every { AccentApplicator.applyFromHexString(any()) } throws cancellation
+            LoggedErrorProcessor.executeWith<Throwable>(processor) {
+                assertSame(
+                    cancellation,
+                    assertFailsWith<RuntimeException> { service.onWindowActivatedForTest(makeEvent(window)) },
+                )
+            }
+        }
+        assertTrue(capturedErrors.isEmpty(), "Cancellation must not be logged as an application failure")
+    }
+
+    @Test
     fun `onWindowActivated short-circuits when no project frame matches the activated window`() {
         // findProjectForWindow returns null (no matching frame in WindowManager). The handler
         // must early-exit without calling AccentResolver.resolve or AccentApplicator.apply —
@@ -212,7 +253,7 @@ class ProjectAccentSwapServiceTest {
         every { AccentResolver.resolve(project, AccentContext.External) } returns "#AABBCC"
         val service = ProjectAccentSwapService()
 
-        service.notifyExternalApply("#AABBCC")
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC"))))
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 1) { AccentResolver.resolve(project, AccentContext.External) }
@@ -291,7 +332,7 @@ class ProjectAccentSwapServiceTest {
 
         // Rotation tick path: external apply pushed a DIFFERENT color into UIManager
         // (because the tick resolved for a different focused project) and synced the cache.
-        service.notifyExternalApply("#DFBFFF")
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#DFBFFF"))))
 
         // Alt-tab back to the original project. Resolver still returns the override color;
         // cache-hex is lavender; the handler must notice the drift and re-apply cyan.
@@ -455,7 +496,7 @@ class ProjectAccentSwapServiceTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
 
-        service.notifyExternalApply("#FFCC66") // priming write
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
         service.onWindowActivatedForTest(makeEvent(window))
 
         // resolve was called (project changed from null to projectA) but apply was skipped
@@ -465,31 +506,83 @@ class ProjectAccentSwapServiceTest {
     }
 
     @Test
-    fun `notifyExternalApply refuses to prime the cache after a torn apply`() {
-        // Pattern D, torn half: a mid-step throw leaves lastApplyOk=false, meaning
-        // the hex was never fully painted. Priming the cache anyway would make the
-        // next same-hex WINDOW_ACTIVATED skip the re-apply that self-heals the
-        // tear — so the write must be gated on the clean flag.
+    fun `current torn outcome cannot inherit a stale clean flag`() {
+        state.lastApplyOk = true
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+        val outcome =
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of("#FFCC66")),
+                listOf(
+                    AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("element")),
+                ),
+            )
+
+        service.notifyExternalApply(outcome)
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
+    }
+
+    @Test
+    fun `visual tear forces full apply when returning to the previous accent`() {
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returnsMany
+            listOf("#FFCC66", "#DFBFFF", "#FFCC66")
+        every { AccentApplicator.applyFromHexString("#DFBFFF") } returns
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of("#DFBFFF")),
+                listOf(AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("partial paint"))),
+            )
+        val service = ProjectAccentSwapService()
+
+        repeat(3) { service.onWindowActivatedForTest(makeEvent(window)) }
+
+        verify(exactly = 2) { AccentApplicator.applyFromHexString("#FFCC66") }
+        verify(exactly = 1) { AccentApplicator.applyFromHexString("#DFBFFF") }
+        verify(exactly = 3) { ComponentTreeRefresher.walkAndNotify(project, window) }
+    }
+
+    @Test
+    fun `rejected input preserves the previous visual cache`() {
+        val (window, project) = wireMatchingFrame()
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        val service = ProjectAccentSwapService()
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
+
+        service.notifyExternalApply(AccentApplyOutcome.Rejected("invalid"))
+        service.onWindowActivatedForTest(makeEvent(window))
+
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
+    }
+
+    @Test
+    fun `completed outcome primes cache despite a stale torn flag`() {
         state.lastApplyOk = false
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
 
-        service.notifyExternalApply("#FFCC66") // gated: must NOT prime the cache
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
         service.onWindowActivatedForTest(makeEvent(window))
 
-        // The swap re-applies (self-heal) because the torn hex never entered the cache.
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
+        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
     }
 
     @Test
     fun `focus-swap apply does not prime the cache when the apply tears`() {
-        // The internal write site must route through the same torn-apply gate:
-        // applyFromHexString returning true only proves the hex shape was valid.
-        // If the plan tore (lastApplyOk=false), priming the cache would freeze
-        // the tear behind the same-hex branch; the swap path must keep retrying
-        // on every activation instead — pre-plan behavior.
-        state.lastApplyOk = false
+        // A visual Torn outcome must keep retrying on every activation even
+        // when persisted restart metadata still claims an earlier clean apply.
+        state.lastApplyOk = true
+        every { AccentApplicator.applyFromHexString(any()) } answers {
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of(firstArg<String>())),
+                listOf(
+                    AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("paint")),
+                ),
+            )
+        }
         val (window, project) = wireMatchingFrame()
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
@@ -509,7 +602,7 @@ class ProjectAccentSwapServiceTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         val service = ProjectAccentSwapService()
 
-        service.notifyExternalApply("#FFCC66")
+        service.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
         service.onWindowActivatedForTest(makeEvent(window))
 
         verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }

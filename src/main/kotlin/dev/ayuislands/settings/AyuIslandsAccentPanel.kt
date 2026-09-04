@@ -11,9 +11,11 @@ import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.selected
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.SystemAccentProvider
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.AccentRotationService
@@ -250,9 +252,9 @@ class AyuIslandsAccentPanel : SettingsParticipant {
     private fun applyRotationRespectingOverrides(currentVariant: AyuVariant) {
         val focusedProject = AccentApplicator.resolveFocusedProject()
         val resolvedHex = AccentResolver.resolve(focusedProject, currentVariant)
-        val applied = AccentApplicator.applyFromHexString(resolvedHex)
-        if (applied) {
-            ProjectAccentSwapService.getInstance().notifyExternalApply(resolvedHex)
+        val outcome = AccentApplicator.applyFromHexString(resolvedHex)
+        if (outcome !is AccentApplyOutcome.Rejected) {
+            ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
         } else {
             LOG.warn("Skipping swap publish: applyFromHexString rejected '$resolvedHex'")
         }
@@ -665,6 +667,7 @@ class AyuIslandsAccentPanel : SettingsParticipant {
             AccentApplicator.applyForFocusedProject(currentVariant)
             return
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.error(
                 "Failed to apply resolved accent for focused project " +
                     "(variant=$currentVariant, fallbackHex=$effectiveAccent); falling back to global",
@@ -677,10 +680,11 @@ class AyuIslandsAccentPanel : SettingsParticipant {
         // `notifyExternalApply` after a successful `apply` means the accent DID change and
         // only the swap cache is stale. Log them separately so triage doesn't get an "also
         // failed" breadcrumb on a path where apply actually worked.
-        val fallbackApplied =
+        val fallbackOutcome =
             try {
                 AccentApplicator.applyFromHexString(effectiveAccent)
             } catch (exception: RuntimeException) {
+                exception.rethrowIfCancelled()
                 LOG.error(
                     "Global accent fallback also failed (variant=$currentVariant, hex=$effectiveAccent); " +
                         "Settings panel leaving visible accent unchanged",
@@ -688,7 +692,7 @@ class AyuIslandsAccentPanel : SettingsParticipant {
                 )
                 return
             }
-        if (!fallbackApplied) {
+        if (fallbackOutcome is AccentApplyOutcome.Rejected) {
             LOG.warn(
                 "Global accent fallback rejected by applyFromHexString " +
                     "(variant=$currentVariant, hex='$effectiveAccent'); skipping swap publish",
@@ -696,8 +700,9 @@ class AyuIslandsAccentPanel : SettingsParticipant {
             return
         }
         try {
-            ProjectAccentSwapService.getInstance().notifyExternalApply(effectiveAccent)
+            ProjectAccentSwapService.getInstance().notifyExternalApply(fallbackOutcome)
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.warn(
                 "Global accent applied but swap-cache sync failed " +
                     "(variant=$currentVariant, hex=$effectiveAccent); " +

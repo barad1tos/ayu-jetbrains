@@ -217,6 +217,15 @@ class AccentChangedPublishTest {
             error("boom subscriber")
         }
 
+        val otherProject =
+            mockk<Project> {
+                every { isDefault } returns false
+                every { isDisposed } returns false
+                every { name } returns "other-project"
+            }
+        every { mockProjectManager.openProjects } returns arrayOf(project, otherProject)
+        every { AccentResolver.source(otherProject) } returns AccentResolver.Source.GLOBAL
+
         val capturedWarns = mutableListOf<String>()
         val processor =
             object : LoggedErrorProcessor() {
@@ -225,16 +234,24 @@ class AccentChangedPublishTest {
                     message: String,
                     throwable: Throwable?,
                 ): Boolean {
-                    if (!message.contains("AccentChangedTopic publish failed")) return true
+                    if (!message.contains("Accent apply torn at PublishAccentChanged")) return true
                     capturedWarns += message
                     return false
                 }
             }
 
         LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            AccentApplicator.apply(AccentHex.of("#DFBFFF")!!)
+            val outcome =
+                kotlin.test.assertIs<AccentApplyOutcome.Torn>(
+                    AccentApplicator.apply(requireNotNull(AccentHex.of("#DFBFFF"))),
+                )
+            assertTrue(outcome.visualsApplied)
+            kotlin.test.assertEquals(AccentApplyStep.PublishAccentChanged, outcome.failures.single().step)
         }
 
+        verify(exactly = 1) {
+            listener.accentChanged(otherProject, requireNotNull(AccentHex.of("#DFBFFF")), AccentResolver.Source.GLOBAL)
+        }
         assertTrue(
             state.lastApplyOk,
             "state.lastApplyOk must remain true — the throw is contained by the per-project try/catch",
@@ -244,8 +261,24 @@ class AccentChangedPublishTest {
             "AccentChanged publish must run on EDT (Pattern C) — captured EDT flags: $onEdtCapture",
         )
         assertTrue(
-            capturedWarns.any { it.contains("AccentChangedTopic publish failed") },
+            capturedWarns.any { it.contains("Accent apply torn at PublishAccentChanged") },
             "Pattern B: subscriber exception must surface as WARN with the topic-failed marker; got: $capturedWarns",
         )
+    }
+
+    @Test
+    fun `publication cancellation escapes unchanged`() {
+        val cancelled =
+            com.intellij.openapi.progress
+                .ProcessCanceledException()
+        every { listener.accentChanged(project, any(), any()) } throws cancelled
+
+        kotlin.test.assertSame(
+            cancelled,
+            kotlin.test.assertFailsWith<com.intellij.openapi.progress.ProcessCanceledException> {
+                AccentApplicator.apply(requireNotNull(AccentHex.of("#DFBFFF")))
+            },
+        )
+        assertTrue(state.lastApplyOk)
     }
 }

@@ -79,9 +79,9 @@ internal class ScanCompletionAccentRefresher(
             }
             val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
             val hex = AccentResolver.resolve(project, variant)
-            val applied = AccentApplicator.applyFromHexString(hex)
-            if (applied) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+            val outcome = AccentApplicator.applyFromHexString(hex)
+            if (outcome !is AccentApplyOutcome.Rejected) {
+                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
             } else {
                 LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
             }

@@ -7,11 +7,14 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -98,10 +101,12 @@ class ProjectAccentSwapService : Disposable {
         // dispatcher. AWT does not remove failing listeners, so the listener would keep firing
         // — but each failure would dump a generic uncaught-exception trace into idea.log (SEVERE
         // in some IDE builds, which triggers a user-visible error balloon) with no project /
-        // hex context. The catch here converts that into an actionable LOG.error.
+        // hex context. Ordinary failures become actionable LOG.error entries;
+        // platform and coroutine cancellation still propagate to the caller.
         try {
             handleWindowActivated(event)
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.error("Project accent swap failed on window activation", exception)
         }
     }
@@ -151,22 +156,12 @@ class ProjectAccentSwapService : Disposable {
     }
 
     private fun applyChangedHex(hex: String): Boolean {
-        // Different hex from last apply: re-run the full apply path. UIManager
-        // writes, EP elements, editor keys, AND integrations are all refreshed
-        // through AccentApplicator.applyFromHexString -> apply.
-        val applied = AccentApplicator.applyFromHexString(hex)
-        if (!applied) {
+        val outcome = AccentApplicator.applyFromHexString(hex)
+        if (outcome is AccentApplyOutcome.Rejected) {
             LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
             return false
         }
-        // Route the cache write through the torn-apply gate rather than
-        // assigning lastAppliedHex directly: `applied == true` only proves the
-        // hex shape was valid, not that the plan painted cleanly. Priming the
-        // torn hex here would make every subsequent same-hex activation take
-        // the cheap same-hex branch and freeze the tear; the gated skip keeps
-        // this activation path retrying (WARN per attempt) — the same
-        // retry-per-activation behavior the pre-plan code had.
-        notifyExternalApply(hex)
+        notifyExternalApply(outcome)
         return true
     }
 
@@ -234,23 +229,20 @@ class ProjectAccentSwapService : Disposable {
         }
     }
 
-    /**
-     * Record [hex] as the last painted accent after an apply — external callers
-     * (settings panel, rotation, startup activity) and this service's own
-     * focus-swap apply both route through here so the cache matches the current
-     * UIManager state and we don't skip the next real swap.
-     *
-     * Gated on [AyuIslandsState.lastApplyOk]: a torn apply never fully painted [hex],
-     * so recording it would make the next same-hex WINDOW_ACTIVATED skip the re-apply
-     * that would have self-healed the tear. Callers already sit right after their own
-     * apply call on the EDT (apply is EDT-synchronous), so the flag reflects THAT apply.
-     */
-    fun notifyExternalApply(hex: String) {
-        if (!AyuIslandsSettings.getInstance().state.lastApplyOk) {
-            LOG.warn("Swap cache not updated for '$hex': the last accent apply did not complete cleanly")
+    /** Cache completed visuals; a partial visual apply invalidates the previously cached accent. */
+    @RequiresEdt
+    internal fun notifyExternalApply(outcome: AccentApplyOutcome) {
+        if (!outcome.visualsApplied) {
+            if (outcome is AccentApplyOutcome.Torn) lastAppliedHex = null
+            LOG.warn("Accent visuals did not complete; swap cache is '$lastAppliedHex' ($outcome)")
             return
         }
-        lastAppliedHex = hex
+        lastAppliedHex =
+            when (outcome) {
+                is AccentApplyOutcome.Applied -> outcome.accentHex.value
+                is AccentApplyOutcome.Torn -> outcome.accentHex.value
+                is AccentApplyOutcome.Rejected -> return
+            }
     }
 
     private fun findProjectForWindow(window: Window): Project? {

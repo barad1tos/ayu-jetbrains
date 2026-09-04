@@ -6,7 +6,9 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.io.FileUtil
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
@@ -24,7 +26,7 @@ import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
-import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 
 /**
  * Verifies that [AyuIslandsLafListener.lookAndFeelChanged] invokes
@@ -76,8 +78,10 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
         mockkObject(AppearanceSyncService.Companion)
         mockkObject(SyntaxIntensityService.Companion)
 
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFCC66"
-        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
+        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
         every { AccentApplicator.revertAll() } returns Unit
         every { FontPresetApplicator.applyFromState() } returns Unit
         every { FontPresetApplicator.revert() } returns Unit
@@ -142,8 +146,9 @@ class AyuIslandsLafListenerSyntaxReapplyTest {
                 RegexOption.IGNORE_CASE,
             )
         val matches = regex.findAll(xmlText).count()
-        assertTrue(
-            matches == 1,
+        assertEquals(
+            1,
+            matches,
             "Expected EXACTLY ONE `AyuIslandsLafListener` registration, got $matches " +
                 "— the syntax intensity wiring must extend the existing listener, not duplicate it.",
         )
