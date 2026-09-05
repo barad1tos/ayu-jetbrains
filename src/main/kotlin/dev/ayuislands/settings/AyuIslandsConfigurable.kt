@@ -52,7 +52,8 @@ internal fun SettingsApplyResult.Failed.toConfigurationException(): Configuratio
             " Skipped: ${skipped.joinToString()}."
         }
     val message =
-        "Failed to apply $failed settings.$causeSuffix$skippedSuffix " +
+        "Failed to apply $failed settings.$causeSuffix Attempted: ${attempted.joinToString()}.$skippedSuffix " +
+            "Some changes may already be saved. Cancel or closing Settings will not undo saved changes. " +
             "Review the IDE log and retry Apply."
     return ConfigurationException(message).also {
         it.initCause(cause)

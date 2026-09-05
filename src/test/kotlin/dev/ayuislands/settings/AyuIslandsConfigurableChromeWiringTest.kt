@@ -22,6 +22,7 @@ class AyuIslandsConfigurableChromeWiringTest {
         val failure =
             SettingsApplyResult.Failed(
                 failed = "Accent",
+                attempted = listOf("System", "Accent"),
                 skipped = listOf("Chrome", "Elements"),
                 cause = cause,
             )
@@ -30,7 +31,9 @@ class AyuIslandsConfigurableChromeWiringTest {
 
         assertEquals(
             "Failed to apply Accent settings. Cause: accent failed. " +
-                "Skipped: Chrome, Elements. Review the IDE log and retry Apply.",
+                "Attempted: System, Accent. " +
+                "Skipped: Chrome, Elements. Some changes may already be saved. " +
+                "Cancel or closing Settings will not undo saved changes. Review the IDE log and retry Apply.",
             exception.localizedMessage,
         )
         assertSame(cause, exception.cause)

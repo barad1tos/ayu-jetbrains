@@ -19,6 +19,8 @@ internal sealed interface SettingsApplyResult {
 
     data class Failed(
         val failed: String,
+        /** Includes the failing section; an attempt does not prove its changes were saved. */
+        val attempted: List<String>,
         val skipped: List<String>,
         val cause: Throwable,
     ) : SettingsApplyResult
@@ -96,6 +98,7 @@ internal class SettingsSession(
             if (failure != null) {
                 return SettingsApplyResult.Failed(
                     failed = entry.name,
+                    attempted = participants.take(index + 1).map { it.name },
                     skipped = participants.drop(index + 1).map { it.name },
                     cause = failure,
                 )

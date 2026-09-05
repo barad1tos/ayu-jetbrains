@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.openapi.progress.ProcessCanceledException
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
@@ -132,6 +133,7 @@ class SettingsSessionTest {
         assertEquals(listOf("apply:First", "apply:Accent"), calls)
         assertEquals(0, refreshCount)
         assertFalse(session.isClosed)
+        assertContains(failed.toConfigurationException().localizedMessage.orEmpty(), "Attempted: First, Accent.")
 
         accent.applyFailure = null
         assertEquals(SettingsApplyResult.Applied, session.apply())
@@ -140,6 +142,86 @@ class SettingsSessionTest {
             listOf("apply:First", "apply:Accent", "apply:First", "apply:Accent", "apply:Chrome"),
             calls,
         )
+    }
+
+    @Test
+    fun `cancel after partial apply preserves saved values when reopening`() {
+        val persisted = linkedMapOf("First" to false, "Second" to false, "Third" to false, "Unavailable" to true)
+        val first = PersistedParticipant("First", persisted)
+        val second = PersistedParticipant("Second", persisted)
+        val third = PersistedParticipant("Third", persisted)
+        val session = persistedSession(first, second, third)
+        listOf(first, second, third).forEach { it.section.update { true } }
+        second.afterWrite = { error("runtime failed after saving") }
+
+        val failed = assertIs<SettingsApplyResult.Failed>(session.apply())
+
+        assertEquals("Second", failed.failed)
+        assertEquals(listOf("Third"), failed.skipped)
+        assertTrue(session.isModified())
+        assertTrue(third.section.pending)
+        assertEquals(emptyList(), session.cancel())
+        session.close()
+
+        assertEquals(
+            linkedMapOf("First" to true, "Second" to true, "Third" to false, "Unavailable" to true),
+            persisted,
+        )
+        val reopenedFirst = PersistedParticipant("First", persisted)
+        val reopenedSecond = PersistedParticipant("Second", persisted)
+        val reopenedThird = PersistedParticipant("Third", persisted)
+        val reopened = persistedSession(reopenedFirst, reopenedSecond, reopenedThird)
+        assertFalse(reopened.isModified())
+        assertTrue(reopenedFirst.section.pending)
+        assertTrue(reopenedSecond.section.pending)
+        assertFalse(reopenedThird.section.pending)
+        reopened.close()
+    }
+
+    @Test
+    fun `retry completes pending edits without undoing a later edit to a saved section`() {
+        val persisted = linkedMapOf("First" to false, "Second" to false, "Third" to false, "Unavailable" to true)
+        val first = PersistedParticipant("First", persisted)
+        val second = PersistedParticipant("Second", persisted)
+        val third = PersistedParticipant("Third", persisted)
+        val session = persistedSession(first, second, third)
+        listOf(first, second, third).forEach { it.section.update { true } }
+        second.afterWrite = { error("runtime failed after saving") }
+        assertIs<SettingsApplyResult.Failed>(session.apply())
+
+        first.section.update { false }
+        second.afterWrite = {}
+
+        assertEquals(SettingsApplyResult.Applied, session.apply())
+        assertFalse(session.isModified())
+        assertEquals(emptyList(), session.cancel())
+        session.close()
+        assertEquals(
+            linkedMapOf("First" to false, "Second" to true, "Third" to true, "Unavailable" to true),
+            persisted,
+        )
+    }
+
+    @Test
+    fun `failure message distinguishes attempted and skipped sections at either boundary`() {
+        val cases =
+            listOf(
+                Triple("First", "Attempted: First.", listOf("Second", "Third")),
+                Triple("Third", "Attempted: First, Second, Third.", emptyList()),
+            )
+        for ((failedName, expectedAttempts, expectedSkipped) in cases) {
+            val calls = mutableListOf<String>()
+            val entries = listOf("First", "Second", "Third").map { RecordingParticipant(it, calls) }
+            entries.single { it.name == failedName }.applyFailure = IllegalStateException()
+            val session = openSession(*entries.toTypedArray())
+
+            val failure = assertIs<SettingsApplyResult.Failed>(session.apply())
+
+            assertEquals(failedName, failure.failed)
+            assertEquals(expectedSkipped, failure.skipped)
+            assertContains(failure.toConfigurationException().localizedMessage.orEmpty(), expectedAttempts)
+            session.close()
+        }
     }
 
     @Test
@@ -380,6 +462,34 @@ class SettingsSessionTest {
             ProcessCanceledException(),
             CancellationException("cleanup cancelled"),
         )
+
+    private fun persistedSession(vararg entries: PersistedParticipant): SettingsSession =
+        SettingsSession().also { session ->
+            session.build {
+                include(*entries.map { namedParticipant(it.name, it) }.toTypedArray()) {}
+            }
+        }
+
+    private class PersistedParticipant(
+        val name: String,
+        private val persisted: MutableMap<String, Boolean>,
+    ) : SettingsParticipant {
+        val section = SettingsSection(false) { persisted.getValue(name) }.also { it.load() }
+        var afterWrite: () -> Unit = {}
+
+        override fun isModified(): Boolean = section.isModified()
+
+        override fun apply() {
+            section.commit { pending, _ ->
+                persisted[name] = pending
+                afterWrite()
+            }
+        }
+
+        override fun reset() {
+            section.resetToStored()
+        }
+    }
 
     private class RecordingParticipant(
         val name: String,
