@@ -4,7 +4,6 @@ import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.colors.ModifiableFontPreferences
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.theme.EditorSchemeChange
 import javax.swing.SwingUtilities
@@ -13,81 +12,63 @@ import javax.swing.SwingUtilities
 object FontPresetApplicator {
     private val LOG = logger<FontPresetApplicator>()
 
-    private const val DEFAULT_FONT_FAMILY = "JetBrains Mono"
-    private const val DEFAULT_FONT_SIZE = 13f
-    private const val DEFAULT_LINE_SPACING = 1.2f
-
     /** Resolve and apply the font preset from the persisted settings state. */
     fun applyFromState() {
-        val state = AyuIslandsSettings.getInstance().state
-        if (!state.fontPresetEnabled) return
-        val preset = FontPreset.fromName(state.fontPresetName)
-        val encoded = state.fontPresetCustomizations[preset.name]
-        val settings = FontSettings.decode(encoded, preset)
-        apply(settings.copy(applyToConsole = state.fontApplyToConsole))
-    }
-
-    /** Apply the given font settings to the editor (and console if opted in). */
-    fun apply(settings: FontSettings) {
         ensureEdt {
-            val resolvedFamily =
-                if (settings.preset.isCurated) {
-                    FontDetector.resolveFamily(settings.preset) ?: settings.preset.fontFamily
-                } else {
-                    settings.fontFamily
-                }
-            val subFamily = settings.weight.subFamily
-            val scheme = EditorColorsManager.getInstance().globalScheme
-
-            (scheme.fontPreferences as? ModifiableFontPreferences)?.apply {
-                clearFonts()
-                addFontFamily(resolvedFamily)
-                regularSubFamily = subFamily
+            val state = AyuIslandsSettings.getInstance().state
+            if (!state.fontPresetEnabled) {
+                revert()
+                return@ensureEdt
             }
-            scheme.setEditorFontSize(settings.fontSize)
-            scheme.lineSpacing = settings.lineSpacing
-            scheme.isUseLigatures = settings.enableLigatures
-
-            if (settings.applyToConsole) {
-                (scheme.consoleFontPreferences as? ModifiableFontPreferences)?.apply {
-                    clearFonts()
-                    addFontFamily(resolvedFamily)
-                    regularSubFamily = subFamily
-                }
-                scheme.setConsoleFontSize(settings.fontSize)
-                scheme.consoleLineSpacing = settings.lineSpacing
+            if (state.fontOwnershipVersion != FontOwnership.VERSION) {
+                LOG.info(
+                    "Preserving existing fonts without a supported ownership snapshot; " +
+                        "explicit font Apply can establish ownership",
+                )
+                return@ensureEdt
             }
-
-            EditorSchemeChange.publish()
-            LOG.info(
-                "Font preset applied: ${settings.preset.displayName} " +
-                    "($resolvedFamily, subFamily=$subFamily, " +
-                    "${settings.fontSize}pt, ${settings.lineSpacing}x)",
-            )
+            val preset = FontPreset.fromName(state.fontPresetName)
+            val settings = FontSettings.decode(state.fontPresetCustomizations[preset.name], preset)
+            apply(settings.copy(applyToConsole = state.fontApplyToConsole), FontApplyOrigin.AUTOMATIC)
         }
     }
 
-    /** Revert editor and console to IDE default font (JetBrains Mono 13pt). */
-    fun revert() {
+    /** Apply the given font settings to the editor (and console if opted in). */
+    fun apply(settings: FontSettings) = apply(settings, FontApplyOrigin.EXPLICIT)
+
+    private fun apply(
+        settings: FontSettings,
+        origin: FontApplyOrigin,
+    ) {
         ensureEdt {
-            val scheme = EditorColorsManager.getInstance().globalScheme
-
-            (scheme.fontPreferences as? ModifiableFontPreferences)?.apply {
-                clearFonts()
-                addFontFamily(DEFAULT_FONT_FAMILY)
+            val state = AyuIslandsSettings.getInstance().state
+            if (state.fontOwnershipVersion !in 0..FontOwnership.VERSION) {
+                LOG.warn("Unsupported font ownership version; preserving current fonts")
+                return@ensureEdt
             }
-            scheme.setEditorFontSize(DEFAULT_FONT_SIZE)
-            scheme.lineSpacing = DEFAULT_LINE_SPACING
+            val manager = EditorColorsManager.getInstance()
+            val scheme = manager.globalScheme
+            // The manager may fall back to a hidden template when no editable copy is available.
+            if (manager.allSchemes.none { it === scheme }) return@ensureEdt
+            state.fontOwnershipVersion = FontOwnership.VERSION
+            if (FontOwnership.apply(scheme, settings, state, origin)) EditorSchemeChange.publish()
+        }
+    }
 
-            (scheme.consoleFontPreferences as? ModifiableFontPreferences)?.apply {
-                clearFonts()
-                addFontFamily(DEFAULT_FONT_FAMILY)
-            }
-            scheme.setConsoleFontSize(DEFAULT_FONT_SIZE)
-            scheme.consoleLineSpacing = DEFAULT_LINE_SPACING
-
-            EditorSchemeChange.publish()
-            LOG.info("Font preset reverted to defaults")
+    /**
+     * Restore available schemes only where current preferences still match our recorded writes.
+     * When [family] is supplied by uninstall, retain ownership for unrelated font families.
+     */
+    fun revert(family: String? = null) {
+        ensureEdt {
+            val state = AyuIslandsSettings.getInstance().state
+            if (state.fontOwnershipSnapshots.isEmpty()) return@ensureEdt
+            if (state.fontOwnershipVersion != FontOwnership.VERSION) return@ensureEdt
+            val manager = EditorColorsManager.getInstance()
+            val schemes = manager.allSchemes
+            var changed = false
+            for (scheme in schemes) changed = FontOwnership.restore(scheme, state, family) || changed
+            if (changed) EditorSchemeChange.publish()
         }
     }
 

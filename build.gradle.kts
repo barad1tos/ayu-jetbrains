@@ -517,8 +517,6 @@ kover {
                     // Pure-rendering UI panels (Font preset settings)
                     "dev.ayuislands.settings.FontPresetPanel*",
                     "dev.ayuislands.settings.FontPreviewComponent*",
-                    // IDE glue (EditorColorsManager / ApplicationManager singletons)
-                    "dev.ayuislands.font.FontPresetApplicator*",
                     // IDE glue (thin event listeners, startup activity)
                     "dev.ayuislands.AyuIslandsStartupActivity*",
                     "dev.ayuislands.AyuIslandsLafListener*",

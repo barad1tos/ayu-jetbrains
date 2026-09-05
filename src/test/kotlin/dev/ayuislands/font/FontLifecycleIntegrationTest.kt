@@ -51,7 +51,7 @@ class FontLifecycleIntegrationTest {
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkObject(FontPresetApplicator)
-        every { FontPresetApplicator.revert() } just Runs
+        every { FontPresetApplicator.revert(any()) } just Runs
 
         mockkStatic(EditorColorsManager::class)
         val ecm = mockk<EditorColorsManager>()
@@ -254,7 +254,7 @@ class FontLifecycleIntegrationTest {
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 
-            io.mockk.verify(exactly = 1) { FontPresetApplicator.revert() }
+            io.mockk.verify(exactly = 1) { FontPresetApplicator.revert("Maple Mono") }
         } finally {
             platformDir.deleteRecursively()
         }
@@ -278,7 +278,7 @@ class FontLifecycleIntegrationTest {
             val indicator = mockk<ProgressIndicator>(relaxed = true)
             FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
 
-            io.mockk.verify(exactly = 0) { FontPresetApplicator.revert() }
+            io.mockk.verify(exactly = 0) { FontPresetApplicator.revert(any()) }
         } finally {
             platformDir.deleteRecursively()
         }

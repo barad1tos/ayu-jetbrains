@@ -70,6 +70,8 @@ Ayu Islands synchronizes palette, font, glow, and accent color into a cohesive l
 
 **Syntax tuning** — *Settings → Ayu Islands → Syntax* gives Pro users per-language sliders for declarations, identifiers, keywords/docs, literals, and operators. Each confirmed primitive also has a compact **Bold / Italic** control: emphasis layers on top of its inherited Color Scheme style by default, while **Replace inherited style** applies an exact font style when explicitly selected. Add global readability controls — **Dim comments**, **Soften documentation**, **Quiet operators**, **Emphasize declarations** — when you want dense code to breathe without editing individual Color Scheme keys.
 
+**Font preset recovery** — turning presets off restores your earlier font settings only when the current settings still match what Ayu Islands applied. Manual changes and console inheritance are preserved. If an IDE restart changes the saved font details, your current fonts and a recovery backup are kept, with a warning. Applying a new preset after disabling starts from your current settings.
+
 **Onboarding wizard** — a full-tab welcome opens on first install with preset cards, theme variant picker, and accent swatches. After upgrades, a **release showcase** tab opens automatically with captioned screenshots of the marquee features; reopen anytime via *Tools → Ayu Islands → Show What's New*.
 
 ## Free — a complete theme, not a teaser

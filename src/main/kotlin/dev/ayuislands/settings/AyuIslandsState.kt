@@ -286,6 +286,10 @@ class AyuIslandsState : BaseState() {
     // Per-preset custom settings: key = preset name, value = "size|spacing|ligatures|weight"
     var fontPresetCustomizations by map<String, String>()
 
+    // Versioned per-scheme/editor/console ownership snapshots. Unknown entries remain untouched.
+    var fontOwnershipVersion by property(0)
+    var fontOwnershipSnapshots by map<String, String>()
+
     // Font families installed via the runtime FontInstaller (family name, e.g. "Maple Mono")
     var installedFonts by stringSet()
 

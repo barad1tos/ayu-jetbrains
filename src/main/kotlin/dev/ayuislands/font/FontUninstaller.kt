@@ -191,7 +191,7 @@ object FontUninstaller {
                         .globalScheme
                         .editorFontName
                 if (activeEditorFont.equals(family, ignoreCase = true)) {
-                    FontPresetApplicator.revert()
+                    FontPresetApplicator.revert(family)
                 }
             } catch (e: RuntimeException) {
                 LOG.warn("FontPresetApplicator.revert() failed during uninstall of $family", e)
