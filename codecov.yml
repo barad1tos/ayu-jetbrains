@@ -14,7 +14,6 @@ coverage:
         informational: true
 
 ignore:
-  - "src/main/kotlin/dev/ayuislands/licensing/**"
   - "src/main/kotlin/dev/ayuislands/font/FontPresetApplicator.kt"
   - "src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt"
   - "src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt"
