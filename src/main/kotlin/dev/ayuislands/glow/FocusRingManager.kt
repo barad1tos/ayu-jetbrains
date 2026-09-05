@@ -5,8 +5,6 @@ import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.Window
-import java.awt.event.FocusListener
-import java.awt.event.HierarchyEvent
 import java.util.WeakHashMap
 import javax.swing.JComboBox
 import javax.swing.JComponent
@@ -22,7 +20,7 @@ import javax.swing.JTextField
  */
 class FocusRingManager {
     private val log = logger<FocusRingManager>()
-    private val focusListeners = mutableMapOf<JComponent, FocusListener>()
+    private val focusListeners = mutableMapOf<JComponent, GlowFocusListener>()
     private val processedWindows = WeakHashMap<Window, Unit>()
 
     fun isTextInputComponent(component: Component): Boolean =
@@ -72,8 +70,8 @@ class FocusRingManager {
     }
 
     fun removeFocusListeners() {
-        for ((component, listener) in focusListeners) {
-            component.removeFocusListener(listener)
+        for (listener in focusListeners.values.toList()) {
+            listener.detach()
         }
         focusListeners.clear()
     }
@@ -90,18 +88,9 @@ class FocusRingManager {
         intensity: Int,
     ) {
         if (isTextInputComponent(component) && component is JComponent && !focusListeners.containsKey(component)) {
-            val listener = GlowFocusBorder.createFocusListener(accent, style, intensity)
-            component.addFocusListener(listener)
+            val listener = GlowFocusListener(component, accent, style, intensity) { focusListeners.remove(component) }
             focusListeners[component] = listener
-
-            component.addHierarchyListener { event ->
-                val displayabilityChanged =
-                    (event.changeFlags and HierarchyEvent.DISPLAYABILITY_CHANGED.toLong()) != 0L
-                if (displayabilityChanged && !component.isDisplayable) {
-                    component.removeFocusListener(listener)
-                    focusListeners.remove(component)
-                }
-            }
+            listener.attach()
         }
         if (component is Container) {
             for (child in component.components) {

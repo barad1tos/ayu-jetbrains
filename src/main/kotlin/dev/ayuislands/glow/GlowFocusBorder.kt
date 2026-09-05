@@ -8,9 +8,6 @@ import java.awt.Graphics2D
 import java.awt.Insets
 import java.awt.Rectangle
 import java.awt.RenderingHints
-import java.awt.event.FocusEvent
-import java.awt.event.FocusListener
-import javax.swing.JComponent
 import javax.swing.UIManager
 import javax.swing.border.Border
 
@@ -70,39 +67,5 @@ class GlowFocusBorder(
         private const val MIN_FOCUS_INTENSITY = 3
         private const val MAX_FOCUS_INTENSITY = 60
         private const val DEFAULT_ARC = 6
-
-        /**
-         * Creates a FocusListener that swaps the component border to a GlowFocusBorder
-         * on focus gain and restores the original on focus loss.
-         */
-        fun createFocusListener(
-            glowColor: Color,
-            glowStyle: GlowStyle,
-            baseIntensity: Int,
-        ): FocusListener {
-            return object : FocusListener {
-                private var originalBorder: Border? = null
-
-                override fun focusGained(event: FocusEvent) {
-                    val component = event.component as? JComponent ?: return
-                    originalBorder = component.border
-                    component.border =
-                        GlowFocusBorder(
-                            originalBorder,
-                            glowColor,
-                            glowStyle,
-                            baseIntensity,
-                        )
-                    component.repaint()
-                }
-
-                override fun focusLost(event: FocusEvent) {
-                    val component = event.component as? JComponent ?: return
-                    component.border = originalBorder
-                    originalBorder = null
-                    component.repaint()
-                }
-            }
-        }
     }
 }
