@@ -498,29 +498,22 @@ kover {
                     "dev.ayuislands.settings.AyuIslandsElementsPanel*",
                     "dev.ayuislands.settings.AyuIslandsAccentPanel*",
                     "dev.ayuislands.settings.AyuIslandsAppearancePanel*",
-                    "dev.ayuislands.settings.AyuIslandsSettingsPanel*",
-                    "dev.ayuislands.settings.AyuIslandsConfigurable*",
-                    "dev.ayuislands.settings.PresetButtonBar*",
                     "dev.ayuislands.settings.GlowGroupPanel*",
                     // Data class in EffectsPanel file, pure UI config
                     "dev.ayuislands.settings.SliderConfig*",
                     // Glow rendering (Graphics2D paint, animation overlay, Swing lifecycle)
-                    "dev.ayuislands.glow.GlowOverlayManager*",
                     "dev.ayuislands.glow.GlowGlassPane*",
                     "dev.ayuislands.glow.GlowFocusBorder*",
                     // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
                     "dev.ayuislands.accent.CachedMacReader*",
                     "dev.ayuislands.accent.SystemAccentProvider*",
                     "dev.ayuislands.accent.SystemAppearanceProvider*",
-                    // Pure-rendering UI panel (Integrations settings)
-                    "dev.ayuislands.settings.IntegrationsPanel*",
                     // Pure-rendering UI panels (Font preset settings)
                     "dev.ayuislands.settings.FontPresetPanel*",
                     "dev.ayuislands.settings.FontPreviewComponent*",
                     // IDE glue (EditorColorsManager / ApplicationManager singletons)
                     "dev.ayuislands.font.FontPresetApplicator*",
-                    // IDE glue (thin event listeners, startup activity)
-                    "dev.ayuislands.AyuIslandsStartupActivity*",
+                    // IDE event listeners
                     "dev.ayuislands.AyuIslandsLafListener*",
                     "dev.ayuislands.AppearanceSyncListener*",
                     // LicenseChecker: thin IDE wrapper; crypto logic tested via LicenseVerifier
@@ -578,8 +571,6 @@ kover {
                     //     normalization paths ARE tested; the focus-race protocol lives
                     //     in the fully tested dev.ayuislands.ui.FocusWinningTabOpener)
                     "dev.ayuislands.whatsnew.WhatsNewPanel",
-                    $$"dev.ayuislands.whatsnew.WhatsNewPanel$1",
-                    $$"dev.ayuislands.whatsnew.WhatsNewPanel$2",
                     "dev.ayuislands.whatsnew.WhatsNewSlideCard",
                     "dev.ayuislands.whatsnew.WhatsNewSlideCard$*",
                     "dev.ayuislands.whatsnew.WhatsNewImagePanel",
@@ -594,8 +585,6 @@ kover {
                     "dev.ayuislands.onboarding.WizardSvgGeometry",
                     "dev.ayuislands.onboarding.RailCardSpec",
                     "dev.ayuislands.onboarding.RailCardLayout",
-                    // IR plugin integration: reflection into 3rd-party plugin internals
-                    "dev.ayuislands.indent.IndentRainbowSync*",
                     // Swing TreeCellRenderer (paintComponent, JTree integration)
                     "dev.ayuislands.projectview.RootFilteringRenderer*",
                     // Graphics2D paint rendering (editor highlight overlays)

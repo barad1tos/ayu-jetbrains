@@ -2,6 +2,7 @@ package dev.ayuislands.indent
 
 import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.util.xmlb.XmlSerializer
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
@@ -23,6 +24,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -305,6 +307,66 @@ class IndentRainbowSyncTest {
         assertEquals(FakePaletteType.RAINBOW, harness.type)
         assertEquals("user-palette", harness.palette)
         assertEquals(4, harness.colorCount)
+    }
+
+    @Test
+    fun `pending Indent Rainbow restore survives XML reload with the exact user baseline`() {
+        state.irIntegrationEnabled = true
+        val originalPalette = "FFCC66,  73D0FF, ffcc66, A9AFBB"
+        val harness = installIrHarness(FakePaletteType.RAINBOW, originalPalette, 4)
+        assertEquals(IntegrationOutcome.Applied, callApply())
+        val appliedPalette = harness.palette
+        harness.shouldFailNextCountAndRollbackPalette = true
+        assertIs<IntegrationOutcome.Failed>(IndentRainbowSync.restoreOwnedState())
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.irOwnership)
+
+        val serialized = XmlSerializer.serialize(state)
+        val reloaded: AyuIslandsState = XmlSerializer.deserialize(serialized, AyuIslandsState::class.java)
+        every { mockSettings.state } returns reloaded
+
+        assertNotSame(state, reloaded)
+        assertTrue(reloaded.isIrOwnershipMigrated)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, reloaded.irOwnership)
+        assertEquals(FakePaletteType.RAINBOW.name, reloaded.irBaseType)
+        assertEquals(originalPalette, reloaded.irBasePalette)
+        assertEquals(4, reloaded.irBaseColorCount)
+        assertEquals(FakePaletteType.CUSTOM.name, reloaded.irAppliedType)
+        assertEquals(appliedPalette, reloaded.irAppliedPalette)
+        assertEquals(4, reloaded.irAppliedColorCount)
+
+        assertEquals(IntegrationOutcome.Restored, IndentRainbowSync.restoreOwnedState())
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals(originalPalette, harness.palette)
+        assertEquals(4, harness.colorCount)
+        assertEquals(IntegrationOwnership.UNOWNED.name, reloaded.irOwnership)
+        assertNull(reloaded.irBaseType)
+        assertNull(reloaded.irAppliedType)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.irOwnership)
+    }
+
+    @Test
+    fun `manual Indent Rainbow edit after XML reload prevents pending recovery overwrite`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(FakePaletteType.RAINBOW, "FFCC66, 73D0FF", 2)
+        harness.shouldFailNextCountAndRollbackPalette = true
+        assertIs<IntegrationOutcome.Failed>(callApply())
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.irOwnership)
+
+        val serialized = XmlSerializer.serialize(state)
+        val reloaded: AyuIslandsState = XmlSerializer.deserialize(serialized, AyuIslandsState::class.java)
+        every { mockSettings.state } returns reloaded
+        assertNotSame(state, reloaded)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, reloaded.irOwnership)
+        harness.type = FakePaletteType.DEFAULT
+        harness.palette = "A9AFBB,  ffcc66"
+        harness.colorCount = 2
+
+        assertEquals(IntegrationOutcome.Skipped, IndentRainbowSync.restoreOwnedState())
+        assertEquals(IntegrationOwnership.SUSPENDED.name, reloaded.irOwnership)
+        assertEquals(FakePaletteType.DEFAULT, harness.type)
+        assertEquals("A9AFBB,  ffcc66", harness.palette)
+        assertEquals(2, harness.colorCount)
+        assertEquals(IntegrationOwnership.RECOVERY_PENDING.name, state.irOwnership)
     }
 
     @Test

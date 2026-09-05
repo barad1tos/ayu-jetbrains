@@ -9,11 +9,13 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
+import com.intellij.util.xmlb.XmlSerializer
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
@@ -62,6 +64,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -297,6 +300,88 @@ class GlowOverlayManagerLifecycleTest {
         assertFalse(state.glowEnabled)
         assertTrue(state.glowProject)
         assertTrue(state.glowEditor)
+    }
+
+    @Test
+    fun `glow disabled across settings reload restores exact choices when reenabled`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        state.glowEditor = true
+        state.glowProject = true
+        state.glowTerminal = false
+        state.glowRun = true
+        state.glowDebug = false
+        state.glowGit = false
+        state.glowServices = true
+        state.glowStyle = GlowStyle.SHARP_NEON.name
+        state.sharpNeonIntensity = 73
+        state.sharpNeonWidth = 14
+        state.softIntensity = 29
+        state.gradientIntensity = 51
+        state.glowEditorPlacement = GlowPlacement.SIDE_EDGES.name
+        state.glowToolWindowPlacement = GlowPlacement.ISLAND.name
+        state.glowTabMode = "OFF"
+        state.glowFocusRing = false
+        state.waveformDirection = "UNAVAILABLE_MOVEMENT"
+        state.fontPresetName = "UNAVAILABLE_PRESET"
+        state.fontPresetCustomizations["UNAVAILABLE_PRESET"] = "17|1.25|false|MEDIUM"
+        val settings = AyuIslandsSettings()
+        settings.loadState(state)
+        every { AyuIslandsSettings.getInstance() } returns settings
+        val enabledXml = JDOMUtil.writeElement(XmlSerializer.serialize(settings.state))
+        val manager = GlowOverlayManager(stubProject("glow-reload-project"))
+        markManagerWarm(manager)
+        val editorHost = attachableHost()
+        val projectHost = attachableHost()
+
+        try {
+            invokeAttachOverlay(manager, "Editor", editorHost, isEditorOverlay = true)
+            invokeAttachOverlay(manager, "Project", projectHost)
+            val originalEditor = readGlassPane(manager, "Editor")
+            val originalProject = readGlassPane(manager, "Project")
+
+            settings.state.glowEnabled = false
+            val disabledXml = JDOMUtil.writeElement(XmlSerializer.serialize(settings.state))
+            manager.updateGlow()
+            assertTrue(readOverlaysMap(manager).isEmpty(), "Disabling glow must remove existing overlays")
+            assertEquals(disabledXml, JDOMUtil.writeElement(XmlSerializer.serialize(settings.state)))
+
+            val reloaded = AyuIslandsSettings()
+            reloaded.loadState(XmlSerializer.deserialize(JDOMUtil.load(disabledXml), AyuIslandsState::class.java))
+            every { AyuIslandsSettings.getInstance() } returns reloaded
+            assertNotSame(settings.state, reloaded.state)
+            assertFalse(reloaded.state.glowEnabled)
+            manager.updateGlow()
+            invokeAttachOverlay(manager, "Editor", editorHost, isEditorOverlay = true)
+            invokeAttachOverlay(manager, "Project", projectHost)
+            assertTrue(readOverlaysMap(manager).isEmpty(), "Reloading disabled settings must keep glow off")
+            assertEquals(disabledXml, JDOMUtil.writeElement(XmlSerializer.serialize(reloaded.state)))
+
+            reloaded.state.glowEnabled = true
+            invokeAttachOverlay(manager, "Editor", editorHost, isEditorOverlay = true)
+            invokeAttachOverlay(manager, "Project", projectHost)
+            manager.updateGlow()
+
+            val restoredEditor = readGlassPane(manager, "Editor")
+            val restoredProject = readGlassPane(manager, "Project")
+            assertNotSame(originalEditor, restoredEditor)
+            assertNotSame(originalProject, restoredProject)
+            for (pane in listOf(restoredEditor, restoredProject)) {
+                assertEquals(GlowStyle.SHARP_NEON, pane.glowStyle)
+                assertEquals(73, pane.glowIntensity)
+                assertEquals(14, pane.glowWidth)
+            }
+            assertEquals(GlowPlacement.SIDE_EDGES, restoredEditor.glowPlacement)
+            assertEquals(GlowPlacement.ISLAND, restoredProject.glowPlacement)
+            assertEquals(
+                enabledXml,
+                JDOMUtil.writeElement(XmlSerializer.serialize(reloaded.state)),
+                "Re-enabling must preserve every surface choice, inactive style and unavailable preference",
+            )
+            assertFalse(settings.state.glowEnabled, "The manager must read the reloaded settings instance")
+        } finally {
+            manager.dispose()
+            stopOverlayAnimations(manager)
+        }
     }
 
     @Test
