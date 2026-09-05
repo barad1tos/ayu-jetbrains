@@ -393,10 +393,11 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "66af5671"
+          last_verified_sha: "520d3512"
           last_verified_date: "2026-08-09"
           content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
 
+          sources_sha256: "2383453a11803b2379ffd4c52b99383b8a91de1d70ebe31b988e6083d36052fa"
   workspace:
     title: "Workspace"
     features:

@@ -90,7 +90,16 @@ class FontPresetPanel : SettingsParticipant {
 
     fun buildPanel(panel: Panel) {
         loadState()
-        buildContent(panel)
+        panel.apply {
+            buildEnableRow()
+            buildPresetSelectorRow()
+            buildFontFamilyRow()
+            buildSummaryRow()
+            buildPreviewRow()
+            buildWarningRow()
+            buildInstallHintRow()
+            buildCustomizeGroup()
+        }
     }
 
     internal fun loadState() {
@@ -124,19 +133,6 @@ class FontPresetPanel : SettingsParticipant {
         FontDetector.invalidateCache()
         availability = FontDetector.detectAll()
         updateFontMissing()
-    }
-
-    private fun buildContent(panel: Panel) {
-        panel.apply {
-            buildEnableRow()
-            buildPresetSelectorRow()
-            buildFontFamilyRow()
-            buildSummaryRow()
-            buildPreviewRow()
-            buildWarningRow()
-            buildInstallHintRow()
-            buildCustomizeGroup()
-        }
     }
 
     private fun Panel.buildEnableRow() {
@@ -610,16 +606,16 @@ class FontPresetPanel : SettingsParticipant {
         if (pendingEnabled != storedEnabled) return true
         if (pendingPreset != storedPreset) return true
         if (pendingConsole != storedConsole) return true
-        for ((name, settings) in customizations) {
-            val storedSettings =
-                FontSettings.decode(
-                    storedCustomizations[name],
-                    FontPreset.fromName(name),
-                )
-            if (settings.encode() != storedSettings.encode()) return true
-        }
-        return false
+        return changedCustomizations().isNotEmpty()
     }
+
+    private fun changedCustomizations(): Map<String, String> =
+        customizations
+            .mapNotNull { (name, settings) ->
+                val storedSettings = FontSettings.decode(storedCustomizations[name], FontPreset.fromName(name))
+                val encoded = settings.encode()
+                if (encoded != storedSettings.encode()) name to encoded else null
+            }.toMap()
 
     override fun apply() {
         if (!isModified()) return
@@ -629,13 +625,13 @@ class FontPresetPanel : SettingsParticipant {
         state.fontPresetName = pendingPreset
         state.fontApplyToConsole = pendingConsole
 
-        // Save all per-preset customizations
-        val newCustomizations = mutableMapOf<String, String>()
-        for ((name, settings) in customizations) {
-            newCustomizations[name] = settings.encode()
-        }
+        // Preserve unknown entries and the original encoding of untouched presets.
+        val changes = changedCustomizations()
+        val newCustomizations = state.fontPresetCustomizations.toMutableMap()
+        newCustomizations.putAll(changes)
         state.fontPresetCustomizations = newCustomizations
-        storedCustomizations = newCustomizations.toMap()
+        // Advance only the edits represented by this panel's working copy.
+        storedCustomizations = storedCustomizations + changes
 
         storedEnabled = pendingEnabled
         storedPreset = pendingPreset
