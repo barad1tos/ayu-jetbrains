@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from .changelog import check_changelog_cross_ref, check_semantic_release_policy
 from .features import load_features
@@ -14,7 +15,7 @@ from .report import Report
 from .required_links import check_required_links
 from .screenshots import check_screenshots
 from .settings_badges import check_settings_badges
-from .stamps import restamp_orphaned, update_hashes
+from .stamps import restamp_orphaned, restamp_reviewed, update_hashes
 
 
 def main() -> int:
@@ -25,18 +26,20 @@ def main() -> int:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
+    mutations = parser.add_mutually_exclusive_group()
+    mutations.add_argument(
         "--update-hashes",
         action="store_true",
         help="Recompute content_sha256 for every screenshot and rewrite features.yml",
     )
-    parser.add_argument(
+    mutations.add_argument(
         "--restamp",
-        action="store_true",
-        help="Rewrite every screenshot's last_verified_sha to the current HEAD "
-        "when the existing stamp is orphaned (not an ancestor of HEAD). "
-        "Use after a squash-merge rebase or when adopting the inherited "
-        "stamp from main onto a fresh feature branch.",
+        nargs="*",
+        metavar="FEATURE_ID",
+        help="With feature IDs: attest that you visually reviewed those screenshots "
+        "against current working-copy sources; record source hashes for a combined "
+        "source + metadata commit. Does not update image hashes or capture dates. "
+        "Without IDs: only rebind orphaned last_verified_sha values to HEAD.",
     )
     args = parser.parse_args()
 
@@ -50,11 +53,19 @@ def main() -> int:
         )
         return 0
 
-    if args.restamp:
-        count = restamp_orphaned(data)
+    if args.restamp is not None:
+        try:
+            count = (
+                restamp_reviewed(data, args.restamp)
+                if args.restamp
+                else restamp_orphaned(data)
+            )
+        except (ValueError, OSError) as error:
+            print(f"Cannot re-stamp screenshots: {error}", file=sys.stderr)
+            return 2
         print(
-            f"Re-stamped {count} orphaned last_verified_sha entry/entries in "
-            f"{FEATURES_YAML.relative_to(REPO_ROOT)} to current HEAD"
+            f"Re-stamped {count} {'reviewed screenshots' if args.restamp else 'orphaned entries'} "
+            f"in {FEATURES_YAML.relative_to(REPO_ROOT)}"
         )
         return 0
 

@@ -68,6 +68,7 @@ def is_ancestor_of_head(sha: str) -> bool:
         ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
         cwd=REPO_ROOT,
         capture_output=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -113,6 +114,7 @@ def commit_exists(sha: str) -> bool:
         ["git", "rev-parse", "--verify", f"{sha}^{{commit}}"],
         cwd=REPO_ROOT,
         capture_output=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -155,3 +157,28 @@ def file_sha256(path: Path) -> str:
     """Return hex-encoded SHA-256 digest of `path`'s bytes (streamed, no full read)."""
     with path.open("rb") as fh:
         return hashlib.file_digest(fh, "sha256").hexdigest()
+
+
+def sources_sha256(paths: list[str]) -> str:
+    """Bind source paths and working-copy bytes, independent of commit identity.
+
+    Expand directory sources recursively and include filenames so additions,
+    deletions, renames and source-list changes invalidate the stamp.
+    Raises OSError when a source cannot be read; never attest a partial set.
+    """
+    digest = hashlib.sha256()
+    for source_path in sorted(set(paths)):
+        digest.update(source_path.encode("utf-8") + b"\0")
+        source = REPO_ROOT / source_path
+        if source.is_dir():
+            digest.update(b"directory\0")
+            for child in sorted(source.rglob("*")):
+                if child.is_file():
+                    digest.update(
+                        child.relative_to(source).as_posix().encode("utf-8") + b"\0"
+                    )
+                    digest.update(file_sha256(child).encode("ascii") + b"\0")
+        else:
+            digest.update(b"file\0")
+            digest.update(file_sha256(source).encode("ascii") + b"\0")
+    return digest.hexdigest()

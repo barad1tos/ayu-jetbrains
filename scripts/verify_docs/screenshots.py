@@ -13,6 +13,7 @@ from .git_utils import (
     head_points_at_primary,
     is_ancestor_of_head,
     merge_base_with_primary,
+    sources_sha256,
 )
 from .paths import REPO_ROOT
 from .report import Report
@@ -30,7 +31,9 @@ def check_screenshots(data: dict[str, Any], report: Report) -> None:
             _check_one_screenshot(feat["id"], cast(dict[str, Any], shot), report)
 
 
-def _check_one_screenshot(feature_id: str, shot: dict[str, Any], report: Report) -> None:
+def _check_one_screenshot(
+    feature_id: str, shot: dict[str, Any], report: Report
+) -> None:
     path: str = (shot.get("path") or "").strip()
     sha: str = (shot.get("last_verified_sha") or "").strip()
     sources: list[str] = shot.get("sources") or []
@@ -49,15 +52,38 @@ def _check_one_screenshot(feature_id: str, shot: dict[str, Any], report: Report)
         return
 
     _check_source_paths_exist(feature_id, sources, report)
-    _check_freshness_by_state(feature_id, path, sha, sources, report)
+    if source_hash := shot.get("sources_sha256") or "":
+        _check_source_hash(feature_id, sources, source_hash, report)
+    else:
+        _check_freshness_by_state(feature_id, path, sha, sources, report)
     _check_content_hash(feature_id, screenshot_file, stored_hash, report)
 
 
-def _check_source_paths_exist(feature_id: str, sources: list[str], report: Report) -> None:
+def _check_source_hash(
+    feature_id: str, sources: list[str], stored_hash: str, report: Report
+) -> None:
+    try:
+        current_hash = sources_sha256(sources)
+    except OSError as error:
+        report.error(feature_id, f"Cannot read screenshot sources: {error}")
+        return
+    if current_hash != stored_hash:
+        report.error(
+            feature_id,
+            "Screenshot sources changed since visual review. Re-capture if needed, "
+            f"then review the image against current sources and run "
+            f"`scripts/verify-docs.py --restamp {feature_id}`.",
+        )
+
+
+def _check_source_paths_exist(
+    feature_id: str, sources: list[str], report: Report
+) -> None:
     for src in sources:
         if not (REPO_ROOT / src).exists():
             report.error(
-                feature_id, f"screenshot source '{src}' does not exist (renamed or deleted?)"
+                feature_id,
+                f"screenshot source '{src}' does not exist (renamed or deleted?)",
             )
 
 
@@ -84,7 +110,9 @@ def _check_freshness_by_state(
         )
         return
     if is_ancestor_of_head(sha):
-        _check_source_freshness_since(feature_id, path, sha, sources, report, strict_msg=True)
+        _check_source_freshness_since(
+            feature_id, path, sha, sources, report, strict_msg=True
+        )
         return
     _handle_orphan_stamp(
         feature_id, path, sha, sources, report, reason="not an ancestor of HEAD"
@@ -92,7 +120,13 @@ def _check_freshness_by_state(
 
 
 def _handle_orphan_stamp(
-    feature_id: str, path: str, sha: str, sources: list[str], report: Report, *, reason: str
+    feature_id: str,
+    path: str,
+    sha: str,
+    sources: list[str],
+    report: Report,
+    *,
+    reason: str,
 ) -> None:
     # SHA-identity check instead of branch-name equality so the main path also
     # covers CI runs that check out `origin/main` in detached-HEAD state —
@@ -145,15 +179,15 @@ def _check_source_freshness_since(
             feature_id,
             f"sources changed since last_verified_sha {since_ref[:8]}: {preview}{more}. "
             f"Re-capture {path} and bump last_verified_sha + content_sha256, "
-            f"OR if the UI didn't visually change, re-stamp last_verified_sha "
-            f"to the current HEAD (or run `scripts/verify-docs.py --restamp`).",
+            f"OR if visual review confirms the image still matches, run "
+            f"`scripts/verify-docs.py --restamp {feature_id}` to attest current sources.",
         )
     else:
         report.error(
             feature_id,
             f"last_verified_sha '{(orphan_sha or since_ref)[:8]}' is orphaned AND "
-            f"this branch touches tracked sources: {preview}{more}. Re-stamp to "
-            f"current HEAD before pushing (`scripts/verify-docs.py --restamp`).",
+            f"this branch touches tracked sources: {preview}{more}. Review the image "
+            f"against current sources, then run `scripts/verify-docs.py --restamp {feature_id}`.",
         )
 
 
