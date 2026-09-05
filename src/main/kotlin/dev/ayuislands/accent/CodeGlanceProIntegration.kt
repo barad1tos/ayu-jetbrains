@@ -29,12 +29,6 @@ import java.lang.reflect.Method
  *     future maintainer who bumps the CGP version must target the state
  *     class, not the service class.
  *
- * Extracted from [AccentApplicator] to keep that object below the detekt
- * `TooManyFunctions` threshold. The cross-object test seam
- * ([AccentApplicator.codeGlanceProRevertHook] +
- * [AccentApplicator.resetCodeGlanceProRevertHookForTests]) stays on
- * [AccentApplicator] because source-regex tests bind those names there.
- *
  * Pattern G — apply/revert symmetry: every write path
  * ([syncCodeGlanceProViewport]) has a paired revert
  * ([revertCodeGlanceProViewport]) so a theme switch / license loss closes

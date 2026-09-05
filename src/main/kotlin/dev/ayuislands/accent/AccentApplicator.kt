@@ -94,12 +94,6 @@ object AccentApplicator {
 
     private val alwaysOnOwner = EditorSchemeOwner.AlwaysOn
 
-    // CodeGlance Pro reflection state and apply/revert workers live in
-    // [CodeGlanceProIntegration] to keep this object below the TooManyFunctions threshold.
-    // Only the cross-object test seam (`codeGlanceProRevertHook` + `resetCodeGlanceProRevertHookForTests`)
-    // and the swap-path entry stay here because existing tests bind those names
-    // to `AccentApplicator`.
-
     /**
      * Per-thread revert observer for [CodeGlanceProIntegration.revertCodeGlanceProViewport].
      * Production path: null → reflection writes fire against the real CGP service.
@@ -113,9 +107,8 @@ object AccentApplicator {
      * "looks like the other test's fake received my invocation" failures.
      * Matches [ChromeDecorationsProbe.osSupplier].
      *
-     * Tests MUST use try/finally + [resetCodeGlanceProRevertHookForTests] — `@AfterEach`
-     * does NOT run after an assertion failure that exits the worker mid-test,
-     * so per-test cleanup is mandatory.
+     * Tests must clear the override on the calling thread with
+     * [resetCodeGlanceProRevertHookForTests] in finally or test teardown.
      */
     internal val codeGlanceProRevertHook: ThreadLocal<((String, String, Int) -> Unit)?> =
         ThreadLocal.withInitial { null }
@@ -968,8 +961,8 @@ internal fun resolveUnderlineHeight(
 /**
  * Publish [AccentChangedTopic.TOPIC] once per usable open project AFTER
  * `state.lastApplyOk = true` so subscribers (toolbar stripe, toolbar chip)
- * only fire on a fully-painted apply. Extracted from [AccentApplicator.apply] to keep the
- * outer method's cognitive complexity below the IDE inspector's cap.
+ * only fire on a fully-painted apply. Subscriber failures are reported to
+ * [onFailure] and contribute to the invocation's outcome.
  *
  * Application-scoped: one apply may legitimately affect every open window;
  * per-project filtering belongs to the subscriber. Per-project try/catch

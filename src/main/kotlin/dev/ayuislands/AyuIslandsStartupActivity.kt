@@ -80,8 +80,7 @@ internal class AyuIslandsStartupActivity(
         // the first background scan (EDT resolve on a cold cache), and the
         // scan's completion must not fire into an empty subscriber list.
         // Installed before the external-theme early return on purpose: the
-        // refresher self-gates on AyuVariant.detect(), mirroring the reaction
-        // that previously lived unconditionally inside the detector.
+        // refresher self-gates on AyuVariant.detect().
         ScanCompletionAccentRefresher.getInstance(project)
 
         val variant =
@@ -101,32 +100,27 @@ internal class AyuIslandsStartupActivity(
         // yet (single-project launch or pre-focus-manager startup).
         //
         // Dispatch to the EDT: every step in this triplet has an EDT precondition.
-        //  - AccentApplicator.resolveFocusedProject and applyForFocusedProject are
+        //  - AccentApplicator.resolveFocusedProject and apply are
         //    @RequiresEdt — they traverse WindowManager, IdeFocusManager,
         //    ProjectManager, all EDT-only APIs.
-        //  - AccentApplicator.apply self-dispatches only the step plan (see the
-        //    "Threading contract" section of its KDoc): the inner
-        //    AccentApplyPlanRunner hop batches the UIManager/editor writes and
-        //    does not rescue anything that runs before it.
+        //  - AccentApplicator.apply runs its step plan synchronously and checks
+        //    that the caller is already on the EDT.
         //  - ProjectAccentSwapService.install registers an AWT listener whose
         //    WINDOW_ACTIVATED handler expects to fire after the initial apply's
         //    UIManager state is visible; calling it off the EDT would let the first
         //    real activation race an in-flight apply.
-        //  - ProjectAccentSwapService.notifyExternalApply is a clean-flag-gated
-        //    volatile write with no dispatch; per applyForFocusedProject's EDT-only
-        //    KDoc paragraph callers must already be on the EDT so the lastAppliedHex
-        //    cache publishes in the same ordering as the apply — otherwise the first
-        //    WINDOW_ACTIVATED after startup would re-apply the same color it just
-        //    painted.
+        //  - ProjectAccentSwapService.notifyExternalApply updates the swap cache
+        //    from the apply outcome without dispatching: completed visuals are
+        //    cached, while a partial visual apply invalidates the cached accent.
+        //    Keeping this on the same EDT turn prevents a WINDOW_ACTIVATED event
+        //    from observing a cache that has not caught up with the apply.
         // ProjectActivity.execute runs on a background coroutine, so the full
         // compute-apply-publish triplet must be wrapped in a single EDT block.
         // Isolate the triplet so a throw in resolveFocusedProject / apply /
         // install / notifyExternalApply doesn't abort the rest of startup
         // (font preset apply, language-detector warmup, ModuleRootListener
         // subscribe, scrollbar manager init, ComponentTreeRefresher,
-        // ConflictRegistry, license checks, onboarding). Extracted into
-        // `runStartupAccentOnEdt` to keep `execute` within detekt's cyclomatic
-        // complexity budget.
+        // ConflictRegistry, license checks, onboarding).
         runStartupAccentOnEdt(project, variant)
 
         // Warm the language-detector cache so Settings → Accent → Overrides
@@ -156,11 +150,6 @@ internal class AyuIslandsStartupActivity(
         // dominant language from a scan taken before the change. The subscription is
         // owned by a project service disposable, not the Project itself.
         ProjectLanguageRootChangeListener.getInstance(project)
-
-        // Focus-swap listener install() + cache sync via notifyExternalApply(hex)
-        // are now inside the withContext(Dispatchers.EDT) block above so they share an
-        // atomic EDT turn with the initial apply — see that block's KDoc for the
-        // ordering rationale.
 
         // Eager-instantiate per-project scrollbar managers BEFORE firing the first refresh event.
         // Their init{} blocks subscribe to ComponentTreeRefreshedTopic; without this, the
@@ -257,9 +246,7 @@ internal class AyuIslandsStartupActivity(
     }
 
     /**
-     * Re-apply persisted VCS color customization. Extracted from [execute] so the
-     * cyclomatic complexity stays under detekt's threshold — mirrors
-     * [runStartupAccentOnEdt]'s extraction rationale.
+     * Re-apply persisted VCS color customization when its feature and license gates allow it.
      *
      * Two gates here:
      *  1. Master toggle — when off, [com.intellij.openapi.editor.colors.EditorColorsScheme]
@@ -277,16 +264,14 @@ internal class AyuIslandsStartupActivity(
     /**
      * EDT triplet that must run atomically to avoid startup races: resolve the
      * focused project, apply the accent, then install the focus-swap listener
-     * and publish the swap cache. Split from [execute] to keep cyclomatic
-     * complexity under detekt's threshold and to let the tests exercise this
-     * sequence in isolation.
+     * and publish the swap cache.
      *
      * Design invariants:
      *  - Capture projectName BEFORE the EDT hop so a mid-hop `project.isDisposed`
      *    race cannot NPE inside the error logger and swallow the original
      *    exception.
-     *  - Split apply-vs-install into two [runCatchingPreservingCancellation]
-     *    blocks so the ERROR message pins which half failed — apply fail is a
+     *  - Isolate apply, install, and cache publication in [runCatchingPreservingCancellation]
+     *    blocks so the ERROR message pins which step failed — apply fail is a
      *    visual regression the user sees; install fail silently disables
      *    focus-swap cycling for the session.
      *  - Bail early if project/application already disposed to avoid hitting
@@ -304,11 +289,8 @@ internal class AyuIslandsStartupActivity(
         project: Project,
         context: AccentContext,
     ) {
-        // Narrow the projectName capture catch to RuntimeException so
-        // CancellationException propagates instead of being swallowed into
-        // the "<disposed>" fallback. `project.name` access is non-suspend;
-        // catching Throwable here would be asymmetric with every other catch
-        // in this file.
+        // Capture the diagnostic name before entering the EDT block; a failed
+        // lookup uses a fallback so later error messages do not access the project again.
         val projectName =
             try {
                 project.name
