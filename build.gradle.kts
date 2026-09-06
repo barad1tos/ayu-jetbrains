@@ -507,7 +507,6 @@ kover {
                     // Glow rendering (Graphics2D paint, animation overlay, Swing lifecycle)
                     "dev.ayuislands.glow.GlowOverlayManager*",
                     "dev.ayuislands.glow.GlowGlassPane*",
-                    "dev.ayuislands.glow.GlowFocusBorder*",
                     // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
                     "dev.ayuislands.accent.CachedMacReader*",
                     "dev.ayuislands.accent.SystemAccentProvider*",
@@ -595,8 +594,6 @@ kover {
                     "dev.ayuislands.projectview.RootFilteringRenderer*",
                     // Graphics2D paint rendering (editor highlight overlays)
                     "dev.ayuislands.accent.elements.BracketScopeRenderer*",
-                    // Swing Border + Component lifecycle (editor focus management)
-                    "dev.ayuislands.glow.FocusRingManager*",
                     // Accent mappings UI: DialogWrapper, JBTable wiring, paintComponent renderers
                     "dev.ayuislands.settings.mappings.OverridesGroupBuilder*",
                     "dev.ayuislands.settings.mappings.AddProjectMappingDialog*",
