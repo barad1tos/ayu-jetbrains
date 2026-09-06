@@ -504,7 +504,6 @@ kover {
                     // Data class in EffectsPanel file, pure UI config
                     "dev.ayuislands.settings.SliderConfig*",
                     // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
-                    "dev.ayuislands.accent.SystemAccentProvider*",
                     "dev.ayuislands.accent.SystemAppearanceProvider*",
                     // Pure-rendering UI panel (Integrations settings)
                     "dev.ayuislands.settings.IntegrationsPanel*",
