@@ -514,8 +514,6 @@ kover {
                     "dev.ayuislands.accent.SystemAppearanceProvider*",
                     // Pure-rendering UI panel (Integrations settings)
                     "dev.ayuislands.settings.IntegrationsPanel*",
-                    // Pure-rendering UI panels (Font preset settings)
-                    "dev.ayuislands.settings.FontPreviewComponent*",
                     // IDE glue (thin event listeners, startup activity)
                     "dev.ayuislands.AyuIslandsStartupActivity*",
                     "dev.ayuislands.AyuIslandsLafListener*",

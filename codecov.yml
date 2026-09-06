@@ -14,7 +14,6 @@ coverage:
         informational: true
 
 ignore:
-  - "src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt"
   # Pure DialogWrapper UI glue: ColorPicker/ComboBox/FileChooser wiring with no extractable
   # logic. Same files are already excluded from Kover; aligning codecov so the patch report
   # doesn't double-flag what Kover correctly ignores.
