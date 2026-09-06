@@ -504,8 +504,6 @@ kover {
                     "dev.ayuislands.settings.GlowGroupPanel*",
                     // Data class in EffectsPanel file, pure UI config
                     "dev.ayuislands.settings.SliderConfig*",
-                    // Glow rendering (Graphics2D paint, animation overlay, Swing lifecycle)
-                    "dev.ayuislands.glow.GlowOverlayManager*",
                     // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
                     "dev.ayuislands.accent.CachedMacReader*",
                     "dev.ayuislands.accent.SystemAccentProvider*",
