@@ -501,7 +501,6 @@ kover {
                     "dev.ayuislands.settings.AyuIslandsSettingsPanel*",
                     "dev.ayuislands.settings.AyuIslandsConfigurable*",
                     "dev.ayuislands.settings.PresetButtonBar*",
-                    "dev.ayuislands.settings.GlowGroupPanel*",
                     // Data class in EffectsPanel file, pure UI config
                     "dev.ayuislands.settings.SliderConfig*",
                     // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
