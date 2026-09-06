@@ -508,7 +508,6 @@ kover {
                     // IDE glue (thin event listeners, startup activity)
                     "dev.ayuislands.AyuIslandsStartupActivity*",
                     "dev.ayuislands.AyuIslandsLafListener*",
-                    "dev.ayuislands.AppearanceSyncListener*",
                     // LicenseChecker: thin IDE wrapper; crypto logic tested via LicenseVerifier
                     "dev.ayuislands.licensing.LicenseChecker*",
                     // IDE glue: Swing UI DSL panel (pure rendering, no extractable logic)
