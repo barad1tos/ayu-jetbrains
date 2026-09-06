@@ -1,118 +1,146 @@
 package dev.ayuislands.accent
 
-import org.junit.jupiter.api.condition.EnabledOnOs
-import org.junit.jupiter.api.condition.OS
+import com.intellij.openapi.util.SystemInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
-import kotlin.test.assertTrue
 
-/**
- * Tests for [CachedMacReader].
- *
- * CachedMacReader guards with `SystemInfo.isMac` (static final boolean),
- * so these tests only run on macOS where that guard passes.
- */
-@EnabledOnOs(OS.MAC)
 class CachedMacReaderTest {
     @Test
-    fun `invokes reader on Mac when cache expired`() {
-        var callCount = 0
-        val reader =
-            CachedMacReader(ttlMs = 0L) {
-                callCount++
-                "result-$callCount"
-            }
+    fun `unsupported platform avoids clock and reader`() {
+        val cache =
+            CachedMacReader<String>(
+                isSupported = false,
+                clock = { error("Unsupported platforms must not consult the clock") },
+                reader = { error("Unsupported platforms must not read macOS preferences") },
+            )
 
-        assertEquals("result-1", reader.read())
-        assertEquals("result-2", reader.read())
-        assertEquals(2, callCount)
+        assertNull(cache.read())
+        assertNull(cache.read())
     }
 
     @Test
-    fun `returns cached value within TTL`() {
-        var callCount = 0
-        val reader =
-            CachedMacReader(ttlMs = 60_000L) {
-                callCount++
-                "cached-value"
-            }
-
-        assertEquals("cached-value", reader.read())
-        assertEquals("cached-value", reader.read())
-        assertEquals(1, callCount)
-    }
-
-    @Test
-    fun `returns null when reader returns null`() {
-        val reader = CachedMacReader<String>(ttlMs = 0L) { null }
-
-        assertNull(reader.read())
-    }
-
-    @Test
-    fun `cache expires after ttlMs elapsed (mocked clock)`() {
-        // Drive the clock manually instead of Thread.sleep — keeps the test
-        // deterministic on slow CI machines.
+    fun `cached value refreshes at exact TTL boundary`() {
         var nowMs = 1_000L
-        var callCount = 0
-        val reader =
+        var systemAccent = "#73D0FF"
+        val cache =
             CachedMacReader(
                 ttlMs = 50L,
                 clock = { nowMs },
-            ) {
-                callCount++
-                "fresh-$callCount"
-            }
+                isSupported = true,
+                reader = { systemAccent },
+            )
 
-        assertEquals("fresh-1", reader.read())
-        assertEquals(1, callCount)
-
-        // Still inside TTL window — cache hit
-        nowMs += 49L
-        assertEquals("fresh-1", reader.read())
-        assertEquals(1, callCount)
-
-        // Cross the TTL boundary — cache must refresh
-        nowMs += 2L
-        assertEquals("fresh-2", reader.read())
-        assertEquals(2, callCount)
+        assertEquals("#73D0FF", cache.read())
+        systemAccent = "#F27983"
+        nowMs = 1_049L
+        assertEquals("#73D0FF", cache.read())
+        nowMs = 1_050L
+        assertEquals("#F27983", cache.read())
     }
 
     @Test
-    fun `cache returns same instance within TTL across multiple calls`() {
-        var callCount = 0
-        val reader =
-            CachedMacReader(ttlMs = 60_000L) {
-                callCount++
-                // Deliberately allocate a fresh object each invocation
-                // so === identity distinguishes cache hits from misses.
-                StringBuilder("value").toString()
+    fun `zero TTL refreshes on every read`() {
+        val firstAccent = AccentValue("#73D0FF")
+        val secondAccent = AccentValue("#F27983")
+        val accents = ArrayDeque(listOf(firstAccent, secondAccent))
+        val cache =
+            CachedMacReader(
+                ttlMs = 0L,
+                isSupported = true,
+                reader = accents::removeFirst,
+            )
+
+        assertSame(firstAccent, cache.read())
+        assertSame(secondAccent, cache.read())
+    }
+
+    @Test
+    fun `null remains cached until TTL then reader recovers`() {
+        var nowMs = 1_000L
+        var systemAccent: String? = null
+        var readCount = 0
+        val cache =
+            CachedMacReader(
+                ttlMs = 50L,
+                clock = { nowMs },
+                isSupported = true,
+                reader = {
+                    readCount++
+                    systemAccent
+                },
+            )
+
+        assertNull(cache.read())
+        systemAccent = "#73D0FF"
+        nowMs = 1_049L
+        assertNull(cache.read())
+        assertEquals(1, readCount)
+        nowMs = 1_050L
+        assertEquals("#73D0FF", cache.read())
+        assertEquals(2, readCount)
+    }
+
+    @Test
+    fun `reader exception propagates and next read retries`() {
+        val readFailure = IllegalStateException("macOS accent preference unavailable")
+        var shouldFail = true
+        val cache =
+            CachedMacReader(
+                clock = { 10_000L },
+                isSupported = true,
+                reader = {
+                    if (shouldFail) {
+                        shouldFail = false
+                        throw readFailure
+                    }
+                    "#73D0FF"
+                },
+            )
+
+        assertSame(readFailure, assertFailsWith<IllegalStateException> { cache.read() })
+        assertEquals("#73D0FF", cache.read())
+    }
+
+    @Test
+    fun `cached value keeps the same instance within TTL`() {
+        val cache =
+            CachedMacReader(
+                ttlMs = 60_000L,
+                clock = { 100_000L },
+                isSupported = true,
+                reader = { AccentValue("#73D0FF") },
+            )
+
+        val firstRead = assertNotNull(cache.read())
+
+        assertSame(firstRead, cache.read())
+    }
+
+    @Test
+    fun `default platform support follows SystemInfo`() {
+        var readCount = 0
+        val cache =
+            CachedMacReader {
+                readCount++
+                "#73D0FF"
             }
 
-        val first = reader.read()
-        val second = reader.read()
-        val third = reader.read()
-        val fourth = reader.read()
-        val fifth = reader.read()
+        val accent = cache.read()
 
-        // Reader must have been invoked exactly once
-        assertEquals(1, callCount)
-
-        // All five results equal by value
-        assertEquals(first, second)
-        assertEquals(first, third)
-        assertEquals(first, fourth)
-        assertEquals(first, fifth)
-
-        // And they must be the SAME instance (cached, not re-read)
-        assertSame(first, second)
-        assertSame(first, third)
-        assertSame(first, fourth)
-        assertSame(first, fifth)
-
-        // Sanity: first cached value is non-null
-        assertTrue(first != null)
+        if (SystemInfo.isMac) {
+            assertEquals("#73D0FF", accent)
+            assertEquals(1, readCount)
+        } else {
+            assertNull(accent)
+            assertEquals(0, readCount)
+        }
     }
+
+    private data class AccentValue(
+        val hex: String,
+    )
 }
