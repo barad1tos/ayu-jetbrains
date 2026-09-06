@@ -506,7 +506,6 @@ kover {
                     "dev.ayuislands.settings.SliderConfig*",
                     // Glow rendering (Graphics2D paint, animation overlay, Swing lifecycle)
                     "dev.ayuislands.glow.GlowOverlayManager*",
-                    "dev.ayuislands.glow.GlowGlassPane*",
                     // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
                     "dev.ayuislands.accent.CachedMacReader*",
                     "dev.ayuislands.accent.SystemAccentProvider*",
