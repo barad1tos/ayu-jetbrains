@@ -10,9 +10,14 @@ import com.intellij.openapi.options.SchemeManagerFactory
 import com.intellij.openapi.options.SchemeProcessor
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.ApplicationRule
+import com.intellij.util.xmlb.XmlSerializer
+import dev.ayuislands.font.FontOwnershipCodec
+import dev.ayuislands.font.FontOwnershipStatus
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
+import dev.ayuislands.font.FontSnapshot
+import dev.ayuislands.font.FontWeight
 import dev.ayuislands.settings.AyuIslandsSettings
 import io.mockk.every
 import io.mockk.mockk
@@ -28,6 +33,7 @@ import org.junit.rules.TemporaryFolder
 import javax.swing.SwingUtilities
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -46,7 +52,8 @@ class FontPersistenceTest {
 
     @Before
     fun setup() {
-        val parent = EditorColorsManager.getInstance().globalScheme
+        val parent =
+            requireNotNull(EditorColorsManager.getInstance().getScheme(EditorColorsManager.getDefaultSchemeName()))
         activeScheme =
             EditorColorsSchemeImpl(parent).apply {
                 name = "Personal persisted fonts"
@@ -83,6 +90,105 @@ class FontPersistenceTest {
     fun cleanup() {
         if (::schemeManager.isInitialized) factory.dispose(schemeManager)
         unmockkAll()
+    }
+
+    @Test
+    fun ownershipSurvivesReload() {
+        val settings = AyuIslandsSettings.getInstance()
+        val requested = customFonts().copy(applyToConsole = false, weight = FontWeight.REGULAR)
+        settings.state.fontPresetEnabled = true
+        settings.state.fontPresetName = FontPreset.CUSTOM.name
+        settings.state.fontPresetCustomizations[FontPreset.CUSTOM.name] = requested.encode()
+        SwingUtilities.invokeAndWait { FontPresetApplicator.apply(requested) }
+        val before = settings.state.fontOwnershipSnapshots.toMap()
+        schemeManager.save()
+        activeScheme = reloadScheme()
+        schemeManager.addScheme(activeScheme)
+        val xml = JDOMUtil.writeElement(XmlSerializer.serialize(settings.state))
+        settings.loadState(XmlSerializer.deserialize(JDOMUtil.load(xml), settings.state.javaClass))
+
+        SwingUtilities.invokeAndWait { FontPresetApplicator.applyFromState() }
+        assertEquals(before, settings.state.fontOwnershipSnapshots)
+        assertEquals(19f, activeScheme.editorFontSize2D)
+        assertEquals("Serif", activeScheme.editorFontName)
+        assertTrue(
+            settings.state.fontOwnershipSnapshots.values.all {
+                FontOwnershipCodec.decode(it)?.status == FontOwnershipStatus.OWNED
+            },
+        )
+        SwingUtilities.invokeAndWait { FontPresetApplicator.revert() }
+        assertEquals("Dialog", activeScheme.editorFontName)
+        assertEquals(17f, activeScheme.editorFontSize2D)
+        assertTrue(settings.state.fontOwnershipSnapshots.isEmpty())
+    }
+
+    private fun reloadRegularPreset(): FontSettings {
+        val settings = AyuIslandsSettings.getInstance()
+        val requested = customFonts().copy(applyToConsole = false, weight = FontWeight.REGULAR)
+        settings.state.fontPresetEnabled = true
+        settings.state.fontPresetName = FontPreset.CUSTOM.name
+        settings.state.fontPresetCustomizations[FontPreset.CUSTOM.name] = requested.encode()
+        SwingUtilities.invokeAndWait { FontPresetApplicator.apply(requested) }
+        schemeManager.save()
+        activeScheme = reloadScheme()
+        schemeManager.addScheme(activeScheme)
+        return requested
+    }
+
+    @Test
+    fun manualEditsSurviveReload() {
+        reloadRegularPreset()
+        val state = AyuIslandsSettings.getInstance().state
+        val key = state.fontOwnershipSnapshots.keys.single()
+        val before = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
+        SwingUtilities.invokeAndWait {
+            activeScheme.setEditorFontSize(23f)
+            FontPresetApplicator.applyFromState()
+        }
+        val suspended = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
+        assertEquals(23f, activeScheme.editorFontSize2D)
+        assertEquals(FontOwnershipStatus.SUSPENDED, suspended.status)
+        assertEquals(before.baseline, suspended.baseline)
+        SwingUtilities.invokeAndWait { FontPresetApplicator.revert() }
+        val released = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
+        assertEquals(23f, activeScheme.editorFontSize2D)
+        assertEquals(FontOwnershipStatus.RELEASED, released.status)
+        assertEquals(before.baseline, released.baseline)
+    }
+
+    @Test
+    fun explicitRecoverySurvivesReload() {
+        val requested = reloadRegularPreset()
+        val state = AyuIslandsSettings.getInstance().state
+        val key = state.fontOwnershipSnapshots.keys.single()
+        val record = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
+        val applied = assertIs<FontSnapshot.Explicit>(record.applied)
+        val oldRaw =
+            FontOwnershipCodec.encode(
+                record.copy(
+                    status = FontOwnershipStatus.SUSPENDED,
+                    applied = FontSnapshot.Explicit(applied.preferences.copy(regularSubFamily = "")),
+                ),
+            )
+        state.fontOwnershipSnapshots[key] = oldRaw
+        SwingUtilities.invokeAndWait { FontPresetApplicator.applyFromState() }
+        assertEquals(oldRaw, state.fontOwnershipSnapshots.getValue(key))
+        assertEquals(19f, activeScheme.editorFontSize2D)
+        SwingUtilities.invokeAndWait {
+            state.fontPresetEnabled = false
+            FontPresetApplicator.revert()
+            state.fontPresetEnabled = true
+            FontPresetApplicator.apply(requested)
+        }
+        val recovered = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
+        assertEquals(FontOwnershipStatus.OWNED, recovered.status)
+        assertNull(assertIs<FontSnapshot.Explicit>(recovered.applied).preferences.regularSubFamily)
+        val beforeReload = state.fontOwnershipSnapshots.toMap()
+        schemeManager.save()
+        activeScheme = reloadScheme()
+        schemeManager.addScheme(activeScheme)
+        SwingUtilities.invokeAndWait { FontPresetApplicator.applyFromState() }
+        assertEquals(beforeReload, state.fontOwnershipSnapshots)
     }
 
     @Test

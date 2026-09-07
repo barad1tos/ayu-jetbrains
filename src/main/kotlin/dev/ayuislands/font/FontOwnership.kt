@@ -73,7 +73,7 @@ internal class FontOwnership(
                 lineSpacing = settings.lineSpacing,
                 ligatures =
                     if (surface == FontSurface.EDITOR) settings.enableLigatures else current.ligatures,
-                regularSubFamily = settings.weight.subFamily,
+                regularSubFamily = settings.weight.subFamily.takeIf(String::isNotEmpty),
             ),
         )
     }

@@ -19,6 +19,7 @@ import dev.ayuislands.font.FontDetector
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
+import dev.ayuislands.font.FontWeight
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.FontPresetPanel
@@ -36,6 +37,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class FontPresetOwnershipTest {
@@ -525,7 +527,11 @@ class FontPresetOwnershipTest {
         assertEquals(preset.fontSize, scheme.editorFontSize2D)
         assertEquals(preset.lineSpacing, scheme.lineSpacing)
         assertEquals(preset.enableLigatures, scheme.isUseLigatures)
-        assertEquals(preset.defaultWeight.subFamily, scheme.fontPreferences.regularSubFamily)
+        if (preset.defaultWeight == FontWeight.REGULAR) {
+            assertNull(scheme.fontPreferences.regularSubFamily)
+        } else {
+            assertEquals(preset.defaultWeight.subFamily, scheme.fontPreferences.regularSubFamily)
+        }
         assertFalse(scheme.isUseAppFontPreferencesInEditor)
     }
 
