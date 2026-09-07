@@ -4,8 +4,6 @@ import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -41,7 +39,7 @@ class FontUninstallerTest {
 
     /**
      * Stub the heavy dependencies of [FontUninstaller.runUninstallPipeline]:
-     * [AyuIslandsSettings], [FontPresetApplicator], [EditorColorsManager],
+     * [AyuIslandsSettings], [FontPresetApplicator],
      * [Application.invokeLater] (runs synchronously so test assertions
      * can inspect post-state), and [FontInstaller.platformFontDir] pinned to
      * a controlled temp directory.
@@ -49,7 +47,6 @@ class FontUninstallerTest {
     private fun stubUninstallPipeline(
         state: AyuIslandsState,
         platformDir: File,
-        activeEditorFont: String,
     ) {
         mockkObject(FontInstaller)
         every { FontInstaller.platformFontDir() } returns platformDir
@@ -60,13 +57,6 @@ class FontUninstallerTest {
 
         mockkObject(FontPresetApplicator)
         every { FontPresetApplicator.revert(any()) } just Runs
-
-        mockkStatic(EditorColorsManager::class)
-        val ecm = mockk<EditorColorsManager>()
-        val scheme = mockk<EditorColorsScheme>()
-        every { EditorColorsManager.getInstance() } returns ecm
-        every { ecm.globalScheme } returns scheme
-        every { scheme.editorFontName } returns activeEditorFont
 
         mockkStatic(ApplicationManager::class)
         val app = mockk<Application>()
@@ -91,7 +81,7 @@ class FontUninstallerTest {
                     installedFontFiles["Maple Mono"] =
                         "${tracked1.absolutePath}\n${tracked2.absolutePath}"
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -118,7 +108,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = trackedFile.absolutePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -136,50 +126,6 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun uninstall_revertsActiveFont() {
-        val platformDir = createTempDirectory("uninst-revert").toFile()
-        try {
-            val trackedFile = File(platformDir, "MapleMono.ttf").apply { writeText("x") }
-            val state =
-                AyuIslandsState().apply {
-                    installedFonts.add("Maple Mono")
-                    installedFontFiles["Maple Mono"] = trackedFile.absolutePath
-                }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "Maple Mono")
-
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
-
-            verify(exactly = 1) { FontPresetApplicator.revert("Maple Mono") }
-        } finally {
-            platformDir.deleteRecursively()
-        }
-    }
-
-    @Test
-    fun uninstall_leavesInactiveFontAlone() {
-        val platformDir = createTempDirectory("uninst-leave-alone").toFile()
-        try {
-            val trackedFile = File(platformDir, "MapleMono.ttf").apply { writeText("x") }
-            val state =
-                AyuIslandsState().apply {
-                    installedFonts.add("Maple Mono")
-                    installedFontFiles["Maple Mono"] = trackedFile.absolutePath
-                }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
-
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
-
-            verify(exactly = 0) { FontPresetApplicator.revert(any()) }
-        } finally {
-            platformDir.deleteRecursively()
-        }
-    }
-
-    @Test
     fun uninstall_rejectsPathOutsidePlatformDir() {
         val platformDir = createTempDirectory("uninst-traversal").toFile()
         val outsideDir = createTempDirectory("uninst-outside").toFile()
@@ -191,7 +137,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = escapePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -230,7 +176,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = stubbornFile.absolutePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -263,7 +209,7 @@ class FontUninstallerTest {
                 AyuIslandsState().apply {
                     installedFonts.add("Maple Mono")
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -333,7 +279,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = trackedFile.absolutePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "Maple Mono")
+            stubUninstallPipeline(state, platformDir)
             every { FontPresetApplicator.revert(any()) } throws RuntimeException("EDT crash")
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
@@ -360,7 +306,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = outsideFile.absolutePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)

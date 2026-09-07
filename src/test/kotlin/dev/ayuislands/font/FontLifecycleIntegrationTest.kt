@@ -4,8 +4,6 @@ import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.progress.ProgressIndicator
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -26,9 +24,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Integration tests that exercise the full font lifecycle as a user would
- * experience it. Each test simulates a complete user scenario end-to-end
- * rather than testing individual methods in isolation.
+ * Exercise install/delete bookkeeping against temporary files and controlled host font discovery.
+ * Native scheme restoration is covered by the application-backed FontUninstallOwnershipTest.
  */
 class FontLifecycleIntegrationTest {
     @AfterTest
@@ -40,7 +37,6 @@ class FontLifecycleIntegrationTest {
     private fun stubPlatform(
         state: AyuIslandsState,
         platformDir: File,
-        activeEditorFont: String = "JetBrains Mono",
         jvmFonts: Array<String> = arrayOf("JetBrains Mono"),
     ) {
         mockkObject(FontInstaller)
@@ -52,13 +48,6 @@ class FontLifecycleIntegrationTest {
 
         mockkObject(FontPresetApplicator)
         every { FontPresetApplicator.revert(any()) } just Runs
-
-        mockkStatic(EditorColorsManager::class)
-        val ecm = mockk<EditorColorsManager>()
-        val scheme = mockk<EditorColorsScheme>()
-        every { EditorColorsManager.getInstance() } returns ecm
-        every { ecm.globalScheme } returns scheme
-        every { scheme.editorFontName } returns activeEditorFont
 
         mockkStatic(ApplicationManager::class)
         val app = mockk<Application>()
@@ -230,55 +219,6 @@ class FontLifecycleIntegrationTest {
                 "Seeder must NOT re-add a font the user explicitly deleted",
             )
             assertTrue(state.installedFontsSeeded, "Seeded flag must be set regardless")
-        } finally {
-            platformDir.deleteRecursively()
-        }
-    }
-
-    /**
-     * User deletes the currently active editor font. The editor must
-     * automatically revert to JetBrains Mono so the user doesn't end up
-     * with invisible/broken text.
-     */
-    @Test
-    fun `deleting active editor font triggers automatic revert`() {
-        val platformDir = createTempDirectory("lifecycle-revert").toFile()
-        try {
-            val state = AyuIslandsState()
-            stubPlatform(state, platformDir, activeEditorFont = "Maple Mono")
-
-            val fontFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("font") }
-            FontInstaller.persistFontState("Maple Mono", listOf(fontFile))
-
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
-
-            io.mockk.verify(exactly = 1) { FontPresetApplicator.revert("Maple Mono") }
-        } finally {
-            platformDir.deleteRecursively()
-        }
-    }
-
-    /**
-     * User deletes a font they are NOT currently using in the editor.
-     * The editor font must NOT change — revert should not fire.
-     */
-    @Test
-    fun `deleting non-active font does not touch editor settings`() {
-        val platformDir = createTempDirectory("lifecycle-no-revert").toFile()
-        try {
-            val state = AyuIslandsState()
-            stubPlatform(state, platformDir, activeEditorFont = "JetBrains Mono")
-
-            val fontFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("font") }
-            FontInstaller.persistFontState("Maple Mono", listOf(fontFile))
-
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
-
-            io.mockk.verify(exactly = 0) { FontPresetApplicator.revert(any()) }
         } finally {
             platformDir.deleteRecursively()
         }

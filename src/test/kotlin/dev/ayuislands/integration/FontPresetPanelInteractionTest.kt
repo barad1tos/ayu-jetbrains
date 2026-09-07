@@ -35,6 +35,7 @@ import java.awt.Component
 import java.awt.Container
 import java.awt.datatransfer.DataFlavor
 import java.io.File
+import javax.accessibility.AccessibleState
 import javax.swing.AbstractButton
 import javax.swing.JComboBox
 import javax.swing.JLabel
@@ -152,6 +153,78 @@ class FontPresetPanelInteractionTest {
             assertTrue(settings.state.fontPresetEnabled)
             assertEquals(original, settings.state.fontPresetCustomizations)
             assertEquals(FontPreset.AMBIENT, applied.single().preset)
+        }
+    }
+
+    @org.junit.Test
+    fun unavailablePresetSurvivesPanelLifecycle() {
+        SwingUtilities.invokeAndWait {
+            val unavailable = "FUTURE_PRESET"
+            val original = mapOf(unavailable to "21.00|1.37|true|FUTURE_WEIGHT|Unavailable Font|extension=42")
+            settings.state.fontPresetName = unavailable
+            settings.state.fontPresetCustomizations.putAll(original)
+            val originalXml = JDOMUtil.writeElement(XmlSerializer.serialize(settings.state))
+
+            openPanel()
+
+            assertEquals(originalXml, JDOMUtil.writeElement(XmlSerializer.serialize(settings.state)))
+            assertTrue(selectedPresets().isEmpty(), "An unavailable preset must not select a known fallback")
+            assertTrue(labels().any { unavailable in it && "unavailable" in it.lowercase() })
+            assertRows(null)
+            assertFalse(participant.isModified())
+            selectPreset(FontPreset.WHISPER)
+            participant.reset()
+            assertTrue(selectedPresets().isEmpty())
+            participant.apply()
+            assertEquals(originalXml, JDOMUtil.writeElement(XmlSerializer.serialize(settings.state)))
+            assertTrue(applied.isEmpty())
+
+            button("Apply font preset").doClick()
+            participant.apply()
+            reloadSettings()
+            openPanel()
+            assertFalse(settings.state.fontPresetEnabled)
+            assertEquals(unavailable, settings.state.fontPresetName)
+            button("Apply font preset").doClick()
+            participant.apply()
+            reloadSettings()
+            openPanel()
+            assertTrue(settings.state.fontPresetEnabled)
+            assertEquals(unavailable, settings.state.fontPresetName)
+            assertEquals(original, settings.state.fontPresetCustomizations)
+            assertTrue(selectedPresets().isEmpty())
+            assertTrue(applied.isEmpty())
+
+            selectPreset(FontPreset.WHISPER)
+            participant.apply()
+            assertEquals("WHISPER", settings.state.fontPresetName)
+            assertEquals(listOf("Whisper"), selectedPresets())
+            assertEquals(original, settings.state.fontPresetCustomizations)
+            assertEquals(FontPreset.WHISPER, applied.single().preset)
+        }
+    }
+
+    @org.junit.Test
+    fun unavailablePresetRejectsStaleTypographyEdits() {
+        SwingUtilities.invokeAndWait {
+            val unavailable = "FUTURE_PRESET"
+            val encoded = "opaque|future|customization"
+            settings.state.fontPresetName = unavailable
+            settings.state.fontPresetCustomizations[unavailable] = encoded
+            openPanel()
+
+            size().value = 22
+            spacing().value = 1.8
+            weight().selectedItem = FontWeight.MEDIUM
+            button("Ligatures").doClick()
+            button("Install automatically").doClick()
+            participant.apply()
+
+            assertEquals(unavailable, settings.state.fontPresetName)
+            assertEquals(mapOf(unavailable to encoded), settings.state.fontPresetCustomizations)
+            assertFalse(participant.isModified())
+            assertTrue(applied.isEmpty())
+            assertTrue(events.isEmpty())
         }
     }
 
@@ -643,6 +716,14 @@ class FontPresetPanelInteractionTest {
     private fun presetNames(): List<String> =
         descendants(component)
             .mapNotNull { it.accessibleContext?.accessibleName }
+            .filter { name -> FontPreset.entries.any { it.displayName == name } }
+            .toList()
+
+    private fun selectedPresets(): List<String> =
+        descendants(component)
+            .mapNotNull { it.accessibleContext }
+            .filter { it.accessibleStateSet.contains(AccessibleState.CHECKED) }
+            .mapNotNull { it.accessibleName }
             .filter { name -> FontPreset.entries.any { it.displayName == name } }
             .toList()
 

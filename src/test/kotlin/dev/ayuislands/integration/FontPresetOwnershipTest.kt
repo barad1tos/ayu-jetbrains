@@ -154,6 +154,45 @@ class FontPresetOwnershipTest {
     }
 
     @Test
+    fun unavailablePresetDoesNotApplyFallbackAfterReload() {
+        SwingUtilities.invokeAndWait {
+            val original = scheme.clone() as EditorColorsScheme
+            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER).copy(applyToConsole = true))
+            val owned = scheme.clone() as EditorColorsScheme
+            settings.state.fontPresetEnabled = true
+            settings.state.fontApplyToConsole = true
+            settings.state.fontPresetName = "FUTURE_PRESET"
+            val customizations = mapOf("FUTURE_PRESET" to "opaque|future|customization")
+            settings.state.fontPresetCustomizations.putAll(customizations)
+            val snapshots = settings.state.fontOwnershipSnapshots.toMap()
+            reloadSettings()
+
+            FontPresetApplicator.applyFromState()
+
+            assertFontsEqual(owned, scheme)
+            assertEquals(snapshots, settings.state.fontOwnershipSnapshots)
+            assertEquals("FUTURE_PRESET", settings.state.fontPresetName)
+            assertEquals(customizations, settings.state.fontPresetCustomizations)
+            settings.state.fontPresetEnabled = false
+            FontPresetApplicator.applyFromState()
+            assertFontsEqual(original, scheme)
+            reloadSettings()
+            settings.state.fontPresetEnabled = true
+            FontPresetApplicator.applyFromState()
+            assertFontsEqual(original, scheme)
+            assertEquals("FUTURE_PRESET", settings.state.fontPresetName)
+            assertEquals(customizations, settings.state.fontPresetCustomizations)
+            assertEquals(emptyMap(), settings.state.fontOwnershipSnapshots)
+
+            settings.state.fontPresetName = "AMBIENT"
+            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
+            assertApplied(FontPreset.AMBIENT)
+            FontPresetApplicator.revert()
+            assertFontsEqual(original, scheme)
+        }
+    }
+
+    @Test
     fun legacyAutomaticApplyDoesNotGuessMissingBaseline() {
         SwingUtilities.invokeAndWait {
             settings.state.fontPresetEnabled = true
@@ -376,7 +415,7 @@ class FontPresetOwnershipTest {
             FontPresetApplicator.revert()
             assertFontsEqual(afterReload, scheme)
             assertEquals(backup, recoveryBaselines())
-            assertEquals(2, notifications.size)
+            assertEquals(1, notifications.size)
             val released = settings.state.fontOwnershipSnapshots.toMap()
             reloadSettings()
             settings.state.fontPresetEnabled = true
@@ -386,7 +425,7 @@ class FontPresetOwnershipTest {
             assertFontsEqual(afterReload, scheme)
             assertEquals(backup, recoveryBaselines())
             assertEquals(released, settings.state.fontOwnershipSnapshots)
-            assertEquals(2, notifications.size)
+            assertEquals(1, notifications.size)
             FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER))
             assertApplied(FontPreset.WHISPER)
             FontPresetApplicator.revert()
@@ -414,7 +453,7 @@ class FontPresetOwnershipTest {
         SwingUtilities.invokeAndWait {
             FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT).copy(applyToConsole = true))
             val applied = FontPreferencesImpl().also { scheme.consoleFontPreferences.copyTo(it) }
-            val backup = recoveryBaselines().filterKeys { it.startsWith("CONSOLE:") }
+            val backup = recoveryBaselines().filterKeys { it.startsWith("v2:CONSOLE:") }
             scheme.setUseEditorFontPreferencesInConsole()
             FontPresetApplicator.revert()
             assertEquals(backup, recoveryBaselines())
@@ -440,7 +479,7 @@ class FontPresetOwnershipTest {
                     raw.replaceFirst("<font-ownership ", "<font-ownership xmlns:x=\"urn:future\" x:status=\"future\" "),
                     raw.replaceFirst("<font-ownership ", "<font-ownership xmlns=\"urn:future\" "),
                     raw.replaceFirst("<baseline ", "<baseline future=\"opaque\" "),
-                    raw.replaceFirst("version=\"1\"", "version=\"99\""),
+                    raw.replaceFirst("version=\"2\"", "version=\"99\""),
                     raw.replaceFirst("status=\"OWNED\"", "status=\"FUTURE\""),
                     raw.replaceFirst("mode=\"explicit\"", "mode=\"future\""),
                     raw.replaceFirst("ligatures=\"true\"", "ligatures=\"future\""),

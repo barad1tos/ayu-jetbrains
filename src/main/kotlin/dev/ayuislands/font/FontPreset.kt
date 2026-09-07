@@ -78,9 +78,11 @@ enum class FontPreset(
                 "COMPACT" to "NEON",
             )
 
-        fun fromName(name: String?): FontPreset {
+        fun fromName(name: String?): FontPreset = findByName(name ?: AMBIENT.name) ?: AMBIENT
+
+        internal fun findByName(name: String): FontPreset? {
             val migrated = migrateName(name)
-            return entries.firstOrNull { it.name == migrated } ?: AMBIENT
+            return entries.firstOrNull { it.name == migrated }
         }
 
         internal fun migrateName(name: String?): String? = LEGACY_NAMES[name] ?: name

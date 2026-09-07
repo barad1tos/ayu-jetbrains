@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -76,7 +78,8 @@ class ScreenshotRestampTest(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-qm", "Fixture")
 
-    def restamp(self, *identifiers: str) -> tuple[int, str]:
+    @staticmethod
+    def restamp(*identifiers: str) -> tuple[int, str]:
         output = io.StringIO()
         with (
             patch.object(sys, "argv", ["verify-docs.py", "--restamp", *identifiers]),
@@ -89,7 +92,8 @@ class ScreenshotRestampTest(unittest.TestCase):
                 code = int(str(error.code))
         return code, output.getvalue()
 
-    def findings(self) -> Report:
+    @staticmethod
+    def findings() -> Report:
         report = Report()
         screenshots.check_screenshots(features.load_features(), report)
         return report
@@ -268,6 +272,81 @@ class ScreenshotRestampTest(unittest.TestCase):
         (nested / "Renamed.kt").rename(source_file)
         source_file.unlink()
         self.assertTrue(self.findings().has_errors)
+
+    def create_source_tree(self) -> Path:
+        source_dir = self.root / "panels"
+        nested = source_dir / "nested"
+        nested.mkdir(parents=True)
+        (source_dir / "Visible.kt").write_text("class Visible\n")
+        (nested / "Panel.kt").write_text("class Panel\n")
+        self.manifest.write_text(
+            self.manifest.read_text().replace("- Panel.kt", "- panels")
+        )
+        return nested
+
+    def test_existing_directory_stamps_survive(self) -> None:
+        source_dir = self.root / "panels"
+        (source_dir / "alpha").mkdir(parents=True)
+        (source_dir / "alpha" / "Panel.kt").write_bytes(b"class Panel\n")
+        (source_dir / "alpha.kt").write_bytes(b"class Alpha\n")
+        (source_dir / "Alias.kt").symlink_to("alpha/Panel.kt")
+        (source_dir / "linked").symlink_to("alpha", target_is_directory=True)
+        (source_dir / "missing").symlink_to("absent.kt")
+        (self.root / "panels-alias").symlink_to("panels", target_is_directory=True)
+        original = self.manifest.read_text()
+        existing_stamps = {
+            "panels": "e1a89a55b43dd3fa7fbdb640e957d66d9f2b20195b87dbd02a5c1ef9a572162e",
+            "panels-alias": "db6b80aa11f94ec116b822ad7fdeaf7d143239009dcaab732aef3c309960ee52",
+        }
+        for source_path, stamp in existing_stamps.items():
+            with self.subTest(source=source_path):
+                self.manifest.write_text(
+                    original.replace("- Panel.kt", f"- {source_path}")
+                    + f'          sources_sha256: "{stamp}"\n'
+                )
+                self.assertEqual([], self.findings().findings)
+
+    def test_unreadable_tree_refuses_restamp(self) -> None:
+        denied = self.create_source_tree()
+        original = self.manifest.read_bytes()
+        real_scandir = os.scandir
+
+        def scan(
+            directory: str | os.PathLike[str],
+        ) -> AbstractContextManager[Iterator[os.DirEntry[str]]]:
+            if Path(directory) == denied:
+                raise PermissionError(f"Cannot enumerate {denied}")
+            return real_scandir(directory)
+
+        with patch("os.scandir", scan):
+            code, output = self.restamp("panel")
+
+        self.assertNotEqual(0, code, output)
+        self.assertIn("Cannot enumerate", output)
+        self.assertEqual(original, self.manifest.read_bytes())
+
+    def test_unreadable_tree_fails_check(self) -> None:
+        denied = self.create_source_tree()
+        code, output = self.restamp("panel")
+        self.assertEqual(0, code, output)
+        original = self.manifest.read_bytes()
+        real_scandir = os.scandir
+
+        def scan(
+            directory: str | os.PathLike[str],
+        ) -> AbstractContextManager[Iterator[os.DirEntry[str]]]:
+            if Path(directory) == denied:
+                raise PermissionError(f"Cannot enumerate {denied}")
+            return real_scandir(directory)
+
+        with patch("os.scandir", scan):
+            report = self.findings()
+
+        self.assertTrue(report.has_errors)
+        self.assertTrue(
+            any("Cannot read screenshot sources" in finding.message for finding in report.findings)
+        )
+        self.assertEqual(original, self.manifest.read_bytes())
 
 
 if __name__ == "__main__":

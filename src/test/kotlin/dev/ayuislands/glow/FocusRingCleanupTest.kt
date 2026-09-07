@@ -1,7 +1,11 @@
 package dev.ayuislands.glow
 
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import java.awt.Color
-import java.awt.Component
+import java.awt.Window
 import java.awt.event.FocusEvent
 import java.awt.event.FocusListener
 import java.awt.event.HierarchyEvent
@@ -206,17 +210,14 @@ private fun install(
 ): FocusListener {
     val before = field.focusListeners.toSet()
     val container = JPanel().apply { add(field) }
-    // Exercise real recursive installation without requiring a native Window in headless tests.
-    val installer =
-        FocusRingManager::class.java.getDeclaredMethod(
-            "installFocusListenersRecursively",
-            Component::class.java,
-            Color::class.java,
-            GlowStyle::class.java,
-            Int::class.javaPrimitiveType,
-        )
-    installer.isAccessible = true
-    installer.invoke(manager, container, Color.ORANGE, GlowStyle.SOFT, 50)
+    val window = mockk<Window> { every { components } returns arrayOf(container) }
+    mockkStatic(Window::class)
+    try {
+        every { Window.getWindows() } returns arrayOf(window)
+        manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+    } finally {
+        unmockkStatic(Window::class)
+    }
     return field.focusListeners.single { it !in before }
 }
 

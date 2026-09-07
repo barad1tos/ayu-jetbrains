@@ -120,7 +120,7 @@ object FontInstaller {
         val entry = FontCatalog.forPreset(preset)
         ApplicationManager.getApplication().invokeLater {
             try {
-                FontPresetApplicator.apply(FontSettings.decode(null, preset))
+                FontPresetApplicator.applyInstalled(FontSettings.decode(null, preset))
             } catch (exception: RuntimeException) {
                 LOG.warn("FontPresetApplicator.apply failed (applyOnly, preset=${preset.name})", exception)
                 if (entry != null) {
@@ -335,7 +335,7 @@ object FontInstaller {
         ApplicationManager.getApplication().invokeLater {
             try {
                 persistFontState(canonicalFamily, installedFiles)
-                FontPresetApplicator.apply(FontSettings.decode(null, entry.preset))
+                FontPresetApplicator.applyInstalled(FontSettings.decode(null, entry.preset))
                 verifyApplied(entry, canonicalFamily, project)
                 onComplete(InstallResult.Success(canonicalFamily))
             } catch (e: RuntimeException) {

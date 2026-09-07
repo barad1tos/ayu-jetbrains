@@ -27,7 +27,12 @@ object FontPresetApplicator {
                 )
                 return@ensureEdt
             }
-            val preset = FontPreset.fromName(state.fontPresetName)
+            val preset =
+                FontPreset.findByName(state.fontPresetName ?: FontPreset.AMBIENT.name)
+                    ?: run {
+                        LOG.info("Preserving font settings for unavailable preset '${state.fontPresetName}'")
+                        return@ensureEdt
+                    }
             val settings = FontSettings.decode(state.fontPresetCustomizations[preset.name], preset)
             apply(settings.copy(applyToConsole = state.fontApplyToConsole), FontApplyOrigin.AUTOMATIC)
         }
@@ -35,6 +40,19 @@ object FontPresetApplicator {
 
     /** Apply the given font settings to the editor (and console if opted in). */
     fun apply(settings: FontSettings) = apply(settings, FontApplyOrigin.EXPLICIT)
+
+    /** Apply from the installer without making the disabled managed-preset toggle own the write. */
+    internal fun applyInstalled(settings: FontSettings) {
+        ensureEdt {
+            val origin =
+                if (AyuIslandsSettings.getInstance().state.fontPresetEnabled) {
+                    FontApplyOrigin.EXPLICIT
+                } else {
+                    FontApplyOrigin.ONE_SHOT
+                }
+            apply(settings, origin)
+        }
+    }
 
     private fun apply(
         settings: FontSettings,
@@ -46,12 +64,16 @@ object FontPresetApplicator {
                 LOG.warn("Unsupported font ownership version; preserving current fonts")
                 return@ensureEdt
             }
+            require(settings.fontSize.isFinite() && settings.fontSize > 0f)
+            require(settings.lineSpacing.isFinite() && settings.lineSpacing > 0f)
             val manager = EditorColorsManager.getInstance()
             val scheme = manager.globalScheme
             // The manager may fall back to a hidden template when no editable copy is available.
-            if (manager.allSchemes.none { it === scheme }) return@ensureEdt
-            state.fontOwnershipVersion = FontOwnership.VERSION
-            if (FontOwnership.apply(scheme, settings, state, origin)) EditorSchemeChange.publish()
+            val schemes = manager.allSchemes
+            if (schemes.none { it === scheme }) return@ensureEdt
+            val identities = FontSchemeIdentity(schemes, state)
+            if (FontOwnership(scheme, state, identities).apply(settings, origin)) EditorSchemeChange.publish()
+            identities.notifyPreserved()
         }
     }
 
@@ -63,12 +85,16 @@ object FontPresetApplicator {
         ensureEdt {
             val state = AyuIslandsSettings.getInstance().state
             if (state.fontOwnershipSnapshots.isEmpty()) return@ensureEdt
-            if (state.fontOwnershipVersion != FontOwnership.VERSION) return@ensureEdt
+            if (state.fontOwnershipVersion !in 0..FontOwnership.VERSION) return@ensureEdt
             val manager = EditorColorsManager.getInstance()
             val schemes = manager.allSchemes
+            val identities = FontSchemeIdentity(schemes, state)
             var changed = false
-            for (scheme in schemes) changed = FontOwnership.restore(scheme, state, family) || changed
+            if (state.fontOwnershipVersion == FontOwnership.VERSION) {
+                for (scheme in schemes) changed = FontOwnership(scheme, state, identities).restore(family) || changed
+            }
             if (changed) EditorSchemeChange.publish()
+            identities.notifyPreserved()
         }
     }
 

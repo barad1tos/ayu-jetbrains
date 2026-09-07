@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import os
+import stat
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 from .paths import REPO_ROOT
@@ -170,15 +173,34 @@ def sources_sha256(paths: list[str]) -> str:
     for source_path in sorted(set(paths)):
         digest.update(source_path.encode("utf-8") + b"\0")
         source = REPO_ROOT / source_path
-        if source.is_dir():
+        if stat.S_ISDIR(source.stat().st_mode):
             digest.update(b"directory\0")
-            for child in sorted(source.rglob("*")):
-                if child.is_file():
-                    digest.update(
-                        child.relative_to(source).as_posix().encode("utf-8") + b"\0"
-                    )
-                    digest.update(file_sha256(child).encode("ascii") + b"\0")
+            for child in sorted(_iter_source_files(source)):
+                digest.update(
+                    child.relative_to(source).as_posix().encode("utf-8") + b"\0"
+                )
+                digest.update(file_sha256(child).encode("ascii") + b"\0")
         else:
             digest.update(b"file\0")
             digest.update(file_sha256(source).encode("ascii") + b"\0")
     return digest.hexdigest()
+
+
+def _iter_source_files(directory: Path) -> Iterator[Path]:
+    """Enumerate all source files, propagating traversal and metadata errors."""
+    with os.scandir(directory) as entries:
+        children = [Path(entry.path) for entry in entries]
+    for child in children:
+        mode = child.lstat().st_mode
+        if stat.S_ISDIR(mode):
+            yield from _iter_source_files(child)
+        elif stat.S_ISREG(mode):
+            yield child
+        elif stat.S_ISLNK(mode):
+            # Match existing stamps: include file links, skip directory and dangling links.
+            try:
+                target_mode = child.stat().st_mode
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            if stat.S_ISREG(target_mode):
+                yield child

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from .features import iter_features
 from .git_utils import (
@@ -26,9 +26,9 @@ def check_screenshots(data: dict[str, Any], report: Report) -> None:
     and individual guards are testable in isolation.
     """
     for feat in iter_features(data):
-        shot = feat.get("screenshot")
+        shot: dict[str, Any] | None = feat.get("screenshot")
         if isinstance(shot, dict):
-            _check_one_screenshot(feat["id"], cast(dict[str, Any], shot), report)
+            _check_one_screenshot(feat["id"], shot, report)
 
 
 def _check_one_screenshot(

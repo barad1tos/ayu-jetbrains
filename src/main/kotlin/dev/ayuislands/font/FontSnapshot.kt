@@ -42,6 +42,8 @@ internal enum class FontSurface {
         scheme: EditorColorsScheme,
         snapshot: FontSnapshot,
     ) {
+        // Native preference setters do not mark the scheme for saving, even after partial writes.
+        (scheme as? AbstractColorsScheme)?.setSaveNeeded(true)
         when (snapshot) {
             FontSnapshot.Inherited ->
                 when (this) {
