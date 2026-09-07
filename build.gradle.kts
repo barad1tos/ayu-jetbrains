@@ -505,8 +505,6 @@ kover {
                     "dev.ayuislands.settings.SliderConfig*",
                     // Pure-rendering UI panel (Integrations settings)
                     "dev.ayuislands.settings.IntegrationsPanel*",
-                    // IDE glue (thin event listeners, startup activity)
-                    "dev.ayuislands.AyuIslandsStartupActivity*",
                     // LicenseChecker: thin IDE wrapper; crypto logic tested via LicenseVerifier
                     "dev.ayuislands.licensing.LicenseChecker*",
                     // IDE glue: Swing UI DSL panel (pure rendering, no extractable logic)
