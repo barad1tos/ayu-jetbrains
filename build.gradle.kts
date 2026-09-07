@@ -568,8 +568,6 @@ kover {
                     "dev.ayuislands.whatsnew.WhatsNewEditor",
                     "dev.ayuislands.whatsnew.WhatsNewLauncher",
                     "dev.ayuislands.whatsnew.WhatsNewLauncher$*",
-                    // Startup lifecycle (coroutine scheduling, project service init)
-                    "dev.ayuislands.StartupLicenseHandler*",
                     // Onboarding data-class holders (generated constructors + getters only)
                     "dev.ayuislands.onboarding.WizardSvgGeometry",
                     "dev.ayuislands.onboarding.RailCardSpec",
