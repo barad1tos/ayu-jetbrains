@@ -79,9 +79,11 @@ enum class FontPreset(
             )
 
         fun fromName(name: String?): FontPreset {
-            val migrated = LEGACY_NAMES[name] ?: name
+            val migrated = migrateName(name)
             return entries.firstOrNull { it.name == migrated } ?: AMBIENT
         }
+
+        internal fun migrateName(name: String?): String? = LEGACY_NAMES[name] ?: name
 
         fun migrateCustomizations(map: MutableMap<String, String>) {
             for ((oldKey, newKey) in LEGACY_NAMES) {

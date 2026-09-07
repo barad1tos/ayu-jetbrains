@@ -30,6 +30,7 @@ import dev.ayuislands.licensing.ReconciliationResult
 import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.FocusedEditorContext
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
@@ -180,11 +181,7 @@ internal class AyuIslandsStartupActivity(
 
         // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
         // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)
-        val fontPreset = FontPreset.fromName(settings.state.fontPresetName)
-        if (fontPreset.name != settings.state.fontPresetName) {
-            settings.state.fontPresetName = fontPreset.name
-        }
-        FontPreset.migrateCustomizations(settings.state.fontPresetCustomizations)
+        migrateFontPresets(settings.state)
 
         // Seed installedFonts from the JVM font registry on first run so returning
         // users who pre-installed via the Settings panel aren't re-prompted by the wizard.
@@ -674,4 +671,9 @@ internal class AyuIslandsStartupActivity(
         private const val RECONCILIATION_RETRY_MS = 5_000L
         private val LOG = logger<AyuIslandsStartupActivity>()
     }
+}
+
+internal fun migrateFontPresets(state: AyuIslandsState) {
+    state.fontPresetName = FontPreset.migrateName(state.fontPresetName)
+    FontPreset.migrateCustomizations(state.fontPresetCustomizations)
 }
