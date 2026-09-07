@@ -172,9 +172,12 @@ class FontPresetPanelInteractionTest {
 
     @org.junit.Test
     fun nativeRenameCanReapplyUnchangedPreset() {
+        val parent = EditorColorsManager.getInstance().globalScheme
+        // MockK cancellation is thread-local; register on the same thread as cleanup().
+        mockkStatic(EditorColorsManager::class, Notifications.Bus::class)
         SwingUtilities.invokeAndWait {
             var activeScheme =
-                EditorColorsSchemeImpl(EditorColorsManager.getInstance().globalScheme).apply {
+                EditorColorsSchemeImpl(parent).apply {
                     name = "Personal font scheme"
                     fontPreferences = FontPreferencesImpl().apply { register("Dialog", 17.5f) }
                     consoleFontPreferences = FontPreferencesImpl().apply { register("Monospaced", 15.5f) }
@@ -182,7 +185,6 @@ class FontPresetPanelInteractionTest {
             val manager = mockk<EditorColorsManager>()
             every { manager.globalScheme } answers { activeScheme }
             every { manager.allSchemes } answers { arrayOf(activeScheme) }
-            mockkStatic(EditorColorsManager::class, Notifications.Bus::class)
             every { EditorColorsManager.getInstance() } returns manager
             every { Notifications.Bus.notify(any<Notification>(), isNull<Project>()) } returns Unit
             every { FontPresetApplicator.apply(any()) } answers { callOriginal() }
