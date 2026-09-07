@@ -1,15 +1,22 @@
 package dev.ayuislands.integration
 
+import com.intellij.notification.Notification
+import com.intellij.notification.Notifications
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.impl.EditorColorsSchemeImpl
+import com.intellij.openapi.editor.colors.impl.FontPreferencesImpl
 import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.testFramework.ApplicationRule
+import com.intellij.ui.TitledSeparator
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.xmlb.XmlSerializer
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.font.FontCatalog
+import dev.ayuislands.font.FontData
 import dev.ayuislands.font.FontDetector
 import dev.ayuislands.font.FontInstallConsent
 import dev.ayuislands.font.FontInstaller
@@ -34,6 +41,7 @@ import io.mockk.verify
 import java.awt.Component
 import java.awt.Container
 import java.awt.datatransfer.DataFlavor
+import java.awt.event.MouseEvent
 import java.io.File
 import javax.accessibility.AccessibleState
 import javax.swing.AbstractButton
@@ -45,6 +53,8 @@ import javax.swing.SpinnerNumberModel
 import javax.swing.SwingUtilities
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FontPresetPanelInteractionTest {
@@ -135,9 +145,12 @@ class FontPresetPanelInteractionTest {
             val original = mapOf("UNAVAILABLE" to "opaque|future|value", "WHISPER" to "16|1.4|true|LIGHT")
             settings.state.fontPresetCustomizations.putAll(original)
             openPanel()
+            expandCustomize()
             assertFalse(participant.isModified())
             assertTrue(applied.isEmpty())
+            assertTrue(button("Reapply preset").isVisible)
             button("Apply font preset").doClick()
+            assertFalse(button("Reapply preset").isVisible)
             assertTrue(participant.isModified())
             assertTrue(settings.state.fontPresetEnabled)
             participant.apply()
@@ -147,12 +160,92 @@ class FontPresetPanelInteractionTest {
             reloadSettings()
             openPanel()
             assertFalse(button("Apply font preset").isSelected)
+            assertFalse(button("Reapply preset").isVisible)
             assertFalse(participant.isModified())
             button("Apply font preset").doClick()
             participant.apply()
             assertTrue(settings.state.fontPresetEnabled)
             assertEquals(original, settings.state.fontPresetCustomizations)
             assertEquals(FontPreset.AMBIENT, applied.single().preset)
+        }
+    }
+
+    @org.junit.Test
+    fun nativeRenameCanReapplyUnchangedPreset() {
+        SwingUtilities.invokeAndWait {
+            var activeScheme =
+                EditorColorsSchemeImpl(EditorColorsManager.getInstance().globalScheme).apply {
+                    name = "Personal font scheme"
+                    fontPreferences = FontPreferencesImpl().apply { register("Dialog", 17.5f) }
+                    consoleFontPreferences = FontPreferencesImpl().apply { register("Monospaced", 15.5f) }
+                }
+            val manager = mockk<EditorColorsManager>()
+            every { manager.globalScheme } answers { activeScheme }
+            every { manager.allSchemes } answers { arrayOf(activeScheme) }
+            mockkStatic(EditorColorsManager::class, Notifications.Bus::class)
+            every { EditorColorsManager.getInstance() } returns manager
+            every { Notifications.Bus.notify(any<Notification>(), isNull<Project>()) } returns Unit
+            every { FontPresetApplicator.apply(any()) } answers { callOriginal() }
+            every { FontPresetApplicator.revert() } answers { callOriginal() }
+            settings.state.fontPresetName = FontPreset.AMBIENT.name
+            settings.state.fontApplyToConsole = true
+            val customizations = mapOf("AMBIENT" to "18.00|1.40|true|REGULAR", "FUTURE" to "opaque|preserved")
+            settings.state.fontPresetCustomizations.putAll(customizations)
+            FontPresetApplicator.apply(
+                FontSettings.decode(customizations["AMBIENT"], FontPreset.AMBIENT).copy(applyToConsole = true),
+            )
+            val backup = settings.state.fontOwnershipSnapshots.toMap()
+            assertTrue(
+                backup.isNotEmpty(),
+                "Initial native Apply must establish ownership; recorded panel calls=${applied.size}",
+            )
+            assertEquals(FontPreset.AMBIENT.fontFamily, activeScheme.editorFontName)
+            assertNotNull(activeScheme.metaProperties.getProperty("dev.ayuislands.fontOwnershipId"))
+            activeScheme = (activeScheme.clone() as EditorColorsSchemeImpl).apply { name = "Renamed font scheme" }
+            assertNull(activeScheme.metaProperties.getProperty("dev.ayuislands.fontOwnershipId"))
+            val editor = FontData.capture(activeScheme.fontPreferences)
+            val console = FontData.capture(activeScheme.consoleFontPreferences)
+            val originalXml = JDOMUtil.writeElement(XmlSerializer.serialize(settings.state))
+
+            openPanel()
+            assertFalse(participant.isModified(), "Opening Settings must not queue font writes")
+            participant.apply()
+            assertEquals(originalXml, JDOMUtil.writeElement(XmlSerializer.serialize(settings.state)))
+            expandCustomize()
+            assertFalse(participant.isModified(), "Expanding Customize must not queue font writes")
+            val reapply =
+                assertNotNull(
+                    descendants(component)
+                        .filterIsInstance<AbstractButton>()
+                        .singleOrNull { it.text == "Reapply preset" },
+                    "The unchanged preset needs an explicit reapply action after native Rename",
+                )
+            assertTrue(generateSequence<Component>(reapply) { it.parent }.all { it.isVisible })
+            reapply.doClick()
+            assertTrue(participant.isModified())
+            assertEquals(originalXml, JDOMUtil.writeElement(XmlSerializer.serialize(settings.state)))
+            participant.reset()
+            assertFalse(participant.isModified())
+            participant.apply()
+            assertEquals(originalXml, JDOMUtil.writeElement(XmlSerializer.serialize(settings.state)))
+
+            reapply.doClick()
+            assertTrue(participant.isModified(), "The second Reapply click must queue a new explicit request")
+            participant.apply()
+            assertFalse(participant.isModified())
+            val freshKeys = settings.state.fontOwnershipSnapshots.keys - backup.keys
+            assertTrue(
+                freshKeys.isNotEmpty(),
+                "Reapply must establish renamed ownership; recorded panel calls=${applied.size}",
+            )
+            assertEquals(customizations, settings.state.fontPresetCustomizations)
+            assertTrue(settings.state.fontPresetEnabled)
+            assertTrue(settings.state.fontApplyToConsole)
+            assertEquals(FontPreset.AMBIENT.name, settings.state.fontPresetName)
+            FontPresetApplicator.revert()
+            assertEquals(editor, FontData.capture(activeScheme.fontPreferences))
+            assertEquals(console, FontData.capture(activeScheme.consoleFontPreferences))
+            assertEquals(backup, settings.state.fontOwnershipSnapshots)
         }
     }
 
@@ -171,6 +264,7 @@ class FontPresetPanelInteractionTest {
             assertTrue(selectedPresets().isEmpty(), "An unavailable preset must not select a known fallback")
             assertTrue(labels().any { unavailable in it && "unavailable" in it.lowercase() })
             assertRows(null)
+            assertFalse(button("Reapply preset").isVisible)
             assertFalse(participant.isModified())
             selectPreset(FontPreset.WHISPER)
             participant.reset()
@@ -218,6 +312,7 @@ class FontPresetPanelInteractionTest {
             weight().selectedItem = FontWeight.MEDIUM
             button("Ligatures").doClick()
             button("Install automatically").doClick()
+            button("Reapply preset").doClick()
             participant.apply()
 
             assertEquals(unavailable, settings.state.fontPresetName)
@@ -711,6 +806,11 @@ class FontPresetPanelInteractionTest {
                 .filter { it.text == text }
                 .toList()
         return matches.singleOrNull() ?: matches.single { it.isVisible }
+    }
+
+    private fun expandCustomize() {
+        val heading = descendants(component).filterIsInstance<TitledSeparator>().single { it.text == "Customize" }
+        heading.dispatchEvent(MouseEvent(heading, MouseEvent.MOUSE_RELEASED, 0, 0, 1, 1, 1, false, MouseEvent.BUTTON1))
     }
 
     private fun presetNames(): List<String> =

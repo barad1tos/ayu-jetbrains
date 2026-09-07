@@ -72,7 +72,7 @@ Ayu Islands synchronizes palette, font, glow, and accent color into a cohesive l
 
 **Font preset recovery** — turning presets off restores your earlier font settings only when they still belong to the same color scheme and match what Ayu Islands applied. Manual changes and console inheritance are preserved. If recovery cannot be matched safely, your current fonts and a recovery backup are kept, with a warning. Applying a new preset after disabling starts from your current settings.
 
-**New or renamed schemes** — choose a font preset and Apply in Settings to manage fonts for a newly selected, renamed, or copied color scheme. Earlier settings from before an IDE scheme rename are kept as a backup and are not restored automatically.
+**New or renamed schemes** — choose a font preset and Apply in Settings to manage fonts for a newly selected, renamed, or copied color scheme. To keep the same preset and options, open **Customize**, select **Reapply preset**, then click **Apply**. Earlier settings from before an IDE scheme rename are kept as a backup and are not restored automatically.
 
 **Onboarding wizard** — a full-tab welcome opens on first install with preset cards, theme variant picker, and accent swatches. After upgrades, a **release showcase** tab opens automatically with captioned screenshots of the marquee features; reopen anytime via *Tools → Ayu Islands → Show What's New*.
 

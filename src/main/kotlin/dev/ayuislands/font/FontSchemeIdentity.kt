@@ -87,8 +87,8 @@ internal class FontSchemeIdentity(
                 hasUnconfirmedIdentity -> {
                     "Font ownership could not be confirmed. " +
                         "Affected fonts and any earlier backups were preserved. " +
-                        "New or renamed schemes require an explicit Apply in Settings; " +
-                        "this starts a new backup from their current fonts " +
+                        "For unchanged presets on new or renamed schemes, open Customize in Font Settings, " +
+                        "select Reapply preset, then Apply. This starts a new backup from their current fonts " +
                         "and cannot recover the pre-rename settings. " +
                         "Unrecognized identities still block Apply until resolved."
                 }

@@ -48,6 +48,7 @@ class FontPresetPanel : SettingsParticipant {
     private var storedPreset = FontPreset.AMBIENT.name
     private var pendingConsole = false
     private var storedConsole = false
+    private var isReapplyPending = false
 
     // Per-preset customizations (live working copy)
     private val customizations = mutableMapOf<String, FontSettings>()
@@ -109,6 +110,7 @@ class FontPresetPanel : SettingsParticipant {
 
     internal fun loadState() {
         val state = AyuIslandsSettings.getInstance().state
+        isReapplyPending = false
 
         // Migrate legacy preset names before reading
         state.fontPresetName = FontPreset.migrateName(state.fontPresetName) ?: FontPreset.AMBIENT.name
@@ -415,6 +417,11 @@ class FontPresetPanel : SettingsParticipant {
         collapsibleGroup("Customize") {
             buildSizeSpacingRow()
             buildWeightOptionsRow()
+            row {
+                link("Reapply preset") {
+                    if (pendingEnabled && selectedPreset != null) isReapplyPending = true
+                }.comment("Applies the current preset to this color scheme when you click Apply.")
+            }
         }.visibleIf(presetContentVisible)
     }
 
@@ -617,6 +624,7 @@ class FontPresetPanel : SettingsParticipant {
     }
 
     override fun isModified(): Boolean {
+        if (isReapplyPending) return true
         if (pendingEnabled != storedEnabled) return true
         if (pendingPreset != storedPreset) return true
         if (pendingConsole != storedConsole) return true
@@ -659,12 +667,14 @@ class FontPresetPanel : SettingsParticipant {
                     FontPresetApplicator.apply(currentSettings.copy(applyToConsole = pendingConsole))
                 }
             }
+            isReapplyPending = false
         } catch (e: RuntimeException) {
             LOG.warn("FontPresetApplicator failed during settings apply (preset=$pendingPreset)", e)
         }
     }
 
     override fun reset() {
+        isReapplyPending = false
         pendingEnabled = storedEnabled
         pendingPreset = storedPreset
         pendingConsole = storedConsole
