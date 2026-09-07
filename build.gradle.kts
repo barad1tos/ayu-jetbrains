@@ -527,8 +527,6 @@ kover {
                     $$"dev.ayuislands.settings.AccentColorPanel$PresetComponent*",
                     $$"dev.ayuislands.settings.AccentColorPanel$CustomLink*",
                     $$"dev.ayuislands.settings.AccentColorPanel$ResetLabel*",
-                    // IDE scheduling glue: AppExecutorUtil, AyuIslandsSettings, AccentApplicator singletons
-                    "dev.ayuislands.rotation.AccentRotationService*",
                     // Onboarding Swing panels (Graphics2D paint, mouse handlers, SVG rendering)
                     "dev.ayuislands.onboarding.PremiumOnboardingPanel*",
                     "dev.ayuislands.onboarding.FreeOnboardingPanel*",
