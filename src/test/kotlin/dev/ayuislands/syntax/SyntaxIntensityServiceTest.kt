@@ -138,6 +138,10 @@ class SyntaxIntensityServiceTest {
             overrideCheckpoints.capture(any(), EditorSchemeOwner.Syntax, any())
         } returns mockk(relaxed = true)
         every { overrideCheckpoints.rollback(any()) } returns emptyList()
+        every { overrideCheckpoints.sealPreview(any()) } answers {
+            EditorSchemeOverrides.PreviewCheckpoint(firstArg(), mutableMapOf(), mutableSetOf())
+        }
+        every { overrideCheckpoints.restorePreviews(any()) } answers { restorePreviewCheckpoints(firstArg()) }
         every {
             EditorSchemeOverrides.writeAttributes(any(), EditorSchemeOwner.Syntax, any(), any())
         } returns OverrideWriteResult.APPLIED
@@ -184,6 +188,27 @@ class SyntaxIntensityServiceTest {
 
         every { mockApp.getService(SyntaxIntensityService::class.java) } returns SyntaxIntensityService()
         every { mockApp.getService(AyuIslandsSettings::class.java) } returns ayuSettings
+    }
+
+    private fun restorePreviewCheckpoints(
+        checkpoints: List<EditorSchemeOverrides.PreviewCheckpoint>,
+    ): EditorSchemeOverrides.PreviewRestoreAttempt {
+        val completed = mutableSetOf<EditorSchemeOverrides.PreviewCheckpoint>()
+        val failures = mutableListOf<RuntimeException>()
+        var cancellation: RuntimeException? = null
+        for (checkpoint in checkpoints.asReversed()) {
+            try {
+                val currentFailures = overrideCheckpoints.rollback(checkpoint.original)
+                if (currentFailures.isEmpty()) completed += checkpoint else failures += currentFailures
+            } catch (failure: RuntimeException) {
+                if (failure is ProcessCanceledException || failure is CancellationException) {
+                    if (cancellation == null) cancellation = failure else cancellation.addSuppressed(failure)
+                } else {
+                    failures += failure
+                }
+            }
+        }
+        return EditorSchemeOverrides.PreviewRestoreAttempt(completed, failures, cancellation, checkpoints.isNotEmpty())
     }
 
     @AfterTest

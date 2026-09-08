@@ -11,6 +11,44 @@ import kotlin.test.assertSame
 
 class SyntaxEditingSessionTest {
     @Test
+    fun `unchanged configuration still restores native previews on reset and cancel`() {
+        for (externalChange in listOf(false, true)) {
+            for (close in listOf(false, true)) {
+                val runtime = RecordingRuntime()
+                val persisted = mutableListOf<SyntaxPresetConfig>()
+                val session = editingSession(config(50), runtime, persisted)
+                if (externalChange) {
+                    session.activeAyuSchemeChanged()
+                } else {
+                    session.editDiscrete(config(70))
+                    session.editDiscrete(config(50))
+                }
+
+                if (close) session.cancel() else session.reset()
+
+                assertEquals(listOf(config(50)), runtime.restores, "externalChange=$externalChange, close=$close")
+                assertEquals(emptyList(), persisted)
+                if (close) {
+                    session.dispose()
+                    assertEquals(listOf(config(50)), runtime.restores)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `unchanged configuration reports restore failures instead of silently closing`() {
+        val runtime = RecordingRuntime()
+        val failure = IllegalStateException("manual syntax conflict")
+        runtime.restoreResult = SyntaxTransactionResult.RecoveryRequired(failure, listOf(failure))
+        val session = editingSession(config(50), runtime, mutableListOf())
+        session.activeAyuSchemeChanged()
+
+        assertIs<SyntaxRestoreResult.Failed>(session.cancel())
+        assertEquals(listOf(config(50)), runtime.restores)
+    }
+
+    @Test
     fun `live preview never persists pending config`() {
         val runtime = RecordingRuntime()
         val persisted = mutableListOf<SyntaxPresetConfig>()

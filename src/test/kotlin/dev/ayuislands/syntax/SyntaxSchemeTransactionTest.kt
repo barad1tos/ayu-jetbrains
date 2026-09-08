@@ -289,6 +289,13 @@ class SyntaxSchemeTransactionTest {
             }
         }
 
+        override fun sealPreview(checkpoint: SyntaxSchemeCheckpoint) {
+            check(checkpoint.label != failOn)
+        }
+
+        override fun restorePreviews(checkpoints: List<SyntaxSchemeCheckpoint>): SyntaxRollbackAttempt =
+            rollback(this, checkpoints).copy(changed = checkpoints.isNotEmpty())
+
         override fun release(checkpoint: SyntaxSchemeCheckpoint) {
             released += checkpoint.label
         }

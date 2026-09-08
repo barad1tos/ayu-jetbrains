@@ -53,6 +53,19 @@ internal object EditorSchemeOverrides {
         val metadataValue: String?,
     )
 
+    internal class PreviewCheckpoint(
+        val original: AttributesCheckpoint,
+        val expected: MutableMap<SchemeEntry, CheckpointEntry>,
+        val pending: MutableSet<SchemeEntry>,
+    )
+
+    internal data class PreviewRestoreAttempt(
+        val completed: Set<PreviewCheckpoint>,
+        val failures: List<RuntimeException>,
+        val cancellation: RuntimeException?,
+        val changed: Boolean,
+    )
+
     fun writeColor(
         scheme: EditorColorsScheme,
         owner: EditorSchemeOwner,
@@ -114,6 +127,20 @@ internal object EditorSchemeOverrides {
     }
 
     internal class AttributeCheckpoints {
+        fun sealPreview(checkpoint: AttributesCheckpoint): PreviewCheckpoint =
+            synchronized(lock) {
+                PreviewCheckpoint(
+                    checkpoint,
+                    checkpoint.entries.keys
+                        .associateWith { snapshotEntry(checkpoint.scheme, it) }
+                        .toMutableMap(),
+                    checkpoint.entries.keys.toMutableSet(),
+                )
+            }
+
+        fun restorePreviews(checkpoints: List<PreviewCheckpoint>): PreviewRestoreAttempt =
+            synchronized(lock) { PreviewRestoration().restore(checkpoints) }
+
         fun capture(
             scheme: EditorColorsScheme,
             owner: EditorSchemeOwner,
@@ -212,6 +239,161 @@ internal object EditorSchemeOverrides {
                     cancellation
                 }
             }
+    }
+
+    private fun snapshotEntry(
+        scheme: EditorColorsScheme,
+        entry: SchemeEntry,
+    ): CheckpointEntry =
+        CheckpointEntry(
+            read(scheme, entry, isBaseline = true).snapshot(),
+            states[scheme]?.get(entry)?.snapshot(),
+            scheme.metaProperties.getProperty(entry.metadataKey),
+        )
+
+    /** Restores only a continuous chain of owned preview writes, retaining proven progress for retry. */
+    private class PreviewRestoration {
+        private val completed = mutableSetOf<PreviewCheckpoint>()
+        private val failures = mutableListOf<RuntimeException>()
+        private var cancellation: RuntimeException? = null
+        private var changed = false
+
+        fun restore(checkpoints: List<PreviewCheckpoint>): PreviewRestoreAttempt {
+            if (attempt { validateChain(checkpoints) }) {
+                val blocked = IdentityHashMap<EditorColorsScheme, MutableSet<SchemeEntry>>()
+                checkpoints.asReversed().forEach { checkpoint ->
+                    val original = checkpoint.original
+                    val blockedEntries = blocked.getOrPut(original.scheme) { mutableSetOf() }
+                    if (original.entries.keys.any { it in blockedEntries }) {
+                        failures +=
+                            IllegalStateException("Syntax preview restore is blocked by an incomplete newer preview")
+                        blockedEntries += original.entries.keys
+                    } else if (restoreCheckpoint(checkpoint)) {
+                        completed += checkpoint
+                    } else {
+                        blockedEntries += original.entries.keys
+                    }
+                }
+            }
+            return PreviewRestoreAttempt(completed.toSet(), failures.toList(), cancellation, changed)
+        }
+
+        private fun validateChain(checkpoints: List<PreviewCheckpoint>) {
+            val projected = IdentityHashMap<EditorColorsScheme, MutableMap<SchemeEntry, CheckpointEntry>>()
+            checkpoints.asReversed().forEach { checkpoint ->
+                val original = checkpoint.original
+                val entries = projected.getOrPut(original.scheme) { mutableMapOf() }
+                original.entries.forEach { (entry, saved) ->
+                    val observed = entries.getOrPut(entry) { snapshotEntry(original.scheme, entry) }
+                    checkOwned(entry, observed, checkpoint.expected.getValue(entry))
+                    entries[entry] = saved
+                }
+            }
+        }
+
+        private fun restoreCheckpoint(checkpoint: PreviewCheckpoint): Boolean {
+            var succeeded = true
+            checkpoint.pending.toList().forEach { entry ->
+                val restored = restoreEntry(checkpoint, entry)
+                if (restored) checkpoint.pending.remove(entry) else succeeded = false
+            }
+            return succeeded
+        }
+
+        private fun restoreEntry(
+            checkpoint: PreviewCheckpoint,
+            entry: SchemeEntry,
+        ): Boolean {
+            var succeeded = true
+            for (component in RestoreComponent.entries) {
+                if (!restoreComponent(checkpoint, entry, component)) succeeded = false
+            }
+            return succeeded
+        }
+
+        private fun restoreComponent(
+            checkpoint: PreviewCheckpoint,
+            entry: SchemeEntry,
+            component: RestoreComponent,
+        ): Boolean {
+            val scheme = checkpoint.original.scheme
+            val expected = checkpoint.expected.getValue(entry)
+            val desired = expected.restoring(component, checkpoint.original.entries.getValue(entry))
+            if (!attempt { checkOwned(entry, snapshotEntry(scheme, entry), expected) }) return false
+            if (expected == desired) return true
+            val written = attempt { writeComponent(scheme, entry, desired, component) }
+            val verified =
+                attempt {
+                    val observed = snapshotEntry(scheme, entry)
+                    if (observed == desired) {
+                        checkpoint.expected[entry] = desired
+                        changed = true
+                    } else {
+                        checkOwned(entry, observed, expected)
+                        check(!written) { "Syntax preview restore did not update ${entry.metadataKey}" }
+                    }
+                }
+            return written && verified
+        }
+
+        private fun attempt(action: () -> Unit): Boolean =
+            try {
+                action()
+                true
+            } catch (failure: RuntimeException) {
+                if (failure.isCancellation()) cancellation = cancellation.record(failure) else failures += failure
+                false
+            }
+
+        private fun checkOwned(
+            entry: SchemeEntry,
+            observed: CheckpointEntry,
+            expected: CheckpointEntry,
+        ) {
+            check(
+                observed == expected,
+            ) { "Syntax preview restore conflicts with current state for ${entry.metadataKey}" }
+        }
+    }
+
+    private enum class RestoreComponent { ATTRIBUTES, OWNERSHIP, METADATA }
+
+    private fun CheckpointEntry.restoring(
+        component: RestoreComponent,
+        saved: CheckpointEntry,
+    ): CheckpointEntry =
+        when (component) {
+            RestoreComponent.ATTRIBUTES -> copy(directValue = saved.directValue.snapshot())
+            RestoreComponent.OWNERSHIP -> copy(overrideState = saved.overrideState?.snapshot())
+            RestoreComponent.METADATA -> copy(metadataValue = saved.metadataValue)
+        }
+
+    private fun writeComponent(
+        scheme: EditorColorsScheme,
+        entry: SchemeEntry,
+        desired: CheckpointEntry,
+        component: RestoreComponent,
+    ) {
+        when (component) {
+            RestoreComponent.ATTRIBUTES -> writeValue(scheme, entry, desired.directValue)
+            RestoreComponent.OWNERSHIP -> {
+                val state = desired.overrideState
+                if (state == null) {
+                    states[scheme]?.remove(entry)
+                    if (states[scheme]?.isEmpty() == true) states.remove(scheme)
+                } else {
+                    states.getOrPut(scheme) { mutableMapOf() }[entry] = state.snapshot()
+                }
+            }
+            RestoreComponent.METADATA -> {
+                val metadata = desired.metadataValue
+                if (metadata == null) {
+                    scheme.metaProperties.remove(entry.metadataKey)
+                } else {
+                    scheme.metaProperties.setProperty(entry.metadataKey, metadata)
+                }
+            }
+        }
     }
 
     private fun write(

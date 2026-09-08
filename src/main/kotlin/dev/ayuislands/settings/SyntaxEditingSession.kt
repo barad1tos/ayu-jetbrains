@@ -508,13 +508,6 @@ private object RestoreTransitions {
         state: SyntaxSessionState,
         close: Boolean,
     ): SyntaxSessionTransition {
-        if (state is SyntaxSessionState.Synced) {
-            return if (close) {
-                SyntaxSessionTransition(SyntaxSessionState.Closed, listOf(SyntaxSessionEffect.Close))
-            } else {
-                SyntaxSessionTransition(state)
-            }
-        }
         val data = state.data() ?: return SyntaxSessionTransition(state)
         val intent = if (close) SyntaxSessionIntent.RESTORE_AND_CLOSE else SyntaxSessionIntent.RESTORE_AND_STAY
         return SyntaxSessionTransition(
