@@ -5,7 +5,9 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
@@ -79,8 +81,10 @@ class AyuIslandsLafListenerTest {
         // resolves without reaching into `ApplicationManager.getApplication().getService(...)`.
         mockkObject(SyntaxIntensityService.Companion)
 
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFCC66"
-        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
+        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
         every { AccentApplicator.revertAll() } returns Unit
         every { FontPresetApplicator.applyFromState() } returns Unit
         every { FontPresetApplicator.revert() } returns Unit
@@ -170,7 +174,8 @@ class AyuIslandsLafListenerTest {
         state.externalThemeEnhancementsEnabled = true
         every { AyuVariant.detect() } returns null
         every { AyuVariant.isAyuActive() } returns false
-        every { AccentApplicator.applyForFocusedProject(AccentContext.External) } returns "#AABBCC"
+        every { AccentApplicator.applyForFocusedProject(AccentContext.External) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
         val mockLafManager = mockk<LafManager>(relaxed = true)
         every { mockLafManager.currentUIThemeLookAndFeel.name } returns "Darcula"
 

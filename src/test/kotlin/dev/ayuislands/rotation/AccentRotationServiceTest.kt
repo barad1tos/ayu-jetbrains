@@ -12,7 +12,9 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
@@ -182,7 +184,11 @@ class AccentRotationServiceTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just Runs
@@ -375,7 +381,7 @@ class AccentRotationServiceTest {
             if (applyCalls.size != THREE) {
                 throw RotationTestException("fail ${applyCalls.size}")
             }
-            true
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>())))
         }
 
         val service = AccentRotationService()

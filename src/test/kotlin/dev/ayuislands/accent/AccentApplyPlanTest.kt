@@ -175,8 +175,8 @@ class AccentApplyPlanTest {
 
     @Test
     fun `torn outcome refuses an empty failure list by construction`() {
-        // AccentApplicator logs `failures.first()` on Torn — an empty-failures
-        // Torn would crash the logging path, so the type rejects it outright.
+        // A Torn outcome needs a cause; requireClean preserves the first
+        // failure as its primary exception and attaches the remaining causes.
         val hex = requireNotNull(AccentHex.of("#FFCC66"))
         assertFailsWith<IllegalArgumentException> {
             AccentApplyOutcome.Torn(hex, emptyList())
@@ -190,4 +190,40 @@ class AccentApplyPlanTest {
             NotifyComponentTrees -> "Notify"
             else -> null
         }
+
+    @Test
+    fun `publication failure preserves visual completion but is not clean`() {
+        val hex = requireNotNull(AccentHex.of("#5CCFE6"))
+        val outcome =
+            AccentApplyOutcome.Torn(
+                hex,
+                listOf(
+                    AccentApplyStepFailure(PublishAccentChanged, IllegalStateException("subscriber")),
+                ),
+            )
+        assertTrue(outcome.visualsApplied)
+        assertFalse(outcome.isClean)
+        assertFailsWith<IllegalStateException> { outcome.requireClean() }
+    }
+
+    @Test
+    fun `rejection cannot inherit a previous result`() {
+        val rejected = AccentApplyOutcome.Rejected("broken")
+        assertFalse(rejected.isClean)
+        assertFalse(rejected.visualsApplied)
+        assertFailsWith<IllegalArgumentException> { rejected.requireClean() }
+    }
+
+    @Test
+    fun `outcome owns a snapshot of the failure list`() {
+        val hex = requireNotNull(AccentHex.of("#5CCFE6"))
+        val failures =
+            mutableListOf(
+                AccentApplyStepFailure(ApplyElements, IllegalStateException("element")),
+            )
+        val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplyOutcome.of(hex, failures))
+        failures.clear()
+        assertEquals(1, outcome.failures.size)
+        assertFalse(outcome.visualsApplied)
+    }
 }

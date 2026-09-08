@@ -1,12 +1,17 @@
 package dev.ayuislands.accent.toolbar.actions
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
+import com.intellij.openapi.actionSystem.ex.ActionManagerEx
+import com.intellij.openapi.actionSystem.ex.ActionUtil
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
@@ -25,11 +30,14 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -56,7 +64,11 @@ class DarkerAccentActionTest {
 
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns mockProject
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
 
         mockkObject(AccentResolver)
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFCC66"
@@ -135,7 +147,9 @@ class DarkerAccentActionTest {
         val expected = AccentHsl.darken(AccentHex.unsafeOf("#FFCC66")).value
         DarkerAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(expected) }
-        verify(exactly = 1) { mockSwap.notifyExternalApply(expected) }
+        verify(
+            exactly = 1,
+        ) { mockSwap.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(expected)))) }
     }
 
     @Test
@@ -172,5 +186,78 @@ class DarkerAccentActionTest {
         every { AccentResolver.resolve(any(), any<AccentContext>()) } returns floorHex
         DarkerAccentAction().actionPerformed(newEvent())
         verify(exactly = 1) { AccentApplicator.applyFromHexString(floorHex) }
+    }
+
+    @Test
+    fun `action propagates platform cancellation from resolve`() {
+        val cancelled = ProcessCanceledException()
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { DarkerAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates platform cancellation from apply`() {
+        val cancelled = ProcessCanceledException()
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { DarkerAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates platform cancellation from cache sync`() {
+        val cancelled = ProcessCanceledException()
+        every { mockSwap.notifyExternalApply(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { DarkerAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+    }
+
+    @Test
+    fun `action propagates coroutine cancellation from resolve`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { AccentResolver.resolve(any(), any<AccentContext>()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { DarkerAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates coroutine cancellation from apply`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { DarkerAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
+    }
+
+    @Test
+    fun `action propagates coroutine cancellation from cache sync`() {
+        val cancelled = CancellationException("cancelled accent")
+        every { mockSwap.notifyExternalApply(any()) } throws cancelled
+
+        val thrown = assertFailsWith<RuntimeException> { DarkerAccentAction().performInTest(newEvent()) }
+
+        assertSame(cancelled, thrown)
+    }
+
+    private fun AnAction.performInTest(event: AnActionEvent) {
+        val actionManager = mockk<ActionManagerEx>(relaxed = true)
+        every { event.actionManager } returns actionManager
+        every { actionManager.performWithActionCallbacks(any(), any(), any()) } answers {
+            thirdArg<Runnable>().run()
+        }
+        ActionUtil.performActionDumbAwareWithCallbacks(this, event)
     }
 }

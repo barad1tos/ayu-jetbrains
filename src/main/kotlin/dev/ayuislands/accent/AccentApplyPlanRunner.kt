@@ -3,6 +3,7 @@ package dev.ayuislands.accent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.util.concurrency.annotations.RequiresEdt
 import javax.swing.SwingUtilities
 
 /**
@@ -21,7 +22,7 @@ import javax.swing.SwingUtilities
  * Cancellation ([com.intellij.openapi.progress.ProcessCanceledException],
  * coroutine cancellation) and [VirtualMachineError] (OOM, stack overflow)
  * always rethrow — only genuine step failures are captured into
- * [AccentApplyStepFailure]s. Note [onComplete] is NOT invoked when a rethrow
+ * [AccentApplyStepFailure]s. Note `onComplete` is NOT invoked when a rethrow
  * interrupts the plan mid-run: it reports completed runs (clean or torn), not
  * cancelled ones, so cleanup must not live in it.
  */
@@ -33,12 +34,20 @@ internal object AccentApplyPlanRunner {
         executeStep: (AccentApplyStep) -> Unit,
         onComplete: (List<AccentApplyStepFailure>) -> Unit,
     ) {
-        val work = Runnable { onComplete(runSteps(plan, executeStep)) }
-        if (SwingUtilities.isEventDispatchThread()) {
-            work.run()
-        } else {
-            invokeLaterSafe(work)
-        }
+        dispatch { onComplete(runNow(plan, executeStep)) }
+    }
+
+    @RequiresEdt
+    fun runNow(
+        plan: AccentApplyPlan,
+        executeStep: (AccentApplyStep) -> Unit,
+    ): List<AccentApplyStepFailure> {
+        check(SwingUtilities.isEventDispatchThread()) { "Accent plan must execute on EDT" }
+        return runSteps(plan, executeStep)
+    }
+
+    fun dispatch(work: Runnable) {
+        if (SwingUtilities.isEventDispatchThread()) work.run() else invokeLaterSafe(work)
     }
 
     private fun runSteps(

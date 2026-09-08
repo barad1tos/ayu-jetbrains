@@ -11,7 +11,9 @@ import com.intellij.openapi.ui.DialogPanel
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.ui.dsl.builder.panel
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ChromeDecorationsProbe
 import dev.ayuislands.accent.ChromeTintContext
@@ -77,7 +79,8 @@ class AyuIslandsChromePanelTest {
         every { ChromeDecorationsProbe.isCustomHeaderActive() } returns true
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) } returns "#E6B450"
+        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#E6B450")))
 
         // The Kotlin UI DSL `collapsibleGroup { … }` builder resolves the CollapsiblePanel
         // toggle action through `ActionManager.getInstance()` which goes via
@@ -430,7 +433,7 @@ class AyuIslandsChromePanelTest {
                 state.chromeTintIntensity,
                 "State intensity must remain old while the applicator consumes the pending snapshot",
             )
-            "#E6B450"
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#E6B450")))
         }
 
         chromePanel.apply()
@@ -593,7 +596,7 @@ class AyuIslandsChromePanelTest {
             chromePanel.getPendingChromeTintIntensityForTest(),
         )
         // Reset must not call the applicator.
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) }
     }
 
     // ── Mid-session license flip must not persist ──────────────────────────────
@@ -631,7 +634,7 @@ class AyuIslandsChromePanelTest {
             "Post-license-revocation apply must not persist chromeTintIntensity",
         )
         // No EP re-apply.
-        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AyuVariant>()) }
+        verify(exactly = 0) { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) }
     }
 
     // ── Test 9: premium gate ──────────────────────────────────────────────────

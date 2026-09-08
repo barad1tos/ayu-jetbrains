@@ -15,6 +15,7 @@ import com.intellij.util.ui.JBUI
 import dev.ayuislands.AyuLaf
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentColor
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.onboarding.OnboardingCardChrome.CARD_BORDER_COLOR
@@ -477,9 +478,11 @@ internal class FreeOnboardingPanel(
             updateTrialHeadline(fontPx)
         }
         ApplicationManager.getApplication().invokeLater {
-            val applied = AccentApplicator.applyFromHexString(preset.hex)
-            if (!applied) {
-                LOG.warn("Onboarding preset apply rejected (hex='${preset.hex}')")
+            val outcome = AccentApplicator.applyFromHexString(preset.hex)
+            when (outcome) {
+                is AccentApplyOutcome.Applied -> Unit
+                is AccentApplyOutcome.Rejected -> LOG.warn("Onboarding preset apply rejected (hex='${preset.hex}')")
+                is AccentApplyOutcome.Torn -> LOG.warn("Onboarding preset apply incomplete (hex='${preset.hex}')")
             }
         }
     }

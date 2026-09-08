@@ -5,9 +5,11 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.rotation.ContrastAwareColorGenerator
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -18,7 +20,7 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
  * rotation-surface generator — do NOT introduce a parallel palette.
  *
  * Pattern J premium gate on `update`; Pattern B catches RuntimeException only
- * around the generator + apply chain; Pattern D Boolean gate on
+ * around the generator + apply chain; Pattern D rejection gate on
  * `applyFromHexString` before publishing `notifyExternalApply`.
  */
 class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random readable accent", null) {
@@ -40,18 +42,20 @@ class RandomAccentAction : DumbAwareAction("Random Accent", "Pick a random reada
                     AccentContext.External -> ContrastAwareColorGenerator.generate(AyuVariant.MIRAGE)
                 }
             } catch (exception: RuntimeException) {
+                exception.rethrowIfCancelled()
                 LOG.warn("Random: generate failed", exception)
                 return
             }
         try {
-            val applied = AccentApplicator.applyFromHexString(hex)
-            if (applied) {
+            val outcome = AccentApplicator.applyFromHexString(hex)
+            if (outcome !is AccentApplyOutcome.Rejected) {
                 context.persistExternalManualAccentIfNeeded(hex)
-                ProjectAccentSwapService.getInstance().notifyExternalApply(hex)
+                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
             } else {
                 LOG.warn("Random: applyFromHexString rejected hex=$hex")
             }
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.warn("Random: apply failed hex=$hex", exception)
         }
     }

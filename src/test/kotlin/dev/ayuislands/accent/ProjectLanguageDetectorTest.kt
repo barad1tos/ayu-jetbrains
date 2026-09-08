@@ -14,7 +14,6 @@ import dev.ayuislands.settings.mappings.AccentMappingsState
 import io.mockk.clearMocks
 import io.mockk.clearStaticMockk
 import io.mockk.every
-import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
@@ -1066,7 +1065,8 @@ class ProjectLanguageDetectorTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
 
         ProjectLanguageDetector.rescan(project)
 
@@ -1120,7 +1120,8 @@ class ProjectLanguageDetectorTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        justRun { AccentApplicator.apply(any()) }
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
         val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
         mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
         every {
@@ -1132,7 +1133,9 @@ class ProjectLanguageDetectorTest {
 
         verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Polyglot) }
         verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) { swapService.notifyExternalApply("#FFCC66") }
+        verify(exactly = 1) {
+            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
+        }
     }
 
     @Test
@@ -1477,6 +1480,7 @@ class ProjectLanguageDetectorTest {
     private fun runInvokeLaterInline() {
         mockkStatic(javax.swing.SwingUtilities::class)
         every { javax.swing.SwingUtilities.invokeLater(any()) } answers {
+            every { javax.swing.SwingUtilities.isEventDispatchThread() } returns true
             firstArg<Runnable>().run()
         }
     }

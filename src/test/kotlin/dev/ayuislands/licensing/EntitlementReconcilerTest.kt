@@ -2,7 +2,11 @@ package dev.ayuislands.licensing
 
 import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentApplyStep
+import dev.ayuislands.accent.AccentApplyStepFailure
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.CodeGlanceProIntegration
 import dev.ayuislands.accent.toolbar.QuickSwitcherPopup
@@ -73,7 +77,8 @@ class EntitlementReconcilerTest {
         mockkObject(AccentContext.Companion)
         every { AccentContext.detect() } returns context
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(context) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(context) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
         mockkObject(CodeGlanceProIntegration)
         every { CodeGlanceProIntegration.restoreOwnedState() } returns IntegrationOutcome.Skipped
         mockkObject(IndentRainbowSync)
@@ -245,8 +250,13 @@ class EntitlementReconcilerTest {
     @Test
     fun `incomplete accent cascade is included in the structured reconciliation result`() {
         every { AccentApplicator.applyForFocusedProject(context) } answers {
-            state.lastApplyOk = false
-            "#FFCC66"
+            state.lastApplyOk = true
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of("#FFCC66")),
+                listOf(
+                    AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("paint")),
+                ),
+            )
         }
 
         val result = EntitlementReconciler.reconcile(LicenseEntitlement.UNLICENSED, listOf(project))

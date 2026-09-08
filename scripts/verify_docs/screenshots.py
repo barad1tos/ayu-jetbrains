@@ -52,7 +52,8 @@ def _check_one_screenshot(
         return
 
     _check_source_paths_exist(feature_id, sources, report)
-    if source_hash := shot.get("sources_sha256") or "":
+    source_hash: str = shot.get("sources_sha256") or ""
+    if source_hash:
         _check_source_hash(feature_id, sources, source_hash, report)
     else:
         _check_freshness_by_state(feature_id, path, sha, sources, report)

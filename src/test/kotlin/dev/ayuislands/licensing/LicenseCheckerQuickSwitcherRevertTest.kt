@@ -7,6 +7,8 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.rotation.AccentRotationService
@@ -46,7 +48,11 @@ class LicenseCheckerQuickSwitcherRevertTest {
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
 
         mockkObject(GlowOverlayManager.Companion)
         every { GlowOverlayManager.syncGlowForAllProjects() } just runs

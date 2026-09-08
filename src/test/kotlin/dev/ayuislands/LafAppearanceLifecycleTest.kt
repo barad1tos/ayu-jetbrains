@@ -7,7 +7,9 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.SystemAppearanceProvider
 import dev.ayuislands.accent.SystemAppearanceProvider.Appearance
 import dev.ayuislands.font.FontPresetApplicator
@@ -89,7 +91,8 @@ class LafAppearanceLifecycleTest {
         mockkObject(AyuEditorSchemeBinder)
         every { AyuEditorSchemeBinder.bindForVariant(any()) } returns true
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFCC66"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
         every { AccentApplicator.revertAll() } returns Unit
         mockkObject(FontPresetApplicator)
         every { FontPresetApplicator.applyFromState() } answers {
