@@ -5,8 +5,10 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowOverlayManager
@@ -25,6 +27,7 @@ import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -38,9 +41,8 @@ class LicenseCheckerProDefaultsTest {
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
-        // Stubbed applies report success, so the persisted clean flag must read
-        // clean too — ThemeReapplication's tear-escalation check consults it.
-        state.lastApplyOk = true
+        mockkStatic(SwingUtilities::class)
+        every { SwingUtilities.isEventDispatchThread() } returns true
         val settingsMock = mockk<AyuIslandsSettings>()
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settingsMock
@@ -343,7 +345,8 @@ class LicenseCheckerProDefaultsTest {
         every { settingsMock.state } returns state
         every { settingsMock.getAccentForVariant(any()) } returns "#FFCC66"
         mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } just runs
+        every { AccentApplicator.apply(any()) } answers
+            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
 
         // Mock ApplicationManager for AccentRotationService.stopRotation() call
         mockkStatic(ApplicationManager::class)

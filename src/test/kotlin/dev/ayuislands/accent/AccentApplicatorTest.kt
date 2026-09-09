@@ -10,6 +10,11 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.project.Project
+import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.wm.IdeFrame
+import com.intellij.openapi.wm.WindowManager
+import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictEntry
@@ -24,6 +29,7 @@ import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.theme.AyuEditorSchemeScope
 import dev.ayuislands.theme.EditorSchemeChange
 import io.mockk.clearAllMocks
@@ -35,8 +41,11 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
 import java.awt.Window
+import java.awt.event.WindowEvent
 import java.lang.reflect.Method
 import java.util.Properties
+import java.util.concurrent.CancellationException
+import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.test.AfterTest
@@ -45,8 +54,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -86,6 +97,7 @@ class AccentApplicatorTest {
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
+        every { mockApplication.getService(ProjectAccentSwapService::class.java) } returns ProjectAccentSwapService()
         // AccentChangedTopic publish — Apply path casts the syncPublisher
         // return value to AccentChangeListener. Stub a relaxed mock so the
         // cast succeeds in this legacy headless test.
@@ -118,10 +130,10 @@ class AccentApplicatorTest {
         // and calls ComponentTreeRefresher.notifyOnly per usable project. Unit tests
         // don't boot the platform, so both must be stubbed or the notifyOnly loop
         // blows up with "Can't get extension point" / a null ProjectManager.
-        mockkStatic(com.intellij.openapi.project.ProjectManager::class)
-        val mockProjectManager = mockk<com.intellij.openapi.project.ProjectManager>(relaxed = true)
+        mockkStatic(ProjectManager::class)
+        val mockProjectManager = mockk<ProjectManager>(relaxed = true)
         every {
-            com.intellij.openapi.project.ProjectManager
+            ProjectManager
                 .getInstance()
         } returns mockProjectManager
         every { mockProjectManager.openProjects } returns emptyArray()
@@ -1105,6 +1117,7 @@ class AccentApplicatorTest {
         every { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) } returns Unit
 
         AccentApplicator.applyFromHexString("#AABBCC")
+        assertFalse(state.lastApplyOk)
 
         verify(exactly = 2) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
         verify(exactly = 1) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) }
@@ -1365,21 +1378,210 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `apply posts to invokeLater when not on EDT`() {
+    fun `queued requests mutate only on EDT and report their own result`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
-        every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
+        val queued = mutableListOf<Runnable>()
+        val completed = mutableListOf<AccentApplyOutcome>()
+        val previousHex = state.lastAppliedAccentHex
+        val previousClean = state.lastApplyOk
         every { SwingUtilities.isEventDispatchThread() } returns false
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
-            firstArg<Runnable>().run()
+            queued += firstArg<Runnable>()
         }
 
-        AccentApplicator.applyFromHexString("#FFCC66")
+        AccentApplicator.requestApply("#FFCC66") { completed += it }
+        AccentApplicator.requestApply("#5CCFE6") { completed += it }
 
-        verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
-        verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
-        verify(atLeast = 1) { UIManager.put(any<String>(), any()) }
+        assertEquals(previousHex, state.lastAppliedAccentHex)
+        assertEquals(previousClean, state.lastApplyOk)
+        assertTrue(completed.isEmpty())
+        verify(exactly = 0) { UIManager.put(any<String>(), any()) }
+        assertEquals(2, queued.size)
+        every { SwingUtilities.isEventDispatchThread() } returns true
+        queued[0].run()
+        assertEquals(
+            "#FFCC66",
+            assertIs<AccentApplyOutcome.Applied>(completed.single())
+                .accentHex.value,
+        )
+        queued[1].run()
+        assertEquals(
+            listOf("#FFCC66", "#5CCFE6"),
+            completed.map {
+                assertIs<AccentApplyOutcome.Applied>(it)
+                    .accentHex.value
+            },
+        )
+    }
+
+    @Test
+    fun `direct off EDT apply fails before state mutation`() {
+        val previousHex = state.lastAppliedAccentHex
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        assertFailsWith<IllegalStateException> {
+            AccentApplicator.applyFromHexString("#5CCFE6")
+        }
+        assertEquals(previousHex, state.lastAppliedAccentHex)
+        verify(exactly = 0) { UIManager.put(any<String>(), any()) }
+    }
+
+    @Test
+    fun `contained element failure leaves apply marked torn`() {
+        val broken = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        val survivor = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        every { broken.apply(any()) } throws IllegalStateException("element failed")
+        mockEpExtensionList(listOf(broken, survivor))
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+        state.cgpIntegrationEnabled = false
+
+        val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#5CCFE6"))
+        assertEquals(AccentApplyStep.ApplyElements, outcome.failures.single().step)
+
+        verify(exactly = 1) { broken.revert() }
+        verify(exactly = 1) { survivor.apply(any()) }
+        assertFalse(state.lastApplyOk)
+    }
+
+    @Test
+    fun `element cancellation restores element and escapes apply`() {
+        val cancelled = ProcessCanceledException()
+        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        every { element.apply(any()) } throws cancelled
+        mockEpExtensionList(listOf(element))
+
+        assertSame(
+            cancelled,
+            assertFailsWith<ProcessCanceledException> {
+                AccentApplicator.applyFromHexString("#5CCFE6")
+            },
+        )
+        verify(exactly = 1) { element.revert() }
+        assertFalse(state.lastApplyOk)
+    }
+
+    @Test
+    fun `focus restores accent after paint cancellation`() {
+        for (cancellation in listOf(ProcessCanceledException(), CancellationException("paint cancelled"))) {
+            assertFocusRecovery(cancellation, duringPublication = false)
+        }
+    }
+
+    @Test
+    fun `focus restores accent after publication cancellation`() {
+        for (cancellation in listOf(ProcessCanceledException(), CancellationException("publication cancelled"))) {
+            assertFocusRecovery(cancellation, duringPublication = true)
+        }
+    }
+
+    private fun assertFocusRecovery(
+        cancellation: RuntimeException,
+        duringPublication: Boolean,
+    ) {
+        val (service, event) = focusRecoveryFixture()
+        val originalHex = "#FFCC66"
+        val interruptedHex = "#5CCFE6"
+        var focusColor: Any? = null
+        every { UIManager.put("Component.focusColor", any()) } answers {
+            focusColor = secondArg()
+            null
+        }
+        val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        mockEpExtensionList(listOf(element))
+        val listener = mockk<AccentChangeListener>(relaxed = true)
+        every { mockMessageBus.syncPublisher(AccentChangedTopic.TOPIC) } returns listener
+        service.notifyExternalApply(AccentApplicator.applyFromHexString(originalHex))
+        assertEquals(Color.decode(originalHex), focusColor)
+
+        if (duringPublication) {
+            every { listener.accentChanged(any(), any(), any()) } throws cancellation
+        } else {
+            every { element.apply(any()) } throws cancellation
+        }
+        assertSame(
+            cancellation,
+            assertFailsWith<RuntimeException> { AccentApplicator.applyFromHexString(interruptedHex) },
+        )
+        assertEquals(Color.decode(interruptedHex), focusColor)
+        assertEquals(duringPublication, state.lastApplyOk)
+        every { element.apply(any()) } returns Unit
+        every { listener.accentChanged(any(), any(), any()) } returns Unit
+
+        service.onWindowActivatedForTest(event)
+
+        assertEquals(Color.decode(originalHex), focusColor, "Returning to the original project must restore its accent")
+        assertEquals(originalHex, state.lastAppliedAccentHex)
+        assertTrue(state.lastApplyOk)
+    }
+
+    private fun focusRecoveryFixture(): Pair<ProjectAccentSwapService, WindowEvent> {
+        val service = ProjectAccentSwapService()
+        mockkObject(ProjectAccentSwapService.Companion)
+        every { ProjectAccentSwapService.getInstance() } returns service
+        val project = mockk<Project>(relaxed = true)
+        every { project.name } returns "Accent recovery"
+        every { ProjectManager.getInstance().openProjects } returns arrayOf(project)
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
+        every { AccentResolver.source(project) } returns AccentResolver.Source.GLOBAL
+        mockkObject(IndentRainbowSync)
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+        state.cgpIntegrationEnabled = false
+        val window = mockk<Window>(relaxed = true)
+        val component = JPanel()
+        every { SwingUtilities.getWindowAncestor(component) } returns window
+        val frame =
+            mockk<IdeFrame> {
+                every { this@mockk.project } returns project
+                every { this@mockk.component } returns component
+            }
+        mockkStatic(WindowManager::class)
+        every { WindowManager.getInstance() } returns
+            mockk {
+                every { allProjectFrames } returns arrayOf(frame)
+            }
+        every {
+            dev.ayuislands.ui.ComponentTreeRefresher
+                .walkAndNotify(project, window)
+        } returns Unit
+        val event =
+            mockk<WindowEvent> {
+                every { id } returns WindowEvent.WINDOW_ACTIVATED
+                every { this@mockk.window } returns window
+            }
+        return service to event
+    }
+
+    @Test
+    fun `later cancellation preserves an earlier element failure diagnostic`() {
+        val failed = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
+        val cancelled = createFakeAccentElement(AccentElementId.SCROLLBAR, "Scrollbar")
+        every { failed.apply(any()) } throws IllegalStateException("first element failure")
+        every { cancelled.apply(any()) } throws ProcessCanceledException()
+        mockEpExtensionList(listOf(failed, cancelled))
+        val warnings = mutableListOf<Throwable>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    t: Throwable?,
+                ): Boolean {
+                    if (t != null) warnings += t
+                    return false
+                }
+            }
+
+        LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+            assertFailsWith<ProcessCanceledException> {
+                AccentApplicator.applyFromHexString("#5CCFE6")
+            }
+        }
+
+        assertTrue(warnings.any { it.cause?.message == "first element failure" })
     }
 
     // Tests for public revertAll() method
@@ -1475,7 +1677,7 @@ class AccentApplicatorTest {
         AccentApplicator.revertAll()
 
         assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
-        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().single() === failedStore.scheme)
+        assertSame(failedStore.scheme, AyuEditorSchemeScope.claimedAccentSchemes().single())
         cleanedStore.assertOriginalValues()
     }
 
@@ -1504,6 +1706,7 @@ class AccentApplicatorTest {
         AccentApplicator.revertAll()
 
         assertEquals(1, AyuEditorSchemeScope.claimedAccentSchemes().size)
+        every { SwingUtilities.isEventDispatchThread() } returns true
         callback.captured.run()
         assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().isEmpty())
     }
@@ -1539,6 +1742,7 @@ class AccentApplicatorTest {
         mockEpExtensionList(emptyList())
         every { SwingUtilities.isEventDispatchThread() } returns false
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
+            every { SwingUtilities.isEventDispatchThread() } returns true
             firstArg<Runnable>().run()
         }
 
@@ -1944,7 +2148,10 @@ class AccentApplicatorTest {
 
         val accent = Color.decode("#FFCC66")
         // Must not propagate either the apply or the revert exception.
-        invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
+        val failures = invokeApplyElements(state, accent, AccentContext.Ayu(AyuVariant.MIRAGE))
+        val cause = requireNotNull(failures.single().error.cause)
+        assertEquals("apply broke", cause.message)
+        assertEquals("revert broke too", cause.suppressed.single().message)
 
         // Revert WAS attempted on the failing element, even though it
         // threw — locks that the cleanup path runs unconditionally after
@@ -2177,7 +2384,8 @@ class AccentApplicatorTest {
         targetState: AyuIslandsState,
         accent: Color,
         context: AccentContext,
-    ) {
+    ): List<AccentApplyStepFailure> {
+        val capturedFailures = mutableListOf<AccentApplyStepFailure>()
         val method =
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyElements" }
@@ -2188,7 +2396,9 @@ class AccentApplicatorTest {
             accent,
             context,
             LicenseChecker.isLicensedOrGrace(),
+            { failure: AccentApplyStepFailure -> capturedFailures += failure },
         )
+        return capturedFailures
     }
 
     // Helper for invoking private methods that accept nullable parameters
@@ -2461,12 +2671,10 @@ class AccentApplicatorTest {
         every { ChromeBaseColors.forgetPluginTint(any()) } returns Unit
     }
 
-    // apply() with an invalid hex returns false AND posts a user-visible
-    // notification on the "Ayu Islands" group. A prior apply() returned Unit
-    // and silently swallowed corruption — a regression that let a single bad
-    // hex in per-project XML go undiagnosed.
+    // Invalid input returns Rejected and posts an "Ayu Islands" notification
+    // so a malformed persisted color cannot silently inherit prior success.
     @Test
-    fun `apply with invalid hex returns false and notifies the user`() {
+    fun `invalid hex is rejected and notifies the user`() {
         mockkStatic(com.intellij.notification.Notifications.Bus::class)
         every {
             com.intellij.notification.Notifications.Bus
@@ -2475,7 +2683,7 @@ class AccentApplicatorTest {
 
         val result = AccentApplicator.applyFromHexString("garbage-hex")
 
-        assertEquals(false, result, "Invalid hex must return false from applyFromHexString()")
+        assertTrue(result is AccentApplyOutcome.Rejected, "Invalid hex must be rejected")
         verify(exactly = 1) {
             com.intellij.notification.Notifications.Bus
                 .notify(any())
@@ -2493,7 +2701,7 @@ class AccentApplicatorTest {
         val source = sourceFile.readText()
         val edtGuard =
             Regex(
-                """@RequiresEdt\s*\n\s*fun\s+applyForFocusedProject""",
+                """@RequiresEdt\s*\n\s*internal\s+fun\s+applyForFocusedProject""",
                 RegexOption.DOT_MATCHES_ALL,
             )
         assertTrue(

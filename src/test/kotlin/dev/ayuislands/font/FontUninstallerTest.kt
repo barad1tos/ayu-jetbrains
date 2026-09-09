@@ -4,8 +4,6 @@ import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -41,15 +39,14 @@ class FontUninstallerTest {
 
     /**
      * Stub the heavy dependencies of [FontUninstaller.runUninstallPipeline]:
-     * [AyuIslandsSettings], [FontPresetApplicator], [EditorColorsManager],
-     * [ApplicationManager.invokeLater] (runs synchronously so test assertions
+     * [AyuIslandsSettings], [FontPresetApplicator],
+     * [Application.invokeLater] (runs synchronously so test assertions
      * can inspect post-state), and [FontInstaller.platformFontDir] pinned to
      * a controlled temp directory.
      */
     private fun stubUninstallPipeline(
         state: AyuIslandsState,
         platformDir: File,
-        activeEditorFont: String,
     ) {
         mockkObject(FontInstaller)
         every { FontInstaller.platformFontDir() } returns platformDir
@@ -59,14 +56,7 @@ class FontUninstallerTest {
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkObject(FontPresetApplicator)
-        every { FontPresetApplicator.revert() } just Runs
-
-        mockkStatic(EditorColorsManager::class)
-        val ecm = mockk<EditorColorsManager>()
-        val scheme = mockk<EditorColorsScheme>()
-        every { EditorColorsManager.getInstance() } returns ecm
-        every { ecm.globalScheme } returns scheme
-        every { scheme.editorFontName } returns activeEditorFont
+        every { FontPresetApplicator.revert(any()) } just Runs
 
         mockkStatic(ApplicationManager::class)
         val app = mockk<Application>()
@@ -78,7 +68,7 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall_deletesOnlyTrackedFiles`() {
+    fun uninstall_deletesOnlyTrackedFiles() {
         val platformDir = createTempDirectory("uninst-only-tracked").toFile()
         try {
             val tracked1 = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("t1") }
@@ -91,7 +81,7 @@ class FontUninstallerTest {
                     installedFontFiles["Maple Mono"] =
                         "${tracked1.absolutePath}\n${tracked2.absolutePath}"
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -109,7 +99,7 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall_mutatesStateCorrectly`() {
+    fun uninstall_mutatesStateCorrectly() {
         val platformDir = createTempDirectory("uninst-state").toFile()
         try {
             val trackedFile = File(platformDir, "MapleMono.ttf").apply { writeText("x") }
@@ -118,7 +108,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = trackedFile.absolutePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -136,51 +126,7 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall_revertsActiveFont`() {
-        val platformDir = createTempDirectory("uninst-revert").toFile()
-        try {
-            val trackedFile = File(platformDir, "MapleMono.ttf").apply { writeText("x") }
-            val state =
-                AyuIslandsState().apply {
-                    installedFonts.add("Maple Mono")
-                    installedFontFiles["Maple Mono"] = trackedFile.absolutePath
-                }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "Maple Mono")
-
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
-
-            verify(exactly = 1) { FontPresetApplicator.revert() }
-        } finally {
-            platformDir.deleteRecursively()
-        }
-    }
-
-    @Test
-    fun `uninstall_leavesInactiveFontAlone`() {
-        val platformDir = createTempDirectory("uninst-leave-alone").toFile()
-        try {
-            val trackedFile = File(platformDir, "MapleMono.ttf").apply { writeText("x") }
-            val state =
-                AyuIslandsState().apply {
-                    installedFonts.add("Maple Mono")
-                    installedFontFiles["Maple Mono"] = trackedFile.absolutePath
-                }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
-
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
-
-            verify(exactly = 0) { FontPresetApplicator.revert() }
-        } finally {
-            platformDir.deleteRecursively()
-        }
-    }
-
-    @Test
-    fun `uninstall_rejectsPathOutsidePlatformDir`() {
+    fun uninstall_rejectsPathOutsidePlatformDir() {
         val platformDir = createTempDirectory("uninst-traversal").toFile()
         val outsideDir = createTempDirectory("uninst-outside").toFile()
         try {
@@ -191,7 +137,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = escapePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -218,7 +164,7 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall_handlesPermissionDenied`() {
+    fun uninstall_handlesPermissionDenied() {
         val platformDir = createTempDirectory("uninst-permission").toFile()
         try {
             val stubbornDir = File(platformDir, "locked").apply { mkdirs() }
@@ -230,7 +176,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = stubbornFile.absolutePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -256,14 +202,14 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall_emptyFileList_stillMutatesState`() {
+    fun uninstall_emptyFileList_stillMutatesState() {
         val platformDir = createTempDirectory("uninst-legacy").toFile()
         try {
             val state =
                 AyuIslandsState().apply {
                     installedFonts.add("Maple Mono")
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -280,7 +226,7 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall_publicEntryPoint_queuesTaskBackgroundable`() {
+    fun uninstall_publicEntryPoint_queuesTaskBackgroundable() {
         mockkObject(FontInstaller)
         every { FontInstaller.platformFontDir() } returns createTempDirectory("uninst-public").toFile()
 
@@ -324,7 +270,7 @@ class FontUninstallerTest {
     // ---- user-related edge cases ----
 
     @Test
-    fun `uninstall_onCompleteFiresEvenWhenRevertThrows`() {
+    fun uninstall_onCompleteFiresEvenWhenRevertThrows() {
         val platformDir = createTempDirectory("uninst-revert-crash").toFile()
         try {
             val trackedFile = File(platformDir, "MapleMono.ttf").apply { writeText("x") }
@@ -333,8 +279,8 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = trackedFile.absolutePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "Maple Mono")
-            every { FontPresetApplicator.revert() } throws RuntimeException("EDT crash")
+            stubUninstallPipeline(state, platformDir)
+            every { FontPresetApplicator.revert(any()) } throws RuntimeException("EDT crash")
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -350,7 +296,7 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall_absolutePathOutsidePlatformDir_noTraversal`() {
+    fun uninstall_absolutePathOutsidePlatformDir_noTraversal() {
         val platformDir = createTempDirectory("uninst-abs").toFile()
         val outsideDir = createTempDirectory("uninst-outside-abs").toFile()
         try {
@@ -360,7 +306,7 @@ class FontUninstallerTest {
                     installedFonts.add("Maple Mono")
                     installedFontFiles["Maple Mono"] = outsideFile.absolutePath
                 }
-            stubUninstallPipeline(state, platformDir, activeEditorFont = "JetBrains Mono")
+            stubUninstallPipeline(state, platformDir)
 
             val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
             val indicator = mockk<ProgressIndicator>(relaxed = true)
@@ -377,7 +323,7 @@ class FontUninstallerTest {
     }
 
     @Test
-    fun `uninstall_platformDirCanonicalizationFailure_returnsFailure`() {
+    fun uninstall_platformDirCanonicalizationFailure_returnsFailure() {
         val nonexistent = File("/nonexistent/path/that/cannot/canonicalize")
         val state =
             AyuIslandsState().apply {

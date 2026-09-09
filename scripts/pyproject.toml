@@ -10,9 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0.2",
-    # defusedxml replaces stdlib's xml.etree parser with a safer variant —
-    # our theme XML inputs are trusted (own source files), but using the
-    # hardened parser signals intent and keeps Semgrep's CWE-611 rule happy.
+    # Harden XML parsing against entity expansion, even for trusted theme files.
     "defusedxml>=0.7.1",
 ]
 

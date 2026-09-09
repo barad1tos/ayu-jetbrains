@@ -28,6 +28,16 @@ CLI:
                                           # when a feature branch inherits an
                                           # orphaned stamp from main before
                                           # editing tracked sources
+  scripts/verify-docs.py --restamp FEATURE_ID [FEATURE_ID ...]
+                                          # after visual review, attest current
+                                          # source bytes for selected screenshots;
+                                          # commit sources + metadata together
+
+Selected restamping records sources_sha256 plus last_verified_sha provenance.
+The source digest survives commit/rebase identity changes but rejects later file
+or source-list changes. Existing entries without it retain Git-history checks.
+Image hashes and capture dates are never changed by restamping. If an image was
+re-captured, review it and run --update-hashes separately before restamping.
 """
 
 from __future__ import annotations

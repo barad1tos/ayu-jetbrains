@@ -67,6 +67,27 @@ class FontPresetTest {
         assertEquals(FontPreset.NEON, FontPreset.fromName("COMPACT"))
     }
 
+    @Test
+    fun `migrateName returns current names for every legacy preset`() {
+        assertEquals("WHISPER", FontPreset.migrateName("GLOW_WRITER"))
+        assertEquals("AMBIENT", FontPreset.migrateName("CLEAN"))
+        assertEquals("AMBIENT", FontPreset.migrateName("MODERN"))
+        assertEquals("NEON", FontPreset.migrateName("COMPACT"))
+    }
+
+    @Test
+    fun `migrateName preserves an unavailable preset while fromName falls back`() {
+        assertEquals("FUTURE_PRESET", FontPreset.migrateName("FUTURE_PRESET"))
+        assertEquals(FontPreset.AMBIENT, FontPreset.fromName("FUTURE_PRESET"))
+    }
+
+    @Test
+    fun `migrateName preserves nullable and unrecognized persisted values`() {
+        assertEquals(null, FontPreset.migrateName(null))
+        assertEquals("", FontPreset.migrateName(""))
+        assertEquals("  ", FontPreset.migrateName("  "))
+    }
+
     // ---- migrateCustomizations ----
 
     @Test

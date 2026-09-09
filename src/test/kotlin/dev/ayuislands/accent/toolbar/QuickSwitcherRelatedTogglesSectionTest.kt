@@ -1,7 +1,9 @@
 package dev.ayuislands.accent.toolbar
 
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
@@ -107,7 +109,8 @@ class QuickSwitcherRelatedTogglesSectionTest {
         state.chromeNavBar = false
         state.chromePanelBorder = false
         state.chromeTintingEnabled = true
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFB454"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFB454")))
 
         val section = QuickSwitcherRelatedTogglesSection()
         val chromeTile =
@@ -140,7 +143,8 @@ class QuickSwitcherRelatedTogglesSectionTest {
         state.chromeNavBar = false
         state.chromePanelBorder = false
         state.chromeTintingEnabled = false
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#FFB454"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFB454")))
 
         val section = QuickSwitcherRelatedTogglesSection()
         val chromeTile =
@@ -229,7 +233,8 @@ class QuickSwitcherRelatedTogglesSectionTest {
         val rotationService = mockk<AccentRotationService>(relaxed = true)
         mockkObject(AccentRotationService.Companion)
         every { AccentRotationService.getInstance() } returns rotationService
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#7DCFFF"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#7DCFFF")))
 
         val section = QuickSwitcherRelatedTogglesSection()
         val followTile =
@@ -254,7 +259,8 @@ class QuickSwitcherRelatedTogglesSectionTest {
         val rotationService = mockk<AccentRotationService>(relaxed = true)
         mockkObject(AccentRotationService.Companion)
         every { AccentRotationService.getInstance() } returns rotationService
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#7DCFFF"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#7DCFFF")))
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
         val section = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
@@ -280,7 +286,8 @@ class QuickSwitcherRelatedTogglesSectionTest {
         val rotationService = mockk<AccentRotationService>(relaxed = true)
         mockkObject(AccentRotationService.Companion)
         every { AccentRotationService.getInstance() } returns rotationService
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns "#7DCFFF"
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#7DCFFF")))
 
         val licensedSection = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
         val licensedFollowTile =

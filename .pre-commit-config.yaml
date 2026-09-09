@@ -41,10 +41,11 @@ repos:
     hooks:
       - id: guard-linter-configs
         name: guard linter configs
-        entry: ./scripts/guard-linter-configs.sh
+        entry: scripts/guard-linter-configs.py
         language: system
+        always_run: true
         files: ^(detekt\.yml|\.editorconfig|codecov\.yml)$
-        pass_filenames: true
+        pass_filenames: false
 
       - id: guard-test-source-reads
         name: guard test source reads

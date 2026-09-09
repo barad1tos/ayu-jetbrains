@@ -1,10 +1,12 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.project.Project
+import io.mockk.mockk
 import java.lang.reflect.Modifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -16,8 +18,8 @@ import kotlin.test.assertTrue
  * would surface as `NoClassDefFoundError` deep inside a subscriber's `init {}`),
  * the `displayName` is the human-readable tag JetBrains' bus diagnostics use,
  * and the listener class must be a real `fun interface` for IntelliJ's
- * single-method listener shape. Subscribers that receive [AccentHex] still use
- * object expressions where the value-class SAM bridge matters. The topic is
+ * single-method listener shape. The value-class SAM bridge is exercised through
+ * both Kotlin calls and reflective JVM dispatch. The topic is
  * application-scoped so subscribers connected on either `Application.messageBus`
  * or any `Project.messageBus` receive the event.
  *
@@ -51,14 +53,6 @@ class AccentChangedTopicTest {
     fun `AccentChangeListener is a fun interface with a single accentChanged method`() {
         val klass = AccentChangeListener::class.java
         assertTrue(klass.isInterface, "AccentChangeListener must be an interface")
-        val samListener =
-            AccentChangeListener { _, _, _ ->
-                error("SAM construction contract only; do not invoke the value-class lambda bridge")
-            }
-        assertTrue(
-            klass.isAssignableFrom(samListener.javaClass),
-            "AccentChangeListener must remain SAM-constructible for IDE listener inspections",
-        )
         val abstractMethods =
             klass.declaredMethods.filter { Modifier.isAbstract(it.modifiers) }
         assertEquals(
@@ -97,6 +91,27 @@ class AccentChangedTopicTest {
             params[2],
             "Third parameter must be AccentResolver.Source so subscribers can filter by resolution layer",
         )
+    }
+
+    @Test
+    fun `SAM listener receives value class payload through Kotlin and JVM dispatch`() {
+        val expectedProject = mockk<Project>()
+        val expectedHex = requireNotNull(AccentHex.of("#AABBCC"))
+        val expectedSource = AccentResolver.Source.GLOBAL
+        var deliveryCount = 0
+        val listener =
+            AccentChangeListener { project, hex, source ->
+                assertSame(expectedProject, project)
+                assertEquals(expectedHex, hex)
+                assertEquals(expectedSource, source)
+                deliveryCount += 1
+            }
+
+        listener.accentChanged(expectedProject, expectedHex, expectedSource)
+        val method = AccentChangeListener::class.java.declaredMethods.single { Modifier.isAbstract(it.modifiers) }
+        method.invoke(listener, expectedProject, expectedHex.value, expectedSource)
+
+        assertEquals(2, deliveryCount)
     }
 
     @Test

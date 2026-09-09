@@ -1,6 +1,10 @@
 package dev.ayuislands.reapply
 
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentApplyStep
+import dev.ayuislands.accent.AccentApplyStepFailure
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -46,8 +50,13 @@ class ThemeReapplicationTearEscalationTest {
         every { mockSettings.state } returns state
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>()) } returns "#FFCC66"
-        every { AccentApplicator.applyFromHexString(any()) } returns true
+        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
+        every { AccentApplicator.applyFromHexString(any()) } answers
+            {
+                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
+                    ?: AccentApplyOutcome.Rejected(firstArg())
+            }
     }
 
     @AfterTest
@@ -57,7 +66,15 @@ class ThemeReapplicationTearEscalationTest {
 
     @Test
     fun `rotation tick reports the apply step failed when the apply tore`() {
-        state.lastApplyOk = false
+        state.lastApplyOk = true
+        val failedPaint =
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of("#FFCC66")),
+                listOf(AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("paint"))),
+            )
+        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>()) } returns
+            failedPaint
+        every { AccentApplicator.applyFromHexString(any()) } returns failedPaint
 
         var result: ReapplyResult? = null
         ThemeReapplication.reapply(ReapplyReason.RotationTick(AyuVariant.DARK)) { result = it }
@@ -70,7 +87,7 @@ class ThemeReapplicationTearEscalationTest {
 
     @Test
     fun `rotation tick is clean when the apply completed cleanly`() {
-        state.lastApplyOk = true
+        state.lastApplyOk = false
 
         var result: ReapplyResult? = null
         ThemeReapplication.reapply(ReapplyReason.RotationTick(AyuVariant.DARK)) { result = it }
@@ -80,7 +97,15 @@ class ThemeReapplicationTearEscalationTest {
 
     @Test
     fun `license revert reports the explicit-hex step failed when the apply tore`() {
-        state.lastApplyOk = false
+        state.lastApplyOk = true
+        val failedPaint =
+            AccentApplyOutcome.Torn(
+                requireNotNull(AccentHex.of("#FFCC66")),
+                listOf(AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("paint"))),
+            )
+        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>()) } returns
+            failedPaint
+        every { AccentApplicator.applyFromHexString(any()) } returns failedPaint
 
         var result: ReapplyResult? = null
         ThemeReapplication.reapply(ReapplyReason.LicenseRevert("#E6B450")) { result = it }
@@ -99,7 +124,7 @@ class ThemeReapplicationTearEscalationTest {
         state.lastApplyOk = true
         every {
             AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>())
-        } returns "not-a-hex"
+        } returns AccentApplyOutcome.Rejected("not-a-hex")
 
         var result: ReapplyResult? = null
         ThemeReapplication.reapply(ReapplyReason.RotationTick(AyuVariant.DARK)) { result = it }
@@ -110,7 +135,7 @@ class ThemeReapplicationTearEscalationTest {
     @Test
     fun `license revert reports the explicit-hex step failed when the hex is rejected`() {
         state.lastApplyOk = true
-        every { AccentApplicator.applyFromHexString(any()) } returns false
+        every { AccentApplicator.applyFromHexString(any()) } answers { AccentApplyOutcome.Rejected(firstArg()) }
 
         var result: ReapplyResult? = null
         ThemeReapplication.reapply(ReapplyReason.LicenseRevert("#E6B450")) { result = it }

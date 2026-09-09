@@ -48,17 +48,21 @@ class FontPresetPanel : SettingsParticipant {
     private var storedPreset = FontPreset.AMBIENT.name
     private var pendingConsole = false
     private var storedConsole = false
+    private var isReapplyPending = false
 
     // Per-preset customizations (live working copy)
     private val customizations = mutableMapOf<String, FontSettings>()
     private var storedCustomizations = mapOf<String, String>()
 
     // Derived from current preset's customization
+    private val selectedPreset: FontPreset?
+        get() = FontPreset.findByName(pendingPreset)
+
+    private val selectedEntry: FontCatalog.Entry?
+        get() = selectedPreset?.let(FontCatalog::forPreset)
+
     private val currentSettings: FontSettings
-        get() =
-            customizations.getOrPut(pendingPreset) {
-                FontSettings.fromPreset(FontPreset.fromName(pendingPreset))
-            }
+        get() = customizations[pendingPreset] ?: FontSettings.fromPreset(selectedPreset ?: FontPreset.AMBIENT)
 
     // UI components
     private var enabledCheckbox: JCheckBox? = null
@@ -81,26 +85,35 @@ class FontPresetPanel : SettingsParticipant {
     private val fontCorrupted = AtomicBooleanProperty(false)
     private val isCustomSelected = AtomicBooleanProperty(false)
     private val customFontVisible = AtomicBooleanProperty(false)
+    private val presetContentVisible = AtomicBooleanProperty(false)
 
     private lateinit var availability: Map<FontPreset, Boolean>
 
-    private fun refreshCustomFontVisible() {
+    private fun refreshPresetVisibility() {
         customFontVisible.set(presetEnabled.get() && isCustomSelected.get())
+        presetContentVisible.set(presetEnabled.get() && selectedPreset != null)
     }
 
     fun buildPanel(panel: Panel) {
         loadState()
-        buildContent(panel)
+        panel.apply {
+            buildEnableRow()
+            buildPresetSelectorRow()
+            buildFontFamilyRow()
+            buildSummaryRow()
+            buildPreviewRow()
+            buildWarningRow()
+            buildInstallHintRow()
+            buildCustomizeGroup()
+        }
     }
 
     internal fun loadState() {
         val state = AyuIslandsSettings.getInstance().state
+        isReapplyPending = false
 
         // Migrate legacy preset names before reading
-        val migratedPreset = FontPreset.fromName(state.fontPresetName)
-        if (migratedPreset.name != state.fontPresetName) {
-            state.fontPresetName = migratedPreset.name
-        }
+        state.fontPresetName = FontPreset.migrateName(state.fontPresetName) ?: FontPreset.AMBIENT.name
         FontPreset.migrateCustomizations(state.fontPresetCustomizations)
 
         storedEnabled = state.fontPresetEnabled
@@ -120,23 +133,10 @@ class FontPresetPanel : SettingsParticipant {
 
         presetEnabled.set(pendingEnabled)
         isCustomSelected.set(pendingPreset == FontPreset.CUSTOM.name)
-        refreshCustomFontVisible()
+        refreshPresetVisibility()
         FontDetector.invalidateCache()
         availability = FontDetector.detectAll()
         updateFontMissing()
-    }
-
-    private fun buildContent(panel: Panel) {
-        panel.apply {
-            buildEnableRow()
-            buildPresetSelectorRow()
-            buildFontFamilyRow()
-            buildSummaryRow()
-            buildPreviewRow()
-            buildWarningRow()
-            buildInstallHintRow()
-            buildCustomizeGroup()
-        }
     }
 
     private fun Panel.buildEnableRow() {
@@ -147,7 +147,7 @@ class FontPresetPanel : SettingsParticipant {
             cb.component.addActionListener {
                 pendingEnabled = cb.component.isSelected
                 presetEnabled.set(pendingEnabled)
-                refreshCustomFontVisible()
+                refreshPresetVisibility()
                 updateFontMissing()
             }
             enabledCheckbox = cb.component
@@ -165,7 +165,7 @@ class FontPresetPanel : SettingsParticipant {
                 presetSegmented?.selectedItem = FontPreset.AMBIENT
                 consoleCheckbox?.isSelected = false
                 isCustomSelected.set(false)
-                refreshCustomFontVisible()
+                refreshPresetVisibility()
                 loadControlsFromPreset()
                 updateFontMissing()
                 suppressListeners = false
@@ -179,12 +179,12 @@ class FontPresetPanel : SettingsParticipant {
             label("Preset")
             val segmented = segmentedButton(FontPreset.entries) { preset -> text = preset.displayName }
             segmented.maxButtonsCount(FontPreset.entries.size)
-            segmented.selectedItem = FontPreset.fromName(pendingPreset)
+            segmented.selectedItem = selectedPreset
             segmented.whenItemSelected { preset ->
                 if (!suppressListeners) {
                     pendingPreset = preset.name
                     isCustomSelected.set(preset == FontPreset.CUSTOM)
-                    refreshCustomFontVisible()
+                    refreshPresetVisibility()
                     loadControlsFromPreset()
                     updateFontMissing()
                 }
@@ -220,6 +220,10 @@ class FontPresetPanel : SettingsParticipant {
     }
 
     private fun updateSummaryText(label: JLabel) {
+        if (selectedPreset == null) {
+            label.text = "Preset '$pendingPreset' is unavailable. Choose an available preset to change fonts."
+            return
+        }
         val s = currentSettings
         val lig = if (s.enableLigatures) "ligatures" else "no ligatures"
         label.text = "${s.fontFamily} · ${s.fontSize.toInt()}pt · " +
@@ -234,13 +238,13 @@ class FontPresetPanel : SettingsParticipant {
             cell(preview)
                 .resizableColumn()
                 .align(Align.FILL)
-        }.visibleIf(presetEnabled)
+        }.visibleIf(presetContentVisible)
     }
 
     private fun Panel.buildWarningRow() {
         row {
             val label = JLabel()
-            label.text = "\u26A0 Requires ${FontPreset.fromName(pendingPreset).fontFamily}"
+            label.text = "\u26A0 Requires ${selectedPreset?.fontFamily.orEmpty()}"
             warningLabel = label
             cell(label)
         }.visibleIf(fontMissing)
@@ -259,12 +263,12 @@ class FontPresetPanel : SettingsParticipant {
      * be user-triggered through this same consent helper.
      */
     private fun triggerLifecycleAction(uninstall: Boolean) {
+        val preset = selectedPreset ?: return
         try {
             if (!uninstall && !LicenseChecker.isLicensedOrGrace()) {
                 LicenseChecker.requestLicense("Unlock font installation")
                 return
             }
-            val preset = FontPreset.fromName(pendingPreset)
             val project = AccentApplicator.resolveFocusedProject()
             // CUSTOM has no install pipeline. The Install / Reinstall / Delete
             // rows that route here are gated by fontMissing/fontInstalled/
@@ -339,7 +343,7 @@ class FontPresetPanel : SettingsParticipant {
             // panel build from throwing IllegalStateException when CUSTOM is
             // the persisted preset on first paint.
             val label = JLabel()
-            val slug = FontCatalog.forPreset(FontPreset.fromName(pendingPreset))?.brewCaskSlug.orEmpty()
+            val slug = selectedEntry?.brewCaskSlug.orEmpty()
             label.text = if (slug.isNotEmpty()) "Or via Homebrew: brew install --cask $slug" else ""
             installHintLabel = label
             cell(label)
@@ -347,9 +351,9 @@ class FontPresetPanel : SettingsParticipant {
 
         row {
             link("Copy") {
-                val preset = FontPreset.fromName(pendingPreset)
+                val preset = selectedPreset
                 val slug =
-                    FontCatalog.forPreset(preset)?.brewCaskSlug
+                    selectedEntry?.brewCaskSlug
                         ?: run {
                             LOG.warn(
                                 "Brew Copy reached non-curated preset $preset — " +
@@ -361,9 +365,9 @@ class FontPresetPanel : SettingsParticipant {
                 copyToClipboard(command)
             }
             link("Run in Terminal") {
-                val preset = FontPreset.fromName(pendingPreset)
+                val preset = selectedPreset
                 val slug =
-                    FontCatalog.forPreset(preset)?.brewCaskSlug
+                    selectedEntry?.brewCaskSlug
                         ?: run {
                             LOG.warn(
                                 "Brew Run-in-Terminal reached non-curated preset $preset — " +
@@ -413,7 +417,12 @@ class FontPresetPanel : SettingsParticipant {
         collapsibleGroup("Customize") {
             buildSizeSpacingRow()
             buildWeightOptionsRow()
-        }.visibleIf(presetEnabled)
+            row {
+                link("Reapply preset") {
+                    if (pendingEnabled && selectedPreset != null) isReapplyPending = true
+                }.comment("Applies the current preset to this color scheme when you click Apply.")
+            }
+        }.visibleIf(presetContentVisible)
     }
 
     private fun Panel.buildSizeSpacingRow() {
@@ -500,6 +509,7 @@ class FontPresetPanel : SettingsParticipant {
 
     /** Update the custom font family selection and refresh the preview. */
     private fun updateCustomFontFamily(family: String) {
+        if (selectedPreset == null) return
         customizations[pendingPreset] = currentSettings.copy(fontFamily = family)
         summaryLabel?.let { updateSummaryText(it) }
         previewComponent?.updateFontFamily(family)
@@ -513,6 +523,7 @@ class FontPresetPanel : SettingsParticipant {
         enableLigatures: Boolean = currentSettings.enableLigatures,
         weight: FontWeight = currentSettings.weight,
     ) {
+        if (selectedPreset == null) return
         customizations[pendingPreset] =
             currentSettings.copy(
                 fontSize = fontSize,
@@ -539,6 +550,7 @@ class FontPresetPanel : SettingsParticipant {
     }
 
     private fun refreshPreview(reloadPreset: Boolean = false) {
+        val preset = selectedPreset ?: return
         // Defensive boundary mirrors triggerLifecycleAction's outer catch:
         // refreshPreview runs in the panel-build closure (via buildPreviewRow
         // → loadControlsFromPreset), and a propagating exception there is the
@@ -547,7 +559,6 @@ class FontPresetPanel : SettingsParticipant {
         try {
             val settings = currentSettings
             if (reloadPreset) {
-                val preset = FontPreset.fromName(pendingPreset)
                 // Same gate as updateFontMissing — both call sites must agree on
                 // whether the preview should render. For curated, derive a
                 // status proxy from the cached availability map (HEALTHY/
@@ -574,7 +585,13 @@ class FontPresetPanel : SettingsParticipant {
     }
 
     private fun updateFontMissing() {
-        val preset = FontPreset.fromName(pendingPreset)
+        val preset = selectedPreset
+        if (preset == null) {
+            fontMissing.set(false)
+            fontInstalled.set(false)
+            fontCorrupted.set(false)
+            return
+        }
         // Compute all three booleans atomically from a SINGLE status snapshot
         // so the three .visibleIf() rows are always mutually exclusive — no race window.
         // Non-curated presets and disabled state collapse to NOT_INSTALLED.
@@ -607,19 +624,20 @@ class FontPresetPanel : SettingsParticipant {
     }
 
     override fun isModified(): Boolean {
+        if (isReapplyPending) return true
         if (pendingEnabled != storedEnabled) return true
         if (pendingPreset != storedPreset) return true
         if (pendingConsole != storedConsole) return true
-        for ((name, settings) in customizations) {
-            val storedSettings =
-                FontSettings.decode(
-                    storedCustomizations[name],
-                    FontPreset.fromName(name),
-                )
-            if (settings.encode() != storedSettings.encode()) return true
-        }
-        return false
+        return changedCustomizations().isNotEmpty()
     }
+
+    private fun changedCustomizations(): Map<String, String> =
+        customizations
+            .mapNotNull { (name, settings) ->
+                val storedSettings = FontSettings.decode(storedCustomizations[name], FontPreset.fromName(name))
+                val encoded = settings.encode()
+                if (encoded != storedSettings.encode()) name to encoded else null
+            }.toMap()
 
     override fun apply() {
         if (!isModified()) return
@@ -629,31 +647,34 @@ class FontPresetPanel : SettingsParticipant {
         state.fontPresetName = pendingPreset
         state.fontApplyToConsole = pendingConsole
 
-        // Save all per-preset customizations
-        val newCustomizations = mutableMapOf<String, String>()
-        for ((name, settings) in customizations) {
-            newCustomizations[name] = settings.encode()
-        }
+        // Preserve unknown entries and the original encoding of untouched presets.
+        val changes = changedCustomizations()
+        val newCustomizations = state.fontPresetCustomizations.toMutableMap()
+        newCustomizations.putAll(changes)
         state.fontPresetCustomizations = newCustomizations
-        storedCustomizations = newCustomizations.toMap()
+        // Advance only the edits represented by this panel's working copy.
+        storedCustomizations = storedCustomizations + changes
 
         storedEnabled = pendingEnabled
         storedPreset = pendingPreset
         storedConsole = pendingConsole
 
         try {
-            if (pendingEnabled) {
-                FontDetector.invalidateCache()
-                FontPresetApplicator.apply(currentSettings.copy(applyToConsole = pendingConsole))
-            } else {
-                FontPresetApplicator.revert()
+            when {
+                !pendingEnabled -> FontPresetApplicator.revert()
+                selectedPreset != null -> {
+                    FontDetector.invalidateCache()
+                    FontPresetApplicator.apply(currentSettings.copy(applyToConsole = pendingConsole))
+                }
             }
+            isReapplyPending = false
         } catch (e: RuntimeException) {
             LOG.warn("FontPresetApplicator failed during settings apply (preset=$pendingPreset)", e)
         }
     }
 
     override fun reset() {
+        isReapplyPending = false
         pendingEnabled = storedEnabled
         pendingPreset = storedPreset
         pendingConsole = storedConsole
@@ -667,11 +688,11 @@ class FontPresetPanel : SettingsParticipant {
 
         suppressListeners = true
         enabledCheckbox?.isSelected = storedEnabled
-        presetSegmented?.selectedItem = FontPreset.fromName(storedPreset)
+        presetSegmented?.selectedItem = selectedPreset
         consoleCheckbox?.isSelected = storedConsole
         presetEnabled.set(storedEnabled)
         isCustomSelected.set(storedPreset == FontPreset.CUSTOM.name)
-        refreshCustomFontVisible()
+        refreshPresetVisibility()
         loadControlsFromPreset()
         updateFontMissing()
         suppressListeners = false

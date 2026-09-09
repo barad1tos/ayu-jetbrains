@@ -2,6 +2,7 @@ package dev.ayuislands.theme
 
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.EffectType
@@ -10,6 +11,11 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.syntax.IdeSyntaxSchemeWriter
+import dev.ayuislands.syntax.SyntaxRecoveryLedger
+import dev.ayuislands.syntax.SyntaxSchemeChange
+import dev.ayuislands.syntax.SyntaxSchemeTransaction
+import dev.ayuislands.syntax.SyntaxTransactionResult
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -23,6 +29,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -430,6 +437,332 @@ class EditorSchemeOverridesTest {
         AyuEditorSchemeScope.restore(elementOwner)
 
         assertEquals(originalColor, editableColors[colorKey])
+    }
+
+    @Test
+    fun `cancel preserves manual attributes and does not restore other preview entries`() {
+        val manualKey = TextAttributesKey.find("TEST_PREVIEW_MANUAL")
+        val otherKey = TextAttributesKey.find("TEST_PREVIEW_OTHER")
+        val attributes =
+            mutableMapOf<TextAttributesKey, TextAttributes?>(
+                manualKey to fullAttributes(Color.RED),
+                otherKey to fullAttributes(Color.BLUE),
+            )
+        val scheme = scheme(attributes = attributes)
+        val writer = IdeSyntaxSchemeWriter()
+        val ledger = SyntaxRecoveryLedger()
+        val change =
+            SyntaxSchemeChange(
+                scheme,
+                "preview",
+                mapOf(manualKey to fullAttributes(Color.ORANGE), otherKey to fullAttributes(Color.YELLOW)),
+                emptySet(),
+            )
+        assertIs<SyntaxTransactionResult.Applied>(SyntaxSchemeTransaction(writer) {}.apply(listOf(change), ledger))
+        val manual = fullAttributes(Color.GREEN)
+        scheme.setAttributes(manualKey, manual)
+        val current = attributes.toMap()
+        var publications = 0
+
+        repeat(2) {
+            assertIs<SyntaxTransactionResult.RecoveryRequired>(ledger.restore(writer) { publications += 1 })
+            assertEquals(current, attributes)
+            assertTrue(ledger.hasPendingFailure)
+        }
+        assertEquals(0, publications)
+        assertFails { ledger.advance(writer) }
+    }
+
+    @Test
+    fun `preview publication cannot adopt a subscribers manual edit`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_SUBSCRIBER")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes)
+        val writer = IdeSyntaxSchemeWriter()
+        val ledger = SyntaxRecoveryLedger()
+        val manual = fullAttributes(Color.GREEN)
+        val transaction = SyntaxSchemeTransaction(writer) { scheme.setAttributes(key, manual) }
+        val change = SyntaxSchemeChange(scheme, "preview", mapOf(key to fullAttributes(Color.ORANGE)), emptySet())
+
+        assertIs<SyntaxTransactionResult.Applied>(transaction.apply(listOf(change), ledger))
+        assertIs<SyntaxTransactionResult.RecoveryRequired>(ledger.restore(writer) {})
+        assertEquals(manual, attributes[key])
+    }
+
+    @Test
+    fun `failed transaction recovery finishes before restoring an older preview`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_MIXED_RECOVERY")
+        val other = TextAttributesKey.find("TEST_PREVIEW_FAILED_TRANSACTION")
+        val attributes =
+            mutableMapOf<TextAttributesKey, TextAttributes?>(
+                key to fullAttributes(Color.RED),
+                other to fullAttributes(Color.BLUE),
+            )
+        val scheme = scheme(attributes = attributes)
+        val writer = IdeSyntaxSchemeWriter()
+        val ledger = SyntaxRecoveryLedger()
+        val first = SyntaxSchemeChange(scheme, "preview", mapOf(key to fullAttributes(Color.ORANGE)), emptySet())
+        assertIs<SyntaxTransactionResult.Applied>(SyntaxSchemeTransaction(writer) {}.apply(listOf(first), ledger))
+        var rollbackBlocked = true
+        every { scheme.setAttributes(any(), any()) } answers {
+            val target = firstArg<TextAttributesKey>()
+            val value = secondArg<TextAttributes>()
+            check(target != other || value.foregroundColor != Color.GREEN) { "transaction write failed" }
+            check(
+                !rollbackBlocked || target != key || value.foregroundColor != Color.ORANGE,
+            ) { "transaction rollback failed" }
+            attributes[target] = value
+        }
+        val next =
+            SyntaxSchemeChange(
+                scheme,
+                "failed transaction",
+                linkedMapOf(key to fullAttributes(Color.YELLOW), other to fullAttributes(Color.GREEN)),
+                emptySet(),
+            )
+        var publications = 0
+        val transaction = SyntaxSchemeTransaction(writer) { publications += 1 }
+        assertIs<SyntaxTransactionResult.RecoveryRequired>(transaction.apply(listOf(next), ledger))
+
+        assertIs<SyntaxTransactionResult.RecoveryRequired>(ledger.restore(writer) { publications += 1 })
+        assertEquals(fullAttributes(Color.YELLOW), attributes[key])
+        assertEquals(fullAttributes(Color.BLUE), attributes[other])
+        assertEquals(0, publications)
+        assertTrue(ledger.hasPendingFailure)
+        assertFails { ledger.advance(writer) }
+
+        rollbackBlocked = false
+        assertIs<SyntaxTransactionResult.Applied>(ledger.restore(writer) { publications += 1 })
+        assertEquals(fullAttributes(Color.RED), attributes[key])
+        assertEquals(fullAttributes(Color.BLUE), attributes[other])
+        assertEquals(1, publications)
+        assertFalse(ledger.hasRecoveryWork)
+    }
+
+    @Test
+    fun `preview restores the prior owned value and its original recovery metadata`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_OWNED")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes)
+        EditorSchemeOverrides.writeAttributes(scheme, EditorSchemeOwner.Syntax, key, fullAttributes(Color.ORANGE))
+        val metadata = scheme.metaProperties.toMap()
+        val writer = IdeSyntaxSchemeWriter()
+        val ledger = SyntaxRecoveryLedger()
+        val change =
+            SyntaxSchemeChange(
+                scheme,
+                "preview",
+                mapOf(key to fullAttributes(Color.YELLOW)),
+                setOf(key.externalName),
+            )
+        assertIs<SyntaxTransactionResult.Applied>(SyntaxSchemeTransaction(writer) {}.apply(listOf(change), ledger))
+
+        assertIs<SyntaxTransactionResult.Applied>(ledger.restore(writer) {})
+
+        assertEquals(fullAttributes(Color.ORANGE), attributes[key])
+        assertEquals(metadata, scheme.metaProperties.toMap())
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+        assertEquals(fullAttributes(Color.RED), attributes[key])
+    }
+
+    @Test
+    fun `metadata write failure retries without replaying restored attributes`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_METADATA_RETRY")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes)
+        val saved = EditorSchemeOverrides.checkpoints.capture(scheme, EditorSchemeOwner.Syntax, setOf(key))
+        EditorSchemeOverrides.writeAttributes(scheme, EditorSchemeOwner.Syntax, key, fullAttributes(Color.ORANGE))
+        val preview = EditorSchemeOverrides.checkpoints.sealPreview(saved)
+        val metadata = scheme.metaProperties
+        val propertyName =
+            saved.entries.keys
+                .single()
+                .metadataKey
+        val properties = mockk<Properties>()
+        every { scheme.metaProperties } returns properties
+        every { properties.getProperty(propertyName) } answers { metadata.getProperty(propertyName) }
+        every { properties.remove(propertyName) } throws IllegalStateException("metadata write failed")
+
+        val failed = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(preview))
+
+        assertTrue(failed.failures.isNotEmpty())
+        assertEquals(fullAttributes(Color.RED), attributes[key])
+        every { scheme.setAttributes(key, any()) } throws
+            IllegalStateException("completed attribute write was replayed")
+        every { properties.remove(propertyName) } answers { metadata.remove(propertyName) }
+        val restored = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(preview))
+        assertTrue(restored.failures.isEmpty())
+        assertEquals(setOf(preview), restored.completed)
+        assertNull(metadata.getProperty(propertyName))
+    }
+
+    @Test
+    fun `restoring an unchanged preview still publishes semantic restoration once`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_SEMANTIC_RESTORE")
+        val value = fullAttributes(Color.RED)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to value)
+        val scheme = scheme(attributes = attributes)
+        val writer = IdeSyntaxSchemeWriter()
+        val ledger = SyntaxRecoveryLedger()
+        val change = SyntaxSchemeChange(scheme, "preview", mapOf(key to value), emptySet())
+        SyntaxSchemeTransaction(writer) {}.apply(listOf(change), ledger)
+        var restored = false
+        var publications = 0
+
+        assertIs<SyntaxTransactionResult.Applied>(
+            ledger.restore(writer, afterRollback = { restored = true }) {
+                assertTrue(restored)
+                publications += 1
+            },
+        )
+        ledger.restore(writer) { publications += 1 }
+
+        assertEquals(1, publications)
+        assertEquals(value, attributes[key])
+        assertFalse(ledger.hasRecoveryWork)
+    }
+
+    @Test
+    fun `preview chain restores the first baseline including inherited attributes`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_CHAIN")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
+        val scheme =
+            scheme(attributes = attributes, inheritedAttributes = mutableMapOf(key to fullAttributes(Color.RED)))
+        val first = preview(scheme, mapOf(key to fullAttributes(Color.ORANGE)))
+        val second = preview(scheme, mapOf(key to fullAttributes(Color.YELLOW)))
+
+        val result = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(first, second))
+
+        assertTrue(result.failures.isEmpty())
+        assertEquals(setOf(first, second), result.completed)
+        assertFalse(attributes.containsKey(key))
+        assertEquals(fullAttributes(Color.RED), scheme.getAttributes(key))
+    }
+
+    @Test
+    fun `preview chain does not restore through an intervening manual edit`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_CHAIN_CONFLICT")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes)
+        val first = preview(scheme, mapOf(key to fullAttributes(Color.ORANGE)))
+        scheme.setAttributes(key, fullAttributes(Color.GREEN))
+        val second = preview(scheme, mapOf(key to fullAttributes(Color.YELLOW)))
+
+        val result = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(first, second))
+
+        assertTrue(result.failures.isNotEmpty())
+        assertTrue(result.completed.isEmpty())
+        assertEquals(fullAttributes(Color.YELLOW), attributes[key])
+    }
+
+    @Test
+    fun `preview restore preserves raw ownership metadata conflicts`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_METADATA")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes)
+        val receipt = preview(scheme, mapOf(key to fullAttributes(Color.ORANGE)))
+        val metadataKey =
+            receipt.original.entries.keys
+                .single()
+                .metadataKey
+        val unknown = "future-version; raw user value  "
+        scheme.metaProperties.setProperty(metadataKey, unknown)
+
+        val result = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(receipt))
+
+        assertTrue(result.failures.isNotEmpty())
+        assertFalse(result.changed)
+        assertEquals(unknown, scheme.metaProperties.getProperty(metadataKey))
+        assertEquals(fullAttributes(Color.ORANGE), attributes[key])
+    }
+
+    @Test
+    fun `partial preview restoration blocks older overlapping checkpoints and retries safely`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_RETRY")
+        val other = TextAttributesKey.find("TEST_PREVIEW_INDEPENDENT")
+        val attributes =
+            mutableMapOf<TextAttributesKey, TextAttributes?>(
+                key to fullAttributes(Color.RED),
+                other to fullAttributes(Color.BLUE),
+            )
+        val scheme = scheme(attributes = attributes)
+        val first = preview(scheme, mapOf(key to fullAttributes(Color.ORANGE)))
+        val second = preview(scheme, mapOf(key to fullAttributes(Color.YELLOW), other to fullAttributes(Color.GREEN)))
+        var shouldFail = true
+        every { scheme.setAttributes(key, any()) } answers {
+            if (shouldFail) error("native attribute write failed")
+            attributes[key] = secondArg()
+        }
+
+        val failed = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(first, second))
+
+        assertTrue(failed.failures.isNotEmpty())
+        assertTrue(failed.completed.isEmpty())
+        assertEquals(fullAttributes(Color.YELLOW), attributes[key])
+        assertEquals(fullAttributes(Color.BLUE), attributes[other])
+        shouldFail = false
+        val restored = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(first, second))
+        assertTrue(restored.failures.isEmpty())
+        assertEquals(setOf(first, second), restored.completed)
+        assertEquals(fullAttributes(Color.RED), attributes[key])
+    }
+
+    @Test
+    fun `retry preserves a manual edit made after partial restoration`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_RETRY_MANUAL")
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
+        val scheme = scheme(attributes = attributes)
+        val receipt = preview(scheme, mapOf(key to fullAttributes(Color.ORANGE)))
+        every { scheme.setAttributes(key, any()) } throws IllegalStateException("native attribute write failed")
+        assertTrue(
+            EditorSchemeOverrides.checkpoints
+                .restorePreviews(listOf(receipt))
+                .failures
+                .isNotEmpty(),
+        )
+        attributes[key] = fullAttributes(Color.GREEN)
+
+        val retry = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(receipt))
+
+        assertTrue(retry.failures.isNotEmpty())
+        assertFalse(retry.changed)
+        assertEquals(fullAttributes(Color.GREEN), attributes[key])
+    }
+
+    @Test
+    fun `preview cancellation retains proven writes and finishes independent schemes`() {
+        val key = TextAttributesKey.find("TEST_PREVIEW_CANCELLATION")
+        val firstAttributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
+        val secondAttributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.BLUE))
+        val firstScheme = scheme(attributes = firstAttributes)
+        val secondScheme = scheme(attributes = secondAttributes)
+        val first = preview(firstScheme, mapOf(key to fullAttributes(Color.ORANGE)))
+        val second = preview(secondScheme, mapOf(key to fullAttributes(Color.YELLOW)))
+        val cancellation = ProcessCanceledException()
+        every { secondScheme.setAttributes(key, any()) } answers {
+            secondAttributes[key] = secondArg()
+            throw cancellation
+        }
+
+        val failed = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(first, second))
+
+        assertSame(cancellation, failed.cancellation)
+        assertEquals(setOf(first), failed.completed)
+        assertEquals(fullAttributes(Color.RED), firstAttributes[key])
+        assertEquals(fullAttributes(Color.BLUE), secondAttributes[key])
+        val retry = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(second))
+        assertEquals(setOf(second), retry.completed)
+        assertNull(retry.cancellation)
+        assertFalse(retry.changed)
+    }
+
+    private fun preview(
+        scheme: EditorColorsScheme,
+        attributes: Map<TextAttributesKey, TextAttributes>,
+    ): EditorSchemeOverrides.PreviewCheckpoint {
+        val saved = EditorSchemeOverrides.checkpoints.capture(scheme, EditorSchemeOwner.Syntax, attributes.keys)
+        attributes.forEach { (key, value) -> scheme.setAttributes(key, value) }
+        return EditorSchemeOverrides.checkpoints.sealPreview(saved)
     }
 
     private fun scheme(

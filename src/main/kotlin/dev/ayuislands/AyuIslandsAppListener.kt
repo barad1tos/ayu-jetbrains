@@ -3,6 +3,7 @@ package dev.ayuislands
 import com.intellij.ide.AppLifecycleListener
 import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -41,23 +42,30 @@ internal class AyuIslandsAppListener : AppLifecycleListener {
         // against a torn half-apply.
         val trustedCached = settings.state.trustedCachedAccent()
         val accentHex = trustedCached?.value ?: AccentResolver.resolve(null, variant)
-        val applied = AccentApplicator.applyFromHexString(accentHex)
         val source =
             when {
                 trustedCached != null -> "cached"
                 validCached != null -> "cached-untrusted"
                 else -> "resolved"
             }
-        if (applied) {
-            LOG.info(
-                "Ayu Islands accent applied in appFrameCreated " +
-                    "(source=$source, hex='$accentHex') for ${variant.name}",
-            )
-        } else {
-            LOG.warn(
-                "Ayu Islands accent rejected in appFrameCreated " +
-                    "(source=$source, hex='$accentHex') for ${variant.name}",
-            )
+        AccentApplicator.requestApply(accentHex) { outcome ->
+            when (outcome) {
+                is AccentApplyOutcome.Applied ->
+                    LOG.info(
+                        "Ayu Islands accent applied in appFrameCreated " +
+                            "(source=$source, hex='$accentHex') for ${variant.name}",
+                    )
+                is AccentApplyOutcome.Rejected ->
+                    LOG.warn(
+                        "Ayu Islands accent rejected in appFrameCreated " +
+                            "(source=$source, hex='$accentHex') for ${variant.name}",
+                    )
+                is AccentApplyOutcome.Torn ->
+                    LOG.warn(
+                        "Ayu Islands accent incomplete in appFrameCreated " +
+                            "(source=$source, hex='$accentHex') for ${variant.name}",
+                    )
+            }
         }
     }
 

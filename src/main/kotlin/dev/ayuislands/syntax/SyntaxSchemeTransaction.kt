@@ -49,19 +49,25 @@ internal interface SyntaxSchemeWriter {
     fun rollback(checkpoint: SyntaxSchemeCheckpoint): List<RuntimeException>
 
     fun release(checkpoint: SyntaxSchemeCheckpoint)
+
+    fun sealPreview(checkpoint: SyntaxSchemeCheckpoint)
+
+    fun restorePreviews(checkpoints: List<SyntaxSchemeCheckpoint>): SyntaxRollbackAttempt
 }
 
 internal class IdeSyntaxSchemeWriter : SyntaxSchemeWriter {
     private val checkpoints =
-        IdentityHashMap<SyntaxSchemeCheckpoint, EditorSchemeOverrides.AttributesCheckpoint>()
+        IdentityHashMap<SyntaxSchemeCheckpoint, NativeCheckpoint>()
 
     override fun checkpoint(change: SyntaxSchemeChange): SyntaxSchemeCheckpoint {
         val token = SyntaxSchemeCheckpoint(change.label)
         checkpoints[token] =
-            EditorSchemeOverrides.checkpoints.capture(
-                scheme = change.scheme,
-                owner = EditorSchemeOwner.Syntax,
-                keys = change.attributes.keys,
+            NativeCheckpoint.Transaction(
+                EditorSchemeOverrides.checkpoints.capture(
+                    scheme = change.scheme,
+                    owner = EditorSchemeOwner.Syntax,
+                    keys = change.attributes.keys,
+                ),
             )
         return token
     }
@@ -93,13 +99,47 @@ internal class IdeSyntaxSchemeWriter : SyntaxSchemeWriter {
 
     override fun rollback(checkpoint: SyntaxSchemeCheckpoint): List<RuntimeException> {
         val saved = checkpoints[checkpoint] ?: return emptyList()
-        val failures = EditorSchemeOverrides.checkpoints.rollback(saved)
+        val failures = EditorSchemeOverrides.checkpoints.rollback(saved.original)
         if (failures.isEmpty()) checkpoints.remove(checkpoint)
         return failures
     }
 
     override fun release(checkpoint: SyntaxSchemeCheckpoint) {
         checkpoints.remove(checkpoint)
+    }
+
+    override fun sealPreview(checkpoint: SyntaxSchemeCheckpoint) {
+        val saved = checkpoints.getValue(checkpoint)
+        checkpoints[checkpoint] =
+            NativeCheckpoint.Preview(EditorSchemeOverrides.checkpoints.sealPreview(saved.original))
+    }
+
+    override fun restorePreviews(checkpoints: List<SyntaxSchemeCheckpoint>): SyntaxRollbackAttempt {
+        val receipts =
+            checkpoints.associateWith { token ->
+                val saved = this.checkpoints.getValue(token)
+                check(saved is NativeCheckpoint.Preview) { "Cannot restore an unsealed syntax preview" }
+                saved.receipt
+            }
+        val attempt = EditorSchemeOverrides.checkpoints.restorePreviews(receipts.values.toList())
+        val incomplete = checkpoints.filter { token -> receipts.getValue(token) !in attempt.completed }
+        checkpoints.filterNot { it in incomplete }.forEach(::release)
+        return SyntaxRollbackAttempt(incomplete, attempt.failures, attempt.cancellation, attempt.changed)
+    }
+
+    private sealed interface NativeCheckpoint {
+        val original: EditorSchemeOverrides.AttributesCheckpoint
+
+        data class Transaction(
+            override val original: EditorSchemeOverrides.AttributesCheckpoint,
+        ) : NativeCheckpoint
+
+        data class Preview(
+            val receipt: EditorSchemeOverrides.PreviewCheckpoint,
+        ) : NativeCheckpoint {
+            override val original: EditorSchemeOverrides.AttributesCheckpoint
+                get() = receipt.original
+        }
     }
 }
 
@@ -119,7 +159,7 @@ internal class SyntaxRecoveryLedger {
 
     val hasPendingFailure: Boolean
         get() =
-            rollbackState.entries.any { it is RecoveryCheckpoint.Incomplete } ||
+            rollbackState.entries.any { it !is RecoveryCheckpoint.Undo } ||
                 publication == PublicationRecovery.Pending
 
     fun restore(
@@ -128,12 +168,7 @@ internal class SyntaxRecoveryLedger {
         publish: () -> Unit,
     ): SyntaxTransactionResult {
         if (rollbackState.entries.isNotEmpty()) {
-            val attempt = rollback(writer, rollbackState.entries.map(RecoveryCheckpoint::checkpoint))
-            rollbackState =
-                RollbackRecovery.retaining(
-                    attempt.incompleteCheckpoints.map(RecoveryCheckpoint::Incomplete),
-                )
-            publication = PublicationRecovery.Pending
+            val attempt = restoreCheckpoints(writer)
             attempt.rethrowCancellation()
             if (attempt.failures.isNotEmpty()) {
                 return SyntaxTransactionResult.RecoveryRequired(attempt.failures.first(), attempt.failures)
@@ -157,6 +192,35 @@ internal class SyntaxRecoveryLedger {
         }
     }
 
+    private fun restoreCheckpoints(writer: SyntaxSchemeWriter): SyntaxRollbackAttempt {
+        val entries = rollbackState.entries
+        val transactions = entries.filterIsInstance<RecoveryCheckpoint.TransactionRecovery>()
+        val previews = entries.filterNot { it is RecoveryCheckpoint.TransactionRecovery }
+        if (transactions.isNotEmpty()) {
+            val attempt = rollback(writer, transactions.map(RecoveryCheckpoint::checkpoint))
+            rollbackState =
+                RollbackRecovery.retaining(
+                    previews + attempt.incompleteCheckpoints.map(RecoveryCheckpoint::TransactionRecovery),
+                )
+            publication = PublicationRecovery.Pending
+            if (attempt.incompleteCheckpoints.isNotEmpty() || attempt.cancellation != null) return attempt
+        }
+        val tokens = previews.map(RecoveryCheckpoint::checkpoint)
+        rollbackState = RollbackRecovery.retaining(tokens.map(RecoveryCheckpoint::PreviewRecovery))
+        val attempt = writer.restorePreviews(tokens)
+        rollbackState =
+            RollbackRecovery.retaining(
+                attempt.incompleteCheckpoints.map(RecoveryCheckpoint::PreviewRecovery),
+            )
+        val restored =
+            tokens.isNotEmpty() &&
+                attempt.incompleteCheckpoints.isEmpty() &&
+                attempt.failures.isEmpty() &&
+                attempt.cancellation == null
+        if (attempt.changed || restored) publication = PublicationRecovery.Pending
+        return attempt
+    }
+
     fun advance(writer: SyntaxSchemeWriter) {
         check(!hasPendingFailure) { "Cannot advance syntax state while recovery is pending" }
         rollbackState.entries.map(RecoveryCheckpoint::checkpoint).forEach(writer::release)
@@ -174,7 +238,7 @@ internal class SyntaxRecoveryLedger {
     internal fun retainIncompleteRollback(retained: List<SyntaxSchemeCheckpoint>) {
         rollbackState =
             RollbackRecovery.retaining(
-                rollbackState.entries + retained.map(RecoveryCheckpoint::Incomplete),
+                rollbackState.entries + retained.map(RecoveryCheckpoint::TransactionRecovery),
             )
     }
 
@@ -190,7 +254,11 @@ private sealed interface RecoveryCheckpoint {
         override val checkpoint: SyntaxSchemeCheckpoint,
     ) : RecoveryCheckpoint
 
-    data class Incomplete(
+    data class TransactionRecovery(
+        override val checkpoint: SyntaxSchemeCheckpoint,
+    ) : RecoveryCheckpoint
+
+    data class PreviewRecovery(
         override val checkpoint: SyntaxSchemeCheckpoint,
     ) : RecoveryCheckpoint
 }
@@ -233,6 +301,7 @@ internal class SyntaxSchemeTransaction(
             changes.forEach { change -> checkpoints += writer.checkpoint(change) }
             val relinquishedKeys =
                 changes.flatMapTo(linkedSetOf()) { change -> writer.write(change) }
+            if (ledger != null) checkpoints.forEach(writer::sealPreview)
             publicationAttempted = true
             publish()
             if (ledger == null) checkpoints.forEach(writer::release) else ledger.retainUndo(checkpoints)
@@ -257,10 +326,11 @@ internal class SyntaxSchemeTransaction(
     }
 }
 
-private data class RollbackAttempt(
+internal data class SyntaxRollbackAttempt(
     val incompleteCheckpoints: List<SyntaxSchemeCheckpoint>,
     val failures: List<RuntimeException>,
     val cancellation: RuntimeException?,
+    val changed: Boolean = false,
 ) {
     fun rethrowCancellation(originalFailure: RuntimeException? = null) {
         val originalCancellation = originalFailure?.takeIf(::isCancellation)
@@ -274,10 +344,10 @@ private data class RollbackAttempt(
     }
 }
 
-private fun rollback(
+internal fun rollback(
     writer: SyntaxSchemeWriter,
     checkpoints: List<SyntaxSchemeCheckpoint>,
-): RollbackAttempt {
+): SyntaxRollbackAttempt {
     val incomplete = mutableListOf<SyntaxSchemeCheckpoint>()
     val failures = mutableListOf<RuntimeException>()
     var cancellation: RuntimeException? = null
@@ -297,7 +367,7 @@ private fun rollback(
             }
         }
     }
-    return RollbackAttempt(incomplete, failures, cancellation)
+    return SyntaxRollbackAttempt(checkpoints.filter { it in incomplete }, failures, cancellation)
 }
 
 private fun RuntimeException?.record(next: RuntimeException): RuntimeException {

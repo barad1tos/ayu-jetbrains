@@ -136,6 +136,7 @@ class AccentApplyPlanRunnerTest {
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.invokeLater(any(), any<ModalityState>()) } answers {
+            every { SwingUtilities.isEventDispatchThread() } returns true
             firstArg<Runnable>().run()
         }
         val executed = mutableListOf<AccentApplyStep>()
@@ -160,6 +161,7 @@ class AccentApplyPlanRunnerTest {
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns null
         every { SwingUtilities.invokeLater(any()) } answers {
+            every { SwingUtilities.isEventDispatchThread() } returns true
             firstArg<Runnable>().run()
         }
         val executed = mutableListOf<AccentApplyStep>()

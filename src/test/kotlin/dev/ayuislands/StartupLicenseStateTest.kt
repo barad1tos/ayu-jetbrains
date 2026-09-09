@@ -30,9 +30,6 @@ class StartupLicenseStateTest {
     private lateinit var settings: AyuIslandsSettings
     private val project = mockk<Project>(relaxed = true)
 
-    /** Delay value used in tests (arbitrary, not benchmarked). */
-    private val testDelayMs = 5_000
-
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
@@ -188,24 +185,6 @@ class StartupLicenseStateTest {
         StartupLicenseHandler.applyEntitlement(LicenseEntitlement.LICENSED, project, settings)
 
         verify(exactly = 1) { LicenseChecker.enableProDefaults() }
-    }
-
-    // scheduleFreeWizard (Timer-based file opening verified by integration/manual test)
-
-    @Test
-    fun `scheduleFreeWizard sets freeOnboardingShown flag before timer fires`() {
-        state.freeOnboardingShown = false
-
-        // scheduleFreeWizard is mocked, but we test the flag directly
-        // to verify the contract: flag set before timer scheduling
-        every { StartupLicenseHandler.scheduleFreeWizard(any(), any()) } answers {
-            // Simulate real behavior: set flag then schedule timer
-            settings.state.freeOnboardingShown = true
-        }
-
-        StartupLicenseHandler.scheduleFreeWizard(project, testDelayMs)
-
-        assertTrue(state.freeOnboardingShown)
     }
 
     // computeAdaptiveDelay

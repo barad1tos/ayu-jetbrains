@@ -16,11 +16,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# The defusedxml package replaces the stdlib xml.etree parser with a hardened
-# variant that rejects entity expansion and XML-bomb attacks. Our inputs are
-# committed source files (trusted), but using the safe parser signals intent
-# and keeps the Semgrep CWE-611 rule satisfied for contributors who might
-# later feed external XML into this script.
+# Reject entity expansion and XML-bomb attacks, even for trusted source files.
 from defusedxml.ElementTree import parse as parse_xml
 
 if TYPE_CHECKING:

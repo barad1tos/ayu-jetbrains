@@ -801,8 +801,9 @@ class AyuIslandsSyntaxPanelTest {
 
             assertFalse(dimComments.isEnabled, "reset must disable readability after license loss")
             assertFalse(dimComments.isSelected, "reset must hide persisted premium readability after license loss")
+            assertTrue(stateBase.dimComments, "reset must preserve the saved readability preference")
 
-            verify(exactly = 0) {
+            verify(exactly = 1) {
                 runtimeSession.restore()
             }
             io.mockk.clearMocks(runtimeSession, answers = false, recordedCalls = true)

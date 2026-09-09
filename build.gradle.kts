@@ -23,7 +23,7 @@ plugins {
 group = providers.gradleProperty("pluginGroup").get()
 version = providers.gradleProperty("pluginVersion").get()
 
-val integrationPlugins =
+val integrationPlugins: List<Pair<String, String>> =
     listOf(
         "Dart" to "506.1.0",
         "com.intellij.lang.jsgraphql" to "251.23774.318",
@@ -37,7 +37,7 @@ val integrationPlugins =
         "indent-rainbow.indent-rainbow" to "2.2.0",
     )
 
-val syntaxPreviewTestPlugins =
+val syntaxPreviewTestPlugins: List<String> =
     listOf(
         "com.intellij.modules.json",
         "com.intellij.properties",
@@ -87,9 +87,9 @@ fun verifiedIde(type: IntelliJPlatformType): Pair<IntelliJPlatformType, String> 
 
 fun testFrameworkVersionRange(buildNumber: String): String = "[${buildNumber.substringBefore('.')}, $buildNumber]"
 
-val communityIde = verifiedIdeGroups.getValue("A1").first()
+val communityIde: Pair<IntelliJPlatformType, String> = verifiedIdeGroups.getValue("A1").first()
 val communityBundledPlugins = listOf("org.intellij.groovy") + syntaxPreviewTestPlugins
-val webStormBundledPlugins =
+val webStormBundledPlugins: List<String> =
     listOf(
         "AngularJS",
         "JavaScript",
@@ -98,7 +98,7 @@ val webStormBundledPlugins =
         "gherkin",
         "org.jetbrains.plugins.sass",
     )
-val ideaUltimateBundledPlugins =
+val ideaUltimateBundledPlugins: List<String> =
     listOf(
         "Docker",
         "com.intellij.freemarker",
@@ -107,7 +107,7 @@ val ideaUltimateBundledPlugins =
         "idea.plugin.protoeditor",
         "org.editorconfig.editorconfigjetbrains",
     )
-val syntaxRuntimeTargets =
+val syntaxRuntimeTargets: List<SyntaxRuntimeTarget> =
     listOf(
         SyntaxRuntimeTarget(
             id = "idea-community",
@@ -376,9 +376,9 @@ intellijPlatformTesting {
     }
 }
 
-val syntaxContractGroups = syntaxRuntimeTargets.chunked(3)
-val syntaxContractMatrixSize = providers.gradleProperty("syntaxContractMatrixSize")
-val syntaxContractGroupTasks =
+val syntaxContractGroups: List<List<SyntaxRuntimeTarget>> = syntaxRuntimeTargets.chunked(3)
+val syntaxContractMatrixSize: Provider<String> = providers.gradleProperty("syntaxContractMatrixSize")
+val syntaxContractGroupTasks: List<TaskProvider<Task>> =
     syntaxContractGroups.mapIndexed { index, runtimes ->
         tasks.register("syntaxContractGroup${index + 1}") {
             group = "verification"
@@ -501,28 +501,10 @@ kover {
                     "dev.ayuislands.settings.AyuIslandsSettingsPanel*",
                     "dev.ayuislands.settings.AyuIslandsConfigurable*",
                     "dev.ayuislands.settings.PresetButtonBar*",
-                    "dev.ayuislands.settings.GlowGroupPanel*",
                     // Data class in EffectsPanel file, pure UI config
                     "dev.ayuislands.settings.SliderConfig*",
-                    // Glow rendering (Graphics2D paint, animation overlay, Swing lifecycle)
-                    "dev.ayuislands.glow.GlowOverlayManager*",
-                    "dev.ayuislands.glow.GlowGlassPane*",
-                    "dev.ayuislands.glow.GlowFocusBorder*",
-                    // macOS-only (SystemInfo.isMac guard, untestable on Linux CI)
-                    "dev.ayuislands.accent.CachedMacReader*",
-                    "dev.ayuislands.accent.SystemAccentProvider*",
-                    "dev.ayuislands.accent.SystemAppearanceProvider*",
                     // Pure-rendering UI panel (Integrations settings)
                     "dev.ayuislands.settings.IntegrationsPanel*",
-                    // Pure-rendering UI panels (Font preset settings)
-                    "dev.ayuislands.settings.FontPresetPanel*",
-                    "dev.ayuislands.settings.FontPreviewComponent*",
-                    // IDE glue (EditorColorsManager / ApplicationManager singletons)
-                    "dev.ayuislands.font.FontPresetApplicator*",
-                    // IDE glue (thin event listeners, startup activity)
-                    "dev.ayuislands.AyuIslandsStartupActivity*",
-                    "dev.ayuislands.AyuIslandsLafListener*",
-                    "dev.ayuislands.AppearanceSyncListener*",
                     // LicenseChecker: thin IDE wrapper; crypto logic tested via LicenseVerifier
                     "dev.ayuislands.licensing.LicenseChecker*",
                     // IDE glue: Swing UI DSL panel (pure rendering, no extractable logic)
@@ -545,8 +527,6 @@ kover {
                     $$"dev.ayuislands.settings.AccentColorPanel$PresetComponent*",
                     $$"dev.ayuislands.settings.AccentColorPanel$CustomLink*",
                     $$"dev.ayuislands.settings.AccentColorPanel$ResetLabel*",
-                    // IDE scheduling glue: AppExecutorUtil, AyuIslandsSettings, AccentApplicator singletons
-                    "dev.ayuislands.rotation.AccentRotationService*",
                     // Onboarding Swing panels (Graphics2D paint, mouse handlers, SVG rendering)
                     "dev.ayuislands.onboarding.PremiumOnboardingPanel*",
                     "dev.ayuislands.onboarding.FreeOnboardingPanel*",
@@ -588,8 +568,6 @@ kover {
                     "dev.ayuislands.whatsnew.WhatsNewEditor",
                     "dev.ayuislands.whatsnew.WhatsNewLauncher",
                     "dev.ayuislands.whatsnew.WhatsNewLauncher$*",
-                    // Startup lifecycle (coroutine scheduling, project service init)
-                    "dev.ayuislands.StartupLicenseHandler*",
                     // Onboarding data-class holders (generated constructors + getters only)
                     "dev.ayuislands.onboarding.WizardSvgGeometry",
                     "dev.ayuislands.onboarding.RailCardSpec",
@@ -600,8 +578,6 @@ kover {
                     "dev.ayuislands.projectview.RootFilteringRenderer*",
                     // Graphics2D paint rendering (editor highlight overlays)
                     "dev.ayuislands.accent.elements.BracketScopeRenderer*",
-                    // Swing Border + Component lifecycle (editor focus management)
-                    "dev.ayuislands.glow.FocusRingManager*",
                     // Accent mappings UI: DialogWrapper, JBTable wiring, paintComponent renderers
                     "dev.ayuislands.settings.mappings.OverridesGroupBuilder*",
                     "dev.ayuislands.settings.mappings.AddProjectMappingDialog*",
@@ -628,7 +604,7 @@ kover {
     }
 }
 
-val proguardTask =
+val proguardTask: TaskProvider<proguard.gradle.ProGuardTask> =
     tasks.register<proguard.gradle.ProGuardTask>("proguard") {
         group = "build"
         description = "Obfuscate JAR with ProGuard"

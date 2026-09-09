@@ -99,10 +99,7 @@ internal object EntitlementReconciler {
         }
         runSurface(failures, "re-apply accent") {
             AccentContext.detect()?.let { context ->
-                AccentApplicator.applyForFocusedProject(context)
-                check(AyuIslandsSettings.getInstance().state.lastApplyOk) {
-                    "Accent apply did not complete every planned step"
-                }
+                AccentApplicator.applyForFocusedProject(context).requireClean()
             }
         }
         runSurface(failures, "refresh glow") {

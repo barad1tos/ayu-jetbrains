@@ -1003,25 +1003,21 @@ class AyuIslandsStartupActivityTest {
 
     @Test
     fun `startup helper WARNs when applyFromHexString rejects hex as a defensive branch`() {
-        // Regression lock: `applyFromHexString` returns Boolean (false =
-        // rejected); when rejected, `hex` becomes null via
-        // `if (applied) resolved else null`. That branch must log a WARN so
-        // operators can tell rejected-hex from throw-hex. Source-level lock on
-        // the WARN literal AND the structural `applyOutcome.isSuccess` check
-        // inside `if (hex == null)`.
+        // Rejected maps to a successful null result; a thrown failure also has
+        // no outcome. The nested isSuccess branch must distinguish their logs.
         val source = readStartupActivitySource()
         assertTrue(
             source.contains("Startup accent apply was rejected by applyFromHexString"),
-            "WARN-on-rejected-hex branch must remain against Boolean-gating regressions",
+            "WARN-on-rejected-hex branch must remain against rejection-gating regressions",
         )
         val isSuccessInNullBranch =
             Regex(
-                """if\s*\(\s*hex\s*==\s*null\s*\)\s*\{\s*[^}]*if\s*\(\s*applyOutcome\.isSuccess\s*\)""",
+                """if\s*\(\s*outcome\s*==\s*null\s*\)\s*\{\s*[^}]*if\s*\(\s*applyOutcome\.isSuccess\s*\)""",
                 RegexOption.DOT_MATCHES_ALL,
             )
         assertTrue(
             isSuccessInNullBranch.containsMatchIn(source),
-            "isSuccess check must sit INSIDE the `if (hex == null)` block - " +
+            "isSuccess check must sit INSIDE the `if (outcome == null)` block - " +
                 "that distinguishes Success(null=rejected) from Failure(throw)",
         )
     }

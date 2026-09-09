@@ -87,10 +87,6 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/main/kotlin/dev/ayuislands/accent/elements/$elementName.kt",
     ): Allowance(1, "documented chrome live-refresh symmetry compromise"),
     (
-        "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorFocusedProjectTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
-    ): Allowance(1, "documented focused-project publish-gate compromise"),
-    (
         "src/test/kotlin/dev/ayuislands/accent/Gap4BannedApiGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/accent",
     ): Allowance(1, "banned platform API guard directory"),
@@ -111,7 +107,7 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
 
 def main() -> int:
     occurrences = find_source_path_literals()
-    errors = []
+    errors: list[str] = []
 
     for key, count in sorted(occurrences.items()):
         allowance = ALLOWLIST.get(key)
@@ -171,7 +167,7 @@ def string_literals(text: str) -> list[str]:
 
 
 def split_path_literals(text: str) -> list[str]:
-    paths = []
+    paths: list[str] = []
     for match in PATH_FACTORY_RE.finditer(text):
         closing_paren = find_closing_paren(text, match.end() - 1)
         if closing_paren is None:

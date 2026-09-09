@@ -9,6 +9,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
 import com.intellij.openapi.wm.WindowManager
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -30,6 +31,7 @@ import dev.ayuislands.licensing.ReconciliationResult
 import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.FocusedEditorContext
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
@@ -180,11 +182,7 @@ internal class AyuIslandsStartupActivity(
 
         // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
         // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)
-        val fontPreset = FontPreset.fromName(settings.state.fontPresetName)
-        if (fontPreset.name != settings.state.fontPresetName) {
-            settings.state.fontPresetName = fontPreset.name
-        }
-        FontPreset.migrateCustomizations(settings.state.fontPresetCustomizations)
+        migrateFontPresets(settings.state)
 
         // Seed installedFonts from the JVM font registry on first run so returning
         // users who pre-installed via the Settings panel aren't re-prompted by the wizard.
@@ -326,8 +324,7 @@ internal class AyuIslandsStartupActivity(
                 runCatchingPreservingCancellation {
                     val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
                     val resolved = AccentResolver.resolve(focusedProject, context)
-                    val applied = AccentApplicator.applyFromHexString(resolved)
-                    if (applied) resolved else null
+                    AccentApplicator.applyFromHexString(resolved).takeUnless { it is AccentApplyOutcome.Rejected }
                 }
             applyOutcome.onFailure { exception ->
                 LOG.error(
@@ -336,14 +333,9 @@ internal class AyuIslandsStartupActivity(
                     exception,
                 )
             }
-            val hex = applyOutcome.getOrNull()
-            if (hex == null) {
-                // apply-failure already logged via onFailure above. Hex is null
-                // in two cases: (a) the runCatching caught an exception,
-                // (b) applyFromHexString returned false (rejected hex — the
-                // user-facing notification already fired inside the applicator).
-                // In (b), suppress the install+notify because there's no applied
-                // color to publish to the swap cache.
+            val outcome = applyOutcome.getOrNull()
+            if (outcome == null) {
+                // Rejection and thrown failure both skip listener installation.
                 if (applyOutcome.isSuccess) {
                     LOG.warn(
                         "Startup accent apply was rejected by applyFromHexString " +
@@ -365,14 +357,14 @@ internal class AyuIslandsStartupActivity(
                 }.onFailure { exception ->
                     LOG.error(
                         "Startup accent-swap install failed for project '$projectName' " +
-                            "AFTER a successful apply; multi-project focus-swap cycling " +
+                            "AFTER an accepted accent request; multi-project focus-swap cycling " +
                             "will be inert this session until the user re-triggers apply",
                         exception,
                     )
                 }.isSuccess
             if (!installed) return@withContext
             runCatchingPreservingCancellation {
-                swapService.notifyExternalApply(hex)
+                swapService.notifyExternalApply(outcome)
             }.onFailure { exception ->
                 LOG.error(
                     "Startup accent-swap cache publish (notifyExternalApply) failed for " +
@@ -674,4 +666,9 @@ internal class AyuIslandsStartupActivity(
         private const val RECONCILIATION_RETRY_MS = 5_000L
         private val LOG = logger<AyuIslandsStartupActivity>()
     }
+}
+
+internal fun migrateFontPresets(state: AyuIslandsState) {
+    state.fontPresetName = FontPreset.migrateName(state.fontPresetName)
+    FontPreset.migrateCustomizations(state.fontPresetCustomizations)
 }

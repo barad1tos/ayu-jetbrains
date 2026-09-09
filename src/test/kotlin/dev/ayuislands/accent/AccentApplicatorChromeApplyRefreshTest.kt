@@ -12,6 +12,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.ui.ComponentTreeRefresher
 import io.mockk.clearAllMocks
 import io.mockk.every
@@ -76,6 +77,7 @@ class AccentApplicatorChromeApplyRefreshTest {
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
+        every { mockApplication.getService(ProjectAccentSwapService::class.java) } returns ProjectAccentSwapService()
         every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockk(relaxed = true)
         // AccentChangedTopic publish — Apply path casts the syncPublisher return
         // value to AccentChangeListener. Stub a relaxed mock so the cast succeeds

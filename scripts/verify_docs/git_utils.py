@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import os
+import stat
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 from .paths import REPO_ROOT
@@ -68,6 +71,7 @@ def is_ancestor_of_head(sha: str) -> bool:
         ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
         cwd=REPO_ROOT,
         capture_output=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -113,6 +117,7 @@ def commit_exists(sha: str) -> bool:
         ["git", "rev-parse", "--verify", f"{sha}^{{commit}}"],
         cwd=REPO_ROOT,
         capture_output=True,
+        check=False,
     )
     return result.returncode == 0
 
@@ -155,3 +160,47 @@ def file_sha256(path: Path) -> str:
     """Return hex-encoded SHA-256 digest of `path`'s bytes (streamed, no full read)."""
     with path.open("rb") as fh:
         return hashlib.file_digest(fh, "sha256").hexdigest()
+
+
+def sources_sha256(paths: list[str]) -> str:
+    """Bind source paths and working-copy bytes, independent of commit identity.
+
+    Expand directory sources recursively and include filenames so additions,
+    deletions, renames and source-list changes invalidate the stamp.
+    Raises OSError when a source cannot be read; never attest a partial set.
+    """
+    digest = hashlib.sha256()
+    for source_path in sorted(set(paths)):
+        digest.update(source_path.encode("utf-8") + b"\0")
+        source = REPO_ROOT / source_path
+        if stat.S_ISDIR(source.stat().st_mode):
+            digest.update(b"directory\0")
+            for child in sorted(_iter_source_files(source)):
+                digest.update(
+                    child.relative_to(source).as_posix().encode("utf-8") + b"\0"
+                )
+                digest.update(file_sha256(child).encode("ascii") + b"\0")
+        else:
+            digest.update(b"file\0")
+            digest.update(file_sha256(source).encode("ascii") + b"\0")
+    return digest.hexdigest()
+
+
+def _iter_source_files(directory: Path) -> Iterator[Path]:
+    """Enumerate all source files, propagating traversal and metadata errors."""
+    with os.scandir(directory) as entries:
+        children = [Path(entry.path) for entry in entries]
+    for child in children:
+        mode = child.lstat().st_mode
+        if stat.S_ISDIR(mode):
+            yield from _iter_source_files(child)
+        elif stat.S_ISREG(mode):
+            yield child
+        elif stat.S_ISLNK(mode):
+            # Match existing stamps: include file links, skip directory and dangling links.
+            try:
+                target_mode = child.stat().st_mode
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            if stat.S_ISREG(target_mode):
+                yield child

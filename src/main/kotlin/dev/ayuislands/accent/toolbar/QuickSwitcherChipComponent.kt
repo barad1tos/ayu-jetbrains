@@ -8,11 +8,13 @@ import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
+import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.accent.toolbar.actions.QuickSwitcherActionGroup
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
@@ -115,17 +117,9 @@ internal class QuickSwitcherChipComponent : JLabel() {
     }
 
     /**
-     * Pin / unpin the focused project's accent and roll back the persisted
-     * `projectAccents` mutation if [AccentApplicator.applyFromHexString]
-     * rejects the hex or any of the resolve / apply / notify calls throw —
-     * keeps the persisted store consistent with the live accent state at
-     * all times. Mirrors [dev.ayuislands.accent.toolbar.actions.PinAccentAction]
-     * for the write path so all three pin entry points (popup quick-action,
-     * right-click context menu, chip inner click) stay consistent.
-     *
-     * The Pattern B `RuntimeException` catch wraps the entire toggle so
-     * a single restore-pin helper handles both the rejection branch
-     * (`applied == false`) and the thrown-exception branch the same way.
+     * Restore the previous pin after rejection or a thrown apply.
+     * Accepted outcomes retain the user's pin choice, including torn paints.
+     * Cancellation propagates after rollback; ordinary failures are logged.
      */
     private fun togglePin() {
         val context = AccentContext.detectQuickSwitcher()
@@ -151,21 +145,21 @@ internal class QuickSwitcherChipComponent : JLabel() {
             // pin path lands on the just-written override — `AccentResolver`
             // reads `mappings` directly.
             val targetHex = AccentResolver.resolve(project, variant)
-            val applied = AccentApplicator.applyFromHexString(targetHex)
-            if (applied) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(targetHex)
+            val outcome = AccentApplicator.applyFromHexString(targetHex)
+            if (outcome !is AccentApplyOutcome.Rejected) {
+                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
             } else {
                 LOG.warn("Pin toggle: applyFromHexString rejected hex=$targetHex; rolling back")
                 restorePin(mappings, key, previousPin)
             }
         } catch (exception: RuntimeException) {
-            LOG.warn("Pin toggle failed; rolling back", exception)
             restorePin(mappings, key, previousPin)
+            exception.rethrowIfCancelled()
+            LOG.warn("Pin toggle failed; rolling back", exception)
         }
     }
 
-    /** Restore [previous] under [key] (or remove the key entry) so the persisted store
-     *  matches the runtime accent after a rejected / thrown apply. */
+    /** Restore only this pin, preserving current unrelated values. */
     private fun restorePin(
         mappings: AccentMappingsState,
         key: String,
@@ -202,22 +196,10 @@ internal class QuickSwitcherChipComponent : JLabel() {
         connectionParent = parent
         val conn = ApplicationManager.getApplication().messageBus.connect(parent)
         connection = conn
-        // Object expression rather than SAM lambda: [AccentChangeListener] is
-        // a `fun interface` for the IntelliJ MessageBus listener shape, but
-        // Kotlin's SAM conversion of a value-class parameter (`AccentHex`)
-        // can fail to bridge, throwing [AbstractMethodError] at fan-out time.
-        // See KDoc on the interface.
         conn.subscribe(
             AccentChangedTopic.TOPIC,
-            @Suppress("ObjectLiteralToLambda")
-            object : AccentChangeListener {
-                override fun accentChanged(
-                    project: com.intellij.openapi.project.Project,
-                    hex: AccentHex,
-                    source: AccentResolver.Source,
-                ) {
-                    SwingUtilities.invokeLater { refreshFromFocusedProject() }
-                }
+            AccentChangeListener { _, _, _ ->
+                SwingUtilities.invokeLater { refreshFromFocusedProject() }
             },
         )
         conn.subscribe(
@@ -279,6 +261,7 @@ internal class QuickSwitcherChipComponent : JLabel() {
             try {
                 AccentResolver.resolve(project, context)
             } catch (exception: RuntimeException) {
+                exception.rethrowIfCancelled()
                 LOG.warn("QuickSwitcher chip resolve failed", exception)
                 return
             }

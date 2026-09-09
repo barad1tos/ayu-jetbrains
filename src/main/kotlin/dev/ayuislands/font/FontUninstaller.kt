@@ -5,7 +5,6 @@ import com.intellij.notification.NotificationType
 import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -41,8 +40,8 @@ import java.io.IOException
  * 5. State mutation on EDT: removes from `AyuIslandsState.installedFonts`, adds to
  *    `AyuIslandsState.explicitlyUninstalledFonts` (resurrection guard), clears the
  *    `AyuIslandsState.installedFontFiles` entry, calls [FontDetector.invalidateCache].
- * 6. Conditionally calls [FontPresetApplicator.revert] when the deleted family
- *    matches the active editor font name.
+ * 6. Calls [FontPresetApplicator.revert] for the deleted family across available
+ *    schemes, restoring only surfaces whose recorded ownership still matches.
  * 7. Notifies outcome — success, partial (file lock), or failure (path rejection).
  *
  * **Residual risk:** TOCTOU between canonical-path check and `File.delete()` via
@@ -177,7 +176,7 @@ object FontUninstaller {
         indicator.text = "Removing files…"
         val failed = deleteSafely(safePaths)
 
-        // State mutation + cache invalidation + fallback revert — all on EDT.
+        // Restore matching owned surfaces across available schemes on the EDT.
         ApplicationManager.getApplication().invokeLater {
             state.installedFonts.remove(family)
             state.installedFontFiles.remove(family)
@@ -185,14 +184,7 @@ object FontUninstaller {
             FontDetector.invalidateCache()
 
             try {
-                val activeEditorFont =
-                    EditorColorsManager
-                        .getInstance()
-                        .globalScheme
-                        .editorFontName
-                if (activeEditorFont.equals(family, ignoreCase = true)) {
-                    FontPresetApplicator.revert()
-                }
+                FontPresetApplicator.revert(family)
             } catch (e: RuntimeException) {
                 LOG.warn("FontPresetApplicator.revert() failed during uninstall of $family", e)
             }

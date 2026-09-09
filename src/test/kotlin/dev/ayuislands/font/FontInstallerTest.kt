@@ -296,11 +296,11 @@ class FontInstallerTest {
         val appMock = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns appMock
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { FontPresetApplicator.apply(any()) } answers { /* no-op */ }
+        every { FontPresetApplicator.applyInstalled(any()) } answers { /* no-op */ }
 
         FontInstaller.applyOnly(FontPreset.AMBIENT, project = null)
 
-        verify(exactly = 1) { FontPresetApplicator.apply(any()) }
+        verify(exactly = 1) { FontPresetApplicator.applyInstalled(any()) }
     }
 
     @Test
@@ -446,7 +446,7 @@ class FontInstallerTest {
         val appMock = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns appMock
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { FontPresetApplicator.apply(any()) } answers { /* no-op */ }
+        every { FontPresetApplicator.applyInstalled(any()) } answers { /* no-op */ }
         every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
 
         FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
@@ -456,7 +456,7 @@ class FontInstallerTest {
         // moves independently. Coupling to the same enum field both sides would
         // weaken the lock to "they happen to agree right now".
         verify(exactly = 1) {
-            FontPresetApplicator.apply(match { it.fontFamily == "JetBrains Mono" })
+            FontPresetApplicator.applyInstalled(match { it.fontFamily == "JetBrains Mono" })
         }
         // Success path — no notification (the "couldn't apply" notification is
         // for the catch branch, not the happy path).
@@ -475,7 +475,7 @@ class FontInstallerTest {
         val appMock = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns appMock
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { FontPresetApplicator.apply(any()) } throws RuntimeException("boom")
+        every { FontPresetApplicator.applyInstalled(any()) } throws RuntimeException("boom")
         every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
 
         FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
@@ -498,7 +498,7 @@ class FontInstallerTest {
         val appMock = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns appMock
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { FontPresetApplicator.apply(any()) } throws RuntimeException("boom")
+        every { FontPresetApplicator.applyInstalled(any()) } throws RuntimeException("boom")
         every { Notifications.Bus.notify(any(), null) } answers { }
 
         FontInstaller.applyOnly(FontPreset.AMBIENT, project = null)
