@@ -1,0 +1,55 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  automerge:
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.repository == 'barad1tos/ayu-jetbrains' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # Metadata verification needs no checkout or execution of PR code.
+      - id: metadata
+        uses: dependabot/fetch-metadata@ffa630c65fa7e0ecfa0625b5ceda64399aea1b36 # v3.0.0
+      - name: Select updates eligible for auto-merge
+        id: eligibility
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        shell: bash
+        run: |
+          eligible=false
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor)
+              eligible=$(jq -nr --arg names "$DEPENDENCY_NAMES" '
+                $names | split(",") | map(gsub("^\\s+|\\s+$"; "")) |
+                length > 0 and all(.[]; length > 0 and
+                  (test("^(org|com)\\.jetbrains\\.(kotlin|intellij)([.:]|$)") | not))
+              ')
+              ;;
+          esac
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+      - name: Enable auto-merge after required checks
+        id: enable
+        if: steps.eligibility.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge --auto --merge --match-head-commit "$PR_HEAD_SHA" "$PR_URL"

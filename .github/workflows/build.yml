@@ -3,14 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: &skip-paths
+    paths-ignore:
       - '**/*.md'
       - 'LICENSE'
       - '.gitignore'
       - '.sourcery.yaml'
   pull_request:
     branches: [main]
-    paths-ignore: *skip-paths
   workflow_dispatch:
 
 permissions:
@@ -41,7 +40,7 @@ jobs:
             || { echo "::error::Trailing whitespace found"; exit 1; }
       - name: Validate YAML
         run: |
-          find . -name '*.yml' -o -name '*.yaml' | while read f; do
+          find . -name '*.yml' -o -name '*.yaml' | while read -r f; do
             python3 -c "import yaml; yaml.safe_load(open('$f'))" \
               || { echo "::error::Invalid YAML: $f"; exit 1; }
           done
@@ -52,13 +51,13 @@ jobs:
           # excluded — other whatsnew test fixtures are valid JSON and must
           # still be checked so a maintainer typo in e.g. v9.9.5 gets caught.
           find . -name '*.json' -not -path '*/build/*' \
-            -not -path '*/src/test/resources/whatsnew/v9.9.1/*' | while read f; do
+            -not -path '*/src/test/resources/whatsnew/v9.9.1/*' | while read -r f; do
             python3 -c "import json; json.load(open('$f'))" \
               || { echo "::error::Invalid JSON: $f"; exit 1; }
           done
       - name: Validate XML
         run: |
-          find . -name '*.xml' -not -path '*/build/*' | while read f; do
+          find . -name '*.xml' -not -path '*/build/*' | while read -r f; do
             python3 -c "
           import xml.etree.ElementTree as ET
           ET.parse('$f')
@@ -116,6 +115,8 @@ jobs:
         run: uv run --project scripts --with pre-commit python scripts/tests/test-guard-linter-configs.py
       - name: Test screenshot restamping
         run: uv run --project scripts python scripts/tests/test-screenshot-restamp.py
+      - name: Test Dependabot auto-merge policy
+        run: uv run --project scripts python scripts/tests/test-dependabot-automerge.py
       - name: Verify docs sync (features.yml ↔ README + plugin.xml + CHANGELOG)
         run: scripts/verify-docs.py
 
