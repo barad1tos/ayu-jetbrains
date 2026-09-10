@@ -3,14 +3,13 @@ name: CodeQL
 on:
   push:
     branches: [main]
-    paths-ignore: &skip-paths
+    paths-ignore:
       - '**/*.md'
       - 'LICENSE'
       - '.gitignore'
       - '.sourcery.yaml'
   pull_request:
     branches: [main]
-    paths-ignore: *skip-paths
   schedule:
     - cron: '37 4 * * 1'
   workflow_dispatch:
