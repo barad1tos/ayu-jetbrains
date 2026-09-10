@@ -34,11 +34,16 @@ import dev.ayuislands.theme.AyuEditorSchemeScope
 import dev.ayuislands.theme.EditorSchemeChange
 import io.mockk.clearAllMocks
 import io.mockk.every
+import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.unmockkObject
+import io.mockk.unmockkStatic
 import io.mockk.verify
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import java.awt.Color
 import java.awt.Window
 import java.awt.event.WindowEvent
@@ -66,7 +71,11 @@ import kotlin.test.assertTrue
  * Uses `mockkObject(AccentApplicator)` with `callOriginal()` to test the real
  * apply/revert logic while intercepting `applyElements` and `syncCodeGlanceProViewport`
  * which require the IntelliJ extension point system (unavailable in unit tests).
+ *
+ * Owns mock cleanup: [tearDown] clears each test, and [uninstallSharedMocks]
+ * removes shared instrumentation after the class instead of after every method.
  */
+@MockKExtension.KeepMocks
 class AccentApplicatorTest {
     private val mockScheme = mockk<EditorColorsScheme>(relaxed = true)
     private val mockColorsManager = mockk<EditorColorsManager>(relaxed = true)
@@ -80,21 +89,16 @@ class AccentApplicatorTest {
         AyuEditorSchemeScope.resetClaims()
         saveOriginalEpName()
 
-        mockkStatic(SwingUtilities::class)
         every { SwingUtilities.isEventDispatchThread() } returns true
 
-        mockkStatic(UIManager::class)
-
-        mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockColorsManager
         every { mockColorsManager.globalScheme } returns mockScheme
         every { mockScheme.name } returns "Ayu Islands Mirage"
         every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns TextAttributes()
 
-        // ApplicationManager must be mocked BEFORE AyuIslandsSettings.Companion,
+        // ApplicationManager must be stubbed BEFORE AyuIslandsSettings.Companion,
         // because getInstance() calls ApplicationManager.getApplication().getService()
         // during MockK recording.
-        mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
         every { mockApplication.getService(ProjectAccentSwapService::class.java) } returns ProjectAccentSwapService()
@@ -103,34 +107,26 @@ class AccentApplicatorTest {
         // cast succeeds in this legacy headless test.
         every { mockMessageBus.syncPublisher(AccentChangedTopic.TOPIC) } returns mockk(relaxed = true)
 
-        mockkObject(EditorSchemeChange)
         every { EditorSchemeChange.publish() } returns Unit
 
-        mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
         every { mockSettings.state } returns state
         state.isCgpOwnershipMigrated = true
         state.isIrOwnershipMigrated = true
-        mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
 
-        mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
-        mockkObject(ConflictRegistry)
         every { ConflictRegistry.getConflictFor(any()) } returns null
 
-        mockkStatic(Window::class)
         every { Window.getWindows() } returns emptyArray()
 
-        mockkObject(AyuPlugin)
         every { AyuPlugin.findLoadedPlugin(any()) } returns null
 
         // Per-project notify plumbing: revertAll iterates ProjectManager.openProjects
         // and calls ComponentTreeRefresher.notifyOnly per usable project. Unit tests
         // don't boot the platform, so both must be stubbed or the notifyOnly loop
         // blows up with "Can't get extension point" / a null ProjectManager.
-        mockkStatic(ProjectManager::class)
         val mockProjectManager = mockk<ProjectManager>(relaxed = true)
         every {
             ProjectManager
@@ -138,7 +134,6 @@ class AccentApplicatorTest {
         } returns mockProjectManager
         every { mockProjectManager.openProjects } returns emptyArray()
 
-        mockkObject(dev.ayuislands.ui.ComponentTreeRefresher)
         every {
             dev.ayuislands.ui.ComponentTreeRefresher
                 .notifyOnly(any())
@@ -153,7 +148,9 @@ class AccentApplicatorTest {
         AyuEditorSchemeScope.resetClaims()
         ExternalChromeOwnership.resetForTests()
         restoreOriginalEpName()
-        unmockkAll()
+        // Scenario-specific mocks must not remain active in the next test.
+        unmockkObject(IndentRainbowSync, ProjectAccentSwapService.Companion, AccentResolver, ChromeBaseColors)
+        unmockkStatic(WindowManager::class, com.intellij.notification.Notifications.Bus::class)
         clearAllMocks()
     }
 
@@ -2715,5 +2712,36 @@ class AccentApplicatorTest {
         private const val EXTERNAL_CHROME_TEST_KEY = "Ayu.Test.externalChrome"
         private const val CODE_GLANCE_METHOD_RESOLUTION =
             "resolve" + "C" + "g" + "p" + "Methods"
+
+        // Keep bytecode instrumentation for the class; each test still gets fresh
+        // fixture instances, stubs, and call history through `setUp`/`tearDown`.
+        @BeforeAll
+        @JvmStatic
+        fun installSharedMocks() {
+            mockkStatic(
+                SwingUtilities::class,
+                UIManager::class,
+                EditorColorsManager::class,
+                ApplicationManager::class,
+                Window::class,
+                ProjectManager::class,
+            )
+            mockkObject(
+                EditorSchemeChange,
+                AyuIslandsSettings.Companion,
+                LicenseChecker,
+                AyuVariant.Companion,
+                ConflictRegistry,
+                AyuPlugin,
+                dev.ayuislands.ui.ComponentTreeRefresher,
+            )
+        }
+
+        @AfterAll
+        @JvmStatic
+        fun uninstallSharedMocks() {
+            unmockkAll()
+            clearAllMocks()
+        }
     }
 }
