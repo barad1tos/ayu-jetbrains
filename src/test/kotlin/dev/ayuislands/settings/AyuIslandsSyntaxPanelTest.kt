@@ -30,7 +30,9 @@ import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
 import dev.ayuislands.syntax.SyntaxTransactionResult
+import io.mockk.clearAllMocks
 import io.mockk.every
+import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
 import io.mockk.mockkClass
 import io.mockk.mockkObject
@@ -38,6 +40,8 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import io.mockk.verifyOrder
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import java.awt.Color
 import java.awt.Container
 import java.awt.Font
@@ -84,7 +88,11 @@ import kotlin.test.assertTrue
  * Visual contracts are asserted against the materialized Swing tree rather
  * than production source text, so refactors remain free to change the build
  * mechanism while preserving observable behavior.
+ *
+ * Owns mock cleanup: [tearDown] clears each test, and [uninstallSharedMocks]
+ * removes shared instrumentation after the class instead of after every method.
  */
+@MockKExtension.KeepMocks
 class AyuIslandsSyntaxPanelTest {
     private companion object {
         val readabilityCheckboxTexts =
@@ -94,6 +102,20 @@ class AyuIslandsSyntaxPanelTest {
                 "Quiet operators",
                 "Emphasize declarations",
             )
+
+        @BeforeAll
+        @JvmStatic
+        fun installSharedMocks() {
+            mockkStatic(ApplicationManager::class, ActionManager::class)
+            mockkObject(SyntaxIntensityState.Companion, SyntaxIntensityService.Companion, LicenseChecker)
+        }
+
+        @AfterAll
+        @JvmStatic
+        fun uninstallSharedMocks() {
+            unmockkAll()
+            clearAllMocks()
+        }
     }
 
     private lateinit var stateBase: SyntaxIntensityBaseState
@@ -109,12 +131,10 @@ class AyuIslandsSyntaxPanelTest {
         schemeName = "Ayu Islands Mirage"
         stateService = mockk(relaxed = true)
         every { stateService.state } returns stateBase
-        mockkObject(SyntaxIntensityState.Companion)
         every { SyntaxIntensityState.getInstance() } returns stateService
 
         intensityService = mockk(relaxed = true)
         runtimeSession = mockk(relaxed = true)
-        mockkObject(SyntaxIntensityService.Companion)
         every { SyntaxIntensityService.getInstance() } returns intensityService
         every { intensityService.tunableCategories(any()) } returns null
         every { intensityService.openRuntimeSession() } returns runtimeSession
@@ -124,17 +144,14 @@ class AyuIslandsSyntaxPanelTest {
         every { runtimeSession.restore() } returns applied
         every { runtimeSession.close() } returns null
 
-        mockkObject(LicenseChecker)
         // Default: licensed. Individual tests override to false where needed.
         every { LicenseChecker.isLicensedOrGrace() } returns true
         every { LicenseChecker.requestLicense(any()) } returns Unit
 
-        mockkStatic(ApplicationManager::class)
         val appMock = mockk<Application>(relaxed = true)
         val actionManagerMock = mockk<ActionManagerEx>(relaxed = true)
         val editorColorsManager = mockk<EditorColorsManager>()
         val editorScheme = mockk<EditorColorsScheme>()
-        mockkStatic(ActionManager::class)
         every { ActionManager.getInstance() } returns actionManagerMock
         every { ApplicationManager.getApplication() } returns appMock
         every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
@@ -157,7 +174,7 @@ class AyuIslandsSyntaxPanelTest {
 
     @AfterTest
     fun tearDown() {
-        unmockkAll()
+        clearAllMocks()
     }
 
     // ---------- Test 1 - initial state defaults to AMBIENT (D-23) ----------
