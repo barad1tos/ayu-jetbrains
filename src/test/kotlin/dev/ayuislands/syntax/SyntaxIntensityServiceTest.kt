@@ -18,14 +18,18 @@ import dev.ayuislands.theme.EditorSchemeChange
 import dev.ayuislands.theme.EditorSchemeOverrides
 import dev.ayuislands.theme.EditorSchemeOwner
 import dev.ayuislands.theme.OverrideWriteResult
+import io.mockk.clearAllMocks
 import io.mockk.clearMocks
 import io.mockk.every
+import io.mockk.junit5.MockKExtension
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import org.junit.jupiter.api.AfterAll
+import org.junit.jupiter.api.BeforeAll
 import java.awt.Color
 import java.awt.Font
 import kotlin.coroutines.cancellation.CancellationException
@@ -49,7 +53,11 @@ import kotlin.test.assertTrue
  * (R-7), and pins the R-1 fallback + service-layer
  * `CUSTOM` premium gate behaviour through `mockkObject` calls into
  * `RgbBlend` / `LicenseChecker` / `SyntaxIntensityApplicator`.
+ *
+ * Owns mock cleanup: [tearDown] clears each test, and [uninstallSharedMocks]
+ * removes shared instrumentation after the class instead of after every method.
  */
+@MockKExtension.KeepMocks
 class SyntaxIntensityServiceTest {
     companion object {
         /**
@@ -67,6 +75,33 @@ class SyntaxIntensityServiceTest {
                 "PACKAGE_PRIVATE_REFERENCE",
                 "PRIVATE_REFERENCE",
             )
+
+        @BeforeAll
+        @JvmStatic
+        fun installSharedMocks() {
+            mockkStatic(
+                PropertiesComponent::class,
+                TextAttributesKey::class,
+                EditorColorsManager::class,
+                ApplicationManager::class,
+            )
+            mockkObject(
+                EditorSchemeChange,
+                EditorSchemeOverrides,
+                SyntaxOverlayLoader.Companion,
+                SyntaxIntensityState.Companion,
+                LicenseChecker,
+                RgbBlend,
+                SyntaxIntensityApplicator,
+            )
+        }
+
+        @AfterAll
+        @JvmStatic
+        fun uninstallSharedMocks() {
+            unmockkAll()
+            clearAllMocks()
+        }
     }
 
     private lateinit var mockMirage: EditorColorsScheme
@@ -89,10 +124,8 @@ class SyntaxIntensityServiceTest {
         // Default: no scheme has been retired yet, so the one-shot pass fires. Tests
         // that assert the "already retired" branch override this.
         props = mockk(relaxed = true)
-        mockkStatic(PropertiesComponent::class)
         every { PropertiesComponent.getInstance() } returns props
         every { props.getList(RETIREMENT_FLAG_KEY) } returns null
-        mockkStatic(TextAttributesKey::class)
         every { TextAttributesKey.find(any<String>()) } answers {
             val name = firstArg<String>()
             keyCache.getOrPut(name) { mockk(relaxed = true) { every { externalName } returns name } }
@@ -111,7 +144,6 @@ class SyntaxIntensityServiceTest {
         ayuSettings = mockk(relaxed = true)
         every { ayuSettings.state } returns ayuState
 
-        mockkStatic(EditorColorsManager::class)
         every { EditorColorsManager.getInstance() } returns mockManager
         every { mockManager.getScheme("Ayu Islands Mirage") } returns mockMirage
         every { mockManager.getScheme("Ayu Islands Dark") } returns mockDark
@@ -121,15 +153,12 @@ class SyntaxIntensityServiceTest {
         // this individually.
         every { mockManager.globalScheme } returns mockMirage
 
-        mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApp
         every { mockApp.runReadAction(any<Runnable>()) } answers {
             firstArg<Runnable>().run()
         }
 
-        mockkObject(EditorSchemeChange)
         every { EditorSchemeChange.publish() } returns Unit
-        mockkObject(EditorSchemeOverrides)
         overrideCheckpoints = mockk()
         every { EditorSchemeOverrides.checkpoints } returns overrideCheckpoints
         every { EditorSchemeOverrides.restore(any(), EditorSchemeOwner.Syntax) } returns Unit
@@ -159,28 +188,23 @@ class SyntaxIntensityServiceTest {
             every { loader.loadBaselineForVariant(variant) } returns payload
             every { loader.fallbacksFor(variant) } returns emptyMap()
         }
-        mockkObject(SyntaxOverlayLoader.Companion)
         every { SyntaxOverlayLoader.getInstance() } returns loader
 
         stateInstance = mockk(relaxed = true)
         every { stateInstance.toPresetConfig() } returns
             SyntaxPresetConfig(selectedPreset = "AMBIENT", customOverrides = emptyMap())
-        mockkObject(SyntaxIntensityState.Companion)
         every { SyntaxIntensityState.getInstance() } returns stateInstance
 
         // Default: licensed so the CUSTOM gate doesn't normalise on every test.
         // Individual tests override to false where the gate is the subject.
-        mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
 
         // R-1 fallback observer - overridden per test that needs to assert
         // engagement; default keeps the stub silent.
-        mockkObject(RgbBlend)
         every { RgbBlend.fallbackEditorBgFor(any()) } returns Color(0x1F, 0x24, 0x30)
 
         // Applicator returns the same payload it received - the service is the
         // unit under test, not the HSL math.
-        mockkObject(SyntaxIntensityApplicator)
         every {
             SyntaxIntensityApplicator.compute(any())
         } returns payload
@@ -213,7 +237,7 @@ class SyntaxIntensityServiceTest {
 
     @AfterTest
     fun tearDown() {
-        unmockkAll()
+        clearAllMocks()
     }
 
     // ---------- Test 1: H5 dual-write - 3 named schemes + active (or dedup) ----------
