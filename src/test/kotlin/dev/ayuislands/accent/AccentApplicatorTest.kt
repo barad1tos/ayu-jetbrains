@@ -169,6 +169,7 @@ class AccentApplicatorTest {
             state,
             accent,
             LicenseChecker.isLicensedOrGrace(),
+            UiDefaultsCheckpoint(),
         )
         invokePrivate("applyAlwaysOnEditorKeys", accent)
         val windows = Window.getWindows()
@@ -945,10 +946,10 @@ class AccentApplicatorTest {
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyAlwaysOnUiKeys" }
         assertEquals(
-            3,
+            4,
             method.parameterCount,
-            "applyAlwaysOnUiKeys must accept (state, accent, entitlement) so tab-mode resolution shares the " +
-                "outer apply() snapshots and cannot drift mid-apply",
+            "Expected (state, accent, entitlement, UI checkpoint): " +
+                "tab-mode resolution must share outer apply() snapshots and cannot drift mid-apply",
         )
         assertEquals(
             AyuIslandsState::class.java,
