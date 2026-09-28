@@ -12,6 +12,7 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parent.parent / "gradle-retry.sh"
 REPOSITORY_ROOT = SCRIPT.parent.parent
 RELEASE_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "release.yml"
+CODEQL_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "codeql.yml"
 
 
 class GradleRetryTest(unittest.TestCase):
@@ -23,6 +24,14 @@ class GradleRetryTest(unittest.TestCase):
             workflow,
         )
 
+    def test_codeql_uses_retry(self) -> None:
+        workflow = CODEQL_WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "OUTPUT=$(scripts/gradle-retry.sh compileKotlin compileTestKotlin --no-daemon 2>&1)",
+            workflow,
+        )
+
     def test_retry_rebuilds_generated_caches_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -30,7 +39,7 @@ class GradleRetryTest(unittest.TestCase):
             stale_paths = [
                 root / "build" / "stale",
                 root / ".gradle" / "stale",
-                root / ".intellijPlatform" / "layoutIndex" / "stale",
+                root / ".intellijPlatform" / "ides" / "layoutIndex" / "stale",
                 root / ".intellijPlatform" / "localPlatformArtifacts" / "stale",
             ]
             for stale_path in stale_paths:
@@ -53,6 +62,31 @@ class GradleRetryTest(unittest.TestCase):
             for stale_path in stale_paths:
                 self.assertFalse(stale_path.exists(), stale_path)
             self.assertTrue(sandbox_state.exists())
+
+    def test_unrelated_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            gradle = root / "gradlew"
+            gradle.write_text(
+                "#!/usr/bin/env bash\nprintf 'called' >> .attempts\necho 'unrelated error'\nexit 23\n",
+                encoding="utf-8",
+            )
+            gradle.chmod(0o755)
+            cached_index = root / ".intellijPlatform" / "ides" / "layoutIndex" / "preserved"
+            cached_index.parent.mkdir(parents=True)
+            cached_index.touch()
+
+            result = subprocess.run(
+                [str(SCRIPT), "compileKotlin"],
+                cwd=root,
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+
+            self.assertEqual(23, result.returncode)
+            self.assertEqual("called", (root / ".attempts").read_text(encoding="utf-8"))
+            self.assertTrue(cached_index.exists())
 
 
 def make_gradle_fixture(root: Path) -> None:
