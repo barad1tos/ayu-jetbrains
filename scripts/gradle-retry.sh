@@ -25,7 +25,7 @@ fi
 
 echo "::warning::layoutIndex flake detected (com.intellij.java dropped from platform layout) — rebuilding project layout state and retrying once"
 ./gradlew --stop >/dev/null 2>&1 || true
-rm -rf build .gradle .intellijPlatform/layoutIndex .intellijPlatform/localPlatformArtifacts
+rm -rf build .gradle .intellijPlatform/ides/layoutIndex .intellijPlatform/localPlatformArtifacts
 # No exec: let the EXIT trap clean up the temp log; the retry output still
 # streams straight to stdout and nothing needs to inspect it.
 ./gradlew "$@"

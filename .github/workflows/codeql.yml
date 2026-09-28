@@ -64,7 +64,7 @@ jobs:
         name: Compile Kotlin for CodeQL tracing
         run: |
           set +e
-          OUTPUT=$(./gradlew compileKotlin compileTestKotlin --no-daemon 2>&1)
+          OUTPUT=$(scripts/gradle-retry.sh compileKotlin compileTestKotlin --no-daemon 2>&1)
           EXIT_CODE=$?
           set -e
 
