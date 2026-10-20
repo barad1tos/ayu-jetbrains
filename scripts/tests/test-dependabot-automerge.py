@@ -65,7 +65,7 @@ class DependabotAutomergeTest(unittest.TestCase):
                 self.assert_eligible(update, "actions/checkout", False)
 
     def test_protects_toolchain_groups(self) -> None:
-        for dependency in ("org.jetbrains.kotlin.jvm", "org.jetbrains.kotlin:kotlin-stdlib",
+        for dependency in ("jvm", "org.jetbrains.kotlin.jvm", "org.jetbrains.kotlin:kotlin-stdlib",
                            "org.jetbrains.intellij.platform", "com.jetbrains.intellij.idea:ideaIC"):
             for names in (dependency, f"org.junit.jupiter:junit-jupiter,{dependency}"):
                 with self.subTest(names=names):
