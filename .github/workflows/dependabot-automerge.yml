@@ -33,6 +33,7 @@ jobs:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           DEPENDENCY_NAMES: ${{ steps.metadata.outputs.dependency-names }}
         shell: bash
+        # Dependabot reports the kotlin("jvm") plugin accessor as the bare name "jvm".
         run: |
           eligible=false
           case "$UPDATE_TYPE" in
@@ -40,7 +41,7 @@ jobs:
               eligible=$(jq -nr --arg names "$DEPENDENCY_NAMES" '
                 $names | split(",") | map(gsub("^\\s+|\\s+$"; "")) |
                 length > 0 and all(.[]; length > 0 and
-                  (test("^(org|com)\\.jetbrains\\.(kotlin|intellij)([.:]|$)") | not))
+                  (test("^((org|com)\\.jetbrains\\.(kotlin|intellij)([.:]|$)|jvm$)") | not))
               ')
               ;;
           esac
