@@ -185,6 +185,32 @@ class ProjectViewScrollbarManagerTest {
     }
 
     @Test
+    fun `initial apply queued during construction uses the injected root path lease`() {
+        realState.hideProjectRootPath = true
+        realState.hasRootPathLease = true
+        realState.wasRootPathShown = true
+        realState.wasRootPathChanged = true
+        rootPathLease = mockk(relaxed = true)
+        every { registryValue.asBoolean() } returns false
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        var connections = 0
+        every { project.messageBus.connect(any<Disposable>()) } answers {
+            // The second subscription follows the queued initial apply: let the EDT run it mid-construction.
+            if (++connections == 2) SwingUtilities.invokeAndWait {}
+            connection
+        }
+
+        ProjectViewScrollbarManager(
+            project = project,
+            rootPathLease = rootPathLease,
+            registryValueProvider = { registryValue },
+        )
+        SwingUtilities.invokeAndWait {}
+
+        verify(exactly = 1) { rootPathLease.release(project, registryValue) }
+    }
+
+    @Test
     fun `stale root renderer preserves native output when unlicensed`() {
         SwingUtilities.invokeAndWait {
             val native =
