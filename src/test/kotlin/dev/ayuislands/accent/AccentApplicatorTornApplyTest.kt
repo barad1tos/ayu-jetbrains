@@ -304,10 +304,9 @@ class AccentApplicatorTornApplyTest {
                         .single { it.step == AccentApplyStep.SyncIndentRainbow }
                         .error.message,
                 )
-                assertSame(
-                    recoveryFailure,
-                    outcome.failures.single { it.step == AccentApplyStep.ApplyAlwaysOnUiKeys }.error,
-                )
+                val recovery = outcome.failures.single { it.step == AccentApplyStep.ApplyAlwaysOnUiKeys }.error
+                assertEquals("UI defaults restoration after torn apply failed", recovery.message)
+                assertSame(recoveryFailure, recovery.cause)
                 assertFalse(state.lastApplyOk)
             } finally {
                 defaults.removePropertyChangeListener(recoveryListener)
@@ -358,6 +357,41 @@ class AccentApplicatorTornApplyTest {
             } finally {
                 UIManager.put("Component.focusColor", saved)
             }
+        }
+    }
+
+    @Test
+    fun `recovery repaint failure stays contained in the torn outcome`() {
+        val window = mockk<Window>(relaxed = true) { every { isDisplayable } returns true }
+        val repaintFailure = IllegalStateException("repaint failed")
+        every { window.repaint() } throws repaintFailure
+        every { Window.getWindows() } returns arrayOf(window)
+        withRealUiDefaults {
+            val saved = UIManager.put("Component.focusColor", Color.BLUE)
+            try {
+                val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertSame(repaintFailure, outcome.failures.single { it.step == AccentApplyStep.RepaintWindows }.error)
+                assertSame(Color.BLUE, UIManager.getColor("Component.focusColor"))
+            } finally {
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
+    fun `contained element failure keeps the completed UI colors`() {
+        // Unlike the IndentRainbow tear, an element failure lets the plan run to MarkApplyClean.
+        val broken = mockk<AccentElement>(relaxed = true)
+        every { broken.id } returns AccentElementId.CARET_ROW
+        every { broken.displayName } returns "Caret Row"
+        every { broken.apply(any()) } throws IllegalStateException("element failed")
+        mockEpExtensionList(listOf(broken))
+        state.cgpIntegrationEnabled = false
+        withSuccessfulVisualApply {
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+            assertEquals(AccentApplyStep.ApplyElements, outcome.failures.single().step)
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor("Component.focusColor"))
+            assertFalse(state.lastApplyOk)
         }
     }
 

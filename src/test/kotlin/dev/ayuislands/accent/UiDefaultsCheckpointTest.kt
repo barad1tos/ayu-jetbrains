@@ -206,6 +206,26 @@ class UiDefaultsCheckpointTest {
         }
 
     @Test
+    fun `fatal recovery error escapes a torn apply instead of being contained`() =
+        onEdt {
+            UIManager.put(FOCUS_KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            checkpoint.put(FOCUS_KEY, Color.RED)
+            val fatal = OutOfMemoryError("synthetic fatal recovery failure")
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == FOCUS_KEY && event.newValue === Color.BLUE) throw fatal
+                }
+            withListener(listener) {
+                val thrown =
+                    assertFailsWith<OutOfMemoryError> {
+                        checkpoint.restoreAfterTear(listOf(IllegalStateException("apply failed")))
+                    }
+                assertSame(fatal, thrown)
+            }
+        }
+
+    @Test
     fun `superseded look and feel is never restored or written through`() =
         onEdt {
             val original = UIManager.getLookAndFeel()

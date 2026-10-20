@@ -274,7 +274,8 @@ object AccentApplicator {
                 // resolver rather than trusting the cached hex.
                 put(AccentApplyStep.MarkApplyClean) {
                     state.lastApplyOk = containedFailures.isEmpty()
-                    if (state.lastApplyOk) uiDefaults.commit()
+                    // Every write ran: a contained element failure stays torn but keeps its colors.
+                    uiDefaults.commit()
                 }
                 put(AccentApplyStep.PublishAccentChanged) {
                     if (containedFailures.isEmpty()) {
@@ -301,7 +302,8 @@ object AccentApplicator {
                     recordFailure(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, recovery))
                 }
             // Restored defaults reach already painted surfaces only on repaint.
-            repaintAllWindows(Window.getWindows())
+            runCatchingPreservingCancellation { repaintAllWindows(Window.getWindows()) }
+                .onFailure { error -> recordFailure(AccentApplyStepFailure(AccentApplyStep.RepaintWindows, error)) }
         }
         return AccentApplyOutcome.of(accentHex, containedFailures + failures)
     }

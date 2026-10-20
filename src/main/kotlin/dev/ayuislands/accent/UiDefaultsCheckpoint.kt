@@ -77,7 +77,8 @@ internal class UiDefaultsCheckpoint {
         }
 
     /**
-     * Restores after a torn apply and returns a contained recovery failure.
+     * Restores after a torn apply and returns a contained recovery failure,
+     * wrapped so logs tell it apart from a failed forward write.
      * A recovery cancellation propagates with [applyFailures] as suppressed causes.
      */
     fun restoreAfterTear(applyFailures: List<Throwable>): Throwable? {
@@ -87,7 +88,7 @@ internal class UiDefaultsCheckpoint {
             applyFailures.filter { failure -> failure !== recovery }.forEach(recovery::addSuppressed)
             throw recovery
         }
-        return recovery
+        return recovery?.let { IllegalStateException("UI defaults restoration after torn apply failed", it) }
     }
 
     /** Releases recovery records once the visual apply has completed. */
