@@ -36,6 +36,7 @@ import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxOverlayLoader
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.effectivePrimitive
+import org.junit.Before
 import org.junit.Test
 import java.nio.file.Path
 import java.util.concurrent.Callable
@@ -43,6 +44,14 @@ import kotlin.test.assertTrue
 
 class NativePreviewContractTest : LightPlatformCodeInsightFixture4TestCase() {
     private val runtime by lazy(SyntaxRuntimeSelection::select)
+
+    @Before
+    fun disableRuntimeLanguageServers() {
+        // A refused server start would otherwise surface through lsp4ij highlighting as a logged test error.
+        if (runtime.disabledLanguageServers.isNotEmpty()) {
+            LanguageServerSwitch.disable(project, runtime.disabledLanguageServers)
+        }
+    }
 
     @Test
     fun `production inspector confirms every candidate preview available in test runtime`() {

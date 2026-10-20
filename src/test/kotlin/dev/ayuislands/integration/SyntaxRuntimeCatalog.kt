@@ -23,6 +23,7 @@ internal data class SyntaxRuntime(
     val version: String,
     val candidateLanguages: Set<String>,
     val allowsHighlightingRestart: Boolean = false,
+    val disabledLanguageServers: Set<String> = emptySet(),
     val marketplaceDependency: MarketplaceDependency? = null,
     val provisioning: RuntimeProvisioning = RuntimeProvisioning.Ready,
 )
@@ -102,6 +103,8 @@ internal object SyntaxRuntimeCatalog {
                 version = "2025.1",
                 candidateLanguages = setOf("Dart"),
                 allowsHighlightingRestart = true,
+                // The Dart plugin refuses to start its lsp4ij server in unit test mode.
+                disabledLanguageServers = setOf("dartLanguageServer"),
                 marketplaceDependency = MarketplaceDependency("Dart", "506.1.0"),
             ),
             SyntaxRuntime(
