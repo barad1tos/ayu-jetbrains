@@ -15,10 +15,10 @@
 - [Fix] **Reliable project accent switching** — returning to a project restores
   its accent even when an earlier color change was interrupted. Canceled pin
   actions restore the previous pin.
-- [Fix] **No half-applied accent colors** — if an accent change fails or is
-  canceled midway, interface colors it had already changed return to their
-  previous values. Colors changed afterwards by you, the IDE, or another plugin
-  are kept.
+- [Fix] **Fewer half-applied accent colors** — if an accent change fails or is
+  canceled midway, the base interface colors it had already changed, such as
+  focus borders, default buttons, and tab underlines, return to their previous
+  values. Colors changed afterward by you, the IDE, or another plugin are kept.
 - [Fix] **Clean Glow focus borders** — disabling Glow or closing a panel removes
   its focus border, restores the previous border, and preserves later styling
   changes made by the IDE or another plugin.

@@ -68,6 +68,28 @@ internal class UiDefaultsCheckpoint {
         failure?.let { throw it }
     }
 
+    /** Runs [block], restoring every surviving write before its failure propagates. */
+    fun <T> restoringOnFailure(block: () -> T): T =
+        try {
+            block()
+        } catch (failure: RuntimeException) {
+            restoreAfter(failure)
+        }
+
+    /**
+     * Restores after a torn apply and returns a contained recovery failure.
+     * A recovery cancellation propagates with [applyFailures] as suppressed causes.
+     */
+    fun restoreAfterTear(applyFailures: List<Throwable>): Throwable? {
+        val recovery = runCatching { restore() }.exceptionOrNull()
+        if (recovery is VirtualMachineError) throw recovery
+        if (recovery is RuntimeException && recovery.isAccentCancellation()) {
+            applyFailures.filter { failure -> failure !== recovery }.forEach(recovery::addSuppressed)
+            throw recovery
+        }
+        return recovery
+    }
+
     /** Releases recovery records once the visual apply has completed. */
     fun commit() {
         changes.clear()

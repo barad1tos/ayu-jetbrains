@@ -317,6 +317,51 @@ class AccentApplicatorTornApplyTest {
     }
 
     @Test
+    fun `recovery cancellation keeps the original apply failure`() {
+        withRealUiDefaults {
+            val saved = UIManager.put("Component.focusColor", Color.BLUE)
+            val cancellation = CancellationException("recovery cancelled")
+            val defaults = UIManager.getDefaults()
+            val recoveryListener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == "Component.focusColor" &&
+                        event.newValue === Color.BLUE
+                    ) {
+                        throw cancellation
+                    }
+                }
+            defaults.addPropertyChangeListener(recoveryListener)
+            try {
+                val thrown = assertFailsWith<CancellationException> { AccentApplicator.applyFromHexString("#445566") }
+                assertSame(cancellation, thrown)
+                assertEquals(listOf("synthetic tear"), thrown.suppressed.map { it.message })
+                assertFalse(state.lastApplyOk)
+            } finally {
+                defaults.removePropertyChangeListener(recoveryListener)
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
+    fun `failed accent repaints windows after restoring UI colors`() {
+        val window = mockk<Window>(relaxed = true) { every { isDisplayable } returns true }
+        every { Window.getWindows() } returns arrayOf(window)
+        withRealUiDefaults {
+            val previous = Color(0x11, 0x22, 0x33)
+            val saved = UIManager.put("Component.focusColor", previous)
+            try {
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertEquals(expected = previous, actual = UIManager.getColor("Component.focusColor"))
+                // The tear aborts the plan before RepaintWindows, so this paint comes from recovery.
+                verify(exactly = 1) { window.repaint() }
+            } finally {
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
     fun `successful accent retains the newly applied UI color`() {
         withSuccessfulVisualApply {
             assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#445566"))

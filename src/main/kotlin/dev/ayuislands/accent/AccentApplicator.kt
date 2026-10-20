@@ -284,24 +284,24 @@ object AccentApplicator {
             }
 
         val failures =
-            try {
+            uiDefaults.restoringOnFailure {
                 AccentApplyPlanRunner.runNow(
                     plan = applyPlanFor(context),
                     executeStep = { step -> workers.getValue(step)() },
                 )
-            } catch (failure: RuntimeException) {
-                uiDefaults.restoreAfter(failure)
             }
         for ((step, error) in failures) {
             log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
         }
         val outcome = AccentApplyOutcome.of(accentHex, containedFailures + failures)
         if (!outcome.visualsApplied) {
-            runCatchingPreservingCancellation { uiDefaults.restore() }
-                .exceptionOrNull()
+            uiDefaults
+                .restoreAfterTear((containedFailures + failures).map(AccentApplyStepFailure::error))
                 ?.let { recovery ->
                     recordFailure(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, recovery))
                 }
+            // Restored defaults reach already painted surfaces only on repaint.
+            repaintAllWindows(Window.getWindows())
         }
         return AccentApplyOutcome.of(accentHex, containedFailures + failures)
     }
