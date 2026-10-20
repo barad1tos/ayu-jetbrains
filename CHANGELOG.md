@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased]
+
+- [Paid] **Reapply font presets** — Font Settings → Customize now includes
+  Reapply preset, so the current preset can be applied to a color scheme
+  without changing its options. The action takes effect when you click Apply.
+- [Fix] **Preserve personal font settings** — disabling font presets or
+  uninstalling a font restores the earlier editor and console settings only
+  where they still match Ayu's changes. Manual edits, font fallback order,
+  inheritance, and unavailable presets survive restarts and recovery.
+- [Fix] **Safer syntax preview cancellation** — Cancel preserves color edits
+  made outside the preview instead of overwriting them. Interrupted restoration
+  can be retried without undoing the parts already restored.
+- [Fix] **Reliable project accent switching** — returning to a project restores
+  its accent even when an earlier color change was interrupted. Canceled pin
+  actions restore the previous pin.
+- [Fix] **No half-applied accent colors** — if an accent change fails or is
+  canceled midway, interface colors it had already changed return to their
+  previous values. Colors changed afterwards by you, the IDE, or another plugin
+  are kept.
+- [Fix] **Clean Glow focus borders** — disabling Glow or closing a panel removes
+  its focus border, restores the previous border, and preserves later styling
+  changes made by the IDE or another plugin.
+- [Fix] **Prevent stalled macOS appearance detection** — automatic system appearance
+  and accent detection no longer waits indefinitely when reading macOS
+  settings stalls.
+
 ## [2.8.7] - 2026-08-29
 
 - [Paid] **Universal per-language syntax tuning** — Custom syntax settings now
