@@ -54,7 +54,7 @@ class DependabotAutomergeTest(unittest.TestCase):
 
     def test_allows_patch_and_minor(self) -> None:
         for update in ("patch", "minor"):
-            for names in ("actions/checkout", "org.junit.jupiter:junit-jupiter",
+            for names in ("actions/checkout", "org.junit.jupiter:junit-jupiter", "io.kotest:kotest-property-jvm",
                           "github/codeql-action/analyze,github/codeql-action/init"):
                 with self.subTest(update=update, names=names):
                     self.assert_eligible(f"version-update:semver-{update}", names, True)
@@ -67,7 +67,7 @@ class DependabotAutomergeTest(unittest.TestCase):
     def test_protects_toolchain_groups(self) -> None:
         for dependency in ("jvm", "org.jetbrains.kotlin.jvm", "org.jetbrains.kotlin:kotlin-stdlib",
                            "org.jetbrains.intellij.platform", "com.jetbrains.intellij.idea:ideaIC"):
-            for names in (dependency, f"org.junit.jupiter:junit-jupiter,{dependency}"):
+            for names in (dependency, f"org.junit.jupiter:junit-jupiter, {dependency}"):
                 with self.subTest(names=names):
                     self.assert_eligible("version-update:semver-patch", names, False)
 
