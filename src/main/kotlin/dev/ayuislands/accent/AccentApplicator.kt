@@ -238,6 +238,7 @@ object AccentApplicator {
                         state,
                         checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
                         isChromeAllowed,
+                        uiDefaults,
                     )
                 }
                 put(AccentApplyStep.SyncIndentRainbow) {
@@ -680,6 +681,7 @@ object AccentApplicator {
         state: AyuIslandsState,
         context: AccentContext,
         isChromeAllowed: Boolean,
+        uiDefaults: UiDefaultsCheckpoint,
     ) {
         val variant = context.variant
         val tabMode = effectiveTabMode(state, isChromeAllowed)
@@ -688,8 +690,8 @@ object AccentApplicator {
             (!canTintExternalChrome(state, context, isChromeAllowed) || tabMode == GlowTabMode.OFF)
         ) {
             if (ExternalChromeOwnership.hasTabUnderline()) {
-                UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, null)
-                UIManager.put(KEY_TAB_UNDERLINE_ARC, null)
+                uiDefaults.put(KEY_TAB_UNDERLINE_HEIGHT, null)
+                uiDefaults.put(KEY_TAB_UNDERLINE_ARC, null)
                 ExternalChromeOwnership.releaseTabUnderline()
             }
             return
@@ -718,10 +720,10 @@ object AccentApplicator {
         if (context == AccentContext.External) {
             ExternalChromeOwnership.markTabUnderline()
         }
-        UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, Integer.valueOf(height))
+        uiDefaults.put(KEY_TAB_UNDERLINE_HEIGHT, Integer.valueOf(height))
 
         val arc = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_UNDERLINE_ARC }
-        UIManager.put(KEY_TAB_UNDERLINE_ARC, Integer.valueOf(arc))
+        uiDefaults.put(KEY_TAB_UNDERLINE_ARC, Integer.valueOf(arc))
 
         log.info("Tab underline: height=${height}px, arc=${arc}px")
     }

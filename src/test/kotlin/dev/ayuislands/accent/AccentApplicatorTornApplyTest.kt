@@ -427,6 +427,22 @@ class AccentApplicatorTornApplyTest {
         }
     }
 
+    @Test
+    fun `abort after the tab underline step restores the previous underline geometry`() {
+        every { ComponentTreeRefresher.notifyOnly(any()) } throws IllegalStateException("notify failed")
+        withSuccessfulVisualApply {
+            val previousHeight = Integer.valueOf(7)
+            UIManager.put("EditorTabs.underlineHeight", previousHeight)
+            UIManager.put("EditorTabs.underlineArc", null)
+
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertEquals(AccentApplyStep.NotifyComponentTrees, outcome.failures.single().step)
+            assertSame(previousHeight, UIManager.getDefaults()["EditorTabs.underlineHeight"])
+            assertNull(UIManager.getDefaults()["EditorTabs.underlineArc"])
+        }
+    }
+
     private fun withSuccessfulVisualApply(block: () -> Unit) {
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         mockkObject(AccentResolver)

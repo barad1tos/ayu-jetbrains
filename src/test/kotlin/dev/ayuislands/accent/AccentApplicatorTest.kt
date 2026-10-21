@@ -2535,6 +2535,7 @@ class AccentApplicatorTest {
             state,
             context,
             LicenseChecker.isLicensedOrGrace(),
+            UiDefaultsCheckpoint(),
         )
     }
 
