@@ -75,6 +75,7 @@ internal object UpdateNotifier {
                     "[Fix] Reapply a font preset to a color scheme without changing its options",
                     "[Fix] Font presets keep your personal editor and console settings",
                     "[Fix] Syntax preview Cancel keeps color edits made elsewhere",
+                    "[Fix] Returning to a project restores its accent after an interrupted change",
                     "[Fix] Interrupted accent changes no longer leave colors half-applied",
                     "[Fix] Glow focus borders and macOS appearance detection behave reliably",
                 ),

@@ -288,9 +288,10 @@ class UpdateNotifierTest {
             group.createNotification(
                 "Ayu Islands updated to 2.8.8",
                 match<String> { body ->
-                    body.contains("[Fix] Reapply a font preset to a color scheme") &&
+                    body.contains("[Fix] Reapply a font preset to a color scheme without changing its options") &&
                         body.contains("[Fix] Font presets keep your personal editor and console settings") &&
                         body.contains("[Fix] Syntax preview Cancel keeps color edits made elsewhere") &&
+                        body.contains("[Fix] Returning to a project restores its accent after an interrupted change") &&
                         body.contains("[Fix] Interrupted accent changes no longer leave colors half-applied") &&
                         body.contains("[Fix] Glow focus borders and macOS appearance detection behave reliably")
                 },
