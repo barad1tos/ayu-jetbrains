@@ -5,10 +5,11 @@ import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 
 class ProjectViewScrollbarServiceTest : BasePlatformTestCase() {
-    fun testPlatformCreatesServiceAndRunsQueuedInitialApply() {
+    fun testPlatformCreatesServiceWithoutErrors() {
         val manager = ProjectViewScrollbarManager.getInstance(project)
 
-        // The queued initial apply must run against the real platform without throwing.
+        // Drain the EDT so anything the service queued during construction fails this test if it throws.
+        // That the queued apply uses the injected dependencies is pinned by ProjectViewScrollbarManagerTest.
         PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
         assertSame(manager, ProjectViewScrollbarManager.getInstance(project))
     }
