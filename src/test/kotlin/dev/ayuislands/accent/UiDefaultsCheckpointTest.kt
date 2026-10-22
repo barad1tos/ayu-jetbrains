@@ -223,6 +223,42 @@ class UiDefaultsCheckpointTest {
         }
 
     @Test
+    fun `restore runs registered actions when a listener throws after the table is restored`() =
+        onEdt {
+            UIManager.put(FOCUS_KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            checkpoint.put(FOCUS_KEY, Color.RED)
+            var restored = 0
+            checkpoint.onRestore { restored++ }
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == FOCUS_KEY && event.newValue === Color.BLUE) error("listener failed")
+                }
+            withListener(listener) {
+                assertFailsWith<IllegalStateException> { checkpoint.restore() }
+            }
+            assertSame(Color.BLUE, UIManager.get(FOCUS_KEY))
+            assertEquals(1, restored)
+        }
+
+    @Test
+    fun `restore withholds registered actions while a write is still unrestored`() =
+        onEdt {
+            val original = UIManager.getLookAndFeel()
+            val checkpoint = UiDefaultsCheckpoint()
+            checkpoint.put(FOCUS_KEY, Color.RED)
+            var restored = 0
+            checkpoint.onRestore { restored++ }
+            try {
+                UIManager.setLookAndFeel(MetalLookAndFeel())
+                checkpoint.restore()
+                assertEquals(0, restored)
+            } finally {
+                UIManager.setLookAndFeel(original)
+            }
+        }
+
+    @Test
     fun `fatal recovery error escapes a torn apply instead of being contained`() =
         onEdt {
             UIManager.put(FOCUS_KEY, Color.BLUE)

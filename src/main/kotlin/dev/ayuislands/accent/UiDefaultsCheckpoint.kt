@@ -64,13 +64,15 @@ internal class UiDefaultsCheckpoint {
             if (recovery is VirtualMachineError) throw recovery
             if (recovery != null) {
                 failure = combineFailures(failure, recovery)
+                // A listener can throw after the table already holds the previous value.
+                if (rawValue(key) === change.previous) changes.remove(key)
             }
         }
-        failure?.let { throw it }
         if (changes.isEmpty()) {
             restoreActions.asReversed().forEach { action -> action() }
             restoreActions.clear()
         }
+        failure?.let { throw it }
     }
 
     /** Registers state that returns to its pre-apply value once every recorded write is restored or relinquished. */
