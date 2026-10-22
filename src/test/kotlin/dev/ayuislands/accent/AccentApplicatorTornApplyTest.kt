@@ -14,6 +14,7 @@ import com.intellij.util.messages.MessageBus
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -23,16 +24,24 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.unmockkStatic
 import io.mockk.verify
+import java.awt.Color
 import java.awt.Window
+import java.beans.PropertyChangeListener
+import java.util.concurrent.CancellationException
+import java.util.function.BiConsumer
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -199,9 +208,275 @@ class AccentApplicatorTornApplyTest {
     }
 
     @Test
+    fun `failed accent restores the previous explicit UI color`() {
+        withRealUiDefaults {
+            val previous = Color(0x11, 0x22, 0x33)
+            val saved = UIManager.put("Component.focusColor", previous)
+            try {
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertEquals(expected = previous, actual = UIManager.getColor("Component.focusColor"))
+            } finally {
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
+    fun `failed accent preserves a later external UI color edit`() {
+        withRealUiDefaults {
+            val manual = Color(0x77, 0x88, 0x99)
+            val saved = UIManager.put("Component.focusColor", Color(0x11, 0x22, 0x33))
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                UIManager.put("Component.focusColor", manual)
+                error("integration failed after external color edit")
+            }
+            try {
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertEquals(expected = manual, actual = UIManager.getColor("Component.focusColor"))
+            } finally {
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    private fun withRealUiDefaults(block: () -> Unit) {
+        unmockkStatic(UIManager::class)
+        unmockkStatic(SwingUtilities::class)
+        SwingUtilities.invokeAndWait {
+            val before = developerDefaults()
+            try {
+                block()
+            } finally {
+                val after = developerDefaults()
+                for (key in before.keys + after.keys) {
+                    if (before[key] !== after[key]) UIManager.put(key, before[key])
+                }
+            }
+        }
+    }
+
+    private fun developerDefaults(): Map<Any, Any> =
+        buildMap {
+            // Read only raw developer entries, without evaluating lazy providers.
+            val capture = BiConsumer<Any, Any> { key, value -> put(key, value) }
+            UIManager.getDefaults().forEach(capture)
+        }
+
+    @Test
+    fun `cancelled accent restores owned UI color before propagating cancellation`() {
+        withRealUiDefaults {
+            val previous = Color(0x11, 0x22, 0x33)
+            val saved = UIManager.put("Component.focusColor", previous)
+            val cancellation = CancellationException("accent cancelled during integration")
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } throws cancellation
+            try {
+                val thrown = assertFailsWith<CancellationException> { AccentApplicator.applyFromHexString("#445566") }
+                assertSame(cancellation, thrown)
+                assertEquals(expected = previous, actual = UIManager.getColor("Component.focusColor"))
+                assertFalse(state.lastApplyOk)
+            } finally {
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
+    fun `recovery linkage error is reported with the original apply failure`() {
+        withRealUiDefaults {
+            val saved = UIManager.put("Component.focusColor", Color.BLUE)
+            val recoveryFailure = NoClassDefFoundError("unloaded UI listener")
+            val defaults = UIManager.getDefaults()
+            val recoveryListener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == "Component.focusColor" &&
+                        event.newValue === Color.BLUE
+                    ) {
+                        throw recoveryFailure
+                    }
+                }
+            defaults.addPropertyChangeListener(recoveryListener)
+            try {
+                val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertEquals(2, outcome.failures.size)
+                assertEquals(
+                    "synthetic tear",
+                    outcome.failures
+                        .single { it.step == AccentApplyStep.SyncIndentRainbow }
+                        .error.message,
+                )
+                val recovery = outcome.failures.single { it.step == AccentApplyStep.ApplyAlwaysOnUiKeys }.error
+                assertEquals("UI defaults restoration after torn apply failed", recovery.message)
+                assertSame(recoveryFailure, recovery.cause)
+                assertFalse(state.lastApplyOk)
+            } finally {
+                defaults.removePropertyChangeListener(recoveryListener)
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
+    fun `recovery cancellation keeps the original apply failure`() {
+        withRealUiDefaults {
+            val saved = UIManager.put("Component.focusColor", Color.BLUE)
+            val cancellation = CancellationException("recovery cancelled")
+            val defaults = UIManager.getDefaults()
+            val recoveryListener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == "Component.focusColor" &&
+                        event.newValue === Color.BLUE
+                    ) {
+                        throw cancellation
+                    }
+                }
+            defaults.addPropertyChangeListener(recoveryListener)
+            try {
+                val thrown = assertFailsWith<CancellationException> { AccentApplicator.applyFromHexString("#445566") }
+                assertSame(cancellation, thrown)
+                assertEquals(listOf("synthetic tear"), thrown.suppressed.map { it.message })
+                assertFalse(state.lastApplyOk)
+            } finally {
+                defaults.removePropertyChangeListener(recoveryListener)
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
+    fun `failed accent repaints windows after restoring UI colors`() {
+        val window = mockk<Window>(relaxed = true) { every { isDisplayable } returns true }
+        every { Window.getWindows() } returns arrayOf(window)
+        withRealUiDefaults {
+            val previous = Color(0x11, 0x22, 0x33)
+            val saved = UIManager.put("Component.focusColor", previous)
+            try {
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertEquals(expected = previous, actual = UIManager.getColor("Component.focusColor"))
+                // The tear aborts the plan before RepaintWindows, so this paint comes from recovery.
+                verify(exactly = 1) { window.repaint() }
+            } finally {
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
+    fun `recovery repaint failure stays contained in the torn outcome`() {
+        val window = mockk<Window>(relaxed = true) { every { isDisplayable } returns true }
+        val repaintFailure = IllegalStateException("repaint failed")
+        every { window.repaint() } throws repaintFailure
+        every { Window.getWindows() } returns arrayOf(window)
+        withRealUiDefaults {
+            val saved = UIManager.put("Component.focusColor", Color.BLUE)
+            try {
+                val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertSame(repaintFailure, outcome.failures.single { it.step == AccentApplyStep.RepaintWindows }.error)
+                assertSame(Color.BLUE, UIManager.getColor("Component.focusColor"))
+            } finally {
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
+    fun `contained element failure keeps the completed UI colors`() {
+        // Unlike the IndentRainbow tear, an element failure lets the plan run to MarkApplyClean.
+        val broken = mockk<AccentElement>(relaxed = true)
+        every { broken.id } returns AccentElementId.CARET_ROW
+        every { broken.displayName } returns "Caret Row"
+        every { broken.apply(any()) } throws IllegalStateException("element failed")
+        mockEpExtensionList(listOf(broken))
+        state.cgpIntegrationEnabled = false
+        withSuccessfulVisualApply {
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+            assertEquals(AccentApplyStep.ApplyElements, outcome.failures.single().step)
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor("Component.focusColor"))
+            assertFalse(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `successful accent retains the newly applied UI color`() {
+        withSuccessfulVisualApply {
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#445566"))
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor("Component.focusColor"))
+            assertTrue(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `publication failure retains successfully applied UI color`() {
+        withSuccessfulVisualApply {
+            every { listener.accentChanged(any(), any(), any()) } throws IllegalStateException("subscriber failed")
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+            assertTrue(outcome.visualsApplied)
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor("Component.focusColor"))
+            assertTrue(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `publication cancellation retains successfully applied UI color`() {
+        withSuccessfulVisualApply {
+            val cancellation = CancellationException("subscriber cancelled")
+            every { listener.accentChanged(any(), any(), any()) } throws cancellation
+            val thrown = assertFailsWith<CancellationException> { AccentApplicator.applyFromHexString("#445566") }
+            assertSame(cancellation, thrown)
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor("Component.focusColor"))
+            assertTrue(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `abort after the tab underline step restores the previous underline geometry`() {
+        every { ComponentTreeRefresher.notifyOnly(any()) } throws IllegalStateException("notify failed")
+        withSuccessfulVisualApply {
+            val previousHeight = Integer.valueOf(7)
+            UIManager.put("EditorTabs.underlineHeight", previousHeight)
+            UIManager.put("EditorTabs.underlineArc", null)
+
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertEquals(AccentApplyStep.NotifyComponentTrees, outcome.failures.single().step)
+            assertSame(previousHeight, UIManager.getDefaults()["EditorTabs.underlineHeight"])
+            assertNull(UIManager.getDefaults()["EditorTabs.underlineArc"])
+        }
+    }
+
+    @Test
+    fun `abort after the tab underline step restores underline ownership with its keys`() {
+        every { ComponentTreeRefresher.notifyOnly(any()) } throws IllegalStateException("notify failed")
+        ExternalChromeOwnership.markTabUnderline()
+        try {
+            withSuccessfulVisualApply {
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+                // The Ayu apply released ownership before the abort; the restore must hand it back.
+                assertTrue(ExternalChromeOwnership.hasTabUnderline())
+            }
+        } finally {
+            ExternalChromeOwnership.releaseTabUnderline()
+        }
+    }
+
+    private fun withSuccessfulVisualApply(block: () -> Unit) {
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+        mockkObject(AccentResolver)
+        every { AccentResolver.source(any()) } returns AccentResolver.Source.GLOBAL
+        withRealUiDefaults {
+            val saved = UIManager.put("Component.focusColor", Color.BLUE)
+            try {
+                block()
+            } finally {
+                UIManager.put("Component.focusColor", saved)
+            }
+        }
+    }
+
+    @Test
     fun `applyFromHexString returns the failed invocation`() {
         val outcome: Any = AccentApplicator.applyFromHexString("#FFCC66")
-        val torn = kotlin.test.assertIs<AccentApplyOutcome.Torn>(outcome)
+        val torn = assertIs<AccentApplyOutcome.Torn>(outcome)
         assertEquals(AccentApplyStep.SyncIndentRainbow, torn.failures.single().step)
         assertEquals(
             "synthetic tear",

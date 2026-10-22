@@ -169,6 +169,7 @@ class AccentApplicatorTest {
             state,
             accent,
             LicenseChecker.isLicensedOrGrace(),
+            UiDefaultsCheckpoint(),
         )
         invokePrivate("applyAlwaysOnEditorKeys", accent)
         val windows = Window.getWindows()
@@ -945,10 +946,10 @@ class AccentApplicatorTest {
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyAlwaysOnUiKeys" }
         assertEquals(
-            3,
+            4,
             method.parameterCount,
-            "applyAlwaysOnUiKeys must accept (state, accent, entitlement) so tab-mode resolution shares the " +
-                "outer apply() snapshots and cannot drift mid-apply",
+            "Expected (state, accent, entitlement, UI checkpoint): " +
+                "tab-mode resolution must share outer apply() snapshots and cannot drift mid-apply",
         )
         assertEquals(
             AyuIslandsState::class.java,
@@ -1121,7 +1122,7 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `partial external underline write remains owned for retry`() {
+    fun `partial external underline write is rolled back with its ownership`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
@@ -1133,11 +1134,14 @@ class AccentApplicatorTest {
 
         AccentApplicator.applyFromHexString("#AABBCC")
         every { UIManager.put("EditorTabs.underlineArc", any()) } returns Unit
+        // The torn apply restored the height it wrote, so nothing is left for the disable to clean up.
+        assertFalse(ExternalChromeOwnership.hasTabUnderline())
         state.externalThemeChromeTintEnabled = false
         AccentApplicator.applyFromHexString("#AABBCC")
 
+        // The single null height write is the rollback restoring the absent key; the disable writes nothing.
         verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", null) }
-        verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", null) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineArc", null) }
     }
 
     @Test
@@ -2534,6 +2538,7 @@ class AccentApplicatorTest {
             state,
             context,
             LicenseChecker.isLicensedOrGrace(),
+            UiDefaultsCheckpoint(),
         )
     }
 

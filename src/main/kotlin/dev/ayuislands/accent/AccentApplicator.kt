@@ -193,6 +193,10 @@ object AccentApplicator {
         val accent = accentHex.toColor()
         val state = AyuIslandsSettings.getInstance().state
         val context = AccentContext.detect()
+        val uiDefaults = UiDefaultsCheckpoint()
+        val ownedTabUnderline = ExternalChromeOwnership.hasTabUnderline()
+        // Underline ownership must follow the underline keys back when an aborted apply restores them.
+        uiDefaults.onRestore { ExternalChromeOwnership.restoreTabUnderline(ownedTabUnderline) }
         val isChromeAllowed: Boolean by lazy(LazyThreadSafetyMode.NONE) {
             LicenseChecker.isLicensedOrGrace()
         }
@@ -221,7 +225,7 @@ object AccentApplicator {
         val workers: Map<AccentApplyStep, () -> Unit> =
             buildMap {
                 put(AccentApplyStep.ApplyAlwaysOnUiKeys) {
-                    applyAlwaysOnUiKeys(state, accent, isChromeAllowed)
+                    applyAlwaysOnUiKeys(state, accent, isChromeAllowed, uiDefaults)
                 }
                 put(AccentApplyStep.ApplyElements) {
                     applyElements(
@@ -237,6 +241,7 @@ object AccentApplicator {
                         state,
                         checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
                         isChromeAllowed,
+                        uiDefaults,
                     )
                 }
                 put(AccentApplyStep.SyncIndentRainbow) {
@@ -271,7 +276,11 @@ object AccentApplicator {
                 // write, leaving the flag false so the startup listener
                 // (AyuIslandsAppListener.appFrameCreated) falls through to the
                 // resolver rather than trusting the cached hex.
-                put(AccentApplyStep.MarkApplyClean) { state.lastApplyOk = containedFailures.isEmpty() }
+                put(AccentApplyStep.MarkApplyClean) {
+                    state.lastApplyOk = containedFailures.isEmpty()
+                    // Every write ran: a contained element failure stays torn but keeps its colors.
+                    uiDefaults.commit()
+                }
                 put(AccentApplyStep.PublishAccentChanged) {
                     if (containedFailures.isEmpty()) {
                         publishAccentChanged(accentHex, recordFailure)
@@ -280,12 +289,25 @@ object AccentApplicator {
             }
 
         val failures =
-            AccentApplyPlanRunner.runNow(
-                plan = applyPlanFor(context),
-                executeStep = { step -> workers.getValue(step)() },
-            )
+            uiDefaults.restoringOnFailure {
+                AccentApplyPlanRunner.runNow(
+                    plan = applyPlanFor(context),
+                    executeStep = { step -> workers.getValue(step)() },
+                )
+            }
         for ((step, error) in failures) {
             log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
+        }
+        val outcome = AccentApplyOutcome.of(accentHex, containedFailures + failures)
+        if (!outcome.visualsApplied) {
+            uiDefaults
+                .restoreAfterTear((containedFailures + failures).map(AccentApplyStepFailure::error))
+                ?.let { recovery ->
+                    recordFailure(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, recovery))
+                }
+            // Restored defaults reach already painted surfaces only on repaint.
+            runCatchingPreservingCancellation { repaintAllWindows(Window.getWindows()) }
+                .onFailure { error -> recordFailure(AccentApplyStepFailure(AccentApplyStep.RepaintWindows, error)) }
         }
         return AccentApplyOutcome.of(accentHex, containedFailures + failures)
     }
@@ -596,41 +618,42 @@ object AccentApplicator {
         state: AyuIslandsState,
         accent: Color,
         isChromeAllowed: Boolean,
+        uiDefaults: UiDefaultsCheckpoint,
     ) {
         for (key in ALWAYS_ON_UI_KEYS) {
-            UIManager.put(key, accent)
+            uiDefaults.put(key, accent)
         }
 
         // Contrast foreground for accent-background elements (GotItTooltip, buttons)
         val contrastForeground = if (ColorUtil.isDark(accent)) JBColor.WHITE else DARK_FOREGROUND
-        UIManager.put("GotItTooltip.foreground", contrastForeground)
-        UIManager.put("GotItTooltip.Button.foreground", contrastForeground)
-        UIManager.put("GotItTooltip.Header.foreground", contrastForeground)
+        uiDefaults.put("GotItTooltip.foreground", contrastForeground)
+        uiDefaults.put("GotItTooltip.Button.foreground", contrastForeground)
+        uiDefaults.put("GotItTooltip.Header.foreground", contrastForeground)
 
         // Darkened accent for default button borders (~15% darker)
         val darkenedAccent = ColorUtil.darker(accent, 1)
-        UIManager.put("Button.default.focusedBorderColor", darkenedAccent)
-        UIManager.put("Button.default.startBorderColor", darkenedAccent)
-        UIManager.put("Button.default.endBorderColor", darkenedAccent)
+        uiDefaults.put("Button.default.focusedBorderColor", darkenedAccent)
+        uiDefaults.put("Button.default.startBorderColor", darkenedAccent)
+        uiDefaults.put("Button.default.endBorderColor", darkenedAccent)
 
         // Editor tab background tint follows the persisted mode when chrome features are entitled.
         val tabMode = effectiveTabMode(state, isChromeAllowed)
         when (tabMode) {
             GlowTabMode.MINIMAL -> {
-                UIManager.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
+                uiDefaults.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
             }
 
             GlowTabMode.FULL -> {
                 val tintedColor = ColorUtil.toAlpha(accent, TAB_ACCENT_BG_ALPHA)
                 val tinted = JBColor(tintedColor, tintedColor)
-                UIManager.put(KEY_TAB_BACKGROUND, tinted)
+                uiDefaults.put(KEY_TAB_BACKGROUND, tinted)
             }
 
             GlowTabMode.OFF -> {
                 val variant = AyuVariant.detect()
                 val neutralColor = variant?.let { Color.decode(it.neutralGray) }
-                UIManager.put("EditorTabs.underlinedBorderColor", neutralColor)
-                UIManager.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
+                uiDefaults.put("EditorTabs.underlinedBorderColor", neutralColor)
+                uiDefaults.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
             }
         }
     }
@@ -661,6 +684,7 @@ object AccentApplicator {
         state: AyuIslandsState,
         context: AccentContext,
         isChromeAllowed: Boolean,
+        uiDefaults: UiDefaultsCheckpoint,
     ) {
         val variant = context.variant
         val tabMode = effectiveTabMode(state, isChromeAllowed)
@@ -669,8 +693,8 @@ object AccentApplicator {
             (!canTintExternalChrome(state, context, isChromeAllowed) || tabMode == GlowTabMode.OFF)
         ) {
             if (ExternalChromeOwnership.hasTabUnderline()) {
-                UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, null)
-                UIManager.put(KEY_TAB_UNDERLINE_ARC, null)
+                uiDefaults.put(KEY_TAB_UNDERLINE_HEIGHT, null)
+                uiDefaults.put(KEY_TAB_UNDERLINE_ARC, null)
                 ExternalChromeOwnership.releaseTabUnderline()
             }
             return
@@ -699,10 +723,10 @@ object AccentApplicator {
         if (context == AccentContext.External) {
             ExternalChromeOwnership.markTabUnderline()
         }
-        UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, Integer.valueOf(height))
+        uiDefaults.put(KEY_TAB_UNDERLINE_HEIGHT, Integer.valueOf(height))
 
         val arc = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_UNDERLINE_ARC }
-        UIManager.put(KEY_TAB_UNDERLINE_ARC, Integer.valueOf(arc))
+        uiDefaults.put(KEY_TAB_UNDERLINE_ARC, Integer.valueOf(arc))
 
         log.info("Tab underline: height=${height}px, arc=${arc}px")
     }
@@ -857,6 +881,10 @@ internal object ExternalChromeOwnership {
 
     fun releaseTabUnderline() {
         ownsTabUnderline = false
+    }
+
+    fun restoreTabUnderline(owned: Boolean) {
+        ownsTabUnderline = owned
     }
 
     fun finishRevert(failedElements: Set<AccentElementId>) {
