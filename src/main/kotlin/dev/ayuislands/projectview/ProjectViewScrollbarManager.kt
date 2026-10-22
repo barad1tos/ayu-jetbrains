@@ -30,17 +30,19 @@ import javax.swing.tree.TreeCellRenderer
 
 /** Per-project service that manages Project tool window tweaks (scrollbar, root path). */
 @Service(Service.Level.PROJECT)
-class ProjectViewScrollbarManager(
+class ProjectViewScrollbarManager private constructor(
     private val project: Project,
+    // Constructor parameters, not reassigned fields: init queues the first apply() before any secondary body runs.
+    private val rootPathLeaseProvider: () -> RootPathLease,
+    private val registryValueProvider: () -> RegistryValue,
 ) : Disposable {
+    constructor(project: Project) : this(project, RootPathLease::getInstance, ::showUrlRegistryValue)
+
     internal constructor(
         project: Project,
         rootPathLease: RootPathLease,
-        registryValueProvider: () -> RegistryValue = { Registry.get(SHOW_URL_KEY) },
-    ) : this(project) {
-        rootPathLeaseProvider = { rootPathLease }
-        this.registryValueProvider = registryValueProvider
-    }
+        registryValueProvider: () -> RegistryValue = ::showUrlRegistryValue,
+    ) : this(project, { rootPathLease }, registryValueProvider)
 
     private var originalScrollbarPolicy: Int? = null
     private var hasRegistryLease = false
@@ -48,8 +50,6 @@ class ProjectViewScrollbarManager(
     private var lastAppliedHidePath: Boolean? = null
     private var rendererListener: PropertyChangeListener? = null
     private var canFilterRoot = false
-    private var rootPathLeaseProvider: () -> RootPathLease = RootPathLease::getInstance
-    private var registryValueProvider: () -> RegistryValue = { Registry.get(SHOW_URL_KEY) }
     private val rootPathLease: RootPathLease
         get() = rootPathLeaseProvider()
     private val autoFitter =
@@ -303,6 +303,8 @@ class ProjectViewScrollbarManager(
         private val LOG = logger<ProjectViewScrollbarManager>()
         private const val TOOL_WINDOW_ID = "Project"
         private const val SHOW_URL_KEY = "project.tree.structure.show.url"
+
+        private fun showUrlRegistryValue(): RegistryValue = Registry.get(SHOW_URL_KEY)
 
         fun getInstance(project: Project): ProjectViewScrollbarManager =
             project.getService(
