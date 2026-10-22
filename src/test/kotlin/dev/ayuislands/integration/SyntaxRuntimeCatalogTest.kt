@@ -98,6 +98,12 @@ class SyntaxRuntimeCatalogTest {
                 .filterNot { candidate -> candidate.id == runtime.id }
                 .none(SyntaxRuntime::allowsHighlightingRestart),
         )
+        assertEquals(setOf("dartLanguageServer"), runtime.disabledLanguageServers)
+        assertTrue(
+            SyntaxRuntimeCatalog.entries
+                .filterNot { candidate -> candidate.id == runtime.id }
+                .all { candidate -> candidate.disabledLanguageServers.isEmpty() },
+        )
         assertEquals(MarketplaceDependency("Dart", "506.1.0"), runtime.marketplaceDependency)
     }
 
