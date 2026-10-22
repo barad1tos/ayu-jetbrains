@@ -194,6 +194,9 @@ object AccentApplicator {
         val state = AyuIslandsSettings.getInstance().state
         val context = AccentContext.detect()
         val uiDefaults = UiDefaultsCheckpoint()
+        val ownedTabUnderline = ExternalChromeOwnership.hasTabUnderline()
+        // Underline ownership must follow the underline keys back when an aborted apply restores them.
+        uiDefaults.onRestore { ExternalChromeOwnership.restoreTabUnderline(ownedTabUnderline) }
         val isChromeAllowed: Boolean by lazy(LazyThreadSafetyMode.NONE) {
             LicenseChecker.isLicensedOrGrace()
         }
@@ -878,6 +881,10 @@ internal object ExternalChromeOwnership {
 
     fun releaseTabUnderline() {
         ownsTabUnderline = false
+    }
+
+    fun restoreTabUnderline(owned: Boolean) {
+        ownsTabUnderline = owned
     }
 
     fun finishRevert(failedElements: Set<AccentElementId>) {

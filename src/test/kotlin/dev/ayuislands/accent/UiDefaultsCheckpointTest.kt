@@ -206,6 +206,23 @@ class UiDefaultsCheckpointTest {
         }
 
     @Test
+    fun `restore runs registered actions once and commit discards them`() =
+        onEdt {
+            var restored = 0
+            val torn = UiDefaultsCheckpoint()
+            torn.onRestore { restored++ }
+            torn.restore()
+            torn.restore()
+            assertEquals(1, restored)
+
+            val completed = UiDefaultsCheckpoint()
+            completed.onRestore { restored++ }
+            completed.commit()
+            completed.restore()
+            assertEquals(1, restored)
+        }
+
+    @Test
     fun `fatal recovery error escapes a torn apply instead of being contained`() =
         onEdt {
             UIManager.put(FOCUS_KEY, Color.BLUE)

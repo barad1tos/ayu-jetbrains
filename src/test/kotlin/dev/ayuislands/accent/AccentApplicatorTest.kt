@@ -1122,7 +1122,7 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `partial external underline write remains owned for retry`() {
+    fun `partial external underline write is rolled back with its ownership`() {
         mockEpExtensionList(emptyList())
         mockkObject(IndentRainbowSync)
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
@@ -1134,11 +1134,14 @@ class AccentApplicatorTest {
 
         AccentApplicator.applyFromHexString("#AABBCC")
         every { UIManager.put("EditorTabs.underlineArc", any()) } returns Unit
+        // The torn apply restored the height it wrote, so nothing is left for the disable to clean up.
+        assertFalse(ExternalChromeOwnership.hasTabUnderline())
         state.externalThemeChromeTintEnabled = false
         AccentApplicator.applyFromHexString("#AABBCC")
 
+        // The single null height write is the rollback restoring the absent key; the disable writes nothing.
         verify(exactly = 1) { UIManager.put("EditorTabs.underlineHeight", null) }
-        verify(exactly = 1) { UIManager.put("EditorTabs.underlineArc", null) }
+        verify(exactly = 0) { UIManager.put("EditorTabs.underlineArc", null) }
     }
 
     @Test

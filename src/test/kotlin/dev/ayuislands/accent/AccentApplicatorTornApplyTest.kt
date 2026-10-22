@@ -443,6 +443,22 @@ class AccentApplicatorTornApplyTest {
         }
     }
 
+    @Test
+    fun `abort after the tab underline step restores underline ownership with its keys`() {
+        every { ComponentTreeRefresher.notifyOnly(any()) } throws IllegalStateException("notify failed")
+        ExternalChromeOwnership.markTabUnderline()
+        try {
+            withSuccessfulVisualApply {
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+                // The Ayu apply released ownership before the abort; the restore must hand it back.
+                assertTrue(ExternalChromeOwnership.hasTabUnderline())
+            }
+        } finally {
+            ExternalChromeOwnership.releaseTabUnderline()
+        }
+    }
+
     private fun withSuccessfulVisualApply(block: () -> Unit) {
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
         mockkObject(AccentResolver)

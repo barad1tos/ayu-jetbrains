@@ -14,6 +14,7 @@ internal class UiDefaultsCheckpoint {
     private val lookAndFeel = UIManager.getLookAndFeel()
     private val lookAndFeelDefaults = UIManager.getLookAndFeelDefaults()
     private val changes = linkedMapOf<String, Change>()
+    private val restoreActions = mutableListOf<() -> Unit>()
 
     private sealed interface Change {
         // UI defaults are a native heterogeneous object table, not just colors.
@@ -66,6 +67,15 @@ internal class UiDefaultsCheckpoint {
             }
         }
         failure?.let { throw it }
+        if (changes.isEmpty()) {
+            restoreActions.asReversed().forEach { action -> action() }
+            restoreActions.clear()
+        }
+    }
+
+    /** Registers state that returns to its pre-apply value once every recorded write is restored or relinquished. */
+    fun onRestore(action: () -> Unit) {
+        restoreActions += action
     }
 
     /** Runs [block], restoring every surviving write before its failure propagates. */
@@ -94,6 +104,7 @@ internal class UiDefaultsCheckpoint {
     /** Releases recovery records once the visual apply has completed. */
     fun commit() {
         changes.clear()
+        restoreActions.clear()
     }
 
     /** Preserves cancellation and both failure causes when cleanup itself fails. */
