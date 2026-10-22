@@ -265,6 +265,43 @@ class UpdateNotifierTest {
     }
 
     @Test
+    fun `2_8_8 balloon lists font, preview and accent fixes`() {
+        state.lastSeenVersion = "2.8.7"
+        every {
+            AyuPlugin.findLoadedPlugin(any<PluginId>())
+        } returns descriptor
+        every { descriptor.version } returns "2.8.8"
+
+        val notification = mockk<Notification>(relaxed = true)
+        val group = mockk<NotificationGroup>(relaxed = true)
+        val groupManager = mockk<NotificationGroupManager>(relaxed = true)
+        every { NotificationGroupManager.getInstance() } returns groupManager
+        every { groupManager.getNotificationGroup("Ayu Islands") } returns group
+        every {
+            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
+        } returns notification
+
+        UpdateNotifier.showIfUpdated(project)
+
+        assertEquals("2.8.8", state.lastSeenVersion)
+        verify(exactly = 1) {
+            group.createNotification(
+                "Ayu Islands updated to 2.8.8",
+                match<String> { body ->
+                    body.contains("[Fix] Reapply a font preset to a color scheme without changing its options") &&
+                        body.contains("[Fix] Font presets keep your personal editor and console settings") &&
+                        body.contains("[Fix] Syntax preview Cancel keeps color edits made elsewhere") &&
+                        body.contains("[Fix] Returning to a project restores its accent after an interrupted change") &&
+                        body.contains("[Fix] Interrupted accent changes no longer leave colors half-applied") &&
+                        body.contains("[Fix] Glow focus borders and macOS appearance detection behave reliably")
+                },
+                NotificationType.INFORMATION,
+            )
+        }
+        verify(exactly = 1) { notification.notify(project) }
+    }
+
+    @Test
     fun `updates lastSeenVersion on first install without notification`() {
         state.lastSeenVersion = null
         every {

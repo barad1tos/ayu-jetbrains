@@ -121,6 +121,16 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.8.8</h3>
+    <ul>
+      <li>[Fix] <b>Reapply font presets</b> — Font Settings → Customize now includes Reapply preset, so the current preset can be applied to a color scheme without changing its options. The action takes effect when you click Apply.</li>
+      <li>[Fix] <b>Preserve personal font settings</b> — disabling font presets or uninstalling a font restores the earlier editor and console settings only where they still match Ayu's changes. Manual edits, font fallback order, inheritance, and unavailable presets survive restarts and recovery.</li>
+      <li>[Fix] <b>Safer syntax preview cancellation</b> — Cancel preserves color edits made outside the preview instead of overwriting them. Interrupted restoration can be retried without undoing the parts already restored.</li>
+      <li>[Fix] <b>Reliable project accent switching</b> — returning to a project restores its accent even when an earlier color change was interrupted. Canceled pin actions restore the previous pin.</li>
+      <li>[Fix] <b>Fewer half-applied accent colors</b> — if an accent change fails or is canceled midway, the base interface colors it had already changed, such as focus borders, default buttons, and tab underlines, return to their previous values. Colors changed afterward by you, the IDE, or another plugin are kept.</li>
+      <li>[Fix] <b>Clean Glow focus borders</b> — disabling Glow or closing a panel removes its focus border, restores the previous border, and preserves later styling changes made by the IDE or another plugin.</li>
+      <li>[Fix] <b>Prevent stalled macOS appearance detection</b> — automatic system appearance and accent detection no longer waits indefinitely when reading macOS settings stalls.</li>
+    </ul>
     <h3>2.8.7</h3>
     <ul>
       <li>[Paid] <b>Universal per-language syntax tuning</b> — Custom syntax settings now follow the active file in the active project window and expose only controls supported by the installed language tooling. Tune intensity against a representative native preview with immediate editor feedback; Apply keeps the result, while Cancel restores the exact previous scheme and preferences. Existing presets and saved choices remain unchanged until edited.</li>
