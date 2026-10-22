@@ -70,6 +70,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.8" to
+                releaseNotes(
+                    "[Fix] Reapply a font preset to a color scheme without changing its options",
+                    "[Fix] Font presets keep your personal editor and console settings",
+                    "[Fix] Syntax preview Cancel keeps color edits made elsewhere",
+                    "[Fix] Interrupted accent changes no longer leave colors half-applied",
+                    "[Fix] Glow focus borders and macOS appearance detection behave reliably",
+                ),
             "2.8.7" to
                 releaseNotes(
                     "[Paid] Custom syntax tuning follows the active language and shows supported controls",

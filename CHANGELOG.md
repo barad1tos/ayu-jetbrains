@@ -1,8 +1,8 @@
 # Changelog
 
-## [Unreleased]
+## [2.8.8] - 2026-10-22
 
-- [Paid] **Reapply font presets** — Font Settings → Customize now includes
+- [Fix] **Reapply font presets** — Font Settings → Customize now includes
   Reapply preset, so the current preset can be applied to a color scheme
   without changing its options. The action takes effect when you click Apply.
 - [Fix] **Preserve personal font settings** — disabling font presets or
