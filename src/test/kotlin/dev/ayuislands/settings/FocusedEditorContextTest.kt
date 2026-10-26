@@ -7,10 +7,27 @@ import java.beans.PropertyChangeEvent
 import java.beans.PropertyChangeListener
 import javax.swing.JPanel
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class FocusedEditorContextTest {
+    @Test
+    fun `disposing the service removes its focus subscription`() {
+        var isSubscribed = false
+        val context =
+            FocusedEditorContext(subscribeFocus = {
+                isSubscribed = true
+                val unsubscribe: () -> Unit = { isSubscribed = false }
+                unsubscribe
+            })
+
+        assertTrue(isSubscribed)
+        context.dispose()
+        assertFalse(isSubscribed)
+    }
+
     @Test
     fun `focused editor context remains scoped to its project tab`() {
         val swiftProject = mockk<Project>()
