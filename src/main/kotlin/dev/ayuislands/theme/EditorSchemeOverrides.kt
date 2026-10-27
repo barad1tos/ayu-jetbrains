@@ -138,6 +138,7 @@ internal object EditorSchemeOverrides {
         private var refresh: RefreshCheckpoint? = null
         private val receipts = mutableListOf<EntryCheckpoint>()
         private var boundScope: AccentApplyScope? = null
+        private var boundSegment: AccentApplyScope.Segment? = null
         private var target: EditorColorsScheme? = null
 
         fun prepare() {
@@ -153,7 +154,8 @@ internal object EditorSchemeOverrides {
                 target = AyuEditorSchemeScope.activeScheme()
             }
             check(AyuEditorSchemeScope.activeScheme() === target) { "Editor scheme changed during accent application" }
-            if (refresh?.hasPending != true) {
+            if (boundSegment !== scope.segment || refresh?.hasPending != true) {
+                boundSegment = scope.segment
                 refresh = RefreshCheckpoint(target).also(scope::record)
             }
         }
@@ -166,6 +168,7 @@ internal object EditorSchemeOverrides {
             pending.clear()
             receipts.clear()
             boundScope = null
+            boundSegment = null
             target = null
             refresh = null
         }

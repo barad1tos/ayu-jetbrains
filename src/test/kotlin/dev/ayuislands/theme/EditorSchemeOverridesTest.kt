@@ -547,6 +547,81 @@ class EditorSchemeOverridesTest {
     }
 
     @Test
+    fun `child recovery refreshes restored colors before an independent segment commits`() {
+        val other = ColorKey.find("TEST_CHILD_RECOVERY_REFRESH")
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED, other to Color.BLUE)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        val notifications = mutableListOf<Color?>()
+        every { EditorSchemeChange.publish() } answers { notifications += colors[other] }
+        every { target.setColor(other, Color.PINK) } answers {
+            colors[other] = Color.PINK
+            error("element setter failed after mutation")
+        }
+
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                scope.runStep { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+                val rollback = scope.elementRollback()
+                assertFailsWith<IllegalStateException> {
+                    scope.runStep { AyuEditorSchemeScope.writeColor(elementOwner, other, Color.PINK) }
+                }
+                rollback()
+                assertEquals(expected = listOf(Color.BLUE), actual = notifications)
+                scope.commit()
+            } finally {
+                scope.close()
+            }
+        }
+
+        assertEquals(expected = Color.YELLOW, actual = colors[colorKey])
+        assertEquals(expected = Color.BLUE, actual = colors[other])
+        assertEquals(expected = listOf(Color.BLUE), actual = notifications)
+        AyuEditorSchemeScope.restore(elementOwner)
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+    }
+
+    @Test
+    fun `failed child refresh survives outer commit and retries on the next editor operation`() {
+        val other = ColorKey.find("TEST_CHILD_REFRESH_RETRY")
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED, other to Color.BLUE)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        val notifications = mutableListOf<Color?>()
+        val failure = IllegalStateException("editor listener failed")
+        var failRefresh = true
+        every { EditorSchemeChange.publish() } answers {
+            if (failRefresh) throw failure
+            notifications += colors[other]
+        }
+
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                scope.runStep { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+                val rollback = scope.elementRollback()
+                scope.runStep { AyuEditorSchemeScope.writeColor(elementOwner, other, Color.PINK) }
+                assertSame(expected = failure, actual = assertFailsWith<IllegalStateException> { rollback() })
+                scope.commit()
+            } finally {
+                scope.close()
+            }
+        }
+        assertEquals(expected = Color.BLUE, actual = colors[other])
+        failRefresh = false
+
+        SwingUtilities.invokeAndWait {
+            AyuEditorSchemeScope.observeElementEnabled(AccentElementId.BRACKET_MATCH, true)
+        }
+
+        assertEquals(expected = listOf(Color.BLUE), actual = notifications)
+        assertEquals(expected = Color.YELLOW, actual = colors[colorKey])
+    }
+
+    @Test
     fun `failed recovery notification retries without repainting an already restored editor entry`() {
         val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
         val target = scheme(colors = colors)

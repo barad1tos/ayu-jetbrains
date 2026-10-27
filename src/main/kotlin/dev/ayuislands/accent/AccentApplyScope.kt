@@ -20,6 +20,12 @@ internal interface AccentCheckpoint {
  * restores them in reverse order without crossing unresolved newer writes.
  */
 internal class AccentApplyScope {
+    /** Identity of one lexical worker or element segment. */
+    class Segment
+
+    var segment = Segment()
+        private set
+
     private enum class State {
         RECORDING,
         ABORT_REQUESTED,
@@ -68,11 +74,14 @@ internal class AccentApplyScope {
     fun <T> runStep(action: () -> T): T {
         if (!isCommitted) checkWritable()
         val previous = currentUi
+        val previousSegment = segment
         currentUi = null
+        segment = Segment()
         return try {
             action()
         } finally {
             currentUi = previous
+            segment = previousSegment
         }
     }
 
