@@ -127,14 +127,14 @@ class AccentLifecycleTest {
             val queue = AccentLifecycleQueue { posted.addLast(it) }
             val scope = AccentApplyScope()
             val cancellation = CancellationException("cancelled accent")
-            var observed: Color? = null
+            val observed = mutableListOf<Color?>()
             scope.open()
             try {
                 val thrown =
                     assertFailsWith<CancellationException> {
                         scope.restoringOnFailure {
                             scope.runStep { putAccentUiDefault(KEY, Color.RED) }
-                            queue.request { observed = UIManager.getColor(KEY) }
+                            queue.request { observed += UIManager.getColor(KEY) }
                             throw cancellation
                         }
                     }
@@ -146,7 +146,7 @@ class AccentLifecycleTest {
 
             posted.removeFirst().invoke()
 
-            assertSame(expected = Color.BLUE, actual = observed)
+            assertSame(expected = Color.BLUE, actual = observed.single())
         }
 
     private fun onEdt(action: () -> Unit) {

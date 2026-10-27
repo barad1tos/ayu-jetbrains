@@ -233,7 +233,7 @@ class UiDefaultsOwnershipTest {
     @Test
     fun `native opt out keeps explicit tab colors independently for each mode`() {
         for (mode in GlowTabMode.entries) {
-            val policy = accentUiPolicy(true, false, true, mode)
+            val policy = accentUiPolicy(external = true, overrideEnabled = false, chromeAllowed = true, tabMode = mode)
             val palette = accentUiPalette(AccentUiInput(Color.RED, null, mode, Color.WHITE.rgb, policy))
             assertFalse("Button.default.startBackground" in palette)
             assertFalse("Component.focusColor" in palette)
@@ -246,7 +246,7 @@ class UiDefaultsOwnershipTest {
                         null,
                         mode,
                         Color.WHITE.rgb,
-                        accentUiPolicy(true, false, false, mode),
+                        accentUiPolicy(external = true, overrideEnabled = false, chromeAllowed = false, tabMode = mode),
                     ),
                 ).isEmpty(),
             )
@@ -257,7 +257,12 @@ class UiDefaultsOwnershipTest {
                         Color.GRAY,
                         mode,
                         Color.WHITE.rgb,
-                        accentUiPolicy(false, false, false, mode),
+                        accentUiPolicy(
+                            external = false,
+                            overrideEnabled = false,
+                            chromeAllowed = false,
+                            tabMode = mode,
+                        ),
                     ),
                 )
             assertEquals(Color.RED.rgb, ayu["Component.focusColor"])

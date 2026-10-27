@@ -39,6 +39,7 @@ import java.awt.event.AWTEventListenerProxy
 import java.util.EnumSet
 import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.function.BiConsumer
 import javax.swing.UIDefaults
 import javax.swing.UIManager
 
@@ -373,7 +374,8 @@ class StartupLifecycleTest : BasePlatformTestCase() {
 
     private fun ownDefaults(defaults: UIDefaults): Map<Any, Any> {
         val snapshot = LinkedHashMap<Any, Any>()
-        defaults.forEach { key, value -> snapshot[key] = value }
+        val capture = BiConsumer<Any, Any> { key, value -> snapshot[key] = value }
+        defaults.forEach(capture)
         return snapshot
     }
 
