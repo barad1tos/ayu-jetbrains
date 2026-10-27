@@ -97,9 +97,9 @@ def _check_freshness_by_state(
       (A) Stamp is ancestor of HEAD (happy path) → diff sources since stamp;
           any change is an ERROR (re-stamp or re-capture required).
       (B) Stamp is orphaned (not ancestor of HEAD) AND we are on `main` →
-          post-squash-merge state; emit a warn and lean on content_sha256 to
-          catch pixel drift. A future PR that actually touches sources will
-          be caught by case (C) on its feature branch.
+          post-squash-merge state; check staged sources, emit a warn, and
+          lean on content_sha256 to catch pixel drift. A future PR that
+          touches sources will be caught by case (C) on its feature branch.
       (C) Stamp is orphaned AND we are on a non-main branch → use the merge
           base with `origin/main` as the "since" ref. Any source change
           introduced by the current branch is an ERROR that demands
@@ -133,7 +133,19 @@ def _handle_orphan_stamp(
     # covers CI runs that check out `origin/main` in detached-HEAD state —
     # `git rev-parse --abbrev-ref HEAD` returns the literal string "HEAD"
     # there and would misroute us into the feature-branch diff logic.
-    if head_points_at_primary():
+    is_primary = head_points_at_primary()
+    base = None if is_primary else merge_base_with_primary()
+    # Even without comparable branch history, HEAD..HEAD still checks the index.
+    _check_source_freshness_since(
+        feature_id,
+        path,
+        base or "HEAD",
+        sources,
+        report,
+        strict_msg=False,
+        orphan_sha=sha,
+    )
+    if is_primary:
         report.warn(
             feature_id,
             f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) — expected on "
@@ -141,19 +153,13 @@ def _handle_orphan_stamp(
             f"content_sha256 remains the pixel-drift guard; the next PR that "
             f"touches sources must re-stamp.",
         )
-        return
-    base = merge_base_with_primary()
-    if base is None:
+    elif base is None:
         report.warn(
             feature_id,
             f"last_verified_sha '{sha[:8]}' is orphaned ({reason}) and the "
             f"primary branch ref is not fetched — cannot diff branch changes; "
             f"re-fetch or re-stamp.",
         )
-        return
-    _check_source_freshness_since(
-        feature_id, path, base, sources, report, strict_msg=False, orphan_sha=sha
-    )
 
 
 def _check_source_freshness_since(
