@@ -47,7 +47,7 @@ internal object AccentApplyPlanRunner {
     }
 
     fun dispatch(work: Runnable) {
-        if (SwingUtilities.isEventDispatchThread()) work.run() else invokeLaterSafe(work)
+        if (SwingUtilities.isEventDispatchThread()) work.run() else post(work)
     }
 
     private fun runSteps(
@@ -66,7 +66,7 @@ internal object AccentApplyPlanRunner {
         return failures
     }
 
-    private fun invokeLaterSafe(work: Runnable) {
+    fun post(work: Runnable) {
         val app = ApplicationManager.getApplication()
         if (app != null) {
             app.invokeLater(work, ModalityState.nonModal())

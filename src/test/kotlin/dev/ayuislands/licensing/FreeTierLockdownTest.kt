@@ -6,6 +6,7 @@ import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentElementId
@@ -30,6 +31,7 @@ import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
 import org.w3c.dom.Element
+import javax.swing.SwingUtilities
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.AfterTest
@@ -337,6 +339,11 @@ class FreeTierLockdownTest {
 
     @Test
     fun `revertToFreeDefaults preserves state under concurrent callers`() {
+        val application = ApplicationManager.getApplication()
+        every { application.isDispatchThread } answers { SwingUtilities.isEventDispatchThread() }
+        every { application.invokeLater(any<Runnable>(), any<ModalityState>()) } answers {
+            SwingUtilities.invokeLater(firstArg<Runnable>())
+        }
         // Plain threads exercise repeated runtime fallback while confirming that
         // the method has no persisted-state write surface.
         repeat(3) {
@@ -359,6 +366,7 @@ class FreeTierLockdownTest {
             threads.forEach { thread -> thread.start() }
             threads.forEach { thread -> thread.join(5_000L) }
             threads.forEach { thread -> assertFalse(thread.isAlive, "thread still alive — suspected deadlock") }
+            SwingUtilities.invokeAndWait { }
 
             assertTrue(state.glowEnabled)
             assertTrue(state.accentRotationEnabled)

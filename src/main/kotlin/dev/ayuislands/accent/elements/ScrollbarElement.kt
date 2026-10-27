@@ -4,10 +4,10 @@ import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.putAccentUiDefault
 import dev.ayuislands.theme.AyuEditorSchemeScope
 import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
-import javax.swing.UIManager
 
 class ScrollbarElement : AccentElement {
     override val id = AccentElementId.SCROLLBAR
@@ -49,10 +49,10 @@ class ScrollbarElement : AccentElement {
 
         // UIManager keys (non-editor scrollbars: Project tree, tool windows, etc.)
         for (key in hoverKeys) {
-            UIManager.put(key, hoverColor)
+            putAccentUiDefault(key, hoverColor)
         }
         for (key in defaultKeys) {
-            UIManager.put(key, defaultColor)
+            putAccentUiDefault(key, defaultColor)
         }
 
         // EditorColorsScheme keys (editor scrollbars via OpaqueAwareScrollBar).
@@ -69,7 +69,7 @@ class ScrollbarElement : AccentElement {
 
     override fun revert() {
         for (key in hoverKeys + defaultKeys) {
-            UIManager.put(key, null)
+            putAccentUiDefault(key, null)
         }
         AyuEditorSchemeScope.restore(schemeOwner)
     }

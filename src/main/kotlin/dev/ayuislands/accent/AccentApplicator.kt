@@ -18,6 +18,7 @@ import com.intellij.ui.JBColor
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.elements.AbstractChromeElement
+import dev.ayuislands.accent.elements.SearchResultsElement
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
@@ -48,7 +49,6 @@ object AccentApplicator {
         )
 
     private val log = logger<AccentApplicator>()
-    private var isApplying = false
 
     // First-WARN-then-DEBUG gates for osActiveProjectFrame error paths. Without them, a
     // broken frame mid-shutdown or an unavailable WindowManager would either spam idea.log
@@ -156,7 +156,7 @@ object AccentApplicator {
     @RequiresEdt
     internal fun apply(accentHex: AccentHex): AccentApplyOutcome {
         check(SwingUtilities.isEventDispatchThread()) { "Accent application must run on EDT" }
-        if (isApplying) {
+        if (AccentApplyScope.active != null) {
             val failure = IllegalStateException("Accent application is already in progress")
             log.warn("Skipping nested accent application", failure)
             return AccentApplyOutcome.Torn(
@@ -164,14 +164,13 @@ object AccentApplicator {
                 listOf(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, failure)),
             )
         }
-        isApplying = true
+        val scope = AccentApplyScope()
         try {
+            scope.open()
             val trimmedHex = accentHex.value
             val accent = accentHex.toColor()
             val state = AyuIslandsSettings.getInstance().state
             val context = AccentContext.detect()
-            val uiDefaults = UiDefaultsCheckpoint()
-            uiDefaultsOwner.record(uiDefaults)
             val isChromeAllowed: Boolean by lazy(LazyThreadSafetyMode.NONE) {
                 LicenseChecker.isLicensedOrGrace()
             }
@@ -200,7 +199,7 @@ object AccentApplicator {
             val workers: Map<AccentApplyStep, () -> Unit> =
                 buildMap {
                     put(AccentApplyStep.ApplyAlwaysOnUiKeys) {
-                        applyAlwaysOnUiKeys(state, accent, context, isChromeAllowed, uiDefaults)
+                        applyAlwaysOnUiKeys(state, accent, context, isChromeAllowed, scope.uiDefaults)
                     }
                     put(AccentApplyStep.ApplyElements) {
                         applyElements(
@@ -216,7 +215,7 @@ object AccentApplicator {
                             state,
                             checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
                             isChromeAllowed,
-                            uiDefaults,
+                            scope.uiDefaults,
                         )
                     }
                     put(AccentApplyStep.SyncIndentRainbow) {
@@ -254,7 +253,7 @@ object AccentApplicator {
                     put(AccentApplyStep.MarkApplyClean) {
                         state.lastApplyOk = containedFailures.isEmpty()
                         // Every write ran: a contained element failure stays torn but keeps its colors.
-                        uiDefaults.commit()
+                        scope.commit()
                     }
                     put(AccentApplyStep.PublishAccentChanged) {
                         if (containedFailures.isEmpty()) {
@@ -264,10 +263,10 @@ object AccentApplicator {
                 }
 
             val failures =
-                uiDefaults.restoringOnFailure {
+                scope.restoringOnFailure {
                     AccentApplyPlanRunner.runNow(
                         plan = applyPlanFor(context),
-                        executeStep = { step -> workers.getValue(step)() },
+                        executeStep = { step -> scope.runStep { workers.getValue(step)() } },
                     )
                 }
             for ((step, error) in failures) {
@@ -275,7 +274,7 @@ object AccentApplicator {
             }
             val outcome = AccentApplyOutcome.of(accentHex, containedFailures + failures)
             if (!outcome.visualsApplied) {
-                uiDefaults
+                scope
                     .restoreAfterTear((containedFailures + failures).map(AccentApplyStepFailure::error))
                     ?.let { recovery ->
                         recordFailure(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, recovery))
@@ -286,7 +285,8 @@ object AccentApplicator {
             }
             return AccentApplyOutcome.of(accentHex, containedFailures + failures)
         } finally {
-            isApplying = false
+            scope.close()
+            AccentLifecycle.afterApply()
         }
     }
 
@@ -412,6 +412,10 @@ object AccentApplicator {
     }
 
     fun revertAll() {
+        AccentApplyPlanRunner.dispatch { AccentLifecycle.request { revertNow() } }
+    }
+
+    internal fun revertNow() {
         // Step order lives in [revertPlan]: integrations unwind
         // in the same IR-before-CGP-before-notify order the apply plan uses, and
         // there is deliberately NO repaint step — revertAll runs inside
@@ -423,7 +427,11 @@ object AccentApplicator {
             buildMap {
                 put(AccentApplyStep.ClearUiAndExtensions) {
                     AyuEditorSchemeScope.beginAccentCleanup()
-                    val clearResult = runCatchingPreservingCancellation { clearReverseUiAndExtensions() }
+                    val clearResult =
+                        runCatchingPreservingCancellation {
+                            UiDefaultsRecovery.restorePending()
+                            clearReverseUiAndExtensions()
+                        }
                     clearResult.exceptionOrNull()?.let { error ->
                         AyuEditorSchemeScope.retainAllAccentClaims()
                         throw error
@@ -498,14 +506,6 @@ object AccentApplicator {
         return firstFailure?.let { ElementRevertFailure(failedExternalReverts, it) }
     }
 
-    private fun neutralizeOrRevert(
-        element: AccentElement,
-        variant: AyuVariant?,
-    ): AccentApplyStepFailure? =
-        captureAccentFailure(AccentApplyStep.ApplyElements, "Neutralize ${element.displayName}") {
-            if (variant != null) element.applyNeutral(variant) else element.revert()
-        }
-
     private fun applyElements(
         state: AyuIslandsState,
         accent: Color,
@@ -535,7 +535,7 @@ object AccentApplicator {
 
         val variant = context.variant
         for (element in EP_NAME.extensionList) {
-            applyElement(state, element, accent, variant, isPremiumAllowed)?.let(onFailure)
+            withAccentSegment { applyElement(state, element, accent, variant, isPremiumAllowed) }?.let(onFailure)
         }
     }
 
@@ -546,19 +546,22 @@ object AccentApplicator {
         variant: AyuVariant?,
         isPremiumAllowed: Boolean,
     ): AccentApplyStepFailure? {
+        // Other elements retain their failure cleanup until every surface adapter is checkpointed.
+        val checkpointRestore =
+            if (element is SearchResultsElement) AccentApplyScope.active?.elementRollback() else null
         AyuEditorSchemeScope.observeElementEnabled(
             element.id,
             ChromeTintContext.isToggleEnabled(state, element.id),
         )
         if (element.id.group == AccentGroup.CHROME && !isPremiumAllowed) {
-            return neutralizeOrRevert(element, variant)
+            return neutralizeOrRevert(element, variant, checkpointRestore ?: {})
         }
         if (!isElementEnabled(state, element.id, isPremiumAllowed)) {
-            return neutralizeOrRevert(element, variant)
+            return neutralizeOrRevert(element, variant, checkpointRestore ?: {})
         }
         val conflict = ConflictRegistry.getConflictFor(element.id)
         if (conflict != null && !canForceOverride(state, element.id, isPremiumAllowed)) {
-            return neutralizeOrRevert(element, variant)
+            return neutralizeOrRevert(element, variant, checkpointRestore ?: {})
         }
         if (conflict != null) {
             log.warn(
@@ -568,7 +571,7 @@ object AccentApplicator {
         return captureAccentFailure(
             step = AccentApplyStep.ApplyElements,
             operation = "Apply ${element.displayName}",
-            rollback = { element.revert() },
+            rollback = checkpointRestore ?: { element.revert() },
         ) { element.apply(accent) }
     }
 

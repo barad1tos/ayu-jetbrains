@@ -599,7 +599,7 @@ class AccentApplicatorTest {
     fun `neutralizeOrRevert calls applyNeutral when variant is non-null`() {
         val element = mockk<AccentElement>(relaxed = true)
 
-        invokeNeutralizeOrRevert(element, AyuVariant.MIRAGE)
+        neutralizeOrRevert(element, AyuVariant.MIRAGE)
 
         verify { element.applyNeutral(AyuVariant.MIRAGE) }
         verify(exactly = 0) { element.revert() }
@@ -609,7 +609,7 @@ class AccentApplicatorTest {
     fun `neutralizeOrRevert calls revert when variant is null`() {
         val element = mockk<AccentElement>(relaxed = true)
 
-        invokeNeutralizeOrRevert(element, null)
+        neutralizeOrRevert(element, null)
 
         verify { element.revert() }
         verify(exactly = 0) { element.applyNeutral(any()) }
@@ -622,7 +622,7 @@ class AccentApplicatorTest {
         every { element.displayName } returns "TestElement"
 
         // Should not throw
-        invokeNeutralizeOrRevert(element, AyuVariant.DARK)
+        neutralizeOrRevert(element, AyuVariant.DARK)
     }
 
     @Test
@@ -632,7 +632,7 @@ class AccentApplicatorTest {
         every { element.displayName } returns "TestElement"
 
         // Should not throw
-        invokeNeutralizeOrRevert(element, null)
+        neutralizeOrRevert(element, null)
     }
 
     // CodeGlance Pro viewport sync: early return when disabled.
@@ -871,7 +871,7 @@ class AccentApplicatorTest {
     fun `neutralizeOrRevert with each AyuVariant calls applyNeutral correctly`() {
         for (variant in AyuVariant.entries) {
             val element = mockk<AccentElement>(relaxed = true)
-            invokeNeutralizeOrRevert(element, variant)
+            neutralizeOrRevert(element, variant)
             verify { element.applyNeutral(variant) }
         }
     }
@@ -2003,7 +2003,7 @@ class AccentApplicatorTest {
 
     /**
      * Regression guard for the try-catch at line 187-195 of
-     * [AccentApplicator.neutralizeOrRevert]. When an element is disabled,
+     * [neutralizeOrRevert]. When an element is disabled,
      * the neutral path runs — and its failure must not propagate out of
      * [AccentApplicator.applyElements].
      */
@@ -2400,16 +2400,6 @@ class AccentApplicatorTest {
             { failure: AccentApplyStepFailure -> capturedFailures += failure },
         )
         return capturedFailures
-    }
-
-    // Helper for invoking private methods that accept nullable parameters
-
-    private fun invokeNeutralizeOrRevert(vararg args: Any?) {
-        val method =
-            AccentApplicator::class.java.declaredMethods
-                .first { it.name == "neutralizeOrRevert" }
-        method.isAccessible = true
-        method.invoke(AccentApplicator, *args)
     }
 
     // resolveUnderlineHeight tests

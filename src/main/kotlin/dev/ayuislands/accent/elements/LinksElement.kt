@@ -6,10 +6,10 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.putAccentUiDefault
 import dev.ayuislands.theme.AyuEditorSchemeScope
 import dev.ayuislands.theme.EditorSchemeOwner
 import java.awt.Color
-import javax.swing.UIManager
 
 class LinksElement : AccentElement {
     override val id = AccentElementId.LINKS
@@ -41,7 +41,7 @@ class LinksElement : AccentElement {
 
     override fun apply(color: Color) {
         for (key in uiKeys) {
-            UIManager.put(key, color)
+            putAccentUiDefault(key, color)
         }
         val scheme = AyuEditorSchemeScope.activeScheme() ?: return
         for (key in editorColorKeys) {
@@ -58,14 +58,14 @@ class LinksElement : AccentElement {
 
     override fun applyNeutral(variant: AyuVariant) {
         for (key in uiKeys) {
-            UIManager.put(key, null)
+            putAccentUiDefault(key, null)
         }
         AyuEditorSchemeScope.restore(schemeOwner)
     }
 
     override fun revert() {
         for (key in uiKeys) {
-            UIManager.put(key, null)
+            putAccentUiDefault(key, null)
         }
         AyuEditorSchemeScope.restore(schemeOwner)
     }

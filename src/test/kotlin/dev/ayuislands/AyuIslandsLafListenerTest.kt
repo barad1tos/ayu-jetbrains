@@ -85,7 +85,7 @@ class AyuIslandsLafListenerTest {
             AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
         every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns
             AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
-        every { AccentApplicator.revertAll() } returns Unit
+        every { AccentApplicator.revertNow() } returns Unit
         every { FontPresetApplicator.applyFromState() } returns Unit
         every { FontPresetApplicator.revert() } returns Unit
         every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
@@ -163,7 +163,7 @@ class AyuIslandsLafListenerTest {
         AyuIslandsLafListener().lookAndFeelChanged(mockLafManager)
 
         verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
-        verify(exactly = 1) { AccentApplicator.revertAll() }
+        verify(exactly = 1) { AccentApplicator.revertNow() }
         verify(exactly = 0) { FontPresetApplicator.revert() }
         verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
     }
@@ -183,7 +183,7 @@ class AyuIslandsLafListenerTest {
 
         verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
         verifyOrder {
-            AccentApplicator.revertAll()
+            AccentApplicator.revertNow()
             AccentApplicator.applyForFocusedProject(AccentContext.External)
         }
         verify(exactly = 0) { FontPresetApplicator.revert() }

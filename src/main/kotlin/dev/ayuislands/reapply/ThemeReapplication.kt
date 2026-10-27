@@ -5,10 +5,14 @@ import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.project.ProjectManager
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentLifecycle
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.LifecycleTiming
 import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.reapply.ReapplyStep.ApplyExplicitHex
 import dev.ayuislands.reapply.ReapplyStep.ApplyResolvedAccent
 import dev.ayuislands.reapply.ReapplyStep.BindScheme
@@ -67,22 +71,47 @@ object ThemeReapplication {
         }
 
     /**
-     * Run [reason]'s plan on a single EDT turn: directly when already on the EDT,
-     * otherwise `invokeLater(nonModal)`. Each step is isolated — a throwing step is
-     * recorded in [ReapplyResult] and the sequence continues. The result is delivered
-     * to [onComplete] on the EDT (see the signature note in the plan).
+     * Dispatch the request on EDT. A lifecycle request waits for an active accent
+     * apply or restoration to close before its plan runs; rotation retains direct
+     * execution on EDT. Each step isolates ordinary failures in [ReapplyResult].
+     * [onComplete] receives the actual result on EDT after execution, or
+     * [ReapplyStatus.SUPERSEDED] if a queued downgrade is no longer applicable.
      */
     fun reapply(
         reason: ReapplyReason,
         onComplete: (ReapplyResult) -> Unit = {},
     ) {
         val app = ApplicationManager.getApplication()
-        val task = Runnable { onComplete(runPlan(reason)) }
+        val task =
+            Runnable {
+                if (reason is ReapplyReason.RotationTick) {
+                    onComplete(runPlan(reason))
+                } else {
+                    AccentLifecycle.request { timing -> onComplete(runLifecycle(reason, timing)) }
+                }
+            }
         if (app.isDispatchThread) {
             task.run()
         } else {
             app.invokeLater(task, ModalityState.nonModal())
         }
+    }
+
+    private fun runLifecycle(
+        reason: ReapplyReason,
+        timing: LifecycleTiming,
+    ): ReapplyResult =
+        runCatchingPreservingCancellation {
+            val current = if (timing == LifecycleTiming.DEFERRED) currentReason(reason) else reason
+            if (current == null) ReapplyResult(emptyList(), ReapplyStatus.SUPERSEDED) else runPlan(current)
+        }.getOrElse { failure -> ReapplyResult(listOf(StepFailure(ApplyResolvedAccent, failure))) }
+
+    private fun currentReason(reason: ReapplyReason): ReapplyReason? {
+        val context = AccentContext.detect()
+        if (reason !is ReapplyReason.LicenseRevert) return ReapplyReason.ThemeSwitched(context)
+        if (LicenseChecker.currentEntitlement() == LicenseEntitlement.LICENSED) return null
+        val variant = (context as? AccentContext.Ayu)?.ayuVariant ?: return ReapplyReason.ThemeSwitched(context)
+        return ReapplyReason.LicenseRevert(AyuIslandsSettings.getInstance().getAccentForVariant(variant))
     }
 
     private fun runPlan(reason: ReapplyReason): ReapplyResult {
@@ -128,7 +157,7 @@ object ThemeReapplication {
             }
 
             RevertAccent -> {
-                AccentApplicator.revertAll()
+                AccentApplicator.revertNow()
             }
 
             // Surface steps are dispatched by runStep; unreachable here.

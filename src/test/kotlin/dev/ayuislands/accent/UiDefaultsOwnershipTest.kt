@@ -142,7 +142,12 @@ class UiDefaultsOwnershipTest {
             owner.put(KEY, Color.GREEN, checkpoint)
             val failure = CancellationException("accent apply cancelled")
 
-            assertSame(failure, assertFailsWith<CancellationException> { checkpoint.restoreAfter(failure) })
+            assertSame(
+                failure,
+                assertFailsWith<CancellationException> {
+                    restoringScope(checkpoint).restoringOnFailure { throw failure }
+                },
+            )
             assertSame(Color.RED, UIManager.get(KEY))
             owner.restore()
             assertSame(Color.BLUE, UIManager.get(KEY))
@@ -310,4 +315,7 @@ class UiDefaultsOwnershipTest {
         private const val KEY = "Ayu.test.nativeAccent"
         private const val OTHER_KEY = "Ayu.test.nativeBorder"
     }
+
+    private fun restoringScope(checkpoint: UiDefaultsCheckpoint): AccentApplyScope =
+        AccentApplyScope().also { it.record(checkpoint) }
 }

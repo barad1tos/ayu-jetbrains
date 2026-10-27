@@ -13,8 +13,11 @@ import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.accent.elements.ProgressBarElement
+import dev.ayuislands.accent.elements.SearchResultsElement
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.integration.IntegrationOutcome
+import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -208,6 +211,161 @@ class AccentApplicatorTornApplyTest {
     }
 
     @Test
+    fun `abort restores progress colors from the previous accent`() {
+        state.progressBar = true
+        mockEpExtensionList(listOf(ProgressBarElement()))
+        withRealUiDefaults {
+            val previous = Color(0x11, 0x22, 0x33)
+            val keys = listOf("ProgressBar.foreground", "ProgressBar.progressCounterBackground")
+            for (key in keys) UIManager.put(key, previous)
+
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertEquals(expected = AccentApplyStep.SyncIndentRainbow, actual = outcome.failures.single().step)
+            for (key in keys) {
+                assertSame(expected = previous, actual = UIManager.getColor(key), message = key)
+            }
+        }
+    }
+
+    @Test
+    fun `abort restores the previous selection after a disabled element removed it`() {
+        state.searchResults = false
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        mockEpExtensionList(listOf(SearchResultsElement()))
+        withRealUiDefaults {
+            val previous = Color(0x11, 0x22, 0x33)
+            val failure = IllegalStateException("disabled selection abort")
+            UIManager.put("List.selectionBackground", previous)
+            var during: Any? = previous
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                during = readRawUiDefault(UIManager.getDefaults(), "List.selectionBackground")
+                throw failure
+            }
+
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertSame(expected = failure, actual = outcome.failures.single().error)
+            assertNull(during)
+            assertSame(
+                expected = previous,
+                actual = readRawUiDefault(UIManager.getDefaults(), "List.selectionBackground"),
+            )
+            assertFalse(state.searchResults)
+        }
+    }
+
+    @Test
+    fun `cancelled apply restores the previous progress accent`() {
+        mockEpExtensionList(listOf(ProgressBarElement()))
+        val cancellation = CancellationException("cancelled after progress tint")
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } throws cancellation
+        withRealUiDefaults {
+            val previous = Color(0x11, 0x22, 0x33)
+            UIManager.put("ProgressBar.foreground", previous)
+
+            val thrown = assertFailsWith<CancellationException> { AccentApplicator.applyFromHexString("#445566") }
+
+            assertSame(expected = cancellation, actual = thrown)
+            assertSame(expected = previous, actual = UIManager.getColor("ProgressBar.foreground"))
+        }
+    }
+
+    @Test
+    fun `abort preserves another plugin's progress color`() {
+        mockEpExtensionList(listOf(ProgressBarElement()))
+        withRealUiDefaults {
+            val manual = Color(0x77, 0x88, 0x99)
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                UIManager.put("ProgressBar.foreground", manual)
+                error("integration failed after manual progress edit")
+            }
+
+            assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertSame(expected = manual, actual = UIManager.getColor("ProgressBar.foreground"))
+        }
+    }
+
+    @Test
+    fun `abort preserves a lazy progress default without resolving it`() {
+        mockEpExtensionList(listOf(ProgressBarElement()))
+        withRealUiDefaults {
+            var evaluations = 0
+            val lazy =
+                javax.swing.UIDefaults.LazyValue {
+                    evaluations++
+                    Color(0x11, 0x22, 0x33)
+                }
+            UIManager.put("ProgressBar.foreground", lazy)
+
+            assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertSame(expected = lazy, actual = readRawUiDefault(UIManager.getDefaults(), "ProgressBar.foreground"))
+            assertEquals(expected = 0, actual = evaluations)
+        }
+    }
+
+    @Test
+    fun `contained selection failure restores its previous color while other surfaces commit`() {
+        mockEpExtensionList(listOf(SearchResultsElement()))
+        withSuccessfulVisualApply {
+            val previous = Color(0x11, 0x22, 0x33)
+            UIManager.put("List.selectionBackground", previous)
+            val defaults = UIManager.getDefaults()
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == "List.selectionBackground" && event.newValue !== previous) {
+                        error("selection listener failed")
+                    }
+                }
+            defaults.addPropertyChangeListener(listener)
+            try {
+                val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+                assertEquals(expected = AccentApplyStep.ApplyElements, actual = outcome.failures.single().step)
+                assertSame(expected = previous, actual = readRawUiDefault(defaults, "List.selectionBackground"))
+                assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor("Component.focusColor"))
+            } finally {
+                defaults.removePropertyChangeListener(listener)
+            }
+        }
+    }
+
+    @Test
+    fun `selection child rollback cannot cancel a pending lifecycle interruption`() {
+        mockEpExtensionList(listOf(SearchResultsElement()))
+        val posted = ArrayDeque<Runnable>()
+        every {
+            mockApplication.invokeLater(any<Runnable>(), any<com.intellij.openapi.application.ModalityState>())
+        } answers { posted.addLast(firstArg()) }
+        withSuccessfulVisualApply {
+            val previous = Color(0x11, 0x22, 0x33)
+            UIManager.put("Component.focusColor", previous)
+            UIManager.put("List.selectionBackground", previous)
+            val defaults = UIManager.getDefaults()
+            var observed: Color? = null
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == "List.selectionBackground" && event.newValue !== previous) {
+                        AccentLifecycle.request { observed = UIManager.getColor("Component.focusColor") }
+                    }
+                }
+            defaults.addPropertyChangeListener(listener)
+            try {
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+                assertSame(expected = previous, actual = UIManager.getColor("Component.focusColor"))
+            } finally {
+                defaults.removePropertyChangeListener(listener)
+                while (posted.isNotEmpty()) posted.removeFirst().run()
+            }
+            assertSame(expected = previous, actual = observed)
+        }
+    }
+
+    @Test
     fun `failed accent restores the previous explicit UI color`() {
         withRealUiDefaults {
             val previous = Color(0x11, 0x22, 0x33)
@@ -306,7 +464,7 @@ class AccentApplicatorTornApplyTest {
                         .error.message,
                 )
                 val recovery = outcome.failures.single { it.step == AccentApplyStep.ApplyAlwaysOnUiKeys }.error
-                assertEquals("UI defaults restoration after torn apply failed", recovery.message)
+                assertEquals("Accent restoration after torn apply failed", recovery.message)
                 assertSame(recoveryFailure, recovery.cause)
                 assertFalse(state.lastApplyOk)
             } finally {

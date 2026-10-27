@@ -28,6 +28,7 @@ import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.licensing.LicenseRecheckScheduler
 import dev.ayuislands.licensing.LicenseRecheckSlot
 import dev.ayuislands.licensing.ReconciliationResult
+import dev.ayuislands.licensing.requestEntitlement
 import dev.ayuislands.onboarding.WizardAction
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -381,8 +382,8 @@ internal class AyuIslandsStartupActivity(
         settings: AyuIslandsSettings,
         isReturningUser: Boolean,
     ) {
-        val entitlement = entitlementProvider()
-        LOG.info("Ayu Islands license check: ${entitlement.name.lowercase()}")
+        val observedEntitlement = entitlementProvider()
+        LOG.info("Ayu Islands license check: ${observedEntitlement.name.lowercase()}")
 
         val trialDays = LicenseChecker.getTrialDaysRemaining()
         if (trialDays != null) {
@@ -398,37 +399,46 @@ internal class AyuIslandsStartupActivity(
         // whether migration, orchestrator routing, defaults, workspace init, wizard
         // scheduling, or trial warning blew up.
         dispatchWriteSafe {
-            if (project.isDisposed) return@dispatchWriteSafe
-            var wizardAction: WizardAction? = null
+            requestEntitlement(
+                observedEntitlement,
+                entitlementProvider,
+                onFailure = { failure ->
+                    LOG.warn("Deferred startup entitlement workflow failed; retrying", failure)
+                    scheduleStartupCheck(RECONCILIATION_RETRY_MS)
+                },
+            ) { confirmedEntitlement ->
+                if (project.isDisposed) return@requestEntitlement
+                var wizardAction: WizardAction? = null
 
-            runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
-            if (entitlement != LicenseEntitlement.UNKNOWN) {
-                wizardAction =
-                    applyDefinitiveEntitlement(
-                        entitlement = entitlement,
-                        project = project,
-                        settings = settings,
-                        isReturningUser = isReturningUser,
-                    )
-            }
-            runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
-            runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
-            runStep("reconcile-entitlement") {
-                val deferredEntitlement =
-                    if (entitlement == LicenseEntitlement.UNKNOWN) {
-                        deferredWorkflow(settings, isReturningUser, adaptiveDelayMs)
-                    } else {
-                        null
-                    }
-                reconcileAtStartup(entitlement, listOf(project), deferredEntitlement)
-            }
-            runStep("handle-wizard-action") {
-                wizardAction?.let {
-                    StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
+                runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
+                if (confirmedEntitlement != LicenseEntitlement.UNKNOWN) {
+                    wizardAction =
+                        applyDefinitiveEntitlement(
+                            entitlement = confirmedEntitlement,
+                            project = project,
+                            settings = settings,
+                            isReturningUser = isReturningUser,
+                        )
                 }
-            }
-            if (entitlement == LicenseEntitlement.LICENSED) {
-                runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
+                runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
+                runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
+                runStep("reconcile-entitlement") {
+                    val deferredEntitlement =
+                        if (confirmedEntitlement == LicenseEntitlement.UNKNOWN) {
+                            deferredWorkflow(settings, isReturningUser, adaptiveDelayMs)
+                        } else {
+                            null
+                        }
+                    reconcileAtStartup(confirmedEntitlement, listOf(project), deferredEntitlement)
+                }
+                runStep("handle-wizard-action") {
+                    wizardAction?.let {
+                        StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
+                    }
+                }
+                if (confirmedEntitlement == LicenseEntitlement.LICENSED) {
+                    runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
+                }
             }
         }
     }
@@ -546,30 +556,39 @@ internal class AyuIslandsStartupActivity(
     private fun runScheduledStartupCheck(
         onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
     ) {
-        val entitlement = entitlementProvider()
-        if (entitlement == LicenseEntitlement.UNKNOWN) {
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
-            return
-        }
-        val projects =
-            try {
-                projectsProvider().filterNot(Project::isDisposed)
-            } catch (exception: RuntimeException) {
-                LOG.warn(
-                    "Scheduled license reconciliation could not discover current projects; retrying",
-                    exception,
-                )
+        val observed = entitlementProvider()
+        requestEntitlement(
+            observed,
+            entitlementProvider,
+            onFailure = { failure ->
+                LOG.warn("Deferred startup reconciliation failed; retrying", failure)
                 scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
-                return
+            },
+        ) { entitlement ->
+            if (entitlement == LicenseEntitlement.UNKNOWN) {
+                scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
+                return@requestEntitlement
             }
-        val isWorkflowComplete = onDefinitiveEntitlement?.invoke(entitlement, projects) ?: true
-        val pendingWorkflow = onDefinitiveEntitlement?.takeUnless { isWorkflowComplete }
-        val result = reconcileWithRetry(entitlement, projects, pendingWorkflow) ?: return
-        if (pendingWorkflow != null) {
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS, pendingWorkflow)
-            return
+            val projects =
+                try {
+                    projectsProvider().filterNot(Project::isDisposed)
+                } catch (exception: RuntimeException) {
+                    LOG.warn(
+                        "Scheduled license reconciliation could not discover current projects; retrying",
+                        exception,
+                    )
+                    scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
+                    return@requestEntitlement
+                }
+            val isWorkflowComplete = onDefinitiveEntitlement?.invoke(entitlement, projects) ?: true
+            val pendingWorkflow = onDefinitiveEntitlement?.takeUnless { isWorkflowComplete }
+            val result = reconcileWithRetry(entitlement, projects, pendingWorkflow) ?: return@requestEntitlement
+            if (pendingWorkflow != null) {
+                scheduleStartupCheck(RECONCILIATION_RETRY_MS, pendingWorkflow)
+                return@requestEntitlement
+            }
+            scheduleNextStartupCheck(entitlement, result)
         }
-        scheduleNextStartupCheck(entitlement, result)
     }
 
     private fun scheduleNextStartupCheck(

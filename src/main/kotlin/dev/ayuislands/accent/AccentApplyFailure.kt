@@ -34,3 +34,12 @@ internal fun RuntimeException.rethrowIfCancelled() {
 
 internal fun RuntimeException.isAccentCancellation(): Boolean =
     this is ProcessCanceledException || this is CancellationException
+
+internal fun neutralizeOrRevert(
+    element: AccentElement,
+    variant: AyuVariant?,
+    rollback: () -> Unit = {},
+): AccentApplyStepFailure? =
+    captureAccentFailure(AccentApplyStep.ApplyElements, "Neutralize ${element.displayName}", rollback) {
+        if (variant != null) element.applyNeutral(variant) else element.revert()
+    }

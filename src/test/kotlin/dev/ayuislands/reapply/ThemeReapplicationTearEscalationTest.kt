@@ -2,12 +2,20 @@ package dev.ayuislands.reapply
 
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentApplyOutcome
+import dev.ayuislands.accent.AccentApplyScope
 import dev.ayuislands.accent.AccentApplyStep
 import dev.ayuislands.accent.AccentApplyStepFailure
+import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
+import dev.ayuislands.accent.AccentLifecycle
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.syntax.SyntaxIntensityService
+import dev.ayuislands.vcs.VcsColorApplier
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -17,7 +25,10 @@ import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -50,7 +61,7 @@ class ThemeReapplicationTearEscalationTest {
         every { mockSettings.state } returns state
 
         mockkObject(AccentApplicator)
-        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>()) } returns
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
             AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
         every { AccentApplicator.applyFromHexString(any()) } answers
             {
@@ -72,7 +83,7 @@ class ThemeReapplicationTearEscalationTest {
                 requireNotNull(AccentHex.of("#FFCC66")),
                 listOf(AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("paint"))),
             )
-        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>()) } returns
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
             failedPaint
         every { AccentApplicator.applyFromHexString(any()) } returns failedPaint
 
@@ -103,7 +114,7 @@ class ThemeReapplicationTearEscalationTest {
                 requireNotNull(AccentHex.of("#FFCC66")),
                 listOf(AccentApplyStepFailure(AccentApplyStep.ApplyElements, IllegalStateException("paint"))),
             )
-        every { AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>()) } returns
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
             failedPaint
         every { AccentApplicator.applyFromHexString(any()) } returns failedPaint
 
@@ -123,7 +134,7 @@ class ThemeReapplicationTearEscalationTest {
         // here). The returned hex carries the signal instead.
         state.lastApplyOk = true
         every {
-            AccentApplicator.applyForFocusedProject(any<dev.ayuislands.accent.AccentContext>())
+            AccentApplicator.applyForFocusedProject(any<AccentContext>())
         } returns AccentApplyOutcome.Rejected("not-a-hex")
 
         var result: ReapplyResult? = null
@@ -141,5 +152,113 @@ class ThemeReapplicationTearEscalationTest {
         ThemeReapplication.reapply(ReapplyReason.LicenseRevert("#E6B450")) { result = it }
 
         assertTrue(requireNotNull(result).failed(ReapplyStep.ApplyExplicitHex))
+    }
+
+    @Test
+    fun `license plan reports completion only after an active apply has unwound`() {
+        runDeferred(ReapplyReason.LicenseRevert("#E6B450")) { }
+    }
+
+    @Test
+    fun `queued theme change applies to the context current when it executes`() {
+        state.syncEditorScheme = false
+        mockkObject(AyuVariant.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val applied = mutableListOf<AccentContext>()
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } answers {
+            applied += firstArg<AccentContext>()
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
+        }
+
+        runDeferred(ReapplyReason.ThemeSwitched(AccentContext.Ayu(AyuVariant.MIRAGE))) {
+            every { AyuVariant.detect() } returns AyuVariant.DARK
+        }
+
+        assertEquals(expected = listOf<AccentContext>(AccentContext.Ayu(AyuVariant.DARK)), actual = applied)
+    }
+
+    @Test
+    fun `queued downgrade resolves the free accent for the current variant`() {
+        mockkObject(AyuVariant.Companion)
+        mockkObject(LicenseChecker)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { LicenseChecker.currentEntitlement() } returns LicenseEntitlement.UNLICENSED
+        every { mockSettings.getAccentForVariant(AyuVariant.DARK) } returns "#E6B450"
+        val applied = mutableListOf<String>()
+        every { AccentApplicator.applyFromHexString(any()) } answers {
+            val value = firstArg<String>()
+            applied += value
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(value)))
+        }
+
+        runDeferred(ReapplyReason.LicenseRevert("#FFCC66")) {
+            every { AyuVariant.detect() } returns AyuVariant.DARK
+        }
+
+        assertEquals(expected = listOf("#E6B450"), actual = applied)
+    }
+
+    @Test
+    fun `restored license supersedes a queued downgrade without running its effects`() {
+        mockkObject(AyuVariant.Companion)
+        mockkObject(LicenseChecker)
+        mockkObject(GlowOverlayManager)
+        mockkObject(VcsColorApplier)
+        mockkObject(SyntaxIntensityService.Companion)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { LicenseChecker.currentEntitlement() } returns LicenseEntitlement.UNLICENSED
+        val effects = mutableListOf<String>()
+        every { AccentApplicator.applyFromHexString(any()) } answers {
+            effects += "accent"
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg())))
+        }
+        every { GlowOverlayManager.syncGlowForAllProjects() } answers { effects += "glow" }
+        every { VcsColorApplier.revertAll() } answers { effects += "VCS" }
+        val syntax = mockk<SyntaxIntensityService>()
+        every { SyntaxIntensityService.getInstance() } returns syntax
+        every { syntax.reapplyForActiveLaf() } answers { effects += "syntax" }
+
+        val result =
+            runDeferred(ReapplyReason.LicenseRevert("#FFCC66")) {
+                every { LicenseChecker.currentEntitlement() } returns LicenseEntitlement.LICENSED
+            }
+
+        assertEquals(expected = ReapplyStatus.SUPERSEDED, actual = result.status)
+        assertFalse(result.isClean)
+        assertTrue(effects.isEmpty(), "a superseded request must not repaint or downgrade any surface")
+    }
+
+    private fun runDeferred(
+        reason: ReapplyReason,
+        beforeDrain: () -> Unit,
+    ): ReapplyResult {
+        val application =
+            com.intellij.openapi.application.ApplicationManager
+                .getApplication()
+        val posted = ArrayDeque<Runnable>()
+        every {
+            application.invokeLater(any<Runnable>(), any<com.intellij.openapi.application.ModalityState>())
+        } answers { posted.addLast(firstArg()) }
+        var outcome: ReapplyResult? = null
+        var completions = 0
+        val scope = AccentApplyScope()
+        scope.open()
+        try {
+            ThemeReapplication.reapply(reason) {
+                completions++
+                outcome = it
+            }
+
+            assertNull(outcome)
+            scope.restore()
+        } finally {
+            scope.close()
+            AccentLifecycle.afterApply()
+        }
+
+        beforeDrain()
+        while (posted.isNotEmpty()) posted.removeFirst().run()
+        assertEquals(expected = 1, actual = completions)
+        return assertNotNull(outcome)
     }
 }
