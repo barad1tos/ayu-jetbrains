@@ -151,6 +151,8 @@ internal sealed interface AccentApplyOutcome {
      * The persisted clean flag is false unless all failures belong to
      * [AccentApplyStep.PublishAccentChanged], which runs after
      * [AccentApplyStep.MarkApplyClean] already flipped it true.
+     * Reentrant calls fail before starting a plan and preserve the owning
+     * invocation's cache and clean flag.
      */
     data class Torn(
         val accentHex: AccentHex,

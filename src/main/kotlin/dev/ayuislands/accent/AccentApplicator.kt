@@ -48,6 +48,7 @@ object AccentApplicator {
         )
 
     private val log = logger<AccentApplicator>()
+    private var isApplying = false
 
     // First-WARN-then-DEBUG gates for osActiveProjectFrame error paths. Without them, a
     // broken frame mid-shutdown or an unavailable WindowManager would either spam idea.log
@@ -155,125 +156,138 @@ object AccentApplicator {
     @RequiresEdt
     internal fun apply(accentHex: AccentHex): AccentApplyOutcome {
         check(SwingUtilities.isEventDispatchThread()) { "Accent application must run on EDT" }
-        val trimmedHex = accentHex.value
-        val accent = accentHex.toColor()
-        val state = AyuIslandsSettings.getInstance().state
-        val context = AccentContext.detect()
-        val uiDefaults = UiDefaultsCheckpoint()
-        uiDefaultsOwner.record(uiDefaults)
-        val isChromeAllowed: Boolean by lazy(LazyThreadSafetyMode.NONE) {
-            LicenseChecker.isLicensedOrGrace()
+        if (isApplying) {
+            val failure = IllegalStateException("Accent application is already in progress")
+            log.warn("Skipping nested accent application", failure)
+            return AccentApplyOutcome.Torn(
+                accentHex,
+                listOf(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, failure)),
+            )
         }
-
-        // Cancellation can prevent outcome delivery after any paint or publication step.
-        ProjectAccentSwapService.getInstance().invalidateAppliedAccent()
-
-        // Persist BEFORE the EP iteration so the cache survives a mid-EP
-        // throw. Clear the clean-apply flag here; only the MarkApplyClean step
-        // sets it true — the startup listener reads the pair and falls through
-        // to the resolver when the flag is false.
-        state.lastAppliedAccentHex = trimmedHex
-        state.lastApplyOk = false
-
-        // Step order AND gating live only in [applyPlanFor] (including the
-        // IR-before-CGP-before-notify integration lock shared with revertAll);
-        // this map binds every step unconditionally to its side-effecting
-        // worker. Context-shaped steps guard with checkNotNull so a plan bug
-        // that schedules them without their input fails with a precise message
-        // (surfaced as that step's failure) instead of an NPE.
-        val containedFailures = mutableListOf<AccentApplyStepFailure>()
-        val recordFailure: (AccentApplyStepFailure) -> Unit = { failure ->
-            containedFailures += failure
-            log.warn("Accent apply torn at ${failure.step} (hex=$trimmedHex)", failure.error)
-        }
-        val workers: Map<AccentApplyStep, () -> Unit> =
-            buildMap {
-                put(AccentApplyStep.ApplyAlwaysOnUiKeys) {
-                    applyAlwaysOnUiKeys(state, accent, context, isChromeAllowed, uiDefaults)
-                }
-                put(AccentApplyStep.ApplyElements) {
-                    applyElements(
-                        state,
-                        accent,
-                        checkNotNull(context) { "ApplyElements planned without accent context" },
-                        isChromeAllowed,
-                        onFailure = recordFailure,
-                    )
-                }
-                put(AccentApplyStep.ApplyTabUnderline) {
-                    applyTabUnderline(
-                        state,
-                        checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
-                        isChromeAllowed,
-                        uiDefaults,
-                    )
-                }
-                put(AccentApplyStep.SyncIndentRainbow) {
-                    IndentRainbowSync
-                        .apply(
-                            checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
-                            trimmedHex,
-                        ).propagateFailure()
-                }
-                put(AccentApplyStep.SyncCodeGlanceProViewport) {
-                    CodeGlanceProIntegration
-                        .syncCodeGlanceProViewport(trimmedHex, context)
-                        .propagateFailure()
-                }
-                put(AccentApplyStep.ApplyAlwaysOnEditorKeys) { applyAlwaysOnEditorKeys(accent) }
-                put(AccentApplyStep.NotifyComponentTrees) {
-                    // Mirror of the refresh hook in revertAll. Re-publish
-                    // ComponentTreeRefreshedTopic after EP apply so subscribers
-                    // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
-                    // UIManager state. Chrome surfaces do NOT subscribe to this topic —
-                    // they own their own live-refresh path.
-                    //
-                    // This site MUST NOT publish LafManagerListener.TOPIC — that broadcast
-                    // would re-enter the LAF cycle. notifyOnly only.
-                    for (project in ProjectManager.getInstance().openProjects) {
-                        if (!project.isUsable()) continue
-                        ComponentTreeRefresher.notifyOnly(project)
-                    }
-                }
-                put(AccentApplyStep.RepaintWindows) { repaintAllWindows(Window.getWindows()) }
-                // A throw in any earlier step aborts the plan and skips this
-                // write, leaving the flag false so the startup listener
-                // (AyuIslandsAppListener.appFrameCreated) falls through to the
-                // resolver rather than trusting the cached hex.
-                put(AccentApplyStep.MarkApplyClean) {
-                    state.lastApplyOk = containedFailures.isEmpty()
-                    // Every write ran: a contained element failure stays torn but keeps its colors.
-                    uiDefaults.commit()
-                }
-                put(AccentApplyStep.PublishAccentChanged) {
-                    if (containedFailures.isEmpty()) {
-                        publishAccentChanged(accentHex, recordFailure)
-                    }
-                }
+        isApplying = true
+        try {
+            val trimmedHex = accentHex.value
+            val accent = accentHex.toColor()
+            val state = AyuIslandsSettings.getInstance().state
+            val context = AccentContext.detect()
+            val uiDefaults = UiDefaultsCheckpoint()
+            uiDefaultsOwner.record(uiDefaults)
+            val isChromeAllowed: Boolean by lazy(LazyThreadSafetyMode.NONE) {
+                LicenseChecker.isLicensedOrGrace()
             }
 
-        val failures =
-            uiDefaults.restoringOnFailure {
-                AccentApplyPlanRunner.runNow(
-                    plan = applyPlanFor(context),
-                    executeStep = { step -> workers.getValue(step)() },
-                )
+            // Cancellation can prevent outcome delivery after any paint or publication step.
+            ProjectAccentSwapService.getInstance().invalidateAppliedAccent()
+
+            // Persist BEFORE the EP iteration so the cache survives a mid-EP
+            // throw. Clear the clean-apply flag here; only the MarkApplyClean step
+            // sets it true — the startup listener reads the pair and falls through
+            // to the resolver when the flag is false.
+            state.lastAppliedAccentHex = trimmedHex
+            state.lastApplyOk = false
+
+            // Step order AND gating live only in [applyPlanFor] (including the
+            // IR-before-CGP-before-notify integration lock shared with revertAll);
+            // this map binds every step unconditionally to its side-effecting
+            // worker. Context-shaped steps guard with checkNotNull so a plan bug
+            // that schedules them without their input fails with a precise message
+            // (surfaced as that step's failure) instead of an NPE.
+            val containedFailures = mutableListOf<AccentApplyStepFailure>()
+            val recordFailure: (AccentApplyStepFailure) -> Unit = { failure ->
+                containedFailures += failure
+                log.warn("Accent apply torn at ${failure.step} (hex=$trimmedHex)", failure.error)
             }
-        for ((step, error) in failures) {
-            log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
-        }
-        val outcome = AccentApplyOutcome.of(accentHex, containedFailures + failures)
-        if (!outcome.visualsApplied) {
-            uiDefaults
-                .restoreAfterTear((containedFailures + failures).map(AccentApplyStepFailure::error))
-                ?.let { recovery ->
-                    recordFailure(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, recovery))
+            val workers: Map<AccentApplyStep, () -> Unit> =
+                buildMap {
+                    put(AccentApplyStep.ApplyAlwaysOnUiKeys) {
+                        applyAlwaysOnUiKeys(state, accent, context, isChromeAllowed, uiDefaults)
+                    }
+                    put(AccentApplyStep.ApplyElements) {
+                        applyElements(
+                            state,
+                            accent,
+                            checkNotNull(context) { "ApplyElements planned without accent context" },
+                            isChromeAllowed,
+                            onFailure = recordFailure,
+                        )
+                    }
+                    put(AccentApplyStep.ApplyTabUnderline) {
+                        applyTabUnderline(
+                            state,
+                            checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
+                            isChromeAllowed,
+                            uiDefaults,
+                        )
+                    }
+                    put(AccentApplyStep.SyncIndentRainbow) {
+                        IndentRainbowSync
+                            .apply(
+                                checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
+                                trimmedHex,
+                            ).propagateFailure()
+                    }
+                    put(AccentApplyStep.SyncCodeGlanceProViewport) {
+                        CodeGlanceProIntegration
+                            .syncCodeGlanceProViewport(trimmedHex, context)
+                            .propagateFailure()
+                    }
+                    put(AccentApplyStep.ApplyAlwaysOnEditorKeys) { applyAlwaysOnEditorKeys(accent) }
+                    put(AccentApplyStep.NotifyComponentTrees) {
+                        // Mirror of the refresh hook in revertAll. Re-publish
+                        // ComponentTreeRefreshedTopic after EP apply so subscribers
+                        // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
+                        // UIManager state. Chrome surfaces do NOT subscribe to this topic —
+                        // they own their own live-refresh path.
+                        //
+                        // This site MUST NOT publish LafManagerListener.TOPIC — that broadcast
+                        // would re-enter the LAF cycle. notifyOnly only.
+                        for (project in ProjectManager.getInstance().openProjects) {
+                            if (!project.isUsable()) continue
+                            ComponentTreeRefresher.notifyOnly(project)
+                        }
+                    }
+                    put(AccentApplyStep.RepaintWindows) { repaintAllWindows(Window.getWindows()) }
+                    // A throw in any earlier step aborts the plan and skips this
+                    // write, leaving the flag false so the startup listener
+                    // (AyuIslandsAppListener.appFrameCreated) falls through to the
+                    // resolver rather than trusting the cached hex.
+                    put(AccentApplyStep.MarkApplyClean) {
+                        state.lastApplyOk = containedFailures.isEmpty()
+                        // Every write ran: a contained element failure stays torn but keeps its colors.
+                        uiDefaults.commit()
+                    }
+                    put(AccentApplyStep.PublishAccentChanged) {
+                        if (containedFailures.isEmpty()) {
+                            publishAccentChanged(accentHex, recordFailure)
+                        }
+                    }
                 }
-            // Restored defaults reach already painted surfaces only on repaint.
-            runCatchingPreservingCancellation { repaintAllWindows(Window.getWindows()) }
-                .onFailure { error -> recordFailure(AccentApplyStepFailure(AccentApplyStep.RepaintWindows, error)) }
+
+            val failures =
+                uiDefaults.restoringOnFailure {
+                    AccentApplyPlanRunner.runNow(
+                        plan = applyPlanFor(context),
+                        executeStep = { step -> workers.getValue(step)() },
+                    )
+                }
+            for ((step, error) in failures) {
+                log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
+            }
+            val outcome = AccentApplyOutcome.of(accentHex, containedFailures + failures)
+            if (!outcome.visualsApplied) {
+                uiDefaults
+                    .restoreAfterTear((containedFailures + failures).map(AccentApplyStepFailure::error))
+                    ?.let { recovery ->
+                        recordFailure(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, recovery))
+                    }
+                // Restored defaults reach already painted surfaces only on repaint.
+                runCatchingPreservingCancellation { repaintAllWindows(Window.getWindows()) }
+                    .onFailure { error -> recordFailure(AccentApplyStepFailure(AccentApplyStep.RepaintWindows, error)) }
+            }
+            return AccentApplyOutcome.of(accentHex, containedFailures + failures)
+        } finally {
+            isApplying = false
         }
-        return AccentApplyOutcome.of(accentHex, containedFailures + failures)
     }
 
     /** Resolve the focused project's existing override chain and update the cache from its outcome. */
