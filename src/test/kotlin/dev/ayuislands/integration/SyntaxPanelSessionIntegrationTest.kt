@@ -244,7 +244,7 @@ class SyntaxPanelSessionIntegrationTest : BasePlatformTestCase() {
 
     private fun captureSchemeCheckpoints(
         activeScheme: EditorColorsScheme,
-    ): List<EditorSchemeOverrides.AttributesCheckpoint> {
+    ): List<EditorSchemeOverrides.SchemeCheckpoint> {
         val loader = SyntaxOverlayLoader.getInstance()
         val manager = EditorColorsManager.getInstance()
         val schemes =
@@ -261,7 +261,7 @@ class SyntaxPanelSessionIntegrationTest : BasePlatformTestCase() {
             EditorSchemeOverrides.checkpoints.capture(
                 scheme = scheme,
                 owner = EditorSchemeOwner.Syntax,
-                keys = keys.toSet(),
+                entries = keys.mapTo(mutableSetOf()) { EditorSchemeOverrides.SchemeEntry.AttributesEntry(it) },
             )
         }
     }

@@ -2,6 +2,8 @@ package dev.ayuislands.accent
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.colors.ColorKey
+import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
@@ -9,6 +11,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.util.ThrowableComputable
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.AyuPlugin
@@ -21,6 +24,8 @@ import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.theme.AyuEditorSchemeScope
+import dev.ayuislands.theme.EditorSchemeOwner
 import dev.ayuislands.ui.ComponentTreeRefresher
 import io.mockk.every
 import io.mockk.mockk
@@ -32,6 +37,7 @@ import io.mockk.verify
 import java.awt.Color
 import java.awt.Window
 import java.beans.PropertyChangeListener
+import java.util.Properties
 import java.util.concurrent.CancellationException
 import java.util.function.BiConsumer
 import javax.swing.SwingUtilities
@@ -231,6 +237,102 @@ class AccentApplicatorTornApplyTest {
             for (key in keys) {
                 assertSame(expected = previous, actual = UIManager.getColor(key), message = key)
             }
+        }
+    }
+
+    @Test
+    fun `integration failure restores a real progress elements previous editor accent and metadata`() {
+        val key = ColorKey.find("PROGRESS_BAR_TRACK")
+        val colors = mutableMapOf<ColorKey, Color?>(key to Color.BLUE)
+        val metadata = Properties()
+        every { mockScheme.name } returns "Ayu Islands Mirage"
+        every { mockScheme.metaProperties } returns metadata
+        every { mockColorsManager.allSchemes } returns arrayOf(mockScheme)
+        every { mockScheme.getColor(any<ColorKey>()) } answers { colors[firstArg<ColorKey>()] }
+        every { mockScheme.setColor(any(), any()) } answers {
+            colors[firstArg<ColorKey>()] = secondArg<Color?>()
+        }
+        val editorListener = mockk<EditorColorsListener>(relaxed = true)
+        every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns editorListener
+        every { mockApplication.runWriteAction(any<ThrowableComputable<Any?, RuntimeException>>()) } answers {
+            firstArg<ThrowableComputable<Any?, RuntimeException>>().compute()
+        }
+        val notifications = mutableListOf<Color?>()
+        every { editorListener.globalSchemeChange(null) } answers { notifications += colors[key] }
+        mockEpExtensionList(listOf(ProgressBarElement()))
+        AyuEditorSchemeScope.resetClaims()
+        try {
+            withRealUiDefaults {
+                AyuEditorSchemeScope.writeColor(
+                    EditorSchemeOwner.Element(AccentElementId.PROGRESS_BAR),
+                    key,
+                    Color.ORANGE,
+                )
+                val savedMetadata = Properties().apply { putAll(metadata) }
+                var during: Color? = null
+                val failure = IllegalStateException("integration failed after progress editor tint")
+                every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                    during = colors[key]
+                    throw failure
+                }
+
+                val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+                assertEquals(expected = Color(0x44, 0x55, 0x66), actual = during)
+                assertSame(expected = failure, actual = outcome.failures.single().error)
+                assertSame(expected = Color.ORANGE, actual = colors[key])
+                assertEquals(expected = savedMetadata, actual = metadata)
+                assertEquals(expected = listOf(Color.ORANGE), actual = notifications)
+                verify(exactly = 0) { listener.accentChanged(any(), any(), any()) }
+            }
+        } finally {
+            AyuEditorSchemeScope.resetClaims()
+        }
+    }
+
+    @Test
+    fun `contained progress failure restores the previous editor accent instead of its original baseline`() {
+        val key = ColorKey.find("PROGRESS_BAR_TRACK")
+        val colors = mutableMapOf<ColorKey, Color?>(key to Color.BLUE)
+        val metadata = Properties()
+        every { mockScheme.name } returns "Ayu Islands Mirage"
+        every { mockScheme.metaProperties } returns metadata
+        every { mockColorsManager.allSchemes } returns arrayOf(mockScheme)
+        every { mockScheme.getColor(any<ColorKey>()) } answers { colors[firstArg<ColorKey>()] }
+        every { mockScheme.setColor(any(), any()) } answers { colors[firstArg<ColorKey>()] = secondArg<Color?>() }
+        mockEpExtensionList(listOf(ProgressBarElement()))
+        AyuEditorSchemeScope.resetClaims()
+        try {
+            withRealUiDefaults {
+                val previous = Color.ORANGE
+                AyuEditorSchemeScope.writeColor(EditorSchemeOwner.Element(AccentElementId.PROGRESS_BAR), key, previous)
+                val savedMetadata = Properties().apply { putAll(metadata) }
+                UIManager.put("ProgressBar.foreground", previous)
+                val attempted = Color(0x44, 0x55, 0x66)
+                val defaults = UIManager.getDefaults()
+                val failure = IllegalStateException("contained progress listener failure")
+                val failingListener =
+                    PropertyChangeListener { event ->
+                        if (event.propertyName == "ProgressBar.foreground" && event.newValue == attempted) throw failure
+                    }
+                defaults.addPropertyChangeListener(failingListener)
+                var afterContainedFailure: Color? = null
+                every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                    afterContainedFailure = colors[key]
+                    error("later outer abort")
+                }
+                try {
+                    val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                    assertEquals(expected = previous, actual = afterContainedFailure)
+                    assertTrue(outcome.failures.any { it.step == AccentApplyStep.ApplyElements })
+                    assertEquals(expected = previous, actual = colors[key])
+                    assertEquals(expected = savedMetadata, actual = metadata)
+                } finally {
+                    defaults.removePropertyChangeListener(failingListener)
+                }
+            }
+        } finally {
+            AyuEditorSchemeScope.resetClaims()
         }
     }
 

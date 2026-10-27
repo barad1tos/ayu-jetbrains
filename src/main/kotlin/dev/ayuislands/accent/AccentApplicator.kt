@@ -18,6 +18,12 @@ import com.intellij.ui.JBColor
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.elements.AbstractChromeElement
+import dev.ayuislands.accent.elements.CaretRowElement
+import dev.ayuislands.accent.elements.InlayHintsElement
+import dev.ayuislands.accent.elements.LinksElement
+import dev.ayuislands.accent.elements.MatchingTagElement
+import dev.ayuislands.accent.elements.ProgressBarElement
+import dev.ayuislands.accent.elements.ScrollbarElement
 import dev.ayuislands.accent.elements.SearchResultsElement
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
@@ -546,9 +552,15 @@ object AccentApplicator {
         variant: AyuVariant?,
         isPremiumAllowed: Boolean,
     ): AccentApplyStepFailure? {
-        // Other elements retain their failure cleanup until every surface adapter is checkpointed.
+        // Chrome and bracket fade retain their cleanup until their cache and peer adapters are checkpointed.
         val checkpointRestore =
-            if (element is SearchResultsElement) AccentApplyScope.active?.elementRollback() else null
+            when (element) {
+                is SearchResultsElement, is CaretRowElement, is InlayHintsElement,
+                is MatchingTagElement, is ProgressBarElement, is LinksElement, is ScrollbarElement,
+                ->
+                    AccentApplyScope.active?.elementRollback()
+                else -> null
+            }
         AyuEditorSchemeScope.observeElementEnabled(
             element.id,
             ChromeTintContext.isToggleEnabled(state, element.id),

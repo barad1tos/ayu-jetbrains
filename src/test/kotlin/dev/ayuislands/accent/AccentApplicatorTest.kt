@@ -94,7 +94,19 @@ class AccentApplicatorTest {
         every { EditorColorsManager.getInstance() } returns mockColorsManager
         every { mockColorsManager.globalScheme } returns mockScheme
         every { mockScheme.name } returns "Ayu Islands Mirage"
-        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns TextAttributes()
+        val colors = mutableMapOf<ColorKey, Color?>()
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
+        val metadata = Properties()
+        every { mockColorsManager.allSchemes } returns arrayOf(mockScheme)
+        every { mockScheme.metaProperties } returns metadata
+        every { mockScheme.getColor(any()) } answers { colors[firstArg<ColorKey>()] }
+        every { mockScheme.setColor(any(), any()) } answers { colors[firstArg<ColorKey>()] = secondArg<Color?>() }
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } answers {
+            attributes[firstArg<TextAttributesKey>()]?.clone() ?: TextAttributes()
+        }
+        every { mockScheme.setAttributes(any(), any()) } answers {
+            attributes[firstArg<TextAttributesKey>()] = secondArg<TextAttributes?>()?.clone()
+        }
 
         // ApplicationManager must be stubbed BEFORE AyuIslandsSettings.Companion,
         // because getInstance() calls ApplicationManager.getApplication().getService()
@@ -975,7 +987,8 @@ class AccentApplicatorTest {
         every { IndentRainbowSync.apply(any<AyuVariant>(), any()) } returns IntegrationOutcome.Skipped
         state.cgpIntegrationEnabled = false
 
-        AccentApplicator.applyFromHexString("#FFCC66")
+        val result = AccentApplicator.applyFromHexString("#FFCC66")
+        assertIs<AccentApplyOutcome.Applied>(result, result.toString())
 
         // Verify always-on UI keys were set (proves applyAlwaysOnUiKeys ran)
         verify(atLeast = 12) { UIManager.put(any<String>(), any<Color>()) }

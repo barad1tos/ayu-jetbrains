@@ -177,10 +177,13 @@ internal class AccentApplyScope {
         }
     }
 
-    private fun recoverUiDefaults() {
+    private fun recoverUiDefaults() = recover(UiDefaultsRecovery::restorePending)
+
+    fun recover(action: () -> Unit) {
+        checkWritable()
         state = State.RESTORING
         try {
-            UiDefaultsRecovery.restorePending()
+            action()
         } finally {
             state = if (state == State.RESTORING_ABORT_REQUESTED) State.ABORT_REQUESTED else State.RECORDING
         }
