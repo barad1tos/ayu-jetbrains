@@ -218,10 +218,16 @@ class AccentApplicatorTornApplyTest {
             val previous = Color(0x11, 0x22, 0x33)
             val keys = listOf("ProgressBar.foreground", "ProgressBar.progressCounterBackground")
             for (key in keys) UIManager.put(key, previous)
+            var during = emptyList<Color?>()
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                during = keys.map(UIManager::getColor)
+                error("integration failed after progress tint")
+            }
 
             val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
 
             assertEquals(expected = AccentApplyStep.SyncIndentRainbow, actual = outcome.failures.single().step)
+            assertEquals(expected = keys.map { Color(0x44, 0x55, 0x66) }, actual = during)
             for (key in keys) {
                 assertSame(expected = previous, actual = UIManager.getColor(key), message = key)
             }
@@ -260,7 +266,11 @@ class AccentApplicatorTornApplyTest {
     fun `cancelled apply restores the previous progress accent`() {
         mockEpExtensionList(listOf(ProgressBarElement()))
         val cancellation = CancellationException("cancelled after progress tint")
-        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } throws cancellation
+        var during: Color? = null
+        every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+            during = UIManager.getColor("ProgressBar.foreground")
+            throw cancellation
+        }
         withRealUiDefaults {
             val previous = Color(0x11, 0x22, 0x33)
             UIManager.put("ProgressBar.foreground", previous)
@@ -268,6 +278,7 @@ class AccentApplicatorTornApplyTest {
             val thrown = assertFailsWith<CancellationException> { AccentApplicator.applyFromHexString("#445566") }
 
             assertSame(expected = cancellation, actual = thrown)
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = during)
             assertSame(expected = previous, actual = UIManager.getColor("ProgressBar.foreground"))
         }
     }
@@ -277,13 +288,16 @@ class AccentApplicatorTornApplyTest {
         mockEpExtensionList(listOf(ProgressBarElement()))
         withRealUiDefaults {
             val manual = Color(0x77, 0x88, 0x99)
+            var during: Color? = null
             every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                during = UIManager.getColor("ProgressBar.foreground")
                 UIManager.put("ProgressBar.foreground", manual)
                 error("integration failed after manual progress edit")
             }
 
             assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
 
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = during)
             assertSame(expected = manual, actual = UIManager.getColor("ProgressBar.foreground"))
         }
     }
@@ -299,9 +313,15 @@ class AccentApplicatorTornApplyTest {
                     Color(0x11, 0x22, 0x33)
                 }
             UIManager.put("ProgressBar.foreground", lazy)
+            var during: Any? = null
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                during = readRawUiDefault(UIManager.getDefaults(), "ProgressBar.foreground")
+                error("integration failed after replacing a lazy progress default")
+            }
 
             assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
 
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = during)
             assertSame(expected = lazy, actual = readRawUiDefault(UIManager.getDefaults(), "ProgressBar.foreground"))
             assertEquals(expected = 0, actual = evaluations)
         }

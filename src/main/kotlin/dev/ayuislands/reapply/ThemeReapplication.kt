@@ -12,7 +12,6 @@ import dev.ayuislands.accent.runCatchingPreservingCancellation
 import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.reapply.ReapplyStep.ApplyExplicitHex
 import dev.ayuislands.reapply.ReapplyStep.ApplyResolvedAccent
 import dev.ayuislands.reapply.ReapplyStep.BindScheme
@@ -104,12 +103,15 @@ object ThemeReapplication {
         runCatchingPreservingCancellation {
             val current = if (timing == LifecycleTiming.DEFERRED) currentReason(reason) else reason
             if (current == null) ReapplyResult(emptyList(), ReapplyStatus.SUPERSEDED) else runPlan(current)
-        }.getOrElse { failure -> ReapplyResult(listOf(StepFailure(ApplyResolvedAccent, failure))) }
+        }.getOrElse { failure ->
+            val step = if (reason is ReapplyReason.LicenseRevert) ApplyExplicitHex else ApplyResolvedAccent
+            ReapplyResult(listOf(StepFailure(step, failure)))
+        }
 
     private fun currentReason(reason: ReapplyReason): ReapplyReason? {
+        if (reason is ReapplyReason.LicenseRevert && LicenseChecker.isLicensedOrGrace()) return null
         val context = AccentContext.detect()
         if (reason !is ReapplyReason.LicenseRevert) return ReapplyReason.ThemeSwitched(context)
-        if (LicenseChecker.currentEntitlement() == LicenseEntitlement.LICENSED) return null
         val variant = (context as? AccentContext.Ayu)?.ayuVariant ?: return ReapplyReason.ThemeSwitched(context)
         return ReapplyReason.LicenseRevert(AyuIslandsSettings.getInstance().getAccentForVariant(variant))
     }

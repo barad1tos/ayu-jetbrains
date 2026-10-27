@@ -29,6 +29,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -226,6 +227,42 @@ class ThemeReapplicationTearEscalationTest {
         assertEquals(expected = ReapplyStatus.SUPERSEDED, actual = result.status)
         assertFalse(result.isClean)
         assertTrue(effects.isEmpty(), "a superseded request must not repaint or downgrade any surface")
+    }
+
+    @Test
+    fun `unknown entitlement preserves a confirmed license without resolving the theme`() {
+        state.lastConfirmedEntitlement = LicenseEntitlement.LICENSED.name
+        mockkObject(AyuVariant.Companion)
+        mockkObject(LicenseChecker)
+        every { AyuVariant.detect() } throws IllegalStateException("theme context unavailable")
+        every { LicenseChecker.currentEntitlement() } returns LicenseEntitlement.UNKNOWN
+        val applied = mutableListOf<String>()
+        every { AccentApplicator.applyFromHexString(any()) } answers {
+            applied += firstArg<String>()
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg())))
+        }
+
+        val result = runDeferred(ReapplyReason.LicenseRevert("#FFCC66")) { }
+
+        assertEquals(expected = ReapplyStatus.SUPERSEDED, actual = result.status)
+        assertTrue(applied.isEmpty(), "a transient entitlement lookup must not repaint a confirmed licensed user")
+    }
+
+    @Test
+    fun `deferred downgrade resolution failure reaches the incomplete revert warning contract`() {
+        mockkObject(AyuVariant.Companion)
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.currentEntitlement() } returns LicenseEntitlement.UNLICENSED
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val failure = IllegalStateException("theme context unavailable")
+
+        val result =
+            runDeferred(ReapplyReason.LicenseRevert("#FFCC66")) {
+                every { AyuVariant.detect() } throws failure
+            }
+
+        assertTrue(result.failed(ReapplyStep.ApplyExplicitHex), "the license revert consumer warns for this step")
+        assertSame(expected = failure, actual = result.failures.single().error)
     }
 
     private fun runDeferred(
