@@ -151,6 +151,30 @@ class ScreenshotRestampTest(unittest.TestCase):
 
         self.assertTrue(self.findings().has_errors)
 
+    def test_orphan_stamp_on_primary_rejects_staged_source(self) -> None:
+        self.manifest.write_text(
+            self.manifest.read_text().replace(self.base, "deadbeef")
+        )
+        self.git(
+            "update-ref", "refs/remotes/origin/main", self.git("rev-parse", "HEAD")
+        )
+        self.assertFalse(self.findings().has_errors)
+        self.source.write_text("class StagedPanel\n")
+        self.git("add", "Panel.kt")
+
+        self.assertTrue(self.findings().has_errors)
+
+    def test_orphan_stamp_without_primary_rejects_staged_source(self) -> None:
+        self.manifest.write_text(
+            self.manifest.read_text().replace(self.base, "deadbeef")
+        )
+        self.git("update-ref", "-d", "refs/remotes/origin/main")
+        self.assertFalse(self.findings().has_errors)
+        self.source.write_text("class StagedPanel\n")
+        self.git("add", "Panel.kt")
+
+        self.assertTrue(self.findings().has_errors)
+
     def test_stamp_survives_combined_commit_but_rejects_next_edit(self) -> None:
         self.source.write_text("// Reviewed comment.\nclass Panel\n")
         code, output = self.restamp("panel")
