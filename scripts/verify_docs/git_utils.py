@@ -2,7 +2,7 @@
 
 Every helper returns a narrow, typed value (bool / str / set[str] / None)
 so call sites don't need to know about subprocess.CompletedProcess. The
-only exception is `git_changed_since`, which RAISES on git failure —
+only exception is `changed_since`, which RAISES on git failure —
 silently returning an empty set would let a stale screenshot slip past
 CI if git itself broke (missing ref, shallow clone, disk error).
 """
@@ -123,9 +123,9 @@ def commit_exists(sha: str) -> bool:
 
 
 def changed_since(sha: str, paths: list[str]) -> set[str]:
-    """Return the set of file paths under `paths` that changed after `sha`.
+    """Return committed and staged changes under `paths` since `sha`.
 
-    Raises `RuntimeError` on `git log` failure instead of silently returning
+    Raises `RuntimeError` on Git failure instead of silently returning
     an empty set — an empty set is indistinguishable from "clean history"
     and would let a stale screenshot slip past CI if git itself broke
     (missing ref, shallow clone, disk error).
@@ -141,7 +141,22 @@ def changed_since(sha: str, paths: list[str]) -> set[str]:
         raise RuntimeError(
             f"git log failed for sha={sha}: {result.stderr.strip() or 'no stderr'}"
         )
-    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    committed = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--", *paths],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if staged.returncode != 0:
+        raise RuntimeError(
+            f"git staged diff failed for sha={sha}: "
+            f"{staged.stderr.strip() or 'no stderr'}"
+        )
+    return committed | {
+        line.strip() for line in staged.stdout.splitlines() if line.strip()
+    }
 
 
 def head_short_sha() -> str | None:

@@ -109,6 +109,48 @@ class ScreenshotRestampTest(unittest.TestCase):
         self.assertIn('captured_at: "2026-09-01"', self.manifest.read_text())
         self.assertEqual(b"original screenshot", self.picture.read_bytes())
 
+    def test_legacy_stamp_rejects_staged_source_before_commit(self) -> None:
+        original_head = self.git("rev-parse", "HEAD")
+        self.source.write_text("class StagedPanel\n")
+        self.git("add", "Panel.kt")
+
+        self.assertEqual(original_head, self.git("rev-parse", "HEAD"))
+        self.assertTrue(self.findings().has_errors)
+
+    def test_legacy_stamp_sees_index_when_working_copy_matches_head(self) -> None:
+        original = self.source.read_bytes()
+        self.source.write_text("class StagedPanel\n")
+        self.git("add", "Panel.kt")
+        self.source.write_bytes(original)
+
+        self.assertTrue(self.findings().has_errors)
+
+    def test_unrelated_staged_file_preserves_legacy_stamp(self) -> None:
+        (self.root / "Other.kt").write_text("class Other\n")
+        self.git("add", "Other.kt")
+
+        self.assertEqual([], self.findings().findings)
+
+    def test_legacy_directory_stamp_rejects_staged_new_source(self) -> None:
+        nested = self.create_source_tree()
+        self.commit()
+        source_head = self.git("rev-parse", "HEAD")
+        self.manifest.write_text(
+            self.manifest.read_text().replace(self.base, source_head)
+        )
+        self.commit()
+        self.assertEqual([], self.findings().findings)
+        (nested / "Added.kt").write_text("class Added\n")
+        self.git("add", "panels/nested/Added.kt")
+
+        self.assertTrue(self.findings().has_errors)
+
+    def test_legacy_stamp_reports_unreadable_index(self) -> None:
+        (self.root / ".git" / "index").write_bytes(b"invalid index")
+        self.git("log", "--oneline", f"{self.base}..HEAD", "--", "Panel.kt")
+
+        self.assertTrue(self.findings().has_errors)
+
     def test_stamp_survives_combined_commit_but_rejects_next_edit(self) -> None:
         self.source.write_text("// Reviewed comment.\nclass Panel\n")
         code, output = self.restamp("panel")
@@ -344,7 +386,10 @@ class ScreenshotRestampTest(unittest.TestCase):
 
         self.assertTrue(report.has_errors)
         self.assertTrue(
-            any("Cannot read screenshot sources" in finding.message for finding in report.findings)
+            any(
+                "Cannot read screenshot sources" in finding.message
+                for finding in report.findings
+            )
         )
         self.assertEqual(original, self.manifest.read_bytes())
 
