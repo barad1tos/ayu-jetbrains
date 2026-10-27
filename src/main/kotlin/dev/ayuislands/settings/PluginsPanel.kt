@@ -5,7 +5,8 @@ package dev.ayuislands.settings
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.dsl.builder.Align
-import com.intellij.ui.dsl.builder.AlignX
+import com.intellij.ui.dsl.builder.AlignY
+import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.RightGap
 import com.intellij.ui.dsl.builder.Row
@@ -43,6 +44,7 @@ class PluginsPanel : SettingsParticipant {
     private var externalCodeGlanceProCheckbox: JCheckBox? = null
     private var externalIndentRainbowCheckbox: JCheckBox? = null
     private var externalChromeTintCheckbox: JCheckBox? = null
+    private var nativeAccentCheckbox: JCheckBox? = null
     private var externalAccentSourceCombo: JComboBox<ExternalAccentSource>? = null
     private var externalAccentPicker: AccentSwatchPickerRow? = null
     private var alphaSlider: JSlider? = null
@@ -179,7 +181,7 @@ class PluginsPanel : SettingsParticipant {
                             row {
                                 buildExternalChromeTintCell(licensed)
                             }
-                        }.gap(RightGap.COLUMNS)
+                        }.align(AlignY.TOP).gap(RightGap.COLUMNS)
                         panel {
                             row {
                                 buildExternalInheritanceToggleCell(
@@ -197,13 +199,28 @@ class PluginsPanel : SettingsParticipant {
                                     storeCheckbox = { externalIndentRainbowCheckbox = it },
                                 )
                             }
-                        }
+                        }.align(AlignY.TOP)
                     }
-                }.align(AlignX.FILL)
+                }
             }
 
             val accentInheritance =
                 collapsibleGroup("Accent Inheritance") {
+                    row {
+                        val nativeOverride =
+                            checkBox("Override native theme accent")
+                                .comment(
+                                    "Keep native colors when off. Selected Ayu features still use Accent source.",
+                                )
+                        nativeOverride.component.isSelected = pendingSettings.isExternalAccentOverrideEnabled
+                        nativeOverride.component.addActionListener {
+                            pendingSettings =
+                                pendingSettings.copy(
+                                    isExternalAccentOverrideEnabled = nativeOverride.component.isSelected,
+                                )
+                        }
+                        nativeAccentCheckbox = nativeOverride.component
+                    }
                     row("Accent source") {
                         val combo =
                             comboBox(ExternalAccentSource.entries.toList())
@@ -282,9 +299,6 @@ class PluginsPanel : SettingsParticipant {
         externalChromeTintCheckbox =
             buildLicensedCheckbox(
                 labelText = "Chrome tint",
-                description =
-                    "Tint selected chrome surfaces and the active tab underline with the Ayu accent. " +
-                        "Configure surfaces on the Accent tab while an Ayu theme is active.",
                 licensed = licensed,
                 isSelected = pendingSettings.externalInheritance.isChromeTintEnabled,
             ) { isSelected ->
@@ -293,27 +307,28 @@ class PluginsPanel : SettingsParticipant {
                         externalInheritance =
                             pendingSettings.externalInheritance.copy(isChromeTintEnabled = isSelected),
                     )
-            }
+            }.comment(
+                "Tint selected chrome surfaces and the active tab underline with the Ayu accent. " +
+                    "Configure surfaces on the Accent tab while an Ayu theme is active.",
+                EXTERNAL_COMMENT_WIDTH,
+            ).component
         newFeatureBadge("chrome-tint-external-themes")
     }
 
     private fun Row.buildLicensedCheckbox(
         labelText: String,
-        description: String,
         licensed: Boolean,
         isSelected: Boolean,
         onSelectionChanged: (Boolean) -> Unit,
-    ): JCheckBox {
-        val checkboxCell =
-            checkBox(labelText)
-                .comment(description)
+    ): Cell<JCheckBox> {
+        val checkboxCell = checkBox(labelText)
         checkboxCell.component.isSelected = isSelected
         checkboxCell.component.isEnabled = licensed
         checkboxCell.component.addActionListener {
             if (!licensed) return@addActionListener
             onSelectionChanged(checkboxCell.component.isSelected)
         }
-        return checkboxCell.component
+        return checkboxCell
     }
 
     private fun Panel.buildCodeGlanceProRow(licensed: Boolean) {
@@ -321,12 +336,11 @@ class PluginsPanel : SettingsParticipant {
             cgpCheckbox =
                 buildLicensedCheckbox(
                     labelText = "CodeGlance Pro viewport",
-                    description = "Apply accent color to the CodeGlance Pro viewport",
                     licensed = licensed,
                     isSelected = pendingSettings.isCodeGlanceProEnabled,
                 ) { isSelected ->
                     pendingSettings = pendingSettings.copy(isCodeGlanceProEnabled = isSelected)
-                }
+                }.comment("Apply accent color to the CodeGlance Pro viewport").component
 
             browserLink("Plugin page", "https://plugins.jetbrains.com/plugin/18824-codeglance-pro")
         }
@@ -340,13 +354,12 @@ class PluginsPanel : SettingsParticipant {
             enabledCheckbox =
                 buildLicensedCheckbox(
                     labelText = "Indent Rainbow guides",
-                    description = "Sync the Ayu palette with Indent Rainbow indentation guides",
                     licensed = licensed,
                     isSelected = pendingSettings.isIndentRainbowEnabled,
                 ) { isSelected ->
                     pendingSettings = pendingSettings.copy(isIndentRainbowEnabled = isSelected)
                     irEnabled.set(isSelected)
-                }
+                }.comment("Sync the Ayu palette with Indent Rainbow indentation guides").component
 
             browserLink(
                 "Plugin page",
@@ -391,12 +404,11 @@ class PluginsPanel : SettingsParticipant {
             errorHighlightCheckbox =
                 buildLicensedCheckbox(
                     labelText = "Highlight indent errors",
-                    description = "When off, lines with irregular indentation blend into the color gradient",
                     licensed = licensed,
                     isSelected = pendingSettings.isErrorHighlightEnabled,
                 ) { isSelected ->
                     pendingSettings = pendingSettings.copy(isErrorHighlightEnabled = isSelected)
-                }
+                }.comment("When off, lines with irregular indentation blend into the color gradient").component
         }.visibleIf(irEnabled)
     }
 
@@ -436,6 +448,7 @@ class PluginsPanel : SettingsParticipant {
             storedSettings =
                 storedSettings.copy(
                     isExternalThemeEnhancementsEnabled = pendingSettings.isExternalThemeEnhancementsEnabled,
+                    isExternalAccentOverrideEnabled = pendingSettings.isExternalAccentOverrideEnabled,
                     externalInheritance = pendingSettings.externalInheritance,
                     externalAccentSource = pendingSettings.externalAccentSource,
                     externalAccent = pendingSettings.externalAccent,
@@ -513,6 +526,7 @@ class PluginsPanel : SettingsParticipant {
         errorHighlightCheckbox?.isSelected = storedSettings.isErrorHighlightEnabled
         ignorePluginCheckbox?.isSelected = storedSettings.isIgnorePluginSyntaxColorsEnabled
         externalThemeCheckbox?.isSelected = storedSettings.isExternalThemeEnhancementsEnabled
+        nativeAccentCheckbox?.isSelected = storedSettings.isExternalAccentOverrideEnabled
         externalQuickSwitcherCheckbox?.isSelected = storedSettings.externalInheritance.isQuickSwitcherEnabled
         externalGlowCheckbox?.isSelected = storedSettings.externalInheritance.isGlowEnabled
         externalCodeGlanceProCheckbox?.isSelected = storedSettings.externalInheritance.isCodeGlanceProEnabled
@@ -537,6 +551,7 @@ class PluginsPanel : SettingsParticipant {
         val isErrorHighlightEnabled: Boolean = true,
         val isIgnorePluginSyntaxColorsEnabled: Boolean = true,
         val isExternalThemeEnhancementsEnabled: Boolean = false,
+        val isExternalAccentOverrideEnabled: Boolean = true,
         val externalInheritance: ExternalInheritanceSettings = ExternalInheritanceSettings(),
         val externalAccentSource: String = ExternalAccentSource.AUTOMATIC.name,
         val externalAccent: String = AccentDefaults.MIRAGE_HEX,
@@ -544,6 +559,7 @@ class PluginsPanel : SettingsParticipant {
         fun hasExternalChangesFrom(stored: PluginSettingsSnapshot): Boolean =
             listOf(
                 isExternalThemeEnhancementsEnabled != stored.isExternalThemeEnhancementsEnabled,
+                isExternalAccentOverrideEnabled != stored.isExternalAccentOverrideEnabled,
                 externalInheritance != stored.externalInheritance,
                 externalAccentSource != stored.externalAccentSource,
                 externalAccent != stored.externalAccent,
@@ -560,6 +576,7 @@ class PluginsPanel : SettingsParticipant {
 
         fun applyExternalTo(state: AyuIslandsState) {
             state.externalThemeEnhancementsEnabled = isExternalThemeEnhancementsEnabled
+            state.externalThemeAccentOverrideEnabled = isExternalAccentOverrideEnabled
             externalInheritance.applyTo(state)
             state.externalThemeAccentSource = externalAccentSource
             state.externalThemeAccent = externalAccent
@@ -583,6 +600,7 @@ class PluginsPanel : SettingsParticipant {
                     isErrorHighlightEnabled = state.irErrorHighlightEnabled,
                     isIgnorePluginSyntaxColorsEnabled = state.ignorePluginSyntaxColorsEnabled,
                     isExternalThemeEnhancementsEnabled = state.externalThemeEnhancementsEnabled,
+                    isExternalAccentOverrideEnabled = state.externalThemeAccentOverrideEnabled,
                     externalInheritance = ExternalInheritanceSettings.fromState(state),
                     externalAccentSource = state.externalThemeAccentSource ?: ExternalAccentSource.AUTOMATIC.name,
                     externalAccent = state.externalThemeAccent ?: AccentDefaults.MIRAGE_HEX,
@@ -618,6 +636,7 @@ class PluginsPanel : SettingsParticipant {
     }
 
     companion object {
+        private const val EXTERNAL_COMMENT_WIDTH = 40
         private const val MIN_ALPHA = 0x0D
         private const val MAX_ALPHA = 0x99
         private const val ALPHA_MAJOR_TICK = 0x1A

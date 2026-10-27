@@ -64,6 +64,7 @@ class AyuIslandsState : BaseState() {
     var externalThemeCodeGlanceProEnabled by property(true)
     var externalThemeIndentRainbowEnabled by property(true)
     var externalThemeChromeTintEnabled by property(false)
+    var externalThemeAccentOverrideEnabled by property(true)
     var externalThemeAccentSource by string(ExternalAccentSource.AUTOMATIC.name)
     var externalThemeAccent by string(AyuVariant.MIRAGE.defaultAccent)
     var followSystemAccent by property(false)

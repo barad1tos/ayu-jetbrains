@@ -2,6 +2,7 @@ package dev.ayuislands.accent
 
 import java.util.function.BiConsumer
 import javax.swing.SwingUtilities
+import javax.swing.UIDefaults
 import javax.swing.UIManager
 
 /**
@@ -34,7 +35,7 @@ internal class UiDefaultsCheckpoint {
         check(isCurrentLookAndFeel()) { "Look and feel changed during accent application" }
         val change = changes[key]
         if (change == Change.Relinquished) return
-        val current = rawValue(key)
+        val current = readRawUiDefault(defaults, key)
         if (change is Change.Written && current !== change.expected) {
             changes[key] = Change.Relinquished
             return
@@ -51,7 +52,7 @@ internal class UiDefaultsCheckpoint {
         var failure: Throwable? = null
         for ((key, change) in changes.toList().asReversed()) {
             if (!isCurrentLookAndFeel()) break
-            if (change !is Change.Written || rawValue(key) !== change.expected) {
+            if (change !is Change.Written || readRawUiDefault(defaults, key) !== change.expected) {
                 changes.remove(key)
                 continue
             }
@@ -63,9 +64,9 @@ internal class UiDefaultsCheckpoint {
                 }.exceptionOrNull()
             if (recovery is VirtualMachineError) throw recovery
             if (recovery != null) {
-                failure = combineFailures(failure, recovery)
+                failure = combineUiFailures(failure, recovery)
                 // A listener can throw after the table already holds the previous value.
-                if (rawValue(key) === change.previous) changes.remove(key)
+                if (readRawUiDefault(defaults, key) === change.previous) changes.remove(key)
             }
         }
         if (changes.isEmpty()) {
@@ -115,7 +116,7 @@ internal class UiDefaultsCheckpoint {
         throw when (recovery) {
             null -> failure
             is VirtualMachineError -> recovery
-            else -> combineFailures(failure, recovery)
+            else -> combineUiFailures(failure, recovery)
         }
     }
 
@@ -123,31 +124,34 @@ internal class UiDefaultsCheckpoint {
         UIManager.getDefaults() === defaults &&
             UIManager.getLookAndFeel() === lookAndFeel &&
             UIManager.getLookAndFeelDefaults() === lookAndFeelDefaults
+}
 
-    private fun rawValue(key: String): Any? {
-        var result: Any? = null
-        // The inherited Hashtable traversal reads developer entries without
-        // resolving LAF fallbacks or evaluating UIDefaults lazy/active values.
-        val capture =
-            BiConsumer<Any, Any> { candidate, value ->
-                if (candidate == key) result = value
-            }
-        defaults.forEach(capture)
-        return result
-    }
-
-    private fun combineFailures(
-        previous: Throwable?,
-        next: Throwable,
-    ): Throwable {
-        if (previous == null || previous === next) return next
-        val previousCancelled = previous is RuntimeException && previous.isAccentCancellation()
-        val nextCancelled = next is RuntimeException && next.isAccentCancellation()
-        if (nextCancelled && !previousCancelled) {
-            next.addSuppressed(previous)
-            return next
+internal fun readRawUiDefault(
+    defaults: UIDefaults,
+    key: String,
+): Any? {
+    var result: Any? = null
+    // The inherited Hashtable traversal reads developer entries without
+    // resolving LAF fallbacks or evaluating UIDefaults lazy/active values.
+    val capture =
+        BiConsumer<Any, Any> { candidate, value ->
+            if (candidate == key) result = value
         }
-        previous.addSuppressed(next)
-        return previous
+    defaults.forEach(capture)
+    return result
+}
+
+internal fun combineUiFailures(
+    previous: Throwable?,
+    next: Throwable,
+): Throwable {
+    if (previous == null || previous === next) return next
+    val previousCancelled = previous is RuntimeException && previous.isAccentCancellation()
+    val nextCancelled = next is RuntimeException && next.isAccentCancellation()
+    if (nextCancelled && !previousCancelled) {
+        next.addSuppressed(previous)
+        return next
     }
+    previous.addSuppressed(next)
+    return previous
 }

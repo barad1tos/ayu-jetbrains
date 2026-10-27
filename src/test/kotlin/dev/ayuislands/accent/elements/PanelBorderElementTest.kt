@@ -2,8 +2,8 @@ package dev.ayuislands.accent.elements
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentUiKeys
 import dev.ayuislands.accent.ChromeBaseColors
 import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
@@ -34,7 +34,7 @@ import kotlin.test.assertTrue
  *
  * Two invariants lock this element in addition to the standard apply/revert shape:
  * 1. `OnePixelDivider.background` is never written via UIManager keys.
- * 2. `uiKeys` has no overlap with [AccentApplicator.ALWAYS_ON_UI_KEYS] - blind
+ * 2. `uiKeys` has no overlap with [AccentUiKeys.accent] - blind
  *    always-on writes to shared peer keys would leak into editor splitters.
  */
 class PanelBorderElementTest {
@@ -158,20 +158,13 @@ class PanelBorderElementTest {
     @Test
     fun `uiKeys has no overlap with AccentApplicator ALWAYS_ON_UI_KEYS`() {
         val element = PanelBorderElement()
-        val alwaysOn = readAlwaysOnUiKeys()
+        val alwaysOn = AccentUiKeys.accent
         val overlap = element.uiKeys.toSet() intersect alwaysOn.toSet()
 
         assertTrue(
             overlap.isEmpty(),
             "PanelBorderElement.uiKeys must not overlap with ALWAYS_ON_UI_KEYS; found: $overlap",
         )
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun readAlwaysOnUiKeys(): List<String> {
-        val field = AccentApplicator::class.java.getDeclaredField("ALWAYS_ON_UI_KEYS")
-        field.isAccessible = true
-        return field.get(AccentApplicator) as List<String>
     }
 
     @Test
