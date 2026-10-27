@@ -27,12 +27,14 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Color
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -125,6 +127,20 @@ class AccentApplicatorRevertAllIntegrationTest {
         restoreOriginalEpName()
         unmockkAll()
         clearAllMocks()
+    }
+
+    @Test
+    fun `revertAll preserves native colors that Ayu never owned`() {
+        val key = "Button.default.startBackground"
+        val nativeColor = Color(0x81, 0x42, 0x73)
+        val previous = UIManager.put(key, nativeColor)
+        try {
+            AccentApplicator.revertAll()
+
+            assertSame(UIManager.getColor(key), nativeColor)
+        } finally {
+            UIManager.put(key, previous)
+        }
     }
 
     @Test

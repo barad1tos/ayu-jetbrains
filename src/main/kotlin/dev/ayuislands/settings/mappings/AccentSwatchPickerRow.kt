@@ -3,6 +3,7 @@ package dev.ayuislands.settings.mappings
 import com.intellij.ui.ColorPicker
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.ActionLink
+import com.intellij.util.ui.ColorIcon
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
 import dev.ayuislands.accent.AccentColor
@@ -34,15 +35,22 @@ class AccentSwatchPickerRow(
     var selectedHex: String? = null
         set(value) {
             field = value
+            val color = value?.let(RoundedSwatchRenderer::safeDecodeColor)
+            customLink.icon = color?.let { ColorIcon(SWATCH_SIZE, it) }
+            val description = if (color == null) "Choose a custom accent" else "Custom accent: $value"
+            customLink.toolTipText = description
+            customLink.accessibleContext.accessibleDescription = description
             repaint()
         }
+
+    private val customLink: ActionLink
 
     init {
         isOpaque = false
         for (preset in AYU_ACCENT_PRESETS) {
             add(SwatchButton(preset))
         }
-        val customLink =
+        customLink =
             ActionLink("Custom…") {
                 val chosen =
                     ColorPicker.showDialog(

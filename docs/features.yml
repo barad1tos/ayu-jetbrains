@@ -105,11 +105,11 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "d4dc42d8"
+          last_verified_sha: "e93eb856"
           last_verified_date: "2026-08-09"
           content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
 
-          sources_sha256: "e6d5af8aa1abe526d1b15871f4a176f4fbc6ecdd176ecc4145c66a765b667ed5"
+          sources_sha256: "b82af73647d30bc2904ae8e1b68cb7661f92b87633fd8d06e8dccdb037e4a7ac"
       - id: accent-scoped-language
         title: "Per-language accent pin"
         keyword: "per-language"
@@ -128,11 +128,11 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "d4dc42d8"
+          last_verified_sha: "e93eb856"
           last_verified_date: "2026-08-09"
           content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
 
-          sources_sha256: "e6d5af8aa1abe526d1b15871f4a176f4fbc6ecdd176ecc4145c66a765b667ed5"
+          sources_sha256: "b82af73647d30bc2904ae8e1b68cb7661f92b87633fd8d06e8dccdb037e4a7ac"
       - id: accent-language-breakdown
         title: "Live language-proportions breakdown"
         keyword: "language-proportions"
@@ -210,7 +210,9 @@ categories:
         description: >
           Selected chrome surfaces and the active tab underline can follow
           the Ayu accent on non-Ayu themes when explicitly enabled; external
-          chrome tint stays off by default.
+          chrome tint stays off by default. The separate native accent
+          override is on by default and also colors native tab indicators;
+          turn it off to preserve the external theme's native accent colors.
 
       - id: accent-from-project-icon
         title: "Accent from project icon"
@@ -512,10 +514,11 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "fe11eb27"
+          last_verified_sha: "e93eb856"
           last_verified_date: "2026-08-09"
           content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
 
+          sources_sha256: "83b0fcd92339a88e6ac6b4252ad81c856c544f12289fb3c47558210ed1cc9d78"
   onboarding:
     title: "Onboarding wizard"
     features:

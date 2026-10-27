@@ -1,5 +1,6 @@
 package dev.ayuislands.settings
 
+import com.intellij.util.xmlb.XmlSerializer
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
 import dev.ayuislands.glow.GlowAnimation
@@ -7,6 +8,7 @@ import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformMovement
+import org.jdom.Element
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,6 +32,42 @@ class AyuIslandsStatePersistenceTest {
         val reloaded = AyuIslandsSettings()
         reloaded.loadState(savedState)
         return reloaded
+    }
+
+    @Test
+    fun `legacy XML keeps native override enabled and opt out round trips raw choices`() {
+        val legacy = XmlSerializer.deserialize(Element("state"), AyuIslandsState::class.java)
+        assertTrue(legacy.externalThemeAccentOverrideEnabled)
+        legacy.externalThemeAccentOverrideEnabled = false
+        legacy.externalThemeAccentSource = "FUTURE_SOURCE"
+        legacy.externalThemeAccent = "future-color"
+        legacy.forceOverrides.addAll(listOf("FUTURE_SURFACE", "PANEL_BORDER"))
+
+        val reloaded = XmlSerializer.deserialize(XmlSerializer.serialize(legacy), AyuIslandsState::class.java)
+
+        assertFalse(reloaded.externalThemeAccentOverrideEnabled)
+        assertEquals("FUTURE_SOURCE", reloaded.externalThemeAccentSource)
+        assertEquals("future-color", reloaded.externalThemeAccent)
+        assertEquals(legacy.forceOverrides.toList(), reloaded.forceOverrides.toList())
+    }
+
+    @Test
+    fun `native accent opt out survives reload without normalizing future choices`() {
+        assertTrue(AyuIslandsState().externalThemeAccentOverrideEnabled)
+        val reloaded =
+            roundTrip { state ->
+                state.externalThemeEnhancementsEnabled = true
+                state.externalThemeAccentOverrideEnabled = false
+                state.externalThemeAccentSource = "FUTURE_SOURCE"
+                state.externalThemeAccent = "future-color"
+                state.externalThemeGlowEnabled = true
+                state.externalThemeChromeTintEnabled = true
+            }
+        assertFalse(reloaded.state.externalThemeAccentOverrideEnabled)
+        assertEquals("FUTURE_SOURCE", reloaded.state.externalThemeAccentSource)
+        assertEquals("future-color", reloaded.state.externalThemeAccent)
+        assertTrue(reloaded.state.externalThemeGlowEnabled)
+        assertTrue(reloaded.state.externalThemeChromeTintEnabled)
     }
 
     @Test

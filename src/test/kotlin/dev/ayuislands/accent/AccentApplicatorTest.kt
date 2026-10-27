@@ -146,6 +146,7 @@ class AccentApplicatorTest {
     @AfterTest
     fun tearDown() {
         AyuEditorSchemeScope.resetClaims()
+        every { SwingUtilities.isEventDispatchThread() } returns true
         ExternalChromeOwnership.resetForTests()
         restoreOriginalEpName()
         // Scenario-specific mocks must not remain active in the next test.
@@ -168,6 +169,7 @@ class AccentApplicatorTest {
             "applyAlwaysOnUiKeys",
             state,
             accent,
+            AccentContext.detect(),
             LicenseChecker.isLicensedOrGrace(),
             UiDefaultsCheckpoint(),
         )
@@ -180,18 +182,7 @@ class AccentApplicatorTest {
      * Calls [AccentApplicator.revertAll] with the extension point iteration stubbed out.
      */
     private fun revertWithoutExtensions() {
-        // Replicate the always-on revert keys from AccentApplicator.revertAll()
-        val alwaysOnUiKeys = getPrivateField<List<String>>("ALWAYS_ON_UI_KEYS")
-        for (key in alwaysOnUiKeys) {
-            UIManager.put(key, null)
-        }
-        UIManager.put("GotItTooltip.foreground", null)
-        UIManager.put("GotItTooltip.Button.foreground", null)
-        UIManager.put("GotItTooltip.Header.foreground", null)
-        UIManager.put("Button.default.focusedBorderColor", null)
-        UIManager.put("Button.default.startBorderColor", null)
-        UIManager.put("Button.default.endBorderColor", null)
-        UIManager.put("EditorTabs.underlinedTabBackground", null)
+        uiDefaultsOwner.restore()
 
         AyuEditorSchemeScope.claimActiveScheme()
         invokePrivate("revertAlwaysOnEditorKeys")
@@ -210,7 +201,7 @@ class AccentApplicatorTest {
 
     private fun invokePrivate(
         methodName: String,
-        vararg args: Any,
+        vararg args: Any?,
     ) {
         val owner = ownerForName(methodName)
         val method =
@@ -250,7 +241,8 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `revertAll clears always-on UI keys`() {
+    fun `revertAll clears owned always-on UI keys`() {
+        applyWithoutExtensions("#FFCC66")
         revertWithoutExtensions()
 
         verify(atLeast = 12) { UIManager.put(any<String>(), null) }
@@ -732,13 +724,13 @@ class AccentApplicatorTest {
 
     @Test
     fun `ALWAYS_ON_UI_KEYS contains expected count of keys`() {
-        val keys = getPrivateField<List<String>>("ALWAYS_ON_UI_KEYS")
+        val keys = AccentUiKeys.accent
         assertEquals(12, keys.size, "Expected 12 always-on UI keys")
     }
 
     @Test
     fun `ALWAYS_ON_UI_KEYS does not tint shared OnePixelDivider`() {
-        val keys = getPrivateField<List<String>>("ALWAYS_ON_UI_KEYS")
+        val keys = AccentUiKeys.accent
 
         assertFalse(
             "OnePixelDivider.background" in keys,
@@ -811,7 +803,8 @@ class AccentApplicatorTest {
     // revertAll clears specific extra keys
 
     @Test
-    fun `revertAll clears GotItTooltip foreground keys`() {
+    fun `revertAll clears owned GotItTooltip foreground keys`() {
+        applyWithoutExtensions("#FFCC66")
         revertWithoutExtensions()
 
         verify { UIManager.put("GotItTooltip.foreground", null) }
@@ -820,7 +813,8 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `revertAll clears button border keys`() {
+    fun `revertAll clears owned button border keys`() {
+        applyWithoutExtensions("#FFCC66")
         revertWithoutExtensions()
 
         verify { UIManager.put("Button.default.focusedBorderColor", null) }
@@ -829,7 +823,8 @@ class AccentApplicatorTest {
     }
 
     @Test
-    fun `revertAll clears tab background key`() {
+    fun `revertAll clears owned tab background key`() {
+        applyWithoutExtensions("#FFCC66")
         revertWithoutExtensions()
 
         verify { UIManager.put("EditorTabs.underlinedTabBackground", null) }
@@ -908,13 +903,13 @@ class AccentApplicatorTest {
 
     @Test
     fun `DARK_FOREGROUND constant has correct value`() {
-        val darkFg = getPrivateField<Color>("DARK_FOREGROUND")
+        val darkFg = Color(AccentUiKeys.DARK_FOREGROUND_RGBA, true)
         assertEquals(Color(0x1F2430), darkFg)
     }
 
     @Test
     fun `TAB_ACCENT_BG_ALPHA constant is 50`() {
-        val alpha = getPrivateField<Int>("TAB_ACCENT_BG_ALPHA")
+        val alpha = AccentUiKeys.TAB_ALPHA
         assertEquals(50, alpha)
     }
 
@@ -925,7 +920,7 @@ class AccentApplicatorTest {
         applyWithoutExtensions("#FFCC66")
         revertWithoutExtensions()
 
-        val alwaysOnUiKeys = getPrivateField<List<String>>("ALWAYS_ON_UI_KEYS")
+        val alwaysOnUiKeys = AccentUiKeys.accent
         for (key in alwaysOnUiKeys) {
             verify { UIManager.put(key, null) }
         }
@@ -946,9 +941,9 @@ class AccentApplicatorTest {
             AccentApplicator::class.java.declaredMethods
                 .first { it.name == "applyAlwaysOnUiKeys" }
         assertEquals(
-            4,
+            5,
             method.parameterCount,
-            "Expected (state, accent, entitlement, UI checkpoint): " +
+            "Expected (state, accent, context, entitlement, UI checkpoint): " +
                 "tab-mode resolution must share outer apply() snapshots and cannot drift mid-apply",
         )
         assertEquals(
@@ -962,9 +957,14 @@ class AccentApplicatorTest {
             "Second parameter must be the resolved accent Color",
         )
         assertEquals(
-            Boolean::class.javaPrimitiveType,
+            AccentContext::class.java,
             method.parameterTypes[2],
-            "Third parameter must be the chrome entitlement captured once by apply()",
+            "Third parameter must be the context captured by apply()",
+        )
+        assertEquals(
+            Boolean::class.javaPrimitiveType,
+            method.parameterTypes[3],
+            "Fourth parameter must be the chrome entitlement captured once by apply()",
         )
     }
 
@@ -1135,7 +1135,7 @@ class AccentApplicatorTest {
         AccentApplicator.applyFromHexString("#AABBCC")
         every { UIManager.put("EditorTabs.underlineArc", any()) } returns Unit
         // The torn apply restored the height it wrote, so nothing is left for the disable to clean up.
-        assertFalse(ExternalChromeOwnership.hasTabUnderline())
+        assertFalse(uiDefaultsOwner.ownsAny(setOf("EditorTabs.underlineHeight", "EditorTabs.underlineArc")))
         state.externalThemeChromeTintEnabled = false
         AccentApplicator.applyFromHexString("#AABBCC")
 
@@ -1488,7 +1488,7 @@ class AccentApplicatorTest {
         var focusColor: Any? = null
         every { UIManager.put("Component.focusColor", any()) } answers {
             focusColor = secondArg()
-            null
+            UIManager.getDefaults().put("Component.focusColor", focusColor)
         }
         val element = createFakeAccentElement(AccentElementId.CARET_ROW, "Caret Row")
         mockEpExtensionList(listOf(element))
@@ -1506,7 +1506,7 @@ class AccentApplicatorTest {
             cancellation,
             assertFailsWith<RuntimeException> { AccentApplicator.applyFromHexString(interruptedHex) },
         )
-        assertEquals(Color.decode(interruptedHex), focusColor)
+        assertEquals(Color.decode(if (duringPublication) interruptedHex else originalHex), focusColor)
         assertEquals(duringPublication, state.lastApplyOk)
         every { element.apply(any()) } returns Unit
         every { listener.accentChanged(any(), any(), any()) } returns Unit
@@ -1594,8 +1594,8 @@ class AccentApplicatorTest {
 
         AccentApplicator.revertAll()
 
-        // Verify always-on UI keys cleared
-        verify(atLeast = 12) { UIManager.put(any<String>(), null) }
+        // Cleanup without prior writes must preserve native defaults.
+        verify(exactly = 0) { UIManager.put(any<String>(), null) }
         // Verify element.revert() was called
         verify { mockElement.revert() }
     }
@@ -1751,7 +1751,7 @@ class AccentApplicatorTest {
 
         verify { mockApplication.invokeLater(any(), any<ModalityState>()) }
         verify(exactly = 0) { SwingUtilities.invokeLater(any()) }
-        verify(atLeast = 12) { UIManager.put(any<String>(), null) }
+        verify(exactly = 0) { UIManager.put(any<String>(), null) }
     }
 
     // Tests for applyElements via reflection

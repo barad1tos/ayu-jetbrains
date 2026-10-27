@@ -5,7 +5,9 @@ import com.intellij.openapi.actionSystem.ex.ActionManagerEx
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ui.DialogPanel
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.dsl.builder.panel
+import com.intellij.util.ui.ColorIcon
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
@@ -27,16 +29,21 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Color
 import java.awt.Component
 import java.awt.Container
+import java.awt.event.MouseEvent
 import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JSlider
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PluginsPanelTest {
@@ -430,6 +437,118 @@ class PluginsPanelTest {
             "A locked checkbox must never persist the premium allowance",
         )
         assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `native accent opt out is free and preserves future preferences through apply and reset`() {
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
+        mockkObject(AyuVariant.Companion, GlowOverlayManager)
+        every { AyuVariant.detect() } returns null
+        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeAccentSource = "FUTURE_SOURCE"
+        state.externalThemeAccent = "future-color"
+        state.externalThemeGlowEnabled = true
+        state.externalThemeCodeGlanceProEnabled = false
+        val pluginsPanel = PluginsPanel()
+        val dialog = buildDialogPanel(pluginsPanel)
+        val nativeOverride =
+            descendants(dialog, JCheckBox::class.java).single { it.text == "Override native theme accent" }
+        val master =
+            descendants(dialog, JCheckBox::class.java).single { it.text == "Enable Ayu enhancements on other themes" }
+        assertTrue(nativeOverride.isEnabled)
+        assertTrue(nativeOverride.isSelected)
+
+        nativeOverride.doClick()
+        master.doClick()
+        master.doClick()
+        pluginsPanel.apply()
+        assertFalse(pluginsPanel.isModified())
+        assertEquals("FUTURE_SOURCE", state.externalThemeAccentSource)
+        assertEquals("future-color", state.externalThemeAccent)
+        assertTrue(state.externalThemeGlowEnabled)
+        assertFalse(state.externalThemeCodeGlanceProEnabled)
+
+        nativeOverride.doClick()
+        pluginsPanel.reset()
+        assertFalse(nativeOverride.isSelected)
+        assertFalse(pluginsPanel.isModified())
+    }
+
+    @Test
+    fun `custom accent preview follows selection and reset without changing saved preferences`() {
+        var selections = 0
+        val picker = AccentSwatchPickerRow { selections++ }
+        val customLink = descendants(picker, ActionLink::class.java).single { it.text == "Custom…" }
+        picker.selectedHex = "#123456"
+        assertEquals(Color(0x12, 0x34, 0x56), assertIs<ColorIcon>(customLink.icon).iconColor)
+        assertTrue(customLink.toolTipText.contains("#123456"))
+        assertTrue(customLink.accessibleContext.accessibleDescription.contains("#123456"))
+        val customWidth = picker.preferredSize.width
+        picker.selectedHex = "#FFCC66"
+        assertEquals(Color(0xFF, 0xCC, 0x66), assertIs<ColorIcon>(customLink.icon).iconColor)
+        assertEquals(customWidth, picker.preferredSize.width)
+        picker.selectedHex = "future-color"
+        assertNull(customLink.icon)
+        assertEquals("future-color", picker.selectedHex)
+        picker.selectedHex = null
+        assertNull(customLink.icon)
+        assertEquals(0, selections)
+    }
+
+    @Test
+    fun `picker selection and reset preserve the native opt out`() {
+        mockkObject(AccentApplicator, AyuVariant.Companion, GlowOverlayManager)
+        every { AyuVariant.detect() } returns null
+        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
+            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
+        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeAccentOverrideEnabled = false
+        state.externalThemeAccent = "#123456"
+        val pluginsPanel = PluginsPanel()
+        val dialog = buildDialogPanel(pluginsPanel)
+        val picker = descendants(dialog, AccentSwatchPickerRow::class.java).single()
+        val firstSwatch = picker.components.first()
+        val click = MouseEvent(firstSwatch, MouseEvent.MOUSE_CLICKED, 0, 0, 1, 1, 1, false)
+        firstSwatch.dispatchEvent(click)
+        assertTrue(pluginsPanel.isModified())
+        pluginsPanel.reset()
+        assertEquals("#123456", picker.selectedHex)
+        val custom = descendants(picker, ActionLink::class.java).single { it.text == "Custom…" }
+        assertEquals(Color(0x12, 0x34, 0x56), assertIs<ColorIcon>(custom.icon).iconColor)
+        assertFalse(pluginsPanel.isModified())
+        firstSwatch.dispatchEvent(click)
+        pluginsPanel.apply()
+        assertFalse(state.externalThemeAccentOverrideEnabled)
+        assertEquals("MANUAL", state.externalThemeAccentSource)
+        assertEquals(picker.selectedHex, state.externalThemeAccent)
+    }
+
+    @Test
+    fun `allowed feature columns align at the top without spreading across the panel`() {
+        val dialog = buildDialogPanel(PluginsPanel())
+        dialog.setSize(1000, 1200)
+
+        fun layoutChildren(container: Container) {
+            container.doLayout()
+            container.components.filterIsInstance<Container>().forEach(::layoutChildren)
+        }
+        layoutChildren(dialog)
+        val checkboxes = descendants(dialog, JCheckBox::class.java)
+        val left = checkboxes.single { it.text == "Quick switcher" }
+        val right = checkboxes.single { it.text == "Glow" }
+        val leftPoint = SwingUtilities.convertPoint(left.parent, left.location, dialog)
+        val rightPoint = SwingUtilities.convertPoint(right.parent, right.location, dialog)
+        assertEquals(leftPoint.y, rightPoint.y)
+        assertTrue(rightPoint.x > leftPoint.x)
+        assertTrue(
+            rightPoint.x - leftPoint.x < dialog.width / 2,
+            "Feature column spacing ${rightPoint.x - leftPoint.x}px must stay compact in a ${dialog.width}px panel",
+        )
     }
 
     @Test

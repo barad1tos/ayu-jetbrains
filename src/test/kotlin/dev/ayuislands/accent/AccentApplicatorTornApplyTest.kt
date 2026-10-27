@@ -247,6 +247,7 @@ class AccentApplicatorTornApplyTest {
             try {
                 block()
             } finally {
+                uiDefaultsOwner.restore()
                 val after = developerDefaults()
                 for (key in before.keys + after.keys) {
                     if (before[key] !== after[key]) UIManager.put(key, before[key])
@@ -424,6 +425,8 @@ class AccentApplicatorTornApplyTest {
             assertSame(cancellation, thrown)
             assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor("Component.focusColor"))
             assertTrue(state.lastApplyOk)
+            every { listener.accentChanged(any(), any(), any()) } returns Unit
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#AABBCC"))
         }
     }
 
@@ -446,16 +449,19 @@ class AccentApplicatorTornApplyTest {
     @Test
     fun `abort after the tab underline step restores underline ownership with its keys`() {
         every { ComponentTreeRefresher.notifyOnly(any()) } throws IllegalStateException("notify failed")
-        ExternalChromeOwnership.markTabUnderline()
-        try {
-            withSuccessfulVisualApply {
+        withSuccessfulVisualApply {
+            val checkpoint = UiDefaultsCheckpoint()
+            uiDefaultsOwner.record(checkpoint)
+            uiDefaultsOwner.put("EditorTabs.underlineHeight", Integer.valueOf(9), checkpoint)
+            checkpoint.commit()
+            try {
                 assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
 
-                // The Ayu apply released ownership before the abort; the restore must hand it back.
-                assertTrue(ExternalChromeOwnership.hasTabUnderline())
+                assertEquals(9, UIManager.getInt("EditorTabs.underlineHeight"))
+                assertTrue(uiDefaultsOwner.ownsAny(setOf("EditorTabs.underlineHeight")))
+            } finally {
+                uiDefaultsOwner.restore()
             }
-        } finally {
-            ExternalChromeOwnership.releaseTabUnderline()
         }
     }
 
@@ -470,6 +476,92 @@ class AccentApplicatorTornApplyTest {
             } finally {
                 UIManager.put("Component.focusColor", saved)
             }
+        }
+    }
+
+    @Test
+    fun `nested apply cannot mix colors or replace the restart cache`() {
+        withSuccessfulVisualApply {
+            val defaults = UIManager.getDefaults()
+            var attempted = false
+            var nestedOutcome: AccentApplyOutcome? = null
+            val nestedListener =
+                PropertyChangeListener { event ->
+                    if (!attempted && event.propertyName == "GotItTooltip.background") {
+                        attempted = true
+                        nestedOutcome = AccentApplicator.applyFromHexString("#AABBCC")
+                    }
+                }
+            defaults.addPropertyChangeListener(nestedListener)
+            try {
+                assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#445566"))
+                assertTrue(attempted)
+                val nested = assertIs<AccentApplyOutcome.Torn>(nestedOutcome)
+                assertFalse(nested.visualsApplied)
+                assertEquals(
+                    expected = "Accent application is already in progress",
+                    actual =
+                        nested.failures
+                            .single()
+                            .error.message,
+                )
+                for (key in AccentUiKeys.accent) {
+                    assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor(key), message = key)
+                }
+                assertEquals(expected = "#445566", actual = state.lastAppliedAccentHex)
+                assertTrue(state.lastApplyOk)
+
+                assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#AABBCC"))
+                for (key in AccentUiKeys.accent) {
+                    assertEquals(expected = Color(0xAA, 0xBB, 0xCC), actual = UIManager.getColor(key), message = key)
+                }
+                assertEquals(expected = "#AABBCC", actual = state.lastAppliedAccentHex)
+                assertTrue(state.lastApplyOk)
+            } finally {
+                defaults.removePropertyChangeListener(nestedListener)
+            }
+        }
+    }
+
+    @Test
+    fun `external native opt out restores owned controls and retains explicit tab styling`() {
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        state.tabUnderlineHeight = 7
+        state.tabUnderlineGlowSync = false
+        every { AyuVariant.detect() } returns null
+        withSuccessfulVisualApply {
+            val key = "Button.default.startBackground"
+            val native = Color(0x81, 0x42, 0x73)
+            val nativeUnderline = Color(0x32, 0x74, 0x91)
+            val nativeIndicator = Color(0x73, 0x19, 0x42)
+            UIManager.put(key, native)
+            UIManager.put("EditorTabs.underlinedBorderColor", nativeUnderline)
+            UIManager.put("EditorTabs.underlineHeight", 2)
+            UIManager.put("ToolWindow.HeaderTab.underlineColor", nativeIndicator)
+            UIManager.put("TabbedPane.underlineColor", nativeIndicator)
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#445566"))
+            assertEquals(expected = Color(0x44, 0x55, 0x66), actual = UIManager.getColor(key))
+
+            state.externalThemeAccentOverrideEnabled = false
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#AABBCC"))
+            assertSame(expected = native, actual = UIManager.getColor(key))
+            assertSame(expected = Color.BLUE, actual = UIManager.getColor("Component.focusColor"))
+            assertEquals(
+                expected = Color(0xAA, 0xBB, 0xCC),
+                actual = UIManager.getColor("EditorTabs.underlinedBorderColor"),
+            )
+            assertEquals(expected = 7, actual = UIManager.getInt("EditorTabs.underlineHeight"))
+            assertSame(expected = nativeIndicator, actual = UIManager.getColor("ToolWindow.HeaderTab.underlineColor"))
+            assertSame(expected = nativeIndicator, actual = UIManager.getColor("TabbedPane.underlineColor"))
+            verify { IndentRainbowSync.apply(AccentContext.External, "#AABBCC") }
+
+            state.externalThemeChromeTintEnabled = false
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#DDEEFF"))
+            assertSame(expected = native, actual = UIManager.getColor(key))
+            assertSame(expected = nativeUnderline, actual = UIManager.getColor("EditorTabs.underlinedBorderColor"))
+            assertEquals(expected = 2, actual = UIManager.getInt("EditorTabs.underlineHeight"))
+            assertFalse(uiDefaultsOwner.ownsAny(setOf("EditorTabs.underlinedBorderColor")))
         }
     }
 

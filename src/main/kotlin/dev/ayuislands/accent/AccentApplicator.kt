@@ -14,7 +14,6 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.conflict.ConflictRegistry
@@ -49,6 +48,7 @@ object AccentApplicator {
         )
 
     private val log = logger<AccentApplicator>()
+    private var isApplying = false
 
     // First-WARN-then-DEBUG gates for osActiveProjectFrame error paths. Without them, a
     // broken frame mid-shutdown or an unavailable WindowManager would either spam idea.log
@@ -64,10 +64,6 @@ object AccentApplicator {
     // Paired gate; see osActiveFrameFailureLogged above for the WARN/DEBUG rationale.
     internal val windowManagerUnavailableLogged = AtomicBoolean(false)
 
-    private const val DARK_FOREGROUND_HEX = 0x1F2430
-    private val DARK_FOREGROUND = JBColor(DARK_FOREGROUND_HEX, DARK_FOREGROUND_HEX)
-    private const val TAB_ACCENT_BG_ALPHA = 50
-    private const val KEY_TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
     private const val KEY_TAB_UNDERLINE_HEIGHT = "EditorTabs.underlineHeight"
     private const val KEY_TAB_UNDERLINE_ARC = "EditorTabs.underlineArc"
     private const val DEFAULT_UNDERLINE_ARC = 8
@@ -81,12 +77,6 @@ object AccentApplicator {
             AccentElementId.BRACKET_MATCH,
             AccentElementId.MATCHING_TAG,
         )
-    private val TRANSPARENT_TAB_BACKGROUND =
-        JBColor(
-            ColorUtil.toAlpha(JBColor.BLACK, 0),
-            ColorUtil.toAlpha(JBColor.BLACK, 0),
-        )
-
     // CGP viewport defaults live in [CodeGlanceProIntegration] — they are
     // exclusively read inside that peer object. See
     // [CodeGlanceProIntegration.CGP_DEFAULT_VIEWPORT_COLOR] for the javap provenance and
@@ -125,29 +115,6 @@ object AccentApplicator {
     internal fun resetCodeGlanceProRevertHookForTests() {
         codeGlanceProRevertHook.remove()
     }
-
-    // Always-on UIManager keys (not per-element toggleable)
-    private val ALWAYS_ON_UI_KEYS =
-        listOf(
-            // GotItTooltip
-            "GotItTooltip.background",
-            "GotItTooltip.borderColor",
-            // Default button
-            "Button.default.startBackground",
-            "Button.default.endBackground",
-            // Focus border
-            "Component.focusedBorderColor",
-            "Component.focusColor",
-            // Drag and drop
-            "DragAndDrop.borderColor",
-            // Trial widget
-            "TrialWidget.Alert.borderColor",
-            "TrialWidget.Alert.foreground",
-            // Tab underlines (always accent, not toggleable)
-            "ToolWindow.HeaderTab.underlineColor",
-            "TabbedPane.underlineColor",
-            "EditorTabs.underlinedBorderColor",
-        )
 
     // Always-on editor ColorKeys (not per-element toggleable)
     private val ALWAYS_ON_EDITOR_COLOR_KEYS =
@@ -189,127 +156,138 @@ object AccentApplicator {
     @RequiresEdt
     internal fun apply(accentHex: AccentHex): AccentApplyOutcome {
         check(SwingUtilities.isEventDispatchThread()) { "Accent application must run on EDT" }
-        val trimmedHex = accentHex.value
-        val accent = accentHex.toColor()
-        val state = AyuIslandsSettings.getInstance().state
-        val context = AccentContext.detect()
-        val uiDefaults = UiDefaultsCheckpoint()
-        val ownedTabUnderline = ExternalChromeOwnership.hasTabUnderline()
-        // Underline ownership must follow the underline keys back when an aborted apply restores them.
-        uiDefaults.onRestore { ExternalChromeOwnership.restoreTabUnderline(ownedTabUnderline) }
-        val isChromeAllowed: Boolean by lazy(LazyThreadSafetyMode.NONE) {
-            LicenseChecker.isLicensedOrGrace()
+        if (isApplying) {
+            val failure = IllegalStateException("Accent application is already in progress")
+            log.warn("Skipping nested accent application", failure)
+            return AccentApplyOutcome.Torn(
+                accentHex,
+                listOf(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, failure)),
+            )
         }
-
-        // Cancellation can prevent outcome delivery after any paint or publication step.
-        ProjectAccentSwapService.getInstance().invalidateAppliedAccent()
-
-        // Persist BEFORE the EP iteration so the cache survives a mid-EP
-        // throw. Clear the clean-apply flag here; only the MarkApplyClean step
-        // sets it true — the startup listener reads the pair and falls through
-        // to the resolver when the flag is false.
-        state.lastAppliedAccentHex = trimmedHex
-        state.lastApplyOk = false
-
-        // Step order AND gating live only in [applyPlanFor] (including the
-        // IR-before-CGP-before-notify integration lock shared with revertAll);
-        // this map binds every step unconditionally to its side-effecting
-        // worker. Context-shaped steps guard with checkNotNull so a plan bug
-        // that schedules them without their input fails with a precise message
-        // (surfaced as that step's failure) instead of an NPE.
-        val containedFailures = mutableListOf<AccentApplyStepFailure>()
-        val recordFailure: (AccentApplyStepFailure) -> Unit = { failure ->
-            containedFailures += failure
-            log.warn("Accent apply torn at ${failure.step} (hex=$trimmedHex)", failure.error)
-        }
-        val workers: Map<AccentApplyStep, () -> Unit> =
-            buildMap {
-                put(AccentApplyStep.ApplyAlwaysOnUiKeys) {
-                    applyAlwaysOnUiKeys(state, accent, isChromeAllowed, uiDefaults)
-                }
-                put(AccentApplyStep.ApplyElements) {
-                    applyElements(
-                        state,
-                        accent,
-                        checkNotNull(context) { "ApplyElements planned without accent context" },
-                        isChromeAllowed,
-                        onFailure = recordFailure,
-                    )
-                }
-                put(AccentApplyStep.ApplyTabUnderline) {
-                    applyTabUnderline(
-                        state,
-                        checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
-                        isChromeAllowed,
-                        uiDefaults,
-                    )
-                }
-                put(AccentApplyStep.SyncIndentRainbow) {
-                    IndentRainbowSync
-                        .apply(
-                            checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
-                            trimmedHex,
-                        ).propagateFailure()
-                }
-                put(AccentApplyStep.SyncCodeGlanceProViewport) {
-                    CodeGlanceProIntegration
-                        .syncCodeGlanceProViewport(trimmedHex, context)
-                        .propagateFailure()
-                }
-                put(AccentApplyStep.ApplyAlwaysOnEditorKeys) { applyAlwaysOnEditorKeys(accent) }
-                put(AccentApplyStep.NotifyComponentTrees) {
-                    // Mirror of the refresh hook in revertAll. Re-publish
-                    // ComponentTreeRefreshedTopic after EP apply so subscribers
-                    // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
-                    // UIManager state. Chrome surfaces do NOT subscribe to this topic —
-                    // they own their own live-refresh path.
-                    //
-                    // This site MUST NOT publish LafManagerListener.TOPIC — that broadcast
-                    // would re-enter the LAF cycle. notifyOnly only.
-                    for (project in ProjectManager.getInstance().openProjects) {
-                        if (!project.isUsable()) continue
-                        ComponentTreeRefresher.notifyOnly(project)
-                    }
-                }
-                put(AccentApplyStep.RepaintWindows) { repaintAllWindows(Window.getWindows()) }
-                // A throw in any earlier step aborts the plan and skips this
-                // write, leaving the flag false so the startup listener
-                // (AyuIslandsAppListener.appFrameCreated) falls through to the
-                // resolver rather than trusting the cached hex.
-                put(AccentApplyStep.MarkApplyClean) {
-                    state.lastApplyOk = containedFailures.isEmpty()
-                    // Every write ran: a contained element failure stays torn but keeps its colors.
-                    uiDefaults.commit()
-                }
-                put(AccentApplyStep.PublishAccentChanged) {
-                    if (containedFailures.isEmpty()) {
-                        publishAccentChanged(accentHex, recordFailure)
-                    }
-                }
+        isApplying = true
+        try {
+            val trimmedHex = accentHex.value
+            val accent = accentHex.toColor()
+            val state = AyuIslandsSettings.getInstance().state
+            val context = AccentContext.detect()
+            val uiDefaults = UiDefaultsCheckpoint()
+            uiDefaultsOwner.record(uiDefaults)
+            val isChromeAllowed: Boolean by lazy(LazyThreadSafetyMode.NONE) {
+                LicenseChecker.isLicensedOrGrace()
             }
 
-        val failures =
-            uiDefaults.restoringOnFailure {
-                AccentApplyPlanRunner.runNow(
-                    plan = applyPlanFor(context),
-                    executeStep = { step -> workers.getValue(step)() },
-                )
+            // Cancellation can prevent outcome delivery after any paint or publication step.
+            ProjectAccentSwapService.getInstance().invalidateAppliedAccent()
+
+            // Persist BEFORE the EP iteration so the cache survives a mid-EP
+            // throw. Clear the clean-apply flag here; only the MarkApplyClean step
+            // sets it true — the startup listener reads the pair and falls through
+            // to the resolver when the flag is false.
+            state.lastAppliedAccentHex = trimmedHex
+            state.lastApplyOk = false
+
+            // Step order AND gating live only in [applyPlanFor] (including the
+            // IR-before-CGP-before-notify integration lock shared with revertAll);
+            // this map binds every step unconditionally to its side-effecting
+            // worker. Context-shaped steps guard with checkNotNull so a plan bug
+            // that schedules them without their input fails with a precise message
+            // (surfaced as that step's failure) instead of an NPE.
+            val containedFailures = mutableListOf<AccentApplyStepFailure>()
+            val recordFailure: (AccentApplyStepFailure) -> Unit = { failure ->
+                containedFailures += failure
+                log.warn("Accent apply torn at ${failure.step} (hex=$trimmedHex)", failure.error)
             }
-        for ((step, error) in failures) {
-            log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
-        }
-        val outcome = AccentApplyOutcome.of(accentHex, containedFailures + failures)
-        if (!outcome.visualsApplied) {
-            uiDefaults
-                .restoreAfterTear((containedFailures + failures).map(AccentApplyStepFailure::error))
-                ?.let { recovery ->
-                    recordFailure(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, recovery))
+            val workers: Map<AccentApplyStep, () -> Unit> =
+                buildMap {
+                    put(AccentApplyStep.ApplyAlwaysOnUiKeys) {
+                        applyAlwaysOnUiKeys(state, accent, context, isChromeAllowed, uiDefaults)
+                    }
+                    put(AccentApplyStep.ApplyElements) {
+                        applyElements(
+                            state,
+                            accent,
+                            checkNotNull(context) { "ApplyElements planned without accent context" },
+                            isChromeAllowed,
+                            onFailure = recordFailure,
+                        )
+                    }
+                    put(AccentApplyStep.ApplyTabUnderline) {
+                        applyTabUnderline(
+                            state,
+                            checkNotNull(context) { "ApplyTabUnderline planned without accent context" },
+                            isChromeAllowed,
+                            uiDefaults,
+                        )
+                    }
+                    put(AccentApplyStep.SyncIndentRainbow) {
+                        IndentRainbowSync
+                            .apply(
+                                checkNotNull(context) { "SyncIndentRainbow planned without accent context" },
+                                trimmedHex,
+                            ).propagateFailure()
+                    }
+                    put(AccentApplyStep.SyncCodeGlanceProViewport) {
+                        CodeGlanceProIntegration
+                            .syncCodeGlanceProViewport(trimmedHex, context)
+                            .propagateFailure()
+                    }
+                    put(AccentApplyStep.ApplyAlwaysOnEditorKeys) { applyAlwaysOnEditorKeys(accent) }
+                    put(AccentApplyStep.NotifyComponentTrees) {
+                        // Mirror of the refresh hook in revertAll. Re-publish
+                        // ComponentTreeRefreshedTopic after EP apply so subscribers
+                        // (EditorScrollbarManager, ProjectViewScrollbarManager) re-read
+                        // UIManager state. Chrome surfaces do NOT subscribe to this topic —
+                        // they own their own live-refresh path.
+                        //
+                        // This site MUST NOT publish LafManagerListener.TOPIC — that broadcast
+                        // would re-enter the LAF cycle. notifyOnly only.
+                        for (project in ProjectManager.getInstance().openProjects) {
+                            if (!project.isUsable()) continue
+                            ComponentTreeRefresher.notifyOnly(project)
+                        }
+                    }
+                    put(AccentApplyStep.RepaintWindows) { repaintAllWindows(Window.getWindows()) }
+                    // A throw in any earlier step aborts the plan and skips this
+                    // write, leaving the flag false so the startup listener
+                    // (AyuIslandsAppListener.appFrameCreated) falls through to the
+                    // resolver rather than trusting the cached hex.
+                    put(AccentApplyStep.MarkApplyClean) {
+                        state.lastApplyOk = containedFailures.isEmpty()
+                        // Every write ran: a contained element failure stays torn but keeps its colors.
+                        uiDefaults.commit()
+                    }
+                    put(AccentApplyStep.PublishAccentChanged) {
+                        if (containedFailures.isEmpty()) {
+                            publishAccentChanged(accentHex, recordFailure)
+                        }
+                    }
                 }
-            // Restored defaults reach already painted surfaces only on repaint.
-            runCatchingPreservingCancellation { repaintAllWindows(Window.getWindows()) }
-                .onFailure { error -> recordFailure(AccentApplyStepFailure(AccentApplyStep.RepaintWindows, error)) }
+
+            val failures =
+                uiDefaults.restoringOnFailure {
+                    AccentApplyPlanRunner.runNow(
+                        plan = applyPlanFor(context),
+                        executeStep = { step -> workers.getValue(step)() },
+                    )
+                }
+            for ((step, error) in failures) {
+                log.warn("Accent apply torn at $step (hex=$trimmedHex)", error)
+            }
+            val outcome = AccentApplyOutcome.of(accentHex, containedFailures + failures)
+            if (!outcome.visualsApplied) {
+                uiDefaults
+                    .restoreAfterTear((containedFailures + failures).map(AccentApplyStepFailure::error))
+                    ?.let { recovery ->
+                        recordFailure(AccentApplyStepFailure(AccentApplyStep.ApplyAlwaysOnUiKeys, recovery))
+                    }
+                // Restored defaults reach already painted surfaces only on repaint.
+                runCatchingPreservingCancellation { repaintAllWindows(Window.getWindows()) }
+                    .onFailure { error -> recordFailure(AccentApplyStepFailure(AccentApplyStep.RepaintWindows, error)) }
+            }
+            return AccentApplyOutcome.of(accentHex, containedFailures + failures)
+        } finally {
+            isApplying = false
         }
-        return AccentApplyOutcome.of(accentHex, containedFailures + failures)
     }
 
     /** Resolve the focused project's existing override chain and update the cache from its outcome. */
@@ -505,22 +483,8 @@ object AccentApplicator {
     }
 
     private fun clearReverseUiAndExtensions(): ElementRevertFailure? {
-        for (key in ALWAYS_ON_UI_KEYS) {
-            UIManager.put(key, null)
-        }
-        UIManager.put("GotItTooltip.foreground", null)
-        UIManager.put("GotItTooltip.Button.foreground", null)
-        UIManager.put("GotItTooltip.Header.foreground", null)
-        UIManager.put("Button.default.focusedBorderColor", null)
-        UIManager.put("Button.default.startBorderColor", null)
-        UIManager.put("Button.default.endBorderColor", null)
-        UIManager.put(KEY_TAB_BACKGROUND, null)
-        UIManager.put(KEY_TAB_UNDERLINE_HEIGHT, null)
-        UIManager.put(KEY_TAB_UNDERLINE_ARC, null)
-        ExternalChromeOwnership.releaseTabUnderline()
-
         val failedExternalReverts = mutableSetOf<AccentElementId>()
-        var firstFailure: Throwable? = null
+        var firstFailure = runCatchingPreservingCancellation { uiDefaultsOwner.restore() }.exceptionOrNull()
         for (element in EP_NAME.extensionList) {
             val failure = runCatchingPreservingCancellation { element.revert() }.exceptionOrNull() ?: continue
             failedExternalReverts.add(element.id)
@@ -617,44 +581,32 @@ object AccentApplicator {
     private fun applyAlwaysOnUiKeys(
         state: AyuIslandsState,
         accent: Color,
+        context: AccentContext?,
         isChromeAllowed: Boolean,
         uiDefaults: UiDefaultsCheckpoint,
     ) {
-        for (key in ALWAYS_ON_UI_KEYS) {
-            uiDefaults.put(key, accent)
-        }
-
-        // Contrast foreground for accent-background elements (GotItTooltip, buttons)
-        val contrastForeground = if (ColorUtil.isDark(accent)) JBColor.WHITE else DARK_FOREGROUND
-        uiDefaults.put("GotItTooltip.foreground", contrastForeground)
-        uiDefaults.put("GotItTooltip.Button.foreground", contrastForeground)
-        uiDefaults.put("GotItTooltip.Header.foreground", contrastForeground)
-
-        // Darkened accent for default button borders (~15% darker)
-        val darkenedAccent = ColorUtil.darker(accent, 1)
-        uiDefaults.put("Button.default.focusedBorderColor", darkenedAccent)
-        uiDefaults.put("Button.default.startBorderColor", darkenedAccent)
-        uiDefaults.put("Button.default.endBorderColor", darkenedAccent)
-
-        // Editor tab background tint follows the persisted mode when chrome features are entitled.
         val tabMode = effectiveTabMode(state, isChromeAllowed)
-        when (tabMode) {
-            GlowTabMode.MINIMAL -> {
-                uiDefaults.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
-            }
-
-            GlowTabMode.FULL -> {
-                val tintedColor = ColorUtil.toAlpha(accent, TAB_ACCENT_BG_ALPHA)
-                val tinted = JBColor(tintedColor, tintedColor)
-                uiDefaults.put(KEY_TAB_BACKGROUND, tinted)
-            }
-
-            GlowTabMode.OFF -> {
-                val variant = AyuVariant.detect()
-                val neutralColor = variant?.let { Color.decode(it.neutralGray) }
-                uiDefaults.put("EditorTabs.underlinedBorderColor", neutralColor)
-                uiDefaults.put(KEY_TAB_BACKGROUND, TRANSPARENT_TAB_BACKGROUND)
-            }
+        val policy =
+            accentUiPolicy(
+                context == AccentContext.External,
+                state.externalThemeAccentOverrideEnabled,
+                state.isExternalChromeTintAllowed() && isChromeAllowed,
+                tabMode,
+            )
+        val palette =
+            accentUiPalette(
+                AccentUiInput(
+                    accent = accent,
+                    neutral = context?.variant?.let { Color.decode(it.neutralGray) },
+                    tabMode = tabMode,
+                    foregroundOnDark = JBColor.WHITE.rgb,
+                    policy = policy,
+                ),
+            )
+        uiDefaultsOwner.restore(AccentUiKeys.colors - palette.keys, uiDefaults)
+        for ((key, rgba) in palette) {
+            val color = rgba?.let { JBColor(Color(it, true), Color(it, true)) }
+            uiDefaultsOwner.put(key, color, uiDefaults)
         }
     }
 
@@ -688,19 +640,16 @@ object AccentApplicator {
     ) {
         val variant = context.variant
         val tabMode = effectiveTabMode(state, isChromeAllowed)
-        if (
-            context == AccentContext.External &&
-            (!canTintExternalChrome(state, context, isChromeAllowed) || tabMode == GlowTabMode.OFF)
-        ) {
-            if (ExternalChromeOwnership.hasTabUnderline()) {
-                uiDefaults.put(KEY_TAB_UNDERLINE_HEIGHT, null)
-                uiDefaults.put(KEY_TAB_UNDERLINE_ARC, null)
-                ExternalChromeOwnership.releaseTabUnderline()
-            }
+        val policy =
+            accentUiPolicy(
+                context == AccentContext.External,
+                state.externalThemeAccentOverrideEnabled,
+                state.isExternalChromeTintAllowed() && isChromeAllowed,
+                tabMode,
+            )
+        if (!policy.overrideTabGeometry) {
+            uiDefaultsOwner.restore(setOf(KEY_TAB_UNDERLINE_HEIGHT, KEY_TAB_UNDERLINE_ARC), uiDefaults)
             return
-        }
-        if (context != AccentContext.External) {
-            ExternalChromeOwnership.releaseTabUnderline()
         }
         if (tabMode == GlowTabMode.OFF && variant != null) {
             val scheme = AyuEditorSchemeScope.activeScheme()
@@ -720,13 +669,10 @@ object AccentApplicator {
             } else {
                 AyuIslandsState.DEFAULT_TAB_UNDERLINE_HEIGHT
             }
-        if (context == AccentContext.External) {
-            ExternalChromeOwnership.markTabUnderline()
-        }
-        uiDefaults.put(KEY_TAB_UNDERLINE_HEIGHT, Integer.valueOf(height))
+        uiDefaultsOwner.put(KEY_TAB_UNDERLINE_HEIGHT, Integer.valueOf(height), uiDefaults)
 
         val arc = UIManager.getInt("Island.arc").let { if (it > 0) it else DEFAULT_UNDERLINE_ARC }
-        uiDefaults.put(KEY_TAB_UNDERLINE_ARC, Integer.valueOf(arc))
+        uiDefaultsOwner.put(KEY_TAB_UNDERLINE_ARC, Integer.valueOf(arc), uiDefaults)
 
         log.info("Tab underline: height=${height}px, arc=${arc}px")
     }
@@ -849,7 +795,6 @@ internal object ExternalChromeOwnership {
         java.util.EnumSet.noneOf(AccentElementId::class.java)
     private val typeMismatchLogged: MutableSet<AccentElementId> =
         java.util.EnumSet.noneOf(AccentElementId::class.java)
-    private var ownsTabUnderline = false
 
     fun apply(
         elements: List<AccentElement>,
@@ -870,21 +815,6 @@ internal object ExternalChromeOwnership {
 
     fun clearOwnership() {
         ownedElements.clear()
-        ownsTabUnderline = false
-    }
-
-    fun markTabUnderline() {
-        ownsTabUnderline = true
-    }
-
-    fun hasTabUnderline(): Boolean = ownsTabUnderline
-
-    fun releaseTabUnderline() {
-        ownsTabUnderline = false
-    }
-
-    fun restoreTabUnderline(owned: Boolean) {
-        ownsTabUnderline = owned
     }
 
     fun finishRevert(failedElements: Set<AccentElementId>) {
@@ -893,6 +823,7 @@ internal object ExternalChromeOwnership {
 
     @TestOnly
     fun resetForTests() {
+        uiDefaultsOwner.restore()
         clearOwnership()
         typeMismatchLogged.clear()
     }
