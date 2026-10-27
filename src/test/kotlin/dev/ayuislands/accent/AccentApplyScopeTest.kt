@@ -100,9 +100,43 @@ class AccentApplyScopeTest {
             scope.runStep { putAccentUiDefault(KEY, Color.RED) }
             UIManager.put(KEY, Color.YELLOW)
             scope.runStep { putAccentUiDefault(KEY, Color.GREEN) }
+            assertSame(expected = Color.YELLOW, actual = UIManager.getColor(KEY))
+            UIManager.put(KEY, Color.RED)
+            scope.runStep { putAccentUiDefault(KEY, Color.PINK) }
+            assertSame(expected = Color.RED, actual = UIManager.getColor(KEY))
             scope.restore()
 
-            assertSame(expected = Color.YELLOW, actual = UIManager.getColor(KEY))
+            assertSame(expected = Color.RED, actual = UIManager.getColor(KEY))
+        }
+
+    @Test
+    fun `retry preserves a rollback subscriber's foreign edit while independent keys recover`() =
+        withScope { scope ->
+            UIManager.put(KEY, Color.BLUE)
+            UIManager.put(OTHER_KEY, Color.WHITE)
+            scope.runStep { putAccentUiDefault(KEY, Color.RED) }
+            scope.runStep { putAccentUiDefault(OTHER_KEY, Color.PINK) }
+            scope.runStep { putAccentUiDefault(KEY, Color.GREEN) }
+            val defaults = UIManager.getDefaults()
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == KEY && event.newValue === Color.RED) {
+                        UIManager.put(KEY, Color.GREEN)
+                        error("newer write remains after interrupted restoration")
+                    }
+                }
+            defaults.addPropertyChangeListener(listener)
+            try {
+                assertFailsWith<IllegalStateException> { scope.restore() }
+                assertSame(expected = Color.GREEN, actual = UIManager.getColor(KEY))
+                assertSame(expected = Color.WHITE, actual = UIManager.getColor(OTHER_KEY))
+            } finally {
+                defaults.removePropertyChangeListener(listener)
+            }
+
+            scope.restore()
+
+            assertSame(expected = Color.GREEN, actual = UIManager.getColor(KEY))
         }
 
     @Test
