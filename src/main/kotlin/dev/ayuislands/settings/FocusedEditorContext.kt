@@ -7,6 +7,7 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileDocumentManager
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.project.Project
 import java.awt.Component
 import java.awt.KeyboardFocusManager
@@ -64,12 +65,18 @@ internal class FocusedEditorContext(
 
         fun getInstance(): FocusedEditorContext = service()
 
-        private fun readFocusedEditorContext(component: Component): SettingsOpenContext? {
-            val dataContext = DataManager.getInstance().getDataContext(component)
-            val editor = dataContext.getData(CommonDataKeys.EDITOR) ?: return null
-            val project = editor.project ?: dataContext.getData(CommonDataKeys.PROJECT) ?: return null
-            val activeFile = FileDocumentManager.getInstance().getFile(editor.document) ?: return null
-            return SettingsOpenContext(project, ActiveFileContext.capture(activeFile.name, activeFile.fileType))
-        }
+        private fun readFocusedEditorContext(component: Component): SettingsOpenContext? =
+            // Focus changes can run inside a cancelled dialog's disposal; the snapshot must finish synchronously.
+            ProgressManager.getInstance().computeInNonCancelableSection<SettingsOpenContext?, RuntimeException> {
+                val dataContext = DataManager.getInstance().getDataContext(component)
+                val editor = CommonDataKeys.EDITOR.getData(dataContext) ?: return@computeInNonCancelableSection null
+                val project =
+                    editor.project ?: CommonDataKeys.PROJECT.getData(dataContext)
+                        ?: return@computeInNonCancelableSection null
+                val activeFile =
+                    FileDocumentManager.getInstance().getFile(editor.document)
+                        ?: return@computeInNonCancelableSection null
+                SettingsOpenContext(project, ActiveFileContext.capture(activeFile.name, activeFile.fileType))
+            }
     }
 }
