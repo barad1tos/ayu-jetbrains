@@ -6,12 +6,15 @@ import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.integration.IntegrationOwnership
+import dev.ayuislands.integration.captureFailure
+import dev.ayuislands.integration.invokeNative
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import org.jetbrains.annotations.TestOnly
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
+
+private val log = logger<CodeGlanceProIntegration>()
 
 /**
  * CodeGlance Pro integration helper. Owns the reflection chain that talks
@@ -41,8 +44,6 @@ import java.lang.reflect.Method
  * the same surface that an apply opened.
  */
 internal object CodeGlanceProIntegration {
-    private val log = logger<CodeGlanceProIntegration>()
-
     private const val CGP_RESOLUTION_FAILED = "method resolution failed"
     private const val CGP_SYNC_FAILED = "sync failed"
     private const val CGP_RESTORE_FAILED = "restore failed"
@@ -99,6 +100,8 @@ internal object CodeGlanceProIntegration {
 
     @Volatile private var cgpResolutionFailure: Throwable? = null
 
+    private val receipts = IntegrationReceipts<CgpCheckpoint>()
+
     private fun resolveCgpMethods() {
         if (cgpMethodsResolved) return
         cgpMethodsResolved = true
@@ -118,7 +121,7 @@ internal object CodeGlanceProIntegration {
             val service = resolveApplicationService(serviceClass) ?: return
 
             val getState = service.javaClass.getMethod("getState")
-            val config = getState.invoke(service) ?: return
+            val config = invokeNative { getState.invoke(service) } ?: return
             val configClass = config.javaClass
             val viewport =
                 CgpViewportMethods(
@@ -143,6 +146,10 @@ internal object CodeGlanceProIntegration {
                     "${exception.javaClass.simpleName}: ${exception.message}",
             )
         } catch (exception: RuntimeException) {
+            if (exception.isAccentCancellation()) {
+                cgpMethodsResolved = false
+                throw exception
+            }
             cgpResolutionFailure = exception
             log.warn(
                 "CodeGlance Pro $CGP_RESOLUTION_FAILED (unexpected runtime error " +
@@ -162,6 +169,11 @@ internal object CodeGlanceProIntegration {
     fun syncCodeGlanceProViewport(accentHex: String): IntegrationOutcome = syncCodeGlanceProViewport(accentHex, null)
 
     fun syncCodeGlanceProViewport(
+        accentHex: String,
+        context: AccentContext?,
+    ): IntegrationOutcome = checkpointed { syncViewportNow(accentHex, context) }
+
+    private fun syncViewportNow(
         accentHex: String,
         context: AccentContext?,
     ): IntegrationOutcome {
@@ -232,8 +244,8 @@ internal object CodeGlanceProIntegration {
             }
             val writeError = access.writeViewportOrError(target)
             if (writeError != null) {
-                handleSyncRollback(state, access, current, ownership, writeError)
-                return failedOutcome(CGP_SYNC_FAILED, writeError)
+                val failure = handleSyncRollback(state, access, current, ownership, writeError)
+                return failedOutcome(CGP_SYNC_FAILED, failure)
             }
 
             state.storeCgpApplied(target)
@@ -254,7 +266,9 @@ internal object CodeGlanceProIntegration {
      * Restores the exact pre-Ayu viewport only while all current values still
      * match the last successful Ayu write.
      */
-    fun restoreOwnedState(): IntegrationOutcome {
+    fun restoreOwnedState(): IntegrationOutcome = checkpointed(::restoreOwnedStateNow)
+
+    private fun restoreOwnedStateNow(): IntegrationOutcome {
         val state = AyuIslandsSettings.getInstance().state
         val ownership = IntegrationOwnership.fromName(state.cgpOwnership)
         if (ownership == IntegrationOwnership.RECOVERY_PENDING) {
@@ -307,10 +321,9 @@ internal object CodeGlanceProIntegration {
         access: CgpAccess,
         failure: ViewportWriteFailure,
     ): IntegrationOutcome.Failed {
-        if (!failure.isRolledBack) {
-            captureRecoveryViewport(state, access, failure.error)
-        }
-        return failedOutcome(CGP_RESTORE_FAILED, failure.error)
+        val error =
+            if (failure.isRolledBack) failure.error else captureRecoveryViewport(state, access, failure.error)
+        return failedOutcome(CGP_RESTORE_FAILED, error)
     }
 
     fun revertCodeGlanceProViewport(): IntegrationOutcome = restoreOwnedState()
@@ -323,9 +336,28 @@ internal object CodeGlanceProIntegration {
         }
     }
 
+    private fun checkpointed(action: () -> IntegrationOutcome): IntegrationOutcome =
+        receipts.run(
+            create = {
+                val state = AyuIslandsSettings.getInstance().state
+                CgpCheckpoint(
+                    state = state,
+                    isCurrent = { AyuIslandsSettings.getInstance().state === state },
+                    isTarget = { access ->
+                        val methods = cgpMethods
+                        methods != null &&
+                            resolveApplicationService(methods.service.javaClass) === methods.service &&
+                            access.isTarget(invokeNative { methods.getState.invoke(methods.service) })
+                    },
+                    retainReceipt = receipts::retain,
+                )
+            },
+            action = action,
+        )
+
     private fun resolvedAccess(): CgpAccess? {
         val methods = cgpMethods ?: return null
-        val config = methods.getState.invoke(methods.service) ?: return null
+        val config = invokeNative { methods.getState.invoke(methods.service) } ?: return null
         val viewport = methods.viewport
         return CgpAccess(
             config = config,
@@ -335,20 +367,7 @@ internal object CodeGlanceProIntegration {
             setColor = viewport.setColor,
             setBorder = viewport.setBorder,
             setThickness = viewport.setThickness,
-        )
-    }
-
-    private fun failedOutcome(
-        operation: String,
-        error: Throwable,
-        captureRecovery: (() -> Unit)? = null,
-    ): IntegrationOutcome.Failed {
-        captureRecovery?.invoke()
-        log.warn(
-            "CodeGlance Pro $operation: ${error.javaClass.simpleName}: ${error.message}",
-            error,
-        )
-        return IntegrationOutcome.Failed(operation, error)
+        ).also { it.checkpoint = receipts.current }
     }
 
     private fun handleSyncRollback(
@@ -357,29 +376,15 @@ internal object CodeGlanceProIntegration {
         current: CgpViewport,
         ownership: IntegrationOwnership,
         error: Throwable,
-    ) {
-        if (!access.rollbackViewport(current, error)) {
-            captureRecoveryViewport(state, access, error)
-        } else if (ownership == IntegrationOwnership.UNOWNED) {
+    ): Throwable {
+        val rollbackError = access.rollbackViewport(current)
+        if (rollbackError != null) {
+            return captureRecoveryViewport(state, access, combineUiFailures(error, rollbackError))
+        }
+        if (ownership == IntegrationOwnership.UNOWNED) {
             clearOwnership(state)
         }
-    }
-
-    private fun captureRecoveryViewport(
-        state: AyuIslandsState,
-        access: CgpAccess,
-        error: Throwable,
-    ) {
-        try {
-            state.storeCgpApplied(access.readViewport())
-            state.cgpOwnership = IntegrationOwnership.RECOVERY_PENDING.name
-        } catch (captureError: ReflectiveOperationException) {
-            error.addSuppressed(captureError)
-            suspendOwnership(state)
-        } catch (captureError: RuntimeException) {
-            error.addSuppressed(captureError)
-            suspendOwnership(state)
-        }
+        return error
     }
 
     private fun recoverPendingViewport(
@@ -399,28 +404,18 @@ internal object CodeGlanceProIntegration {
                 suspendOwnership(state)
                 return IntegrationOutcome.Skipped
             }
-        return try {
-            if (access.readViewport() != pending) {
-                suspendOwnership(state)
-                return IntegrationOutcome.Skipped
+        var outcome: IntegrationOutcome? = null
+        val failure =
+            captureFailure {
+                if (access.readViewport() != pending) {
+                    suspendOwnership(state)
+                    outcome = IntegrationOutcome.Skipped
+                } else {
+                    access.writeViewport(base)
+                    clearOwnership(state)
+                }
             }
-            access.writeViewport(base)
-            clearOwnership(state)
-            null
-        } catch (exception: InvocationTargetException) {
-            val error = exception.cause ?: exception
-            failedOutcome(CGP_RESTORE_FAILED, error) {
-                captureRecoveryViewport(state, access, error)
-            }
-        } catch (exception: ReflectiveOperationException) {
-            failedOutcome(CGP_RESTORE_FAILED, exception) {
-                captureRecoveryViewport(state, access, exception)
-            }
-        } catch (exception: RuntimeException) {
-            failedOutcome(CGP_RESTORE_FAILED, exception) {
-                captureRecoveryViewport(state, access, exception)
-            }
-        }
+        return failure?.let { failedOutcome(CGP_RESTORE_FAILED, captureRecoveryViewport(state, access, it)) } ?: outcome
     }
 
     private fun restorePendingViewport(state: AyuIslandsState): IntegrationOutcome {
@@ -452,17 +447,7 @@ internal object CodeGlanceProIntegration {
         }
     }
 
-    private fun resolveApplicationService(serviceClass: Class<*>): Any? {
-        // CGP's service class is resolved from CGP's plugin classloader, so DevKit
-        // cannot prove registration at compile time. Reflecting the platform
-        // lookup keeps this cross-plugin integration dynamic without adding CGP as
-        // a compile-time dependency.
-        val application = ApplicationManager.getApplication()
-        val getService = application.javaClass.getMethod("getService", Class::class.java)
-        return getService.invoke(application, serviceClass)
-    }
-
-    @TestOnly
+    @org.jetbrains.annotations.TestOnly
     internal fun seedReflectionMethods(methods: CgpMethods) {
         cgpMethods = methods
         cgpMethodsResolved = true
@@ -475,6 +460,39 @@ internal object CodeGlanceProIntegration {
         cgpMethodsResolved = false
         cgpResolutionFailure = null
     }
+}
+
+private fun resolveApplicationService(serviceClass: Class<*>): Any? {
+    // Reuse the existing public service lookup for dynamic CGP classes.
+    val application = ApplicationManager.getApplication()
+    val getService = application.javaClass.getMethod("getService", Class::class.java)
+    return invokeNative { getService.invoke(application, serviceClass) }
+}
+
+private fun failedOutcome(
+    operation: String,
+    error: Throwable,
+): IntegrationOutcome.Failed {
+    if (error is RuntimeException) error.rethrowIfCancelled()
+    log.warn(
+        "CodeGlance Pro $operation: ${error.javaClass.simpleName}: ${error.message}",
+        error,
+    )
+    return IntegrationOutcome.Failed(operation, error)
+}
+
+private fun captureRecoveryViewport(
+    state: AyuIslandsState,
+    access: CgpAccess,
+    error: Throwable,
+): Throwable {
+    val captureError =
+        captureFailure {
+            state.storeCgpApplied(access.readViewport())
+            state.cgpOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+        }
+    if (captureError != null) suspendOwnership(state)
+    return captureError?.let { combineUiFailures(error, it) } ?: error
 }
 
 private fun suspendOwnership(state: AyuIslandsState) {
@@ -503,7 +521,7 @@ private fun AyuIslandsState.storeCgpApplied(viewport: CgpViewport) {
     cgpAppliedThickness = viewport.thickness
 }
 
-private fun AyuIslandsState.cgpBaseViewport(): CgpViewport? =
+internal fun AyuIslandsState.cgpBaseViewport(): CgpViewport? =
     CgpViewport(
         color = cgpBaseColor ?: return null,
         border = cgpBaseBorder ?: return null,
@@ -529,18 +547,18 @@ private fun AyuIslandsState.migrateCgpOwnership(): Boolean {
     return true
 }
 
-private data class CgpViewport(
+internal data class CgpViewport(
     val color: String,
     val border: String,
     val thickness: Int,
 )
 
-private data class ViewportWriteFailure(
+internal data class ViewportWriteFailure(
     val error: Throwable,
     val isRolledBack: Boolean,
 )
 
-private data class CgpAccess(
+internal data class CgpAccess(
     val config: Any,
     val getColor: Method,
     val getBorder: Method,
@@ -549,61 +567,54 @@ private data class CgpAccess(
     val setBorder: Method,
     val setThickness: Method,
 ) {
+    var checkpoint: CgpCheckpoint? = null
+
     fun readViewport(): CgpViewport =
-        CgpViewport(
-            color = getColor.invoke(config) as? String ?: error("viewportColor getter returned non-string"),
-            border = getBorder.invoke(config) as? String ?: error("viewportBorderColor getter returned non-string"),
-            thickness =
-                (getThickness.invoke(config) as? Number)?.toInt()
-                    ?: error("viewportBorderThickness getter returned non-number"),
-        )
+        invokeNative {
+            CgpViewport(
+                color = getColor.invoke(config) as? String ?: error("viewportColor getter returned non-string"),
+                border = getBorder.invoke(config) as? String ?: error("viewportBorderColor getter returned non-string"),
+                thickness =
+                    (getThickness.invoke(config) as? Number)?.toInt()
+                        ?: error("viewportBorderThickness getter returned non-number"),
+            )
+        }
 
     fun writeViewport(viewport: CgpViewport) {
-        setColor.invoke(config, viewport.color)
-        setBorder.invoke(config, viewport.border)
-        setThickness.invoke(config, viewport.thickness)
+        val receipt = checkpoint
+        for (part in CgpPart.entries) {
+            if (receipt == null) writePart(part, viewport) else receipt.write(this, part, viewport)
+        }
     }
+
+    fun isTarget(candidate: Any?): Boolean = config === candidate
+
+    fun writePart(
+        part: CgpPart,
+        target: CgpViewport,
+    ) {
+        when (part) {
+            CgpPart.COLOR -> setColor.invoke(config, target.color)
+            CgpPart.BORDER -> setBorder.invoke(config, target.border)
+            CgpPart.THICKNESS -> setThickness.invoke(config, target.thickness)
+        }
+    }
+
+    fun writeViewportOrError(viewport: CgpViewport): Throwable? = captureFailure { writeViewport(viewport) }
+
+    fun restoreViewport(
+        current: CgpViewport,
+        base: CgpViewport,
+    ): ViewportWriteFailure? {
+        val failure = writeViewportOrError(base) ?: return null
+        val rollbackError = rollbackViewport(current)
+        return ViewportWriteFailure(
+            error = rollbackError?.let { combineUiFailures(failure, it) } ?: failure,
+            isRolledBack = rollbackError == null,
+        )
+    }
+
+    fun rollbackViewport(current: CgpViewport): Throwable? = captureFailure { writeViewport(current) }
 }
 
-private fun CgpAccess.writeViewportOrError(viewport: CgpViewport): Throwable? =
-    try {
-        writeViewport(viewport)
-        null
-    } catch (exception: InvocationTargetException) {
-        exception.cause ?: exception
-    } catch (exception: ReflectiveOperationException) {
-        exception
-    } catch (exception: RuntimeException) {
-        exception
-    }
-
-private fun CgpAccess.restoreViewport(
-    current: CgpViewport,
-    base: CgpViewport,
-): ViewportWriteFailure? =
-    try {
-        writeViewport(base)
-        null
-    } catch (exception: InvocationTargetException) {
-        val error = exception.cause ?: exception
-        ViewportWriteFailure(error, rollbackViewport(current, error))
-    } catch (exception: ReflectiveOperationException) {
-        ViewportWriteFailure(exception, rollbackViewport(current, exception))
-    } catch (exception: RuntimeException) {
-        ViewportWriteFailure(exception, rollbackViewport(current, exception))
-    }
-
-private fun CgpAccess.rollbackViewport(
-    current: CgpViewport,
-    originalError: Throwable,
-): Boolean =
-    try {
-        writeViewport(current)
-        true
-    } catch (rollbackError: ReflectiveOperationException) {
-        originalError.addSuppressed(rollbackError)
-        false
-    } catch (rollbackError: RuntimeException) {
-        originalError.addSuppressed(rollbackError)
-        false
-    }
+internal enum class CgpPart { COLOR, BORDER, THICKNESS }

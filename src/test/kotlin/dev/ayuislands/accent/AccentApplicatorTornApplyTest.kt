@@ -1,7 +1,9 @@
 package dev.ayuislands.accent
 
+import com.intellij.ide.plugins.IdeaPluginDescriptor
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.colors.ColorKey
 import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
@@ -9,6 +11,7 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
@@ -17,15 +20,25 @@ import com.intellij.openapi.wm.StatusBar
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
+import com.nasller.codeglance.config.CodeGlanceConfig
+import com.nasller.codeglance.config.CodeGlanceConfigService
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.accent.elements.BracketFadeManager
 import dev.ayuislands.accent.elements.BracketMatchElement
 import dev.ayuislands.accent.elements.PanelBorderElement
 import dev.ayuislands.accent.elements.ProgressBarElement
 import dev.ayuislands.accent.elements.SearchResultsElement
 import dev.ayuislands.accent.elements.StatusBarElement
 import dev.ayuislands.accent.elements.ToolWindowStripeElement
+import dev.ayuislands.indent.FakePaletteType
 import dev.ayuislands.indent.IndentRainbowSync
+import dev.ayuislands.indent.IrHarness
+import dev.ayuislands.indent.IrPalette
+import dev.ayuislands.indent.installIrHarness
+import dev.ayuislands.indent.irAppliedPalette
+import dev.ayuislands.indent.irBasePalette
+import dev.ayuislands.indent.resetIrBindings
 import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -39,17 +52,21 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import java.awt.Color
 import java.awt.Window
 import java.beans.PropertyChangeListener
+import java.io.File
 import java.util.Properties
 import java.util.concurrent.CancellationException
 import java.util.function.BiConsumer
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -1044,6 +1061,221 @@ class AccentApplicatorTornApplyTest {
             }
         }
     }
+
+    @Test
+    fun `native pipeline restores IR and all registered elements when CGP rejects a setter`() {
+        withNativePipeline { native ->
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#112233"))
+            val previous = nativeSnapshot(native)
+            native.viewport.shouldRejectNextBorder = true
+
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertEquals(1, outcome.failures.size)
+            assertEquals(previous, nativeSnapshot(native))
+            assertFalse(state.lastApplyOk)
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#778899"))
+            assertTrue(state.lastApplyOk)
+            assertEquals("778899", native.viewport.viewportColor)
+            assertTrue(native.indent.palette.contains("778899"))
+            assertEquals("user palette", state.irBasePalette)
+            assertEquals("123456", state.cgpBaseColor)
+        }
+    }
+
+    @Test
+    fun `native pipeline restores both integrations and all registered elements after a later worker fails`() {
+        withNativePipeline { native ->
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#112233"))
+            val previous = nativeSnapshot(native)
+            val preferences = AccentElementId.entries.associateWith { state.isToggleEnabled(it) }
+            every { ComponentTreeRefresher.notifyOnly(any()) } throws IllegalStateException("late worker failed")
+
+            assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertEquals(previous, nativeSnapshot(native))
+            assertEquals(preferences, AccentElementId.entries.associateWith { state.isToggleEnabled(it) })
+            assertEquals("future-preset", state.indentPresetName)
+            assertEquals(-17, state.indentCustomAlpha)
+            assertFalse(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `native pipeline keeps both committed integrations when publication fails`() {
+        withNativePipeline { native ->
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#112233"))
+            every { listener.accentChanged(any(), any(), any()) } throws IllegalStateException("subscriber failed")
+
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertTrue(outcome.visualsApplied)
+            assertTrue(state.lastApplyOk)
+            assertEquals("445566", native.viewport.viewportColor)
+            assertEquals("445566", native.viewport.viewportBorderColor)
+            assertTrue(native.indent.palette.contains("445566"))
+            assertEquals(native.indent.palette, state.irAppliedPalette)
+            assertEquals("OWNED", state.irOwnership)
+            assertEquals("OWNED", state.cgpOwnership)
+            assertEquals("user palette", state.irBasePalette)
+            assertEquals("123456", state.cgpBaseColor)
+        }
+    }
+
+    @Test
+    fun `native pipeline license revert restores both user baselines without rewriting element preferences`() {
+        withNativePipeline { native ->
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#112233"))
+            val preferences = AccentElementId.entries.associateWith { state.isToggleEnabled(it) }
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+
+            AccentApplicator.revertAll()
+
+            assertEquals("user palette", native.indent.palette)
+            assertEquals(FakePaletteType.RAINBOW, native.indent.type)
+            assertEquals(4, native.indent.colorCount)
+            assertEquals("123456", native.viewport.viewportColor)
+            assertEquals("654321", native.viewport.viewportBorderColor)
+            assertEquals(3, native.viewport.viewportBorderThickness)
+            assertEquals("UNOWNED", state.irOwnership)
+            assertEquals("UNOWNED", state.cgpOwnership)
+            assertEquals(preferences, AccentElementId.entries.associateWith { state.isToggleEnabled(it) })
+            assertEquals("future-preset", state.indentPresetName)
+            assertEquals(-17, state.indentCustomAlpha)
+        }
+    }
+
+    private fun withNativePipeline(block: (NativePipeline) -> Unit) {
+        unmockkObject(IndentRainbowSync)
+        resetIrBindings()
+        resetIntegrationReceipts(CodeGlanceProIntegration)
+        CodeGlanceProIntegration.resetReflectionCache()
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        every {
+            mockApplication.getService(dev.ayuislands.settings.mappings.AccentMappingsSettings::class.java)
+        } returns
+            dev.ayuislands.settings.mappings
+                .AccentMappingsSettings()
+        every { mockApplication.isDispatchThread } answers { SwingUtilities.isEventDispatchThread() }
+        val indent = installIrHarness(mockApplication, FakePaletteType.RAINBOW, "user palette", 4)
+        val service = CodeGlanceConfigService()
+        val viewport = service.getState()
+        viewport.setViewportColor("123456")
+        viewport.setViewportBorderColor("654321")
+        viewport.setViewportBorderThickness(3)
+        val plugin = mockk<IdeaPluginDescriptor>(relaxed = true)
+        every { plugin.pluginClassLoader } returns service.javaClass.classLoader
+        every { AyuPlugin.findLoadedPlugin(PluginId.getId("com.nasller.CodeGlancePro")) } returns plugin
+        every { mockApplication.getService(CodeGlanceConfigService::class.java) } returns service
+        mockkStatic(EditorFactory::class)
+        every { EditorFactory.getInstance() } returns mockk(relaxed = true)
+        state.irIntegrationEnabled = true
+        state.cgpIntegrationEnabled = true
+        state.isIrOwnershipMigrated = true
+        state.isCgpOwnershipMigrated = true
+        state.indentPresetName = "future-preset"
+        state.indentCustomAlpha = -17
+        for (id in AccentElementId.entries) state.setToggle(id, true)
+        val elements = registeredElements()
+        assertEquals(AccentElementId.entries.size, elements.size)
+        assertEquals(AccentElementId.entries.toSet(), elements.map { it.id }.toSet())
+        assertTrue(elements.all { state.isToggleEnabled(it.id) })
+        mockEpExtensionList(elements)
+        val colors = mutableMapOf<ColorKey, Color?>()
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
+        val metadata = Properties().apply { setProperty("user.metadata", "future-value") }
+        every { mockScheme.name } returns "Ayu Islands Mirage"
+        every { mockScheme.metaProperties } returns metadata
+        every { mockColorsManager.allSchemes } returns arrayOf(mockScheme)
+        every { mockScheme.getColor(any<ColorKey>()) } answers { colors[firstArg<ColorKey>()] }
+        every { mockScheme.setColor(any(), any()) } answers { colors[firstArg<ColorKey>()] = secondArg<Color?>() }
+        every { mockScheme.getAttributes(any<TextAttributesKey>()) } answers {
+            attributes[firstArg<TextAttributesKey>()]
+        }
+        every { mockScheme.setAttributes(any(), any()) } answers {
+            attributes[firstArg<TextAttributesKey>()] = secondArg<TextAttributes?>()
+        }
+        every { mockApplication.runWriteAction(any<ThrowableComputable<Any?, RuntimeException>>()) } answers {
+            firstArg<ThrowableComputable<Any?, RuntimeException>>().compute()
+        }
+        every { ComponentTreeRefresher.notifyOnly(any()) } returns Unit
+        AyuEditorSchemeScope.resetClaims()
+        try {
+            withRealUiDefaults { block(NativePipeline(indent, viewport, colors, attributes, metadata)) }
+        } finally {
+            every { ComponentTreeRefresher.notifyOnly(any()) } returns Unit
+            every { listener.accentChanged(any(), any(), any()) } returns Unit
+            BracketFadeManager.deactivate()
+            AyuEditorSchemeScope.resetClaims()
+            resetIrBindings()
+            resetIntegrationReceipts(CodeGlanceProIntegration)
+            CodeGlanceProIntegration.resetReflectionCache()
+        }
+    }
+
+    private fun registeredElements(): List<AccentElement> {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+        factory.isExpandEntityReferences = false
+        val document = factory.newDocumentBuilder().parse(File("src/main/resources/META-INF/plugin.xml"))
+        val nodes = document.getElementsByTagName("accentElement")
+        return (0 until nodes.length).map { index ->
+            val name =
+                nodes
+                    .item(index)
+                    .attributes
+                    .getNamedItem("implementation")
+                    .nodeValue
+            Class
+                .forName(name)
+                .asSubclass(AccentElement::class.java)
+                .getConstructor()
+                .newInstance()
+        }
+    }
+
+    private fun nativeSnapshot(native: NativePipeline): NativeSnapshot =
+        NativeSnapshot(
+            defaults = developerDefaults(),
+            colors = native.colors.toMap(),
+            attributes = native.attributes.mapValues { it.value?.clone() },
+            metadata = native.metadata.toMap(),
+            indent = IrPalette(native.indent.type.name, native.indent.palette, native.indent.colorCount),
+            viewport =
+                CgpViewport(
+                    native.viewport.viewportColor,
+                    native.viewport.viewportBorderColor,
+                    native.viewport.viewportBorderThickness,
+                ),
+            irBase = state.irBasePalette(),
+            irApplied = state.irAppliedPalette(),
+            cgpBase = state.cgpBaseViewport(),
+            ownership = state.irOwnership to state.cgpOwnership,
+        )
+
+    private data class NativePipeline(
+        val indent: IrHarness,
+        val viewport: CodeGlanceConfig,
+        val colors: MutableMap<ColorKey, Color?>,
+        val attributes: MutableMap<TextAttributesKey, TextAttributes?>,
+        val metadata: Properties,
+    )
+
+    private data class NativeSnapshot(
+        val defaults: Map<Any, Any>,
+        val colors: Map<ColorKey, Color?>,
+        val attributes: Map<TextAttributesKey, TextAttributes?>,
+        val metadata: Map<Any, Any>,
+        val indent: IrPalette,
+        val viewport: CgpViewport,
+        val irBase: IrPalette?,
+        val irApplied: IrPalette?,
+        val cgpBase: CgpViewport?,
+        val ownership: Pair<String?, String?>,
+    )
 
     private fun withSuccessfulVisualApply(block: () -> Unit) {
         every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped

@@ -25,6 +25,8 @@ internal class ResolvedIrState(
     private val refreshMethod: Method,
     private val colorsInstance: Any,
 ) {
+    var checkpoint: IrCheckpoint? = null
+
     fun readPalette(): CurrentIrPalette {
         val typeValue = paletteTypeField[config] ?: error("paletteType field returned null")
         val palette =
@@ -48,13 +50,35 @@ internal class ResolvedIrState(
         palette: IrPalette,
         typeValue: Any,
     ) {
-        paletteTypeField[config] = typeValue
-        customPaletteField[config] = palette.palette
-        colorCountField.setInt(config, palette.colorCount)
+        val target = CurrentIrPalette(palette, typeValue)
+        val receipt = checkpoint
+        for (part in IrPart.entries) {
+            if (receipt == null) writePart(part, target) else receipt.write(this, part, target)
+        }
+        refresh()
+    }
+
+    fun isTarget(candidate: Any?): Boolean = config === candidate
+
+    fun writePart(
+        part: IrPart,
+        target: CurrentIrPalette,
+    ) {
+        when (part) {
+            IrPart.TYPE -> paletteTypeField[config] = target.typeValue
+            IrPart.PALETTE -> customPaletteField[config] = target.palette.palette
+            IrPart.COUNT -> colorCountField.setInt(config, target.palette.colorCount)
+        }
+    }
+
+    fun refresh() {
         updateMethod.invoke(companion, config)
         refreshMethod.invoke(colorsInstance)
+        checkpoint?.refreshed()
     }
 }
+
+internal enum class IrPart { TYPE, PALETTE, COUNT }
 
 internal fun enumName(value: Any): String = (value as? Enum<*>)?.name ?: value.toString()
 
