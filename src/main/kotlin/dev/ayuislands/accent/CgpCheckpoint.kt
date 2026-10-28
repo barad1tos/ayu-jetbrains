@@ -105,7 +105,7 @@ internal class CgpCheckpoint(
                     state.cgpAppliedColor = current.color
                     state.cgpAppliedBorder = current.border
                     state.cgpAppliedThickness = current.thickness
-                    state.cgpOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+                    state.cgpOwnership = recoveryOwnership.name
                 }
             }
         if (captureError != null) metadata.suspendIfOwned()

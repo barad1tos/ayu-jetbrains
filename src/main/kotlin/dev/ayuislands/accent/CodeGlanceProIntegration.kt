@@ -171,7 +171,7 @@ internal object CodeGlanceProIntegration {
     fun syncCodeGlanceProViewport(
         accentHex: String,
         context: AccentContext?,
-    ): IntegrationOutcome = checkpointed { syncViewportNow(accentHex, context) }
+    ): IntegrationOutcome = checkpointed(CGP_SYNC_FAILED) { syncViewportNow(accentHex, context) }
 
     private fun syncViewportNow(
         accentHex: String,
@@ -266,7 +266,7 @@ internal object CodeGlanceProIntegration {
      * Restores the exact pre-Ayu viewport only while all current values still
      * match the last successful Ayu write.
      */
-    fun restoreOwnedState(): IntegrationOutcome = checkpointed(::restoreOwnedStateNow)
+    fun restoreOwnedState(): IntegrationOutcome = checkpointed(CGP_RESTORE_FAILED, ::restoreOwnedStateNow)
 
     private fun restoreOwnedStateNow(): IntegrationOutcome {
         val state = AyuIslandsSettings.getInstance().state
@@ -336,7 +336,10 @@ internal object CodeGlanceProIntegration {
         }
     }
 
-    private fun checkpointed(action: () -> IntegrationOutcome): IntegrationOutcome =
+    private fun checkpointed(
+        operation: String,
+        action: () -> IntegrationOutcome,
+    ): IntegrationOutcome =
         receipts.run(
             create = {
                 val state = AyuIslandsSettings.getInstance().state
@@ -352,6 +355,7 @@ internal object CodeGlanceProIntegration {
                     retainReceipt = receipts::retain,
                 )
             },
+            onFailure = { failedOutcome(operation, it) },
             action = action,
         )
 

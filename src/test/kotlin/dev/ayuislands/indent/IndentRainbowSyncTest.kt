@@ -422,6 +422,64 @@ class IndentRainbowSyncTest {
     }
 
     @Test
+    fun `pending retry reports ordinary failures and propagates control signals`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(mockApplication, FakePaletteType.RAINBOW, "user palette", 4)
+        val refresh = mockk<Method>(relaxed = true)
+        var retryError: Throwable? = null
+        every { refresh.invoke(any()) } answers {
+            retryError?.let { failure -> throw failure }
+            null
+        }
+        setIrField("refreshMethod", refresh)
+        withScope { scope ->
+            assertIs<IntegrationOutcome.Applied>(callApply())
+            retryError = IllegalStateException("cache refresh rejected")
+            assertFailsWith<IllegalStateException> { scope.restore() }
+        }
+
+        val outcome = assertIs<IntegrationOutcome.Failed>(callApply())
+        assertSame(retryError, outcome.error)
+        assertEquals("RECOVERY_PENDING", state.irOwnership)
+        for (cancelled in listOf(ProcessCanceledException(), CancellationException("cancel retry"))) {
+            retryError = cancelled
+            assertSame(cancelled, assertFailsWith<RuntimeException> { callApply() })
+        }
+        val fatal = object : VirtualMachineError("fatal retry") {}
+        retryError = fatal
+        assertSame(fatal, assertFailsWith<VirtualMachineError> { callApply() })
+        retryError = null
+        assertIs<IntegrationOutcome.Applied>(callApply())
+        assertEquals(FakePaletteType.CUSTOM, harness.type)
+        assertEquals("user palette", state.irBasePalette)
+        assertEquals(4, state.irBaseColorCount)
+    }
+
+    @Test
+    fun `restart after failed rollback never claims a foreign palette field`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(mockApplication, FakePaletteType.RAINBOW, "user palette", 4)
+        withScope { scope ->
+            assertIs<IntegrationOutcome.Applied>(callApply())
+            harness.palette = "foreign palette"
+            harness.shouldFailNextCountAndRollbackPalette = true
+            assertFailsWith<IllegalStateException> { scope.restore() }
+        }
+
+        state = XmlSerializer.deserialize(XmlSerializer.serialize(state), AyuIslandsState::class.java)
+        every { mockSettings.state } returns state
+        resetIrBindings()
+        val restarted = installIrHarness(mockApplication, harness.type, harness.palette, harness.colorCount)
+
+        val outcome = IndentRainbowSync.restoreOwnedState()
+        assertEquals("foreign palette", restarted.palette)
+        assertEquals(FakePaletteType.RAINBOW, restarted.type)
+        assertEquals(4, restarted.colorCount)
+        assertIs<IntegrationOutcome.Skipped>(outcome)
+        assertEquals("SUSPENDED", state.irOwnership)
+    }
+
+    @Test
     fun `replacement during rollback cache refresh releases metadata ownership`() {
         state.irIntegrationEnabled = true
         val harness = installIrHarness(mockApplication, FakePaletteType.RAINBOW, "user palette", 4)

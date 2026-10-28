@@ -292,6 +292,74 @@ class CodeGlanceCheckpointTest {
     }
 
     @Test
+    fun `pending retry reports ordinary failures and propagates control signals`() {
+        mockkObject(viewport)
+        var retryError: Throwable? = null
+        every { viewport.setViewportBorderColor("654321") } answers {
+            retryError?.let { failure -> throw failure }
+            callOriginal()
+        }
+        withScope { scope ->
+            assertIs<IntegrationOutcome.Applied>(CodeGlanceProIntegration.syncCodeGlanceProViewport("#112233"))
+            retryError = IllegalStateException("border restoration rejected")
+            assertFailsWith<IllegalStateException> { scope.restore() }
+        }
+
+        val outcome = assertIs<IntegrationOutcome.Failed>(CodeGlanceProIntegration.syncCodeGlanceProViewport("#445566"))
+        assertSame(retryError, outcome.error)
+        assertEquals("RECOVERY_PENDING", state.cgpOwnership)
+        for (cancelled in listOf(ProcessCanceledException(), CancellationException("cancel retry"))) {
+            retryError = cancelled
+            assertSame(
+                cancelled,
+                assertFailsWith<RuntimeException> { CodeGlanceProIntegration.syncCodeGlanceProViewport("#445566") },
+            )
+        }
+        val fatal = object : VirtualMachineError("fatal retry") {}
+        retryError = fatal
+        assertSame(
+            fatal,
+            assertFailsWith<VirtualMachineError> { CodeGlanceProIntegration.syncCodeGlanceProViewport("#445566") },
+        )
+        retryError = null
+        assertIs<IntegrationOutcome.Applied>(CodeGlanceProIntegration.syncCodeGlanceProViewport("#445566"))
+        assertViewport(viewport, "445566", "445566", 1)
+        assertEquals("123456", state.cgpBaseColor)
+        assertEquals("654321", state.cgpBaseBorder)
+        assertEquals(3, state.cgpBaseThickness)
+    }
+
+    @Test
+    fun `restart after failed rollback never claims a foreign viewport field`() {
+        withScope { scope ->
+            assertIs<IntegrationOutcome.Applied>(CodeGlanceProIntegration.syncCodeGlanceProViewport("#112233"))
+            viewport.setViewportBorderColor("foreign border")
+            mockkObject(viewport)
+            every { viewport.setViewportColor("123456") } answers {
+                callOriginal()
+                error("color restoration failed after mutation")
+            }
+            assertFailsWith<IllegalStateException> { scope.restore() }
+        }
+
+        val reloaded = XmlSerializer.deserialize(XmlSerializer.serialize(state), AyuIslandsState::class.java)
+        resetIntegrationReceipts(CodeGlanceProIntegration)
+        CodeGlanceProIntegration.resetReflectionCache()
+        every { settings.state } returns reloaded
+        val restarted = CodeGlanceConfigService()
+        val restoredViewport = restarted.getState()
+        restoredViewport.setViewportColor(viewport.viewportColor)
+        restoredViewport.setViewportBorderColor(viewport.viewportBorderColor)
+        restoredViewport.setViewportBorderThickness(viewport.viewportBorderThickness)
+        every { application.getService(CodeGlanceConfigService::class.java) } returns restarted
+
+        val outcome = CodeGlanceProIntegration.restoreOwnedState()
+        assertViewport(restoredViewport, "123456", "foreign border", 3)
+        assertIs<IntegrationOutcome.Skipped>(outcome)
+        assertEquals("SUSPENDED", reloaded.cgpOwnership)
+    }
+
+    @Test
     fun `rollback cancellation wins over an ordinary setter failure and retains both errors`() {
         mockkObject(viewport)
         val writeError = IllegalStateException("border write failed")

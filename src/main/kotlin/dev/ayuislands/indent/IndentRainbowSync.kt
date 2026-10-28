@@ -104,7 +104,7 @@ object IndentRainbowSync {
     private fun applyPalette(
         palette: IndentPalette,
         logContext: String,
-    ): IntegrationOutcome = checkpointed { applyPaletteNow(palette, logContext) }
+    ): IntegrationOutcome = checkpointed(SYNC_FAILED) { applyPaletteNow(palette, logContext) }
 
     private fun applyPaletteNow(
         palette: IndentPalette,
@@ -214,7 +214,7 @@ object IndentRainbowSync {
      * Restores the exact pre-Ayu palette only while all current values still
      * match the most recent successful Ayu write.
      */
-    internal fun restoreOwnedState(): IntegrationOutcome = checkpointed(::restoreOwnedStateNow)
+    internal fun restoreOwnedState(): IntegrationOutcome = checkpointed(RESTORE_FAILED, ::restoreOwnedStateNow)
 
     private fun restoreOwnedStateNow(): IntegrationOutcome {
         val state = AyuIslandsSettings.getInstance().state
@@ -267,7 +267,10 @@ object IndentRainbowSync {
         }
     }
 
-    private fun checkpointed(action: () -> IntegrationOutcome): IntegrationOutcome =
+    private fun checkpointed(
+        operation: String,
+        action: () -> IntegrationOutcome,
+    ): IntegrationOutcome =
         receipts.run(
             create = {
                 val state = AyuIslandsSettings.getInstance().state
@@ -283,6 +286,7 @@ object IndentRainbowSync {
                     retainReceipt = receipts::retain,
                 )
             },
+            onFailure = { failedOutcome(operation, it) },
             action = action,
         )
 

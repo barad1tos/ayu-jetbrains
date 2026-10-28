@@ -1,6 +1,7 @@
 package dev.ayuislands.accent
 
 import dev.ayuislands.integration.IntegrationOutcome
+import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.integration.SettingsCheckpoint
 import dev.ayuislands.integration.captureFailure
 import javax.swing.SwingUtilities
@@ -13,6 +14,10 @@ internal abstract class IntegrationCheckpoint : AccentCheckpoint {
     protected abstract val currentTarget: Boolean
     protected abstract val metadata: SettingsCheckpoint
     protected abstract val foreignNative: Boolean
+
+    /** Whole-integration restart recovery cannot claim fields changed by another writer. */
+    protected val recoveryOwnership: IntegrationOwnership
+        get() = if (foreignNative) IntegrationOwnership.SUSPENDED else IntegrationOwnership.RECOVERY_PENDING
 
     override val hasPending: Boolean
         get() = !done
@@ -63,11 +68,16 @@ internal class IntegrationReceipts<R : IntegrationCheckpoint> {
 
     fun run(
         create: () -> R,
+        onFailure: (Throwable) -> IntegrationOutcome.Failed,
         action: () -> IntegrationOutcome,
     ): IntegrationOutcome {
         val scope = currentScope()
         pending?.let { receipt ->
-            if (scope == null) receipt.restore() else scope.recover { receipt.restore() }
+            val failure =
+                captureFailure {
+                    if (scope == null) receipt.restore() else scope.recover { receipt.restore() }
+                }
+            if (failure != null) return onFailure(failure)
             if (!receipt.hasPending) pending = null
         }
         if (scope == null) return action()

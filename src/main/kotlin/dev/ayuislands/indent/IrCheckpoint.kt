@@ -113,7 +113,7 @@ internal class IrCheckpoint(
                     val base = originalBase ?: original.palette
                     state.storeIrBase(base)
                     state.storeIrApplied(resolved.readPalette().palette)
-                    state.irOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+                    state.irOwnership = recoveryOwnership.name
                 }
             }
         if (captureError != null) metadata.suspendIfOwned()
