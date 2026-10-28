@@ -11,9 +11,11 @@ import io.mockk.unmockkAll
 import java.awt.Color
 import java.awt.Window
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -462,6 +464,36 @@ class LiveChromeRefresherTest {
     }
 
     @Test
+    fun `scoped peer write failure reaches child recovery through the window boundary`() {
+        val peer = ThrowOnFirstSetBackgroundTracker(shouldThrow = true)
+        val window =
+            mockk<Window> {
+                every { isShowing } returns true
+                every { components } returns arrayOf(peer)
+            }
+        mockkStatic(Window::class)
+        every { Window.getWindows() } returns arrayOf(window)
+
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                assertFailsWith<IllegalStateException> {
+                    scope.runStep {
+                        LiveChromeRefresher.refresh(
+                            ChromeTarget.ByClassName(ClassFqn.require(peer.javaClass.name)),
+                            Color.BLUE,
+                        )
+                    }
+                }
+                scope.restore()
+            } finally {
+                scope.close()
+            }
+        }
+    }
+
+    @Test
     fun `refreshOnTree continues visiting siblings after one node throws on setBackground`() {
         val throwingFqn = ThrowOnFirstSetBackgroundTracker::class.java.name
         val throwing = ThrowOnFirstSetBackgroundTracker(shouldThrow = true)
@@ -560,19 +592,9 @@ class LiveChromeRefresherTest {
 
     @Test
     fun `forEachShowingWindow isolates per-window failures from sibling windows`() {
-        // Exercises the `walk()`-level per-container catch (see walk's inner
-        // try around `current.components` — the `brokenContainerLogged` DEBUG
-        // path). The test mocks a showing Window whose `getComponents()`
-        // throws; the throw surfaces inside walk's loop, is caught there, and
-        // never reaches `forEachShowingWindow`'s per-window catch block.
-        // The outer `forEachShowingWindow` catch is defense-in-depth for
-        // callers that might pass an `action` lambda NOT wrapped in `walk`;
-        // all current callers (`refreshOnTree`, `clearOnTree`, and the two
-        // `*InsideAncestor` variants) delegate to `walk`, so the outer catch
-        // is structurally unreachable today and intentionally has no direct
-        // test. Real `JFrame` / `JDialog` instantiation throws
-        // HeadlessException in the Gradle test JVM, so mocking the Window is
-        // the only way to simulate an in-the-field broken Swing peer.
+        // Child enumeration failures stay isolated within walk. Peer write
+        // and pending recovery propagation are exercised separately.
+        // A mock Window supplies this native boundary in the headless JVM.
         val brokenWindow =
             mockk<Window>(relaxed = true) {
                 every { isShowing } returns true
@@ -581,8 +603,7 @@ class LiveChromeRefresherTest {
         mockkStatic(Window::class)
         every { Window.getWindows() } returns arrayOf(brokenWindow)
 
-        // No throw — the per-window catch converts the RuntimeException
-        // into a DEBUG log and moves on.
+        // No throw — the per-subtree catch logs the broken child lookup.
         LiveChromeRefresher.refresh(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")), Color.RED)
         LiveChromeRefresher.clear(ChromeTarget.ByClassName(ClassFqn.require("dummy.FQN")))
     }

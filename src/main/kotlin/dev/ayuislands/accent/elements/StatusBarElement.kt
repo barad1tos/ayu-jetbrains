@@ -3,8 +3,8 @@ package dev.ayuislands.accent.elements
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.WcagForeground
+import dev.ayuislands.accent.putAccentUiDefault
 import java.awt.Color
-import javax.swing.UIManager
 
 /**
  * Tints the status bar surface. [writeForegrounds] is overridden because
@@ -120,7 +120,7 @@ class StatusBarElement : AbstractChromeElement() {
         val tintedBg = tintedBackgrounds[STATUS_BAR_BG_KEY] ?: return
         val contrast = WcagForeground.pickLightFamilyForeground(tintedBg, foregroundTextTarget)
         for (key in foregroundKeys) {
-            UIManager.put(key, contrast)
+            putAccentUiDefault(key, contrast)
         }
     }
 
@@ -135,7 +135,7 @@ class StatusBarElement : AbstractChromeElement() {
 
     private fun clearOverlayBackgrounds() {
         for (key in overlayBackgroundKeys) {
-            UIManager.put(key, null)
+            putAccentUiDefault(key, null)
         }
     }
 

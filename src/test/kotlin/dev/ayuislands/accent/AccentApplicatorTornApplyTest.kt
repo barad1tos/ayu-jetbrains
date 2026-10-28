@@ -9,15 +9,22 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.ThrowableComputable
+import com.intellij.openapi.wm.StatusBar
+import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.conflict.ConflictRegistry
+import dev.ayuislands.accent.elements.BracketMatchElement
+import dev.ayuislands.accent.elements.PanelBorderElement
 import dev.ayuislands.accent.elements.ProgressBarElement
 import dev.ayuislands.accent.elements.SearchResultsElement
+import dev.ayuislands.accent.elements.StatusBarElement
+import dev.ayuislands.accent.elements.ToolWindowStripeElement
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.licensing.LicenseChecker
@@ -40,6 +47,7 @@ import java.beans.PropertyChangeListener
 import java.util.Properties
 import java.util.concurrent.CancellationException
 import java.util.function.BiConsumer
+import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.test.AfterTest
@@ -49,6 +57,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -333,6 +342,297 @@ class AccentApplicatorTornApplyTest {
             }
         } finally {
             AyuEditorSchemeScope.resetClaims()
+        }
+    }
+
+    @Test
+    fun `contained bracket failure restores the previous accent attributes without reverting their owner`() {
+        val key = TextAttributesKey.find("MATCHED_BRACE_ATTRIBUTES")
+        var attributes: TextAttributes? = TextAttributes().apply { foregroundColor = Color.BLUE }
+        val metadata = Properties()
+        every { mockScheme.name } returns "Ayu Islands Mirage"
+        every { mockScheme.metaProperties } returns metadata
+        every { mockColorsManager.allSchemes } returns arrayOf(mockScheme)
+        every { mockScheme.getAttributes(key) } answers { attributes }
+        every { mockScheme.setAttributes(key, any()) } answers { attributes = secondArg<TextAttributes?>() }
+        mockEpExtensionList(listOf(BracketMatchElement()))
+        AyuEditorSchemeScope.resetClaims()
+        try {
+            withSuccessfulVisualApply {
+                val previous = TextAttributes().apply { foregroundColor = Color.ORANGE }
+                AyuEditorSchemeScope.writeAttributes(
+                    EditorSchemeOwner.Element(AccentElementId.BRACKET_MATCH),
+                    key,
+                    previous,
+                )
+                val savedMetadata = Properties().apply { putAll(metadata) }
+                val attempted = Color(0x44, 0x55, 0x66)
+                every { mockScheme.setAttributes(key, any()) } answers {
+                    attributes = secondArg<TextAttributes?>()
+                    if (attributes?.foregroundColor == attempted) error("bracket setter failed after write")
+                }
+
+                val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+                assertTrue(outcome.failures.any { it.step == AccentApplyStep.ApplyElements })
+                assertEquals(previous, attributes)
+                assertEquals(savedMetadata, metadata)
+            }
+        } finally {
+            AyuEditorSchemeScope.resetClaims()
+        }
+    }
+
+    @Test
+    fun `later integration failure restores chrome colors overlays and the live peer`() {
+        state.chromeStatusBar = true
+        state.chromeToolWindowStripe = true
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        mockEpExtensionList(listOf(StatusBarElement(), ToolWindowStripeElement()))
+        val peer = JPanel().apply { background = Color.BLUE }
+        val statusBar = mockk<StatusBar> { every { component } returns peer }
+        val windowManager = mockk<WindowManager> { every { getStatusBar(project) } returns statusBar }
+        mockkStatic(WindowManager::class)
+        every { WindowManager.getInstance() } returns windowManager
+        val previous =
+            mapOf(
+                "StatusBar.background" to Color.BLUE,
+                "StatusBar.borderColor" to Color.CYAN,
+                "StatusBar.Breadcrumbs.foreground" to Color.MAGENTA,
+                "StatusBar.Breadcrumbs.hoverBackground" to Color.PINK,
+                "ToolWindow.Stripe.background" to Color.BLUE,
+                "ToolWindow.Stripe.borderColor" to Color.CYAN,
+                "ToolWindow.Button.selectedBackground" to Color.GREEN,
+                "ToolWindow.Button.selectedForeground" to Color.MAGENTA,
+                "ToolWindow.Stripe.foreground" to Color.MAGENTA,
+            )
+        withRealUiDefaults {
+            previous.forEach { (key, value) ->
+                ChromeBaseColors.forgetPluginTint(key)
+                UIManager.put(key, value)
+            }
+            ChromeBaseColors.refresh()
+            val observed = mutableMapOf<String, Color?>()
+            val failure = IllegalStateException("integration failed after chrome tint")
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                for (key in previous.keys) observed[key] = UIManager.getColor(key)
+                throw failure
+            }
+
+            val outcome = assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+
+            assertSame(expected = failure, actual = outcome.failures.single().error)
+            assertEquals(expected = previous.keys, actual = observed.keys)
+            assertNotSame(illegal = Color.BLUE, actual = observed.getValue("StatusBar.background"))
+            assertNotSame(illegal = Color.MAGENTA, actual = observed.getValue("ToolWindow.Stripe.foreground"))
+            assertNull(observed.getValue("StatusBar.Breadcrumbs.hoverBackground"))
+            previous.forEach { (key, value) ->
+                assertSame(expected = value, actual = readRawUiDefault(UIManager.getDefaults(), key), message = key)
+            }
+            assertSame(expected = Color.BLUE, actual = peer.background)
+        }
+        ChromeBaseColors.refresh()
+    }
+
+    @Test
+    fun `aborted external disable keeps ownership until the next real disable`() =
+        withExternalStatusBar {
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#445566"))
+            val previousTint = readRawUiDefault(UIManager.getDefaults(), "StatusBar.background")
+            state.externalThemeChromeTintEnabled = false
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } throws IllegalStateException("later abort")
+
+            assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#AABBCC"))
+            assertSame(
+                expected = previousTint,
+                actual = readRawUiDefault(UIManager.getDefaults(), "StatusBar.background"),
+            )
+            assertFalse(state.externalThemeChromeTintEnabled)
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#AABBCC"))
+
+            assertNull(readRawUiDefault(UIManager.getDefaults(), "StatusBar.background"))
+            assertSame(expected = Color.BLUE, actual = UIManager.getColor("StatusBar.background"))
+        }
+
+    @Test
+    fun `aborted first external tint cannot claim a later native color edit`() =
+        withExternalStatusBar {
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } throws IllegalStateException("later abort")
+            assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+            assertNull(readRawUiDefault(UIManager.getDefaults(), "StatusBar.background"))
+            assertTrue(state.externalThemeChromeTintEnabled)
+            UIManager.put("StatusBar.background", Color.GREEN)
+            state.externalThemeChromeTintEnabled = false
+            every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+
+            assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#AABBCC"))
+
+            assertSame(
+                expected = Color.GREEN,
+                actual = readRawUiDefault(UIManager.getDefaults(), "StatusBar.background"),
+            )
+        }
+
+    @Test
+    fun `external ownership waits for pending peer repaint before another disable`() {
+        var failRepaint = false
+        val peer =
+            object : JPanel() {
+                override fun repaint() {
+                    check(!failRepaint) { "peer recovery repaint failed" }
+                    super.repaint()
+                }
+            }.apply { background = Color.BLUE }
+        withExternalStatusBar(peer) {
+            try {
+                every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                    failRepaint = true
+                    error("later integration abort")
+                }
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertSame(expected = Color.BLUE, actual = peer.background)
+                failRepaint = false
+                UIManager.put("StatusBar.background", Color.GREEN)
+                state.externalThemeChromeTintEnabled = false
+                every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+
+                assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#AABBCC"))
+
+                assertSame(
+                    expected = Color.GREEN,
+                    actual = readRawUiDefault(UIManager.getDefaults(), "StatusBar.background"),
+                )
+            } finally {
+                failRepaint = false
+            }
+        }
+    }
+
+    @Test
+    fun `pending status peer recovery cannot block independent panel borders`() = assertPanelRevert()
+
+    @Test
+    fun `cancelled explicit revert still releases independent panel ownership`() {
+        val warnings = mutableListOf<Throwable>()
+        val processor =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    t: Throwable?,
+                ): Boolean {
+                    if (t != null) warnings += t
+                    return false
+                }
+            }
+        for (cancelled in listOf(ProcessCanceledException(), CancellationException("cancelled peer recovery"))) {
+            LoggedErrorProcessor.executeWith<RuntimeException>(processor) { assertPanelRevert(cancelled) }
+            assertFalse(warnings.any { it === cancelled }, "cancellation is control flow, not a logged failure")
+        }
+    }
+
+    private fun assertPanelRevert(cancelled: RuntimeException? = null) {
+        var repaintFailure: RuntimeException? = null
+        val peer =
+            object : JPanel() {
+                override fun repaint() {
+                    repaintFailure?.let { throw it }
+                    super.repaint()
+                }
+            }.apply { background = Color.BLUE }
+        withExternalStatusBar(peer) {
+            state.chromePanelBorder = true
+            val border = PanelBorderElement()
+            val elements =
+                if (cancelled == null) listOf(border, StatusBarElement()) else listOf(StatusBarElement(), border)
+            mockEpExtensionList(elements)
+            val defaults = UIManager.getLookAndFeelDefaults()
+            val borderKey = "ToolWindow.borderColor"
+            val previousBorder = readRawUiDefault(defaults, borderKey)
+            defaults[borderKey] = Color.CYAN
+            UIManager.put(borderKey, null)
+            ChromeBaseColors.refresh()
+            try {
+                every { IndentRainbowSync.apply(any<AccentContext>(), any()) } answers {
+                    repaintFailure = IllegalStateException("status repaint still interrupted")
+                    error("abort both chrome elements")
+                }
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566"))
+                assertNull(readRawUiDefault(UIManager.getDefaults(), borderKey))
+                val failures = mutableListOf<AccentApplyStepFailure>()
+
+                ExternalChromeOwnership.apply(listOf(border), state, Color.GREEN, true, failures::add)
+
+                assertTrue(failures.isEmpty())
+                assertTrue(readRawUiDefault(UIManager.getDefaults(), borderKey) is Color)
+                assertSame(Color.BLUE, peer.background)
+
+                if (cancelled == null) {
+                    AccentApplicator.revertNow()
+                } else {
+                    repaintFailure = cancelled
+                    assertSame(cancelled, assertFailsWith<RuntimeException> { AccentApplicator.revertNow() })
+                    assertNull(readRawUiDefault(UIManager.getDefaults(), borderKey))
+                }
+                UIManager.put(borderKey, Color.MAGENTA)
+                repaintFailure = null
+                state.externalThemeChromeTintEnabled = false
+                every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+
+                assertIs<AccentApplyOutcome.Applied>(AccentApplicator.applyFromHexString("#AABBCC"))
+                assertSame(Color.MAGENTA, readRawUiDefault(UIManager.getDefaults(), borderKey))
+            } finally {
+                repaintFailure = null
+                state.externalThemeChromeTintEnabled = false
+                every { IndentRainbowSync.apply(any<AccentContext>(), any()) } returns IntegrationOutcome.Skipped
+                AccentApplicator.applyFromHexString("#AABBCC")
+                defaults[borderKey] = previousBorder
+                ChromeBaseColors.refresh()
+            }
+        }
+    }
+
+    private fun withExternalStatusBar(
+        peer: JPanel? = null,
+        block: () -> Unit,
+    ) {
+        state.externalThemeEnhancementsEnabled = true
+        state.externalThemeChromeTintEnabled = true
+        state.chromeStatusBar = true
+        state.cgpIntegrationEnabled = false
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        every { AyuVariant.detect() } returns null
+        mockEpExtensionList(listOf(StatusBarElement()))
+        val statusBar =
+            peer?.let { statusComponent ->
+                mockk<StatusBar> { every { component } returns statusComponent }
+            }
+        val windowManager = mockk<WindowManager> { every { getStatusBar(project) } returns statusBar }
+        mockkStatic(WindowManager::class)
+        every { WindowManager.getInstance() } returns windowManager
+        withSuccessfulVisualApply {
+            ExternalChromeOwnership.resetForTests()
+            val defaults = UIManager.getLookAndFeelDefaults()
+            val native = mapOf("StatusBar.background" to Color.BLUE, "StatusBar.borderColor" to Color.CYAN)
+            val saved = native.keys.associateWith { readRawUiDefault(defaults, it) }
+            native.forEach { (key, value) ->
+                UIManager.put(key, null)
+                defaults[key] = value
+                ChromeBaseColors.forgetPluginTint(key)
+            }
+            ChromeBaseColors.refresh()
+            try {
+                block()
+            } finally {
+                ExternalChromeOwnership.resetForTests()
+                saved.forEach { (key, value) -> defaults[key] = value }
+                native.keys.forEach(ChromeBaseColors::forgetPluginTint)
+                ChromeBaseColors.refresh()
+            }
         }
     }
 

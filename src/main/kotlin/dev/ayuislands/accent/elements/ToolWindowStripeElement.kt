@@ -4,9 +4,9 @@ import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.WcagForeground
+import dev.ayuislands.accent.putAccentUiDefault
 import java.awt.Color
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.swing.UIManager
 
 private val toolWindowStripeFirstApplyLogged = AtomicBoolean(false)
 
@@ -72,13 +72,13 @@ class ToolWindowStripeElement : AbstractChromeElement() {
         if (tintedSelectedBackground != null) {
             val selectedForeground =
                 WcagForeground.pickForeground(tintedSelectedBackground, foregroundTextTarget)
-            UIManager.put(SELECTED_FOREGROUND_KEY, selectedForeground)
+            putAccentUiDefault(SELECTED_FOREGROUND_KEY, selectedForeground)
         }
         val tintedStripeBackground = tintedBackgrounds[STRIPE_BACKGROUND_KEY]
         if (tintedStripeBackground != null) {
             val stripeForeground =
                 WcagForeground.pickForeground(tintedStripeBackground, foregroundTextTarget)
-            UIManager.put(STRIPE_FOREGROUND_KEY, stripeForeground)
+            putAccentUiDefault(STRIPE_FOREGROUND_KEY, stripeForeground)
         }
     }
 

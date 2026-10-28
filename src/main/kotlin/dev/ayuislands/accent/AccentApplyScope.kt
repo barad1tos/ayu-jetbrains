@@ -11,6 +11,9 @@ internal interface AccentCheckpoint {
 
     fun commit()
 
+    /** Retires superseded native resources after all accepted visuals have committed. */
+    fun releaseResources() = Unit
+
     /** Keeps unresolved recovery at the surface owner without retrying its writes. */
     fun retain()
 }
@@ -20,8 +23,16 @@ internal interface AccentCheckpoint {
  * restores them in reverse order without crossing unresolved newer writes.
  */
 internal class AccentApplyScope {
-    /** Identity of one lexical worker or element segment. */
-    class Segment
+    /** Receipts of one lexical worker or element; identity separates sibling recovery. */
+    class Segment {
+        private val receipts = mutableSetOf<AccentCheckpoint>()
+
+        fun record(checkpoint: AccentCheckpoint) {
+            receipts += checkpoint
+        }
+
+        operator fun contains(checkpoint: AccentCheckpoint): Boolean = checkpoint in receipts
+    }
 
     var segment = Segment()
         private set
@@ -39,6 +50,7 @@ internal class AccentApplyScope {
     private var state = State.RECORDING
     private val checkpoints = mutableListOf<AccentCheckpoint>()
     private val failedChildren = mutableSetOf<AccentCheckpoint>()
+    private val closeActions = mutableListOf<() -> Unit>()
     private var currentUi: UiDefaultsCheckpoint? = null
     private lateinit var uiTarget: UiDefaultsTarget
 
@@ -69,6 +81,14 @@ internal class AccentApplyScope {
         check(active === this) { "Closing a different accent checkpoint scope" }
         active = null
         checkpoints.filter { it.hasPending }.forEach(AccentCheckpoint::retain)
+        closeActions.forEach { it() }
+        closeActions.clear()
+    }
+
+    /** Runs boundary cleanup or queues derived work after pending recovery has transferred. */
+    fun onClose(action: () -> Unit) {
+        check(active === this) { "Accent checkpoint scope is not active" }
+        closeActions += action
     }
 
     fun <T> runStep(action: () -> T): T {
@@ -88,6 +108,7 @@ internal class AccentApplyScope {
     fun record(checkpoint: AccentCheckpoint) {
         checkWritable()
         checkpoints += checkpoint
+        segment.record(checkpoint)
     }
 
     fun put(
@@ -105,11 +126,20 @@ internal class AccentApplyScope {
 
     fun commit() {
         checkWritable()
-        for (checkpoint in checkpoints) {
-            if (checkpoint in failedChildren && checkpoint.hasPending) checkpoint.retain() else checkpoint.commit()
+        val accepted = checkpoints.filterNot { it in failedChildren && it.hasPending }
+        checkpoints.filterNot { it in accepted }.forEach(AccentCheckpoint::retain)
+        accepted.forEach(AccentCheckpoint::commit)
+        state = State.COMMITTED
+        var failure: Throwable? = null
+        for (checkpoint in accepted) {
+            try {
+                checkpoint.releaseResources()
+            } catch (exception: RuntimeException) {
+                failure = combineUiFailures(failure, exception)
+            }
         }
         checkpoints.removeAll { !it.hasPending }
-        state = State.COMMITTED
+        failure?.let { throw it }
     }
 
     fun requestAbort() {
@@ -203,6 +233,21 @@ internal class AccentApplyScope {
         var active: AccentApplyScope? = null
             private set
     }
+}
+
+/** Restores newer receipts first, retaining failed ownership before older writes can run. */
+internal fun <T : AccentCheckpoint> restoreAccentCheckpoints(pending: MutableList<T>) {
+    val blocked = mutableListOf<AccentCheckpoint>()
+    var failure: Throwable? = null
+    for (checkpoint in pending.toList().asReversed()) {
+        try {
+            checkpoint.restore(blocked)
+        } catch (exception: RuntimeException) {
+            failure = combineUiFailures(failure, exception)
+        }
+        if (checkpoint.hasPending) blocked += checkpoint else pending.remove(checkpoint)
+    }
+    failure?.let { throw it }
 }
 
 /** Keeps standalone element calls unchanged while enrolling synchronous apply writes. */

@@ -52,6 +52,7 @@ import java.util.Properties
 import java.util.concurrent.CancellationException
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import javax.swing.UIDefaults
 import javax.swing.UIManager
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -1122,13 +1123,19 @@ class AccentApplicatorTest {
         state.externalThemeChromeTintEnabled = true
         state.chromePanelBorder = true
         every { AyuVariant.detect() } returns null
+        val defaults = UIDefaults()
+        every { UIManager.getDefaults() } returns defaults
         every {
             UIManager.put(EXTERNAL_CHROME_TEST_KEY, any<Color>())
-        } throws RuntimeException("listener failed after write")
-        every { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) } returns Unit
+        } answers {
+            defaults[EXTERNAL_CHROME_TEST_KEY] = secondArg<Color>()
+            error("listener failed after write")
+        }
+        every { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) } answers { defaults.remove(EXTERNAL_CHROME_TEST_KEY) }
 
         AccentApplicator.applyFromHexString("#AABBCC")
         assertFalse(state.lastApplyOk)
+        assertNull(defaults[EXTERNAL_CHROME_TEST_KEY])
 
         verify(exactly = 2) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, any()) }
         verify(exactly = 1) { UIManager.put(EXTERNAL_CHROME_TEST_KEY, null) }

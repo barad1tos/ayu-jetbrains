@@ -13,6 +13,49 @@ import kotlin.test.assertTrue
 
 class AccentApplyScopeTest {
     @Test
+    fun `resource retirement failure keeps committed colors and attempts independent cleanup`() =
+        withScope { scope ->
+            UIManager.put(KEY, Color.BLUE)
+            var independentReleased = false
+            val interrupted =
+                ResourceCheckpoint {
+                    assertTrue(scope.isCommitted)
+                    assertSame(Color.RED, UIManager.getColor(KEY))
+                    error("old highlighter removal interrupted")
+                }
+            scope.record(interrupted)
+            scope.record(ResourceCheckpoint { independentReleased = true })
+            scope.runStep { putAccentUiDefault(KEY, Color.RED) }
+
+            assertFailsWith<IllegalStateException> { scope.restoringOnFailure { scope.commit() } }
+
+            assertTrue(scope.isCommitted)
+            assertTrue(independentReleased)
+            assertTrue(interrupted.hasPending)
+            assertSame(Color.RED, UIManager.getColor(KEY))
+            scope.close()
+            assertTrue(interrupted.isRetained)
+        }
+
+    @Test
+    fun `restoration can defer caret work until the active scope has closed`() =
+        withScope { scope ->
+            var ran = false
+            scope.uiDefaults.onRestore {
+                scope.onClose {
+                    assertSame(null, AccentApplyScope.active)
+                    ran = true
+                }
+            }
+            scope.runStep { putAccentUiDefault(KEY, Color.RED) }
+
+            scope.restore()
+            scope.close()
+
+            assertTrue(ran)
+        }
+
+    @Test
     fun `a later segment cannot paint a replacement look and feel`() =
         withScope { scope ->
             val original = UIManager.getLookAndFeel()
@@ -173,7 +216,7 @@ class AccentApplyScopeTest {
             try {
                 action(scope)
             } finally {
-                scope.close()
+                if (AccentApplyScope.active === scope) scope.close()
                 UIManager.put(KEY, saved)
                 UIManager.put(OTHER_KEY, other)
             }
@@ -183,5 +226,29 @@ class AccentApplyScopeTest {
     private companion object {
         const val KEY = "ProgressBar.foreground"
         const val OTHER_KEY = "ProgressBar.progressCounterBackground"
+    }
+
+    private class ResourceCheckpoint(
+        private val release: () -> Unit,
+    ) : AccentCheckpoint {
+        override var hasPending = true
+            private set
+        var isRetained = false
+            private set
+
+        override fun restore(blockedBy: List<AccentCheckpoint>) {
+            hasPending = false
+        }
+
+        override fun commit() = Unit
+
+        override fun releaseResources() {
+            release()
+            hasPending = false
+        }
+
+        override fun retain() {
+            isRetained = true
+        }
     }
 }

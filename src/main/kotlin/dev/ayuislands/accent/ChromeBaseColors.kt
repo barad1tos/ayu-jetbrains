@@ -8,6 +8,7 @@ import com.intellij.openapi.diagnostic.logger
 import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
 /**
@@ -67,6 +68,7 @@ object ChromeBaseColors {
     private val lastPluginTint = ConcurrentHashMap<String, Color>()
 
     private val isLafListenerRequested = AtomicBoolean(false)
+    private var generation = 0L
 
     private fun requestLafListener() {
         if (!isLafListenerRequested.compareAndSet(false, true)) return
@@ -133,9 +135,11 @@ object ChromeBaseColors {
                 return null
             }
             val stock = recoverStockIfCurrentIsPluginTint(key, current)
-            lastStockSnapshot[key] = stock
-            // Retain first captured value even under concurrent first access.
-            return snapshot.putIfAbsent(key, stock) ?: stock
+            CacheCheckpoints.put(lastStockSnapshot, key, stock)
+            // A UIManager getter can reenter and capture the key while this read runs.
+            snapshot[key]?.let { return it }
+            CacheCheckpoints.put(snapshot, key, stock)
+            return snapshot[key] ?: stock
         }
     }
 
@@ -147,12 +151,12 @@ object ChromeBaseColors {
         key: String,
         color: Color,
     ) {
-        lastPluginTint[key] = color
+        CacheCheckpoints.put(lastPluginTint, key, color)
     }
 
     /** Clears the remembered plugin tint for [key] after the matching revert. */
     fun forgetPluginTint(key: String) {
-        lastPluginTint.remove(key)
+        CacheCheckpoints.put(lastPluginTint, key, null)
     }
 
     /**
@@ -176,8 +180,107 @@ object ChromeBaseColors {
             // Clear the latch BEFORE the snapshot so a racing `get(key)` between the
             // two clears cannot see a cleared snapshot with a stale latch still full
             // (which would silence a WARN that the new LAF cycle should emit).
+            generation++
             missingKeyLogged.clear()
             snapshot.clear()
+        }
+    }
+
+    private object CacheCheckpoints {
+        private val pending = mutableListOf<CacheCheckpoint>()
+        private val receipts = mutableListOf<CacheCheckpoint>()
+        private var boundScope: AccentApplyScope? = null
+
+        fun put(
+            entries: ConcurrentHashMap<String, Color>,
+            key: String,
+            color: Color?,
+        ) {
+            synchronized(snapshot) {
+                val scope =
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        AccentApplyScope.active?.takeUnless {
+                            it.isCommitted
+                        }
+                    } else {
+                        null
+                    }
+                if (scope != null) {
+                    scope.checkWritable()
+                    if (pending.isNotEmpty()) scope.recover { restoreAccentCheckpoints(pending) }
+                    bind(scope)
+                    val previous =
+                        receipts.lastOrNull {
+                            it.entries === entries &&
+                                it.key == key &&
+                                it.capturedGeneration == generation &&
+                                it.isUnsettled
+                        }
+                    if (previous?.permitsWrite() == false) return
+                    val checkpoint = CacheCheckpoint(entries, key, color)
+                    receipts += checkpoint
+                    scope.record(checkpoint)
+                }
+                if (color == null) entries.remove(key) else entries[key] = color
+            }
+        }
+
+        private fun bind(scope: AccentApplyScope) {
+            if (boundScope === scope) return
+            boundScope = scope
+            receipts.clear()
+            scope.onClose {
+                synchronized(snapshot) {
+                    receipts.clear()
+                    boundScope = null
+                }
+            }
+        }
+
+        private class CacheCheckpoint(
+            val entries: ConcurrentHashMap<String, Color>,
+            val key: String,
+            private val expected: Color?,
+        ) : AccentCheckpoint {
+            private enum class State { OWNED, RELINQUISHED, RESTORED }
+
+            val capturedGeneration = generation
+            private val original = entries[key]
+            private var state = State.OWNED
+
+            override val hasPending: Boolean
+                get() = state == State.OWNED
+
+            val isUnsettled: Boolean
+                get() = state != State.RESTORED
+
+            fun permitsWrite(): Boolean {
+                if (state != State.OWNED) return false
+                if (capturedGeneration != generation || entries[key] !== expected) state = State.RELINQUISHED
+                return state == State.OWNED
+            }
+
+            override fun restore(blockedBy: List<AccentCheckpoint>) {
+                synchronized(snapshot) {
+                    if (!hasPending) return
+                    check(
+                        blockedBy.none {
+                            it is CacheCheckpoint && it.entries === entries && it.key == key && it.hasPending
+                        },
+                    ) { "Chrome cache restoration blocked by a newer write: $key" }
+                    if (!permitsWrite()) return
+                    if (original == null) entries.remove(key) else entries[key] = original
+                    commit()
+                }
+            }
+
+            override fun commit() {
+                if (state != State.RELINQUISHED) state = State.RESTORED
+            }
+
+            override fun retain() {
+                if (hasPending && this !in pending) pending += this
+            }
         }
     }
 

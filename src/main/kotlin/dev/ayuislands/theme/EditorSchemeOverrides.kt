@@ -13,6 +13,7 @@ import dev.ayuislands.accent.AccentApplyScope
 import dev.ayuislands.accent.AccentCheckpoint
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.combineUiFailures
+import dev.ayuislands.accent.restoreAccentCheckpoints
 import org.jdom.Element
 import java.awt.Color
 import java.util.Base64
@@ -173,19 +174,7 @@ internal object EditorSchemeOverrides {
             refresh = null
         }
 
-        private fun restorePending() {
-            val blocked = mutableListOf<AccentCheckpoint>()
-            var failure: Throwable? = null
-            for (checkpoint in pending.toList().asReversed()) {
-                try {
-                    checkpoint.restore(blocked)
-                } catch (exception: RuntimeException) {
-                    failure = combineUiFailures(failure, exception)
-                }
-                if (checkpoint.hasPending) blocked += checkpoint else pending.remove(checkpoint)
-            }
-            failure?.let { throw it }
-        }
+        private fun restorePending() = restoreAccentCheckpoints(pending)
 
         fun blocksClaim(
             scheme: EditorColorsScheme,

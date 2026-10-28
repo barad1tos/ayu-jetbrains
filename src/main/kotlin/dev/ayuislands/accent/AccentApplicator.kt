@@ -18,13 +18,6 @@ import com.intellij.ui.JBColor
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.conflict.ConflictRegistry
 import dev.ayuislands.accent.elements.AbstractChromeElement
-import dev.ayuislands.accent.elements.CaretRowElement
-import dev.ayuislands.accent.elements.InlayHintsElement
-import dev.ayuislands.accent.elements.LinksElement
-import dev.ayuislands.accent.elements.MatchingTagElement
-import dev.ayuislands.accent.elements.ProgressBarElement
-import dev.ayuislands.accent.elements.ScrollbarElement
-import dev.ayuislands.accent.elements.SearchResultsElement
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.GlowTabMode
 import dev.ayuislands.indent.IndentRainbowSync
@@ -498,18 +491,23 @@ object AccentApplicator {
 
     private fun clearReverseUiAndExtensions(): ElementRevertFailure? {
         val failedExternalReverts = mutableSetOf<AccentElementId>()
-        var firstFailure = runCatchingPreservingCancellation { uiDefaultsOwner.restore() }.exceptionOrNull()
+        var firstFailure = captureCleanupFailure { uiDefaultsOwner.restore() }
         for (element in EP_NAME.extensionList) {
-            val failure = runCatchingPreservingCancellation { element.revert() }.exceptionOrNull() ?: continue
+            val failure = captureCleanupFailure { element.revert() } ?: continue
             failedExternalReverts.add(element.id)
-            if (firstFailure == null) firstFailure = failure
+            firstFailure = combineUiFailures(firstFailure, failure)
+            if (failure is RuntimeException && failure.isAccentCancellation()) continue
             log.warn(
                 "Failed to revert ${element.displayName}",
                 failure,
             )
         }
-        ExternalChromeOwnership.finishRevert(failedExternalReverts)
-        return firstFailure?.let { ElementRevertFailure(failedExternalReverts, it) }
+        captureCleanupFailure { ExternalChromeOwnership.finishRevert(failedExternalReverts) }?.let {
+            firstFailure = combineUiFailures(firstFailure, it)
+        }
+        val failure = firstFailure ?: return null
+        if (failure is RuntimeException) failure.rethrowIfCancelled()
+        return ElementRevertFailure(failedExternalReverts, failure)
     }
 
     private fun applyElements(
@@ -552,15 +550,7 @@ object AccentApplicator {
         variant: AyuVariant?,
         isPremiumAllowed: Boolean,
     ): AccentApplyStepFailure? {
-        // Chrome and bracket fade retain their cleanup until their cache and peer adapters are checkpointed.
-        val checkpointRestore =
-            when (element) {
-                is SearchResultsElement, is CaretRowElement, is InlayHintsElement,
-                is MatchingTagElement, is ProgressBarElement, is LinksElement, is ScrollbarElement,
-                ->
-                    AccentApplyScope.active?.elementRollback()
-                else -> null
-            }
+        val checkpointRestore = element.checkpointRollback()
         AyuEditorSchemeScope.observeElementEnabled(
             element.id,
             ChromeTintContext.isToggleEnabled(state, element.id),
@@ -810,6 +800,8 @@ internal object ExternalChromeOwnership {
         java.util.EnumSet.noneOf(AccentElementId::class.java)
     private val typeMismatchLogged: MutableSet<AccentElementId> =
         java.util.EnumSet.noneOf(AccentElementId::class.java)
+    private val pending = mutableListOf<OwnershipCheckpoint>()
+    private var target: UiDefaultsTarget? = null
 
     fun apply(
         elements: List<AccentElement>,
@@ -818,29 +810,97 @@ internal object ExternalChromeOwnership {
         isAllowed: Boolean,
         onFailure: (AccentApplyStepFailure) -> Unit,
     ) {
+        prepareTarget()
         if (!isAllowed) {
             revertAll(elements, onFailure)
             return
         }
         for (element in elements) {
             if (element.id.group != AccentGroup.CHROME) continue
-            applyElement(element, state, accent)?.let(onFailure)
+            withAccentSegment {
+                withRecoveredOwnership(element) { applyElement(element, state, accent) }
+            }?.let(onFailure)
         }
     }
 
     fun clearOwnership() {
-        ownedElements.clear()
+        clearMembership(emptySet())
     }
 
     fun finishRevert(failedElements: Set<AccentElementId>) {
-        ownedElements.retainAll(failedElements)
+        clearMembership(failedElements)
     }
 
     @TestOnly
     fun resetForTests() {
         uiDefaultsOwner.restore()
-        clearOwnership()
+        ownedElements.clear()
+        pending.clear()
+        target = null
         typeMismatchLogged.clear()
+    }
+
+    private fun clearMembership(failedElements: Set<AccentElementId>) {
+        prepareTarget()
+        val ids = (ownedElements.toList() + pending.map { it.id }).distinct().filterNot { it in failedElements }
+        var failure: Throwable? = null
+        for (id in ids) {
+            val recovery =
+                captureCleanupFailure {
+                    withAccentSegment {
+                        recoverOwnership(id)
+                        changeOwnership(id, false)
+                    }
+                }
+            if (recovery != null) failure = combineUiFailures(failure, recovery)
+        }
+        failure?.let { throw it }
+    }
+
+    private fun prepareTarget() {
+        val scope = AccentApplyScope.active?.takeUnless { it.isCommitted }
+        scope?.checkWritable()
+        if (target?.isCurrent() != true) {
+            ownedElements.clear()
+            target = UiDefaultsTarget()
+        }
+    }
+
+    private fun recoverOwnership(id: AccentElementId) {
+        val related = pending.filter { it.id == id }.toMutableList()
+        if (related.isEmpty()) return
+        val recovery = {
+            try {
+                restoreAccentCheckpoints(related)
+            } finally {
+                pending.removeAll { !it.hasPending }
+            }
+        }
+        val scope = AccentApplyScope.active?.takeUnless { it.isCommitted }
+        if (scope == null) recovery() else scope.recover(recovery)
+    }
+
+    private fun withRecoveredOwnership(
+        element: AccentElement,
+        action: () -> AccentApplyStepFailure?,
+    ): AccentApplyStepFailure? {
+        val recovery =
+            captureAccentFailure(AccentApplyStep.ApplyElements, "Recover external chrome ${element.displayName}") {
+                recoverOwnership(element.id)
+            }
+        return recovery ?: action()
+    }
+
+    private fun changeOwnership(
+        id: AccentElementId,
+        owned: Boolean,
+    ) {
+        val scope = AccentApplyScope.active?.takeUnless { it.isCommitted }
+        scope?.checkWritable()
+        val previous = id in ownedElements
+        if (previous == owned) return
+        scope?.record(OwnershipCheckpoint(id, previous, owned, scope.segment))
+        if (owned) ownedElements.add(id) else ownedElements.remove(id)
     }
 
     private fun applyElement(
@@ -856,18 +916,22 @@ internal object ExternalChromeOwnership {
         if (conflict != null) {
             log.warn("Force-overriding ${conflict.pluginDisplayName} conflict for ${element.displayName}")
         }
-
         val chromeElement = element as? AbstractChromeElement
         if (chromeElement == null) {
             logTypeMismatch(element)
             return null
         }
+        val checkpointRestore = element.checkpointRollback()
         return captureAccentFailure(
             step = AccentApplyStep.ApplyElements,
             operation = "Apply external chrome ${element.displayName}",
-            rollback = { revertOne(element)?.let { throw it.error } },
+            rollback =
+                checkpointRestore ?: {
+                    val recovery = revertOne(element)
+                    if (recovery != null) throw recovery.error
+                },
         ) {
-            chromeElement.applyExternal(accent) { ownedElements.add(element.id) }
+            chromeElement.applyExternal(accent) { changeOwnership(element.id, true) }
         }
     }
 
@@ -883,20 +947,68 @@ internal object ExternalChromeOwnership {
         elements: List<AccentElement>,
         onFailure: (AccentApplyStepFailure) -> Unit,
     ) {
-        if (ownedElements.isEmpty()) return
+        if (ownedElements.isEmpty() && pending.isEmpty()) return
         for (element in elements) {
-            revertOne(element)?.let(onFailure)
+            withAccentSegment { withRecoveredOwnership(element) { revertOne(element) } }?.let(onFailure)
         }
     }
 
     private fun revertOne(element: AccentElement): AccentApplyStepFailure? {
-        if (!ownedElements.remove(element.id)) return null
+        if (element.id !in ownedElements) return null
+        val checkpointRestore = element.checkpointRollback()
+        changeOwnership(element.id, false)
         return captureAccentFailure(
             step = AccentApplyStep.ApplyElements,
             operation = "Restore external chrome ${element.displayName}",
-            rollback = { ownedElements.add(element.id) },
+            rollback = checkpointRestore ?: { changeOwnership(element.id, true) },
         ) { element.revert() }
     }
+
+    private class OwnershipCheckpoint(
+        val id: AccentElementId,
+        private val previous: Boolean,
+        private val expected: Boolean,
+        private val segment: AccentApplyScope.Segment,
+    ) : AccentCheckpoint {
+        private val capturedTarget = checkNotNull(target)
+        private val dependencies = mutableListOf<AccentCheckpoint>()
+        override var hasPending = true
+            private set
+
+        override fun restore(blockedBy: List<AccentCheckpoint>) {
+            if (!hasPending) return
+            if (!capturedTarget.isCurrent()) {
+                commit()
+                return
+            }
+            val related = blockedBy.filter { it in segment || it is OwnershipCheckpoint && it.id == id }
+            for (checkpoint in related.asReversed()) {
+                if (dependencies.none { it === checkpoint }) dependencies += checkpoint
+            }
+            check(related.isEmpty()) { "External chrome ownership is waiting for surface recovery: $id" }
+            restoreAccentCheckpoints(dependencies)
+            if ((id in ownedElements) == expected) {
+                if (previous) ownedElements.add(id) else ownedElements.remove(id)
+            }
+            commit()
+        }
+
+        override fun commit() {
+            hasPending = false
+            dependencies.clear()
+        }
+
+        override fun retain() {
+            if (hasPending && this !in pending) pending += this
+        }
+    }
+}
+
+/** Collects cleanup cancellation until independent entries settle; VM failures still abort immediately. */
+private inline fun captureCleanupFailure(action: () -> Unit): Throwable? {
+    val failure = runCatching(action).exceptionOrNull()
+    if (failure is VirtualMachineError) throw failure
+    return failure
 }
 
 private fun effectiveTabMode(
