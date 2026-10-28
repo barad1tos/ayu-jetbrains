@@ -31,6 +31,8 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
 import javax.swing.SwingUtilities
+import javax.swing.UIManager
+import javax.swing.plaf.metal.MetalLookAndFeel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -174,6 +176,60 @@ class BracketFadeManagerTest {
         assertFalse(previousParent in disposedParents)
         assertTrue(markup.isValid)
         assertSame(markup.originalRenderer, markup.renderer)
+    }
+
+    @Test
+    fun `aborted first activation leaves no bracket listeners or color`() {
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            val createdParent = getPrivateField<Disposable>("disposable")
+
+            scope.restore()
+
+            assertNull(getPrivateField("disposable"))
+            assertNull(getPrivateField("currentColor"))
+            assertEquals(setOf(createdParent), disposedParents)
+        }
+    }
+
+    @Test
+    fun `committed first activation keeps its new bracket listeners and color`() {
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            val createdParent = getPrivateField<Disposable>("disposable")
+
+            scope.commit()
+
+            assertSame(createdParent, getPrivateField("disposable"))
+            assertSame(Color.RED, getPrivateField("currentColor"))
+            assertTrue(disposedParents.isEmpty())
+        }
+    }
+
+    @Test
+    fun `look and feel replacement retires obsolete bracket state on abort`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val previousParent = getPrivateField<Disposable>("disposable")
+        val markup = trackedMarkup()
+
+        withScope { scope ->
+            val originalLookAndFeel = UIManager.getLookAndFeel()
+            try {
+                BracketFadeManager.activate(Color.RED)
+                val createdParent = getPrivateField<Disposable>("disposable")
+                UIManager.setLookAndFeel(MetalLookAndFeel())
+
+                scope.restore()
+
+                assertNull(getPrivateField("disposable"))
+                assertNull(getPrivateField("currentColor"))
+                assertEquals(setOf(previousParent, createdParent), disposedParents)
+                assertFalse(markup.isValid)
+                assertTrue(getPrivateField<Map<Editor, List<RangeHighlighter>>>("activeHighlighters").isEmpty())
+            } finally {
+                UIManager.setLookAndFeel(originalLookAndFeel)
+            }
+        }
     }
 
     @Test
