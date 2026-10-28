@@ -49,10 +49,6 @@ object IndentRainbowSync {
 
     @Volatile private var cachedDataCompanion: Any? = null
 
-    @Volatile private var refreshMethod: Method? = null
-
-    @Volatile private var irColorsInstance: Any? = null
-
     @Volatile private var methodsResolved = false
 
     @Volatile private var resolutionFailure: Throwable? = null
@@ -300,8 +296,6 @@ object IndentRainbowSync {
             colorCountField = customPaletteNumberColorsField ?: return null,
             updateMethod = cachedDataUpdateMethod ?: return null,
             companion = cachedDataCompanion ?: return null,
-            refreshMethod = refreshMethod ?: return null,
-            colorsInstance = irColorsInstance ?: return null,
         ).also { it.checkpoint = receipts.current }
     }
 
@@ -322,8 +316,6 @@ object IndentRainbowSync {
         paletteEnumValues = null
         cachedDataUpdateMethod = null
         cachedDataCompanion = null
-        refreshMethod = null
-        irColorsInstance = null
         methodsResolved = false
         resolutionFailure = null
         return failedOutcome(operation, failure)
@@ -469,17 +461,6 @@ object IndentRainbowSync {
                     "update",
                     configClass,
                 )
-
-            // Resolve IrColors.INSTANCE.refreshEditorIndentColors()
-            val irColorsClass =
-                Class.forName(
-                    "indent.rainbow.IrColors",
-                    true,
-                    classLoader,
-                )
-            val instance = irColorsClass.getDeclaredField("INSTANCE")[null]
-            irColorsInstance = instance
-            refreshMethod = instance.javaClass.getMethod("refreshEditorIndentColors")
         } catch (exception: ReflectiveOperationException) {
             resolutionFailure = exception
             logResolutionWarning(exception)

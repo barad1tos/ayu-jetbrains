@@ -1,6 +1,7 @@
 package dev.ayuislands.indent
 
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.theme.EditorSchemeChange
 import java.lang.reflect.Field
 import java.lang.reflect.Method
 
@@ -22,8 +23,6 @@ internal class ResolvedIrState(
     private val colorCountField: Field,
     private val updateMethod: Method,
     private val companion: Any,
-    private val refreshMethod: Method,
-    private val colorsInstance: Any,
 ) {
     var checkpoint: IrCheckpoint? = null
 
@@ -73,7 +72,9 @@ internal class ResolvedIrState(
 
     fun refresh() {
         updateMethod.invoke(companion, config)
-        refreshMethod.invoke(colorsInstance)
+        // IR's refresh helper invalidates PSI through an internal IDE API.
+        // Notify editor listeners through the same public path as our scheme overrides.
+        EditorSchemeChange.publish()
         checkpoint?.refreshed()
     }
 }

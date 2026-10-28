@@ -514,11 +514,11 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
             - src/main/kotlin/dev/ayuislands/indent
             - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "f86aba6e"
-          last_verified_date: "2026-08-09"
-          content_sha256: "c5c1eea5a119bd19bf98518d394d698bf09983a1e0a3472e255358c50e41ed16"
+          last_verified_sha: "a5a63e53"
+          last_verified_date: "2026-10-28"
+          content_sha256: "2a0c02b3ed22b7805119676ce17006b30c1aaaf60721c5b937ee4c84419ea18b"
 
-          sources_sha256: "ca5f30d3cd4b1bb7ae74880e0834bd7cb11aed7d07eaa0fb528ea864915b98e8"
+          sources_sha256: "eeb53ff6cf451251e5adef2210ef68620d2f53f0c9c49eb883eed93e06ecbefb"
   onboarding:
     title: "Onboarding wizard"
     features:

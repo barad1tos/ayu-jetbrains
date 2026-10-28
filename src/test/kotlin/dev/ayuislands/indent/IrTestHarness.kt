@@ -55,8 +55,6 @@ internal fun installIrHarness(
     setIrField("paletteEnumValues", FakePaletteType.entries.associateBy { it.name })
     setIrField("cachedDataUpdateMethod", mockIrMethod())
     setIrField("cachedDataCompanion", Any())
-    setIrField("refreshMethod", mockIrMethod())
-    setIrField("irColorsInstance", Any())
     return harness
 }
 
@@ -81,8 +79,6 @@ internal fun resetIrBindings() {
             "paletteEnumValues",
             "cachedDataUpdateMethod",
             "cachedDataCompanion",
-            "refreshMethod",
-            "irColorsInstance",
             "resolutionFailure",
         )
     for (fieldName in fields) {

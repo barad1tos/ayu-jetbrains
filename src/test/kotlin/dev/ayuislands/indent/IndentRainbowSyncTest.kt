@@ -14,6 +14,7 @@ import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.theme.EditorSchemeChange
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -60,6 +61,8 @@ class IndentRainbowSyncTest {
         mockkObject(AyuPlugin)
         every { AyuPlugin.findLoadedPlugin(any()) } returns null
 
+        mockkObject(EditorSchemeChange)
+        every { EditorSchemeChange.publish() } returns Unit
         resetIrBindings()
     }
 
@@ -422,16 +425,37 @@ class IndentRainbowSyncTest {
     }
 
     @Test
+    fun `failed editor notification restores the native palette before returning failure`() {
+        state.irIntegrationEnabled = true
+        val harness = installIrHarness(mockApplication, FakePaletteType.RAINBOW, "user palette", 4)
+        val notificationFailure = IllegalStateException("editor notification rejected")
+        var rejectNotification = true
+        every { EditorSchemeChange.publish() } answers {
+            if (rejectNotification) {
+                rejectNotification = false
+                throw notificationFailure
+            }
+        }
+
+        val outcome = assertIs<IntegrationOutcome.Failed>(callApply())
+
+        assertSame(notificationFailure, outcome.error)
+        assertEquals(FakePaletteType.RAINBOW, harness.type)
+        assertEquals("user palette", harness.palette)
+        assertEquals(4, harness.colorCount)
+        assertEquals("UNOWNED", state.irOwnership)
+        assertTrue(state.irIntegrationEnabled)
+        verify(exactly = 2) { EditorSchemeChange.publish() }
+    }
+
+    @Test
     fun `pending retry reports ordinary failures and propagates control signals`() {
         state.irIntegrationEnabled = true
         val harness = installIrHarness(mockApplication, FakePaletteType.RAINBOW, "user palette", 4)
-        val refresh = mockk<Method>(relaxed = true)
         var retryError: Throwable? = null
-        every { refresh.invoke(any()) } answers {
+        every { EditorSchemeChange.publish() } answers {
             retryError?.let { failure -> throw failure }
-            null
         }
-        setIrField("refreshMethod", refresh)
         withScope { scope ->
             assertIs<IntegrationOutcome.Applied>(callApply())
             retryError = IllegalStateException("cache refresh rejected")
@@ -660,9 +684,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -673,8 +695,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
 
@@ -686,7 +706,7 @@ class IndentRainbowSyncTest {
         verify { mockNumberColorsField.setInt(mockConfig, 11) }
         // Verify cache flush
         verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
-        verify { mockRefreshMethod.invoke(mockColorsInstance) }
+        verify { EditorSchemeChange.publish() }
     }
 
     @Test
@@ -940,9 +960,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -953,8 +971,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApplyExternal()
 
@@ -969,7 +985,7 @@ class IndentRainbowSyncTest {
         }
         verify { mockNumberColorsField.setInt(mockConfig, 11) }
         verify { mockUpdateMethod.invoke(mockCompanion, mockConfig) }
-        verify { mockRefreshMethod.invoke(mockColorsInstance) }
+        verify { EditorSchemeChange.publish() }
     }
 
     @Test
@@ -1055,9 +1071,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockk<Method>(relaxed = true)
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         every { mockUpdateMethod.invoke(any(), any()) } throws
             java.lang.reflect.InvocationTargetException(RuntimeException("inner"))
@@ -1071,8 +1085,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
         // Should not throw — exception is caught and logged
@@ -1087,9 +1099,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockk<Method>(relaxed = true)
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         every { mockUpdateMethod.invoke(any(), any()) } throws IllegalAccessException("denied")
 
@@ -1102,8 +1112,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
     }
@@ -1113,9 +1121,7 @@ class IndentRainbowSyncTest {
         val mockConfig = Any()
         val mockPaletteTypeField = mockField()
         val mockUpdateMethod = mockk<Method>(relaxed = true)
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         every { mockUpdateMethod.invoke(any(), any()) } throws RuntimeException("flush failed")
 
@@ -1125,8 +1131,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         IndentRainbowSync.revert()
         // Should not throw
@@ -1152,9 +1156,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -1165,8 +1167,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
 
@@ -1191,9 +1191,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -1204,8 +1202,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply(AyuVariant.DARK)
 
@@ -1223,9 +1219,7 @@ class IndentRainbowSyncTest {
         val mockConfig = Any()
         val mockPaletteTypeField = mockField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -1233,8 +1227,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", null)
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         IndentRainbowSync.revert()
 
@@ -1251,9 +1243,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -1264,8 +1254,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
 
@@ -1305,9 +1293,7 @@ class IndentRainbowSyncTest {
         val mockConfig = Any()
         val mockPaletteTypeField = mockField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -1318,8 +1304,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
 
@@ -1334,9 +1318,7 @@ class IndentRainbowSyncTest {
         val mockPaletteTypeField = mockField()
         val mockCustomPaletteField = mockField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -1347,8 +1329,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
 
@@ -1364,9 +1344,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         every { mockPaletteTypeField[any()] = any() } throws RuntimeException("field set exploded")
 
@@ -1379,8 +1357,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
         // Should not throw — caught by RuntimeException handler
@@ -1397,9 +1373,7 @@ class IndentRainbowSyncTest {
         val mockCustomPaletteField = mockField()
         val mockNumberColorsField = mockIntField()
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         setIrField("methodsResolved", true)
         setIrField("irConfig", mockConfig)
@@ -1410,8 +1384,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         callApply()
 
@@ -1431,9 +1403,7 @@ class IndentRainbowSyncTest {
         val mockConfig = Any()
         val mockPaletteTypeField = mockk<Field>(relaxed = true)
         val mockUpdateMethod = mockMethod()
-        val mockRefreshMethod = mockMethod()
         val mockCompanion = Any()
-        val mockColorsInstance = Any()
 
         every { mockPaletteTypeField[any()] = any() } throws IllegalAccessException("access denied")
 
@@ -1443,8 +1413,6 @@ class IndentRainbowSyncTest {
         setIrField("defaultEnumValue", "DEFAULT_ENUM")
         setIrField("cachedDataUpdateMethod", mockUpdateMethod)
         setIrField("cachedDataCompanion", mockCompanion)
-        setIrField("refreshMethod", mockRefreshMethod)
-        setIrField("irColorsInstance", mockColorsInstance)
 
         IndentRainbowSync.revert()
         // Should not throw — caught by ReflectiveOperationException handler
