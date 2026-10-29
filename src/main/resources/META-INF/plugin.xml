@@ -121,6 +121,16 @@
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>2.8.9</h3>
+    <ul>
+      <li>[Free] <b>Keep native accents on external themes</b> — fixes the inability to retain a non-Ayu theme's own accent reported in <a href="https://github.com/barad1tos/ayu-jetbrains/issues/377">#377</a>. Turn off Override native theme accent under Plugins → External Theme Support → Accent Inheritance while keeping selected Ayu enhancements. The option stays on by default; saved accent sources, custom colors, and Chrome tint choices remain unchanged.</li>
+      <li>[Fix] <b>More complete accent recovery</b> — fixes the partial recovery tracked in <a href="https://github.com/barad1tos/ayu-jetbrains/issues/374">#374</a>. Interrupted accent changes now restore the previous editor colors, chrome backgrounds, bracket highlighting, Indent Rainbow palette, and CodeGlance Pro viewport, as well as base interface colors. Manual and third-party edits are preserved, and incomplete restoration can be retried without losing the original settings.</li>
+      <li>[Fix] <b>Reliable theme and license transitions</b> — theme and license changes wait for an interrupted accent change to recover, then use the current theme and license state. An outdated license-loss request no longer disables paid effects after access has recovered.</li>
+      <li>[Fix] <b>Visible custom accent colors</b> — the Custom picker now shows the selected color and exposes its HEX value in the tooltip and accessibility description.</li>
+      <li>[Fix] <b>Readable external-theme settings</b> — allowed-feature controls stay top-aligned and their labels remain readable in narrow Settings panels, without changing feature order or selections.</li>
+      <li>[Fix] <b>Safe error-report dialog closure</b> — fixes the new Ayu error raised when closing the IDE's error-report dialog, as reported in <a href="https://github.com/barad1tos/ayu-jetbrains/issues/376">#376</a>, including when an Ayu theme is not active.</li>
+      <li>[Fix] <b>Accessible Indent Rainbow updates</b> — applying settings through assistive technologies now refreshes indentation colors without a write-unsafe error, while retaining palette restoration if the update fails.</li>
+    </ul>
     <h3>2.8.8</h3>
     <ul>
       <li>[Fix] <b>Reapply font presets</b> — Font Settings → Customize now includes Reapply preset, so the current preset can be applied to a color scheme without changing its options. The action takes effect when you click Apply.</li>

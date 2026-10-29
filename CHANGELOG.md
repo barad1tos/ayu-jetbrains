@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.8.9] - 2026-10-29
+
+- [Free] **Keep native accents on external themes** — fixes the inability to
+  retain a non-Ayu theme's own accent reported in
+  [#377](https://github.com/barad1tos/ayu-jetbrains/issues/377). Turn off
+  Override native theme accent under Plugins → External Theme Support →
+  Accent Inheritance while keeping selected Ayu enhancements. The option stays
+  on by default; saved accent sources, custom colors, and Chrome tint choices
+  remain unchanged.
+- [Fix] **More complete accent recovery** — fixes the partial recovery tracked
+  in [#374](https://github.com/barad1tos/ayu-jetbrains/issues/374). Interrupted
+  accent changes now restore the previous editor colors, chrome backgrounds,
+  bracket highlighting, Indent Rainbow palette, and CodeGlance Pro viewport,
+  as well as base interface colors. Manual and third-party edits are preserved,
+  and incomplete restoration can be retried without losing the original settings.
+- [Fix] **Reliable theme and license transitions** — theme and license changes
+  wait for an interrupted accent change to recover, then use the current theme
+  and license state. An outdated license-loss request no longer disables paid
+  effects after access has recovered.
+- [Fix] **Visible custom accent colors** — the Custom picker now shows the
+  selected color and exposes its HEX value in the tooltip and accessibility
+  description.
+- [Fix] **Readable external-theme settings** — allowed-feature controls stay
+  top-aligned and their labels remain readable in narrow Settings panels,
+  without changing feature order or selections.
+- [Fix] **Safe error-report dialog closure** — fixes the new Ayu error raised
+  when closing the IDE's error-report dialog, as reported in
+  [#376](https://github.com/barad1tos/ayu-jetbrains/issues/376), including when
+  an Ayu theme is not active.
+- [Fix] **Accessible Indent Rainbow updates** — applying settings through
+  assistive technologies now refreshes indentation colors without a write-unsafe
+  error, while retaining palette restoration if the update fails.
+
 ## [2.8.8] - 2026-10-22
 
 - [Fix] **Reapply font presets** — Font Settings → Customize now includes

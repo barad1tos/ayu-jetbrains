@@ -70,6 +70,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "2.8.9" to
+                releaseNotes(
+                    "[Free] Keep native accents on external themes without disabling selected Ayu enhancements",
+                    "[Fix] Accent recovery preserves personal edits before pending theme or license changes",
+                    "[Fix] Custom accent colors are visible and external-theme controls fit narrow Settings panels",
+                    "[Fix] Closing the IDE error-report dialog no longer raises a new Ayu error",
+                    "[Fix] Accessibility-driven settings updates refresh Indent Rainbow without write-access errors",
+                ),
             "2.8.8" to
                 releaseNotes(
                     "[Fix] Reapply a font preset to a color scheme without changing its options",
