@@ -142,7 +142,12 @@ class UiDefaultsOwnershipTest {
             owner.put(KEY, Color.GREEN, checkpoint)
             val failure = CancellationException("accent apply cancelled")
 
-            assertSame(failure, assertFailsWith<CancellationException> { checkpoint.restoreAfter(failure) })
+            assertSame(
+                failure,
+                assertFailsWith<CancellationException> {
+                    restoringScope(checkpoint).restoringOnFailure { throw failure }
+                },
+            )
             assertSame(Color.RED, UIManager.get(KEY))
             owner.restore()
             assertSame(Color.BLUE, UIManager.get(KEY))
@@ -228,7 +233,7 @@ class UiDefaultsOwnershipTest {
     @Test
     fun `native opt out keeps explicit tab colors independently for each mode`() {
         for (mode in GlowTabMode.entries) {
-            val policy = accentUiPolicy(true, false, true, mode)
+            val policy = accentUiPolicy(external = true, overrideEnabled = false, chromeAllowed = true, tabMode = mode)
             val palette = accentUiPalette(AccentUiInput(Color.RED, null, mode, Color.WHITE.rgb, policy))
             assertFalse("Button.default.startBackground" in palette)
             assertFalse("Component.focusColor" in palette)
@@ -241,7 +246,7 @@ class UiDefaultsOwnershipTest {
                         null,
                         mode,
                         Color.WHITE.rgb,
-                        accentUiPolicy(true, false, false, mode),
+                        accentUiPolicy(external = true, overrideEnabled = false, chromeAllowed = false, tabMode = mode),
                     ),
                 ).isEmpty(),
             )
@@ -252,7 +257,12 @@ class UiDefaultsOwnershipTest {
                         Color.GRAY,
                         mode,
                         Color.WHITE.rgb,
-                        accentUiPolicy(false, false, false, mode),
+                        accentUiPolicy(
+                            external = false,
+                            overrideEnabled = false,
+                            chromeAllowed = false,
+                            tabMode = mode,
+                        ),
                     ),
                 )
             assertEquals(Color.RED.rgb, ayu["Component.focusColor"])
@@ -310,4 +320,7 @@ class UiDefaultsOwnershipTest {
         private const val KEY = "Ayu.test.nativeAccent"
         private const val OTHER_KEY = "Ayu.test.nativeBorder"
     }
+
+    private fun restoringScope(checkpoint: UiDefaultsCheckpoint): AccentApplyScope =
+        AccentApplyScope().also { it.record(checkpoint) }
 }

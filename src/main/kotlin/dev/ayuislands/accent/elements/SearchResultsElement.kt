@@ -3,6 +3,7 @@ package dev.ayuislands.accent.elements
 import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.putAccentUiDefault
 import java.awt.Color
 import javax.swing.UIManager
 
@@ -35,9 +36,9 @@ class SearchResultsElement : AccentElement {
     }
 
     override fun apply(color: Color) {
-        for (selection in selectionKeys) {
-            val backgroundKey = selection.key.substringBefore(".selection") + ".background"
-            UIManager.put(selection.key, blendWithBackground(color, selection.alpha, backgroundKey))
+        for ((key, alpha) in selectionKeys) {
+            val backgroundKey = key.substringBefore(".selection") + ".background"
+            putAccentUiDefault(key, blendWithBackground(color, alpha, backgroundKey))
         }
     }
 
@@ -70,8 +71,8 @@ class SearchResultsElement : AccentElement {
         ).toInt().coerceIn(0, MAX_CHANNEL_VALUE)
 
     override fun revert() {
-        for (selection in selectionKeys) {
-            UIManager.put(selection.key, null)
+        for ((key) in selectionKeys) {
+            putAccentUiDefault(key, null)
         }
     }
 }

@@ -18,6 +18,7 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.reapply.ReapplyReason
+import dev.ayuislands.reapply.ReapplyStatus
 import dev.ayuislands.reapply.ReapplyStep
 import dev.ayuislands.reapply.ThemeReapplication
 import dev.ayuislands.rotation.AccentRotationService
@@ -228,7 +229,7 @@ object LicenseChecker {
         }
         val now = nowMsSupplier()
         val stamp = state.lastKnownLicensedMs
-        if (stamp <= 0 || stamp > now) return null
+        if (stamp !in 1..now) return null
         val elapsed = now - stamp
         if (elapsed >= OFFLINE_GRACE_MS) return null
         return OFFLINE_GRACE_MS - elapsed
@@ -320,6 +321,7 @@ object LicenseChecker {
         // and rotation-tick paths.
         val freeHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
         ThemeReapplication.reapply(ReapplyReason.LicenseRevert(freeHex)) { result ->
+            if (result.status == ReapplyStatus.SUPERSEDED) return@reapply
             for ((step, error) in result.failures) {
                 LOG.warn("License revert step=$step failed", error)
             }

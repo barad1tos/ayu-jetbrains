@@ -4,11 +4,13 @@ import com.intellij.codeInsight.highlighting.BraceMatchingUtil
 import com.intellij.codeInsight.highlighting.BraceMatchingUtil.BraceHighlightingAndNavigationContext
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.editor.Document
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.EditorEventMulticaster
 import com.intellij.openapi.editor.markup.HighlighterTargetArea
+import com.intellij.openapi.editor.markup.LineMarkerRenderer
 import com.intellij.openapi.editor.markup.MarkupModel
 import com.intellij.openapi.editor.markup.RangeHighlighter
 import com.intellij.openapi.project.Project
@@ -16,6 +18,7 @@ import com.intellij.openapi.util.Computable
 import com.intellij.openapi.util.Disposer
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiFile
+import dev.ayuislands.accent.AccentApplyScope
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -27,12 +30,18 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
+import javax.swing.SwingUtilities
+import javax.swing.UIManager
+import javax.swing.plaf.metal.MetalLookAndFeel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -54,6 +63,7 @@ class BracketFadeManagerTest {
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
     private val mockHighlighter = mockk<RangeHighlighter>(relaxed = true)
     private val state = AyuIslandsState()
+    private val disposedParents = mutableSetOf<Disposable>()
 
     @BeforeTest
     fun setUp() {
@@ -68,8 +78,8 @@ class BracketFadeManagerTest {
         every { mockEditorFactory.eventMulticaster } returns mockMulticaster
 
         mockkStatic(Disposer::class)
-        every { Disposer.newDisposable(any<String>()) } returns mockk<Disposable>(relaxed = true)
-        every { Disposer.dispose(any()) } returns Unit
+        every { Disposer.newDisposable(any<String>()) } answers { mockk<Disposable>(relaxed = true) }
+        every { Disposer.dispose(any()) } answers { disposedParents += firstArg<Disposable>() }
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -120,6 +130,7 @@ class BracketFadeManagerTest {
         setPrivateField("disposable", null)
         setPrivateField("currentColor", null)
         getPrivateField<MutableMap<Editor, List<RangeHighlighter>>>("activeHighlighters").clear()
+        getPrivateField<MutableList<*>>("pending").clear()
     }
 
     private fun invokePrivate(
@@ -147,6 +158,275 @@ class BracketFadeManagerTest {
         val field = BracketFadeManager::class.java.getDeclaredField(fieldName)
         field.isAccessible = true
         field.set(BracketFadeManager, value)
+    }
+
+    @Test
+    fun `aborted activation preserves the exact previous listeners and live highlighter`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val previousParent = getPrivateField<Disposable>("disposable")
+        val markup = trackedMarkup()
+
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            scope.restore()
+        }
+
+        assertSame(Color.BLUE, getPrivateField("currentColor"))
+        assertSame(previousParent, getPrivateField("disposable"))
+        assertFalse(previousParent in disposedParents)
+        assertTrue(markup.isValid)
+        assertSame(markup.originalRenderer, markup.renderer)
+    }
+
+    @Test
+    fun `aborted first activation leaves no bracket listeners or color`() {
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            val createdParent = getPrivateField<Disposable>("disposable")
+
+            scope.restore()
+
+            assertNull(getPrivateField("disposable"))
+            assertNull(getPrivateField("currentColor"))
+            assertEquals(setOf(createdParent), disposedParents)
+        }
+    }
+
+    @Test
+    fun `committed first activation keeps its new bracket listeners and color`() {
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            val createdParent = getPrivateField<Disposable>("disposable")
+
+            scope.commit()
+
+            assertSame(createdParent, getPrivateField("disposable"))
+            assertSame(Color.RED, getPrivateField("currentColor"))
+            assertTrue(disposedParents.isEmpty())
+        }
+    }
+
+    @Test
+    fun `look and feel replacement retires obsolete bracket state on abort`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val previousParent = getPrivateField<Disposable>("disposable")
+        val markup = trackedMarkup()
+
+        withScope { scope ->
+            val originalLookAndFeel = UIManager.getLookAndFeel()
+            try {
+                BracketFadeManager.activate(Color.RED)
+                val createdParent = getPrivateField<Disposable>("disposable")
+                UIManager.setLookAndFeel(MetalLookAndFeel())
+
+                scope.restore()
+
+                assertNull(getPrivateField("disposable"))
+                assertNull(getPrivateField("currentColor"))
+                assertEquals(setOf(previousParent, createdParent), disposedParents)
+                assertFalse(markup.isValid)
+                assertTrue(getPrivateField<Map<Editor, List<RangeHighlighter>>>("activeHighlighters").isEmpty())
+            } finally {
+                UIManager.setLookAndFeel(originalLookAndFeel)
+            }
+        }
+    }
+
+    @Test
+    fun `aborted deactivation preserves the active bracket scope`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val previousParent = getPrivateField<Disposable>("disposable")
+        val markup = trackedMarkup()
+
+        withScope { scope ->
+            BracketFadeManager.deactivate()
+            scope.restore()
+        }
+
+        assertSame(previousParent, getPrivateField("disposable"))
+        assertSame(Color.BLUE, getPrivateField("currentColor"))
+        assertFalse(previousParent in disposedParents)
+        assertTrue(markup.isValid)
+    }
+
+    @Test
+    fun `successful activation retires old markup only at the commit boundary`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val previousParent = getPrivateField<Disposable>("disposable")
+        val markup = trackedMarkup()
+
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            assertTrue(markup.isValid)
+            assertFalse(previousParent in disposedParents)
+
+            scope.commit()
+
+            assertFalse(markup.isValid)
+            assertTrue(previousParent in disposedParents)
+            assertSame(Color.RED, getPrivateField("currentColor"))
+        }
+    }
+
+    @Test
+    fun `caret callback cannot destroy a rollback baseline during the attempt`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val markup = trackedMarkup()
+        val deferred = mutableListOf<Runnable>()
+        every { mockApplication.invokeLater(any<Runnable>(), any<ModalityState>()) } answers {
+            deferred += firstArg<Runnable>()
+        }
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            invokePrivate("handleCaretMove", mockEditor)
+            assertTrue(markup.isValid)
+            scope.restore()
+        }
+
+        assertTrue(markup.isValid)
+        assertEquals(1, deferred.size)
+        deferred.single().run()
+        assertFalse(markup.isValid)
+    }
+
+    @Test
+    fun `failed commit cleanup remains recoverable without undoing accepted colors`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val markup = trackedMarkup()
+        every { mockMarkupModel.removeHighlighter(mockHighlighter) } throws
+            IllegalStateException("markup listener failed")
+
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+
+            assertFailsWith<IllegalStateException> { scope.restoringOnFailure { scope.commit() } }
+            assertTrue(scope.isCommitted)
+            assertSame(Color.RED, getPrivateField("currentColor"))
+            assertTrue(markup.isValid)
+        }
+        every { mockMarkupModel.removeHighlighter(mockHighlighter) } answers { markup.isValid = false }
+
+        withScope { scope ->
+            BracketFadeManager.activate(Color.GREEN)
+            scope.restore()
+        }
+
+        assertFalse(markup.isValid)
+        assertSame(Color.RED, getPrivateField("currentColor"))
+    }
+
+    @Test
+    fun `standalone deactivation cannot silently discard unresolved native cleanup`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val markup = trackedMarkup()
+        every { mockMarkupModel.removeHighlighter(mockHighlighter) } throws
+            IllegalStateException("markup listener failed")
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            assertFailsWith<IllegalStateException> { scope.commit() }
+        }
+
+        assertFailsWith<IllegalStateException> { BracketFadeManager.deactivate() }
+        assertSame(Color.RED, getPrivateField("currentColor"))
+        assertTrue(markup.isValid)
+
+        every { mockMarkupModel.removeHighlighter(mockHighlighter) } answers { markup.isValid = false }
+        BracketFadeManager.deactivate()
+        assertFalse(markup.isValid)
+        assertNull(getPrivateField("currentColor"))
+    }
+
+    @Test
+    fun `failed listener installation restores the original native scope`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val previousParent = getPrivateField<Disposable>("disposable")
+        val markup = trackedMarkup()
+        every { mockEditorFactory.addEditorFactoryListener(any(), any()) } throws
+            IllegalStateException("editor factory listener failed")
+
+        withScope { scope ->
+            val rollback = scope.elementRollback()
+            assertFailsWith<IllegalStateException> { BracketFadeManager.activate(Color.RED) }
+            rollback()
+            scope.commit()
+        }
+
+        assertSame(previousParent, getPrivateField("disposable"))
+        assertSame(Color.BLUE, getPrivateField("currentColor"))
+        assertFalse(previousParent in disposedParents)
+        assertEquals(1, disposedParents.size)
+        assertTrue(markup.isValid)
+    }
+
+    @Test
+    fun `child rollback preserves the prior accepted parent until an outer abort`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val originalParent = getPrivateField<Disposable>("disposable")
+        val markup = trackedMarkup()
+
+        withScope { scope ->
+            scope.runStep { BracketFadeManager.activate(Color.RED) }
+            val acceptedParent = getPrivateField<Disposable>("disposable")
+            scope.runStep {
+                val rollback = scope.elementRollback()
+                BracketFadeManager.activate(Color.GREEN)
+                rollback()
+            }
+            assertSame(acceptedParent, getPrivateField("disposable"))
+            assertSame(Color.RED, getPrivateField("currentColor"))
+            scope.restore()
+        }
+
+        assertSame(originalParent, getPrivateField("disposable"))
+        assertFalse(originalParent in disposedParents)
+        assertEquals(2, disposedParents.size)
+        assertTrue(markup.isValid)
+    }
+
+    @Test
+    fun `commit preserves a foreign renderer installed during the attempt`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val markup = trackedMarkup()
+        val foreignRenderer = mockk<LineMarkerRenderer>()
+
+        withScope { scope ->
+            BracketFadeManager.activate(Color.RED)
+            markup.renderer = foreignRenderer
+            scope.commit()
+        }
+
+        assertTrue(markup.isValid)
+        assertSame(foreignRenderer, markup.renderer)
+    }
+
+    private fun trackedMarkup(): TrackedMarkup {
+        val markup = TrackedMarkup()
+        every { mockHighlighter.isValid } answers { markup.isValid }
+        every { mockHighlighter.lineMarkerRenderer } answers { markup.renderer }
+        every { mockMarkupModel.removeHighlighter(mockHighlighter) } answers { markup.isValid = false }
+        val active = getPrivateField<MutableMap<Editor, List<RangeHighlighter>>>("activeHighlighters")
+        active[mockEditor] = listOf(mockHighlighter)
+        return markup
+    }
+
+    private fun withScope(action: (AccentApplyScope) -> Unit) {
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                action(scope)
+            } finally {
+                scope.close()
+            }
+        }
+    }
+
+    private class TrackedMarkup {
+        val originalRenderer = BracketScopeRenderer(Color.BLUE, 1, 3)
+        var renderer: LineMarkerRenderer? = originalRenderer
+        var isValid = true
     }
 
     // activate

@@ -12,7 +12,9 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import java.awt.Color
+import javax.swing.SwingUtilities
 import javax.swing.UIManager
+import kotlin.concurrent.thread
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -62,6 +64,96 @@ class ChromeBaseColorsTest {
     fun tearDown() {
         ChromeBaseColors.refresh()
         unmockkAll()
+    }
+
+    @Test
+    fun `aborted first capture does not leave a cached base color`() {
+        val key = "TEST_CACHE_FIRST_ABORT"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        withAccentScope { scope ->
+            scope.runStep { assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key]) }
+            scope.restore()
+        }
+        every { UIManager.getColor(key) } returns Color.GREEN
+
+        assertSame(expected = Color.GREEN, actual = ChromeBaseColors[key])
+    }
+
+    @Test
+    fun `aborted tint restores the previous tint used to recognize stock colors`() {
+        val key = "TEST_CACHE_TINT_ABORT"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+        ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+        withAccentScope { scope ->
+            scope.runStep { ChromeBaseColors.rememberPluginTint(key, Color.PINK) }
+            scope.restore()
+        }
+        every { UIManager.getColor(key) } returns Color.ORANGE
+        ChromeBaseColors.refresh()
+
+        assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+    }
+
+    @Test
+    fun `aborted clear retains the previous tint used to recover stock colors`() {
+        val key = "TEST_CACHE_CLEAR_ABORT"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+        ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+        withAccentScope { scope ->
+            scope.runStep { ChromeBaseColors.forgetPluginTint(key) }
+            scope.restore()
+        }
+        every { UIManager.getColor(key) } returns Color.ORANGE
+        ChromeBaseColors.refresh()
+
+        assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+    }
+
+    @Test
+    fun `refresh generation invalidates a stale tint receipt`() {
+        val key = "TEST_CACHE_GENERATION_ABORT"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+        ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+        withAccentScope { scope ->
+            scope.runStep { ChromeBaseColors.rememberPluginTint(key, Color.PINK) }
+            ChromeBaseColors.refresh()
+            scope.restore()
+        }
+        every { UIManager.getColor(key) } returns Color.PINK
+
+        assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+    }
+
+    @Test
+    fun `background cache update survives an older scoped tint rollback`() {
+        val key = "TEST_CACHE_FOREIGN_TINT_ABORT"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+        ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+        withAccentScope { scope ->
+            scope.runStep { ChromeBaseColors.rememberPluginTint(key, Color.PINK) }
+            thread { ChromeBaseColors.rememberPluginTint(key, Color.GREEN) }.join()
+            scope.restore()
+        }
+        every { UIManager.getColor(key) } returns Color.GREEN
+        ChromeBaseColors.refresh()
+
+        assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+    }
+
+    private fun withAccentScope(action: (AccentApplyScope) -> Unit) {
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                action(scope)
+            } finally {
+                scope.close()
+            }
+        }
     }
 
     @Test

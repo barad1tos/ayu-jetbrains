@@ -5,6 +5,7 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.ui.LicensingFacade
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.settings.AyuIslandsSettings
 
 /**
@@ -43,13 +44,18 @@ internal class LicenseTransitionListener(
         confirmedProvider().takeUnless { it == LicenseEntitlement.UNKNOWN }
 
     override fun licenseStateChanged(facade: LicensingFacade?) {
-        dispatch(::processChange)
+        dispatch {
+            try {
+                requestEntitlement(entitlementProvider(), entitlementProvider, ::recordFailure, ::processChange)
+            } catch (failure: RuntimeException) {
+                recordFailure(failure)
+            }
+        }
     }
 
-    private fun processChange() {
+    private fun processChange(entitlement: LicenseEntitlement) {
         try {
             val previous = previousEntitlement
-            val entitlement = entitlementProvider()
             if (entitlement == LicenseEntitlement.UNKNOWN) {
                 scheduleRetry()
                 return
@@ -66,9 +72,14 @@ internal class LicenseTransitionListener(
             previousEntitlement = entitlement
             scheduleNextCheck(entitlement)
         } catch (exception: RuntimeException) {
-            LOG.error("Ayu license: failed to handle license state change", exception)
-            scheduleRetry()
+            recordFailure(exception)
         }
+    }
+
+    private fun recordFailure(failure: RuntimeException) {
+        failure.rethrowIfCancelled()
+        LOG.error("Ayu license: failed to handle license state change", failure)
+        scheduleRetry()
     }
 
     private fun scheduleRetry() {

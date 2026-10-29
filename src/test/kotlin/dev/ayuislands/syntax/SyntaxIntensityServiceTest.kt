@@ -114,7 +114,7 @@ class SyntaxIntensityServiceTest {
     private lateinit var ayuSettings: AyuIslandsSettings
     private lateinit var ayuState: AyuIslandsState
     private lateinit var props: PropertiesComponent
-    private lateinit var overrideCheckpoints: EditorSchemeOverrides.AttributeCheckpoints
+    private lateinit var overrideCheckpoints: EditorSchemeOverrides.SchemeCheckpoints
     private val keyCache = mutableMapOf<String, TextAttributesKey>()
 
     @BeforeTest
@@ -560,7 +560,7 @@ class SyntaxIntensityServiceTest {
 
     @Test
     fun `service retains incomplete rollback for recovery before the next apply`() {
-        val darkCheckpoint = mockk<EditorSchemeOverrides.AttributesCheckpoint>(relaxed = true)
+        val darkCheckpoint = mockk<EditorSchemeOverrides.SchemeCheckpoint>(relaxed = true)
         every {
             overrideCheckpoints.capture(mockDark, EditorSchemeOwner.Syntax, any())
         } returns darkCheckpoint

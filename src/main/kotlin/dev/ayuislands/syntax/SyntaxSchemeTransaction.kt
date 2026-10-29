@@ -66,7 +66,10 @@ internal class IdeSyntaxSchemeWriter : SyntaxSchemeWriter {
                 EditorSchemeOverrides.checkpoints.capture(
                     scheme = change.scheme,
                     owner = EditorSchemeOwner.Syntax,
-                    keys = change.attributes.keys,
+                    entries =
+                        change.attributes.keys.mapTo(
+                            mutableSetOf(),
+                        ) { EditorSchemeOverrides.SchemeEntry.AttributesEntry(it) },
                 ),
             )
         return token
@@ -128,16 +131,16 @@ internal class IdeSyntaxSchemeWriter : SyntaxSchemeWriter {
     }
 
     private sealed interface NativeCheckpoint {
-        val original: EditorSchemeOverrides.AttributesCheckpoint
+        val original: EditorSchemeOverrides.SchemeCheckpoint
 
         data class Transaction(
-            override val original: EditorSchemeOverrides.AttributesCheckpoint,
+            override val original: EditorSchemeOverrides.SchemeCheckpoint,
         ) : NativeCheckpoint
 
         data class Preview(
             val receipt: EditorSchemeOverrides.PreviewCheckpoint,
         ) : NativeCheckpoint {
-            override val original: EditorSchemeOverrides.AttributesCheckpoint
+            override val original: EditorSchemeOverrides.SchemeCheckpoint
                 get() = receipt.original
         }
     }

@@ -6,8 +6,14 @@ import com.intellij.openapi.extensions.PluginId
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.IntegrationReceipts
+import dev.ayuislands.accent.combineUiFailures
+import dev.ayuislands.accent.isAccentCancellation
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.integration.IntegrationOwnership
+import dev.ayuislands.integration.captureFailure
+import dev.ayuislands.integration.invokeNative
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -15,10 +21,11 @@ import java.lang.reflect.Field
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 
+private val log = logger<IndentRainbowSync>()
+private const val RESOLUTION_FAILED = "IR method resolution failed"
+
 object IndentRainbowSync {
-    private val log = logger<IndentRainbowSync>()
     private const val IR_PLUGIN_ID = "indent-rainbow.indent-rainbow"
-    private const val RESOLUTION_FAILED = "IR method resolution failed"
     private const val SYNC_FAILED = "IR sync failed"
     private const val RESTORE_FAILED = "IR restore failed"
     private const val MAX_ALPHA_VALUE = 255
@@ -42,13 +49,11 @@ object IndentRainbowSync {
 
     @Volatile private var cachedDataCompanion: Any? = null
 
-    @Volatile private var refreshMethod: Method? = null
-
-    @Volatile private var irColorsInstance: Any? = null
-
     @Volatile private var methodsResolved = false
 
     @Volatile private var resolutionFailure: Throwable? = null
+
+    private val receipts = IntegrationReceipts<IrCheckpoint>()
 
     /**
      * Syncs Indent Rainbow's custom palette to [accentHex] for the given [variant].
@@ -93,6 +98,11 @@ object IndentRainbowSync {
         }
 
     private fun applyPalette(
+        palette: IndentPalette,
+        logContext: String,
+    ): IntegrationOutcome = checkpointed(SYNC_FAILED) { applyPaletteNow(palette, logContext) }
+
+    private fun applyPaletteNow(
         palette: IndentPalette,
         logContext: String,
     ): IntegrationOutcome {
@@ -178,8 +188,8 @@ object IndentRainbowSync {
             }
             val writeError = resolved.writePaletteOrError(target, enumValue)
             if (writeError != null) {
-                handleApplyRollback(state, resolved, current, ownership, writeError)
-                return failedOutcome(SYNC_FAILED, writeError)
+                val failure = handleApplyRollback(state, resolved, current, ownership, writeError)
+                return failedOutcome(SYNC_FAILED, failure)
             }
 
             state.storeIrApplied(target)
@@ -200,7 +210,9 @@ object IndentRainbowSync {
      * Restores the exact pre-Ayu palette only while all current values still
      * match the most recent successful Ayu write.
      */
-    internal fun restoreOwnedState(): IntegrationOutcome {
+    internal fun restoreOwnedState(): IntegrationOutcome = checkpointed(RESTORE_FAILED, ::restoreOwnedStateNow)
+
+    private fun restoreOwnedStateNow(): IntegrationOutcome {
         val state = AyuIslandsSettings.getInstance().state
         val ownership = IntegrationOwnership.fromName(state.irOwnership)
         if (ownership != IntegrationOwnership.OWNED) {
@@ -251,6 +263,29 @@ object IndentRainbowSync {
         }
     }
 
+    private fun checkpointed(
+        operation: String,
+        action: () -> IntegrationOutcome,
+    ): IntegrationOutcome =
+        receipts.run(
+            create = {
+                val state = AyuIslandsSettings.getInstance().state
+                IrCheckpoint(
+                    state = state,
+                    isCurrent = { AyuIslandsSettings.getInstance().state === state },
+                    isTarget = { resolved ->
+                        resolved.isTarget(irConfig) &&
+                            irConfig?.let { candidate ->
+                                resolveApplicationService(candidate.javaClass) === candidate
+                            } == true
+                    },
+                    retainReceipt = receipts::retain,
+                )
+            },
+            onFailure = { failedOutcome(operation, it) },
+            action = action,
+        )
+
     private fun resolveOrReturn(): ResolvedIrState? {
         resolveReflection()
         defaultEnumValue ?: return null
@@ -261,9 +296,7 @@ object IndentRainbowSync {
             colorCountField = customPaletteNumberColorsField ?: return null,
             updateMethod = cachedDataUpdateMethod ?: return null,
             companion = cachedDataCompanion ?: return null,
-            refreshMethod = refreshMethod ?: return null,
-            colorsInstance = irColorsInstance ?: return null,
-        )
+        ).also { it.checkpoint = receipts.current }
     }
 
     private fun unresolvedOutcome(operation: String): IntegrationOutcome {
@@ -283,31 +316,9 @@ object IndentRainbowSync {
         paletteEnumValues = null
         cachedDataUpdateMethod = null
         cachedDataCompanion = null
-        refreshMethod = null
-        irColorsInstance = null
         methodsResolved = false
         resolutionFailure = null
         return failedOutcome(operation, failure)
-    }
-
-    private fun schemaFailure(
-        state: AyuIslandsState,
-        operation: String,
-        message: String,
-    ): IntegrationOutcome.Failed {
-        suspendOwnership(state)
-        return failedOutcome(operation, IllegalStateException(message))
-    }
-
-    private fun failedOutcome(
-        operation: String,
-        error: Throwable,
-    ): IntegrationOutcome.Failed {
-        log.warn(
-            "Indent Rainbow $operation: ${error.javaClass.simpleName}: ${error.message}",
-            error,
-        )
-        return IntegrationOutcome.Failed(operation, error)
     }
 
     private fun handleApplyRollback(
@@ -316,12 +327,15 @@ object IndentRainbowSync {
         current: CurrentIrPalette,
         ownership: IntegrationOwnership,
         error: Throwable,
-    ) {
-        if (!rollbackPalette(resolved, current, error)) {
-            captureRecoveryPalette(state, resolved, error)
-        } else if (ownership == IntegrationOwnership.UNOWNED) {
+    ): Throwable {
+        val rollbackError = rollbackPalette(resolved, current)
+        if (rollbackError != null) {
+            return captureRecoveryPalette(state, resolved, combineUiFailures(error, rollbackError))
+        }
+        if (ownership == IntegrationOwnership.UNOWNED) {
             clearOwnership(state)
         }
+        return error
     }
 
     private fun recoverPendingPalette(
@@ -348,43 +362,24 @@ object IndentRainbowSync {
                     IllegalStateException("palette enum ${base.type} is unavailable"),
                 )
             }
-        return try {
-            if (resolved.readPalette().palette != pending) {
-                suspendOwnership(state)
-                return IntegrationOutcome.Skipped
+        var outcome: IntegrationOutcome? = null
+        val failure =
+            captureFailure {
+                if (resolved.readPalette().palette != pending) {
+                    suspendOwnership(state)
+                    outcome = IntegrationOutcome.Skipped
+                } else {
+                    resolved.writePalette(base, baseEnum)
+                    clearOwnership(state)
+                }
             }
-            resolved.writePalette(base, baseEnum)
-            clearOwnership(state)
-            null
-        } catch (exception: InvocationTargetException) {
-            failedOutcome(RESTORE_FAILED, exception.cause ?: exception)
-        } catch (exception: ReflectiveOperationException) {
-            failedOutcome(RESTORE_FAILED, exception)
-        } catch (exception: RuntimeException) {
-            failedOutcome(RESTORE_FAILED, exception)
-        }
+        return failure?.let { failedOutcome(RESTORE_FAILED, captureRecoveryPalette(state, resolved, it)) } ?: outcome
     }
 
     private fun restorePendingPalette(state: AyuIslandsState): IntegrationOutcome {
         val resolved = resolveOrReturn() ?: return unresolvedOutcome(RESTORE_FAILED)
         return recoverPendingPalette(state, resolved) ?: IntegrationOutcome.Restored
     }
-
-    private fun rollbackPalette(
-        resolved: ResolvedIrState,
-        current: CurrentIrPalette,
-        originalError: Throwable,
-    ): Boolean =
-        try {
-            resolved.writePalette(current.palette, current.typeValue)
-            true
-        } catch (rollbackError: ReflectiveOperationException) {
-            originalError.addSuppressed(rollbackError)
-            false
-        } catch (rollbackError: RuntimeException) {
-            originalError.addSuppressed(rollbackError)
-            false
-        }
 
     private fun writeRestoredPalette(
         state: AyuIslandsState,
@@ -394,14 +389,15 @@ object IndentRainbowSync {
         baseEnum: Any,
     ): IntegrationOutcome.Failed? {
         val error = resolved.writePaletteOrError(base, baseEnum) ?: return null
-        handleApplyRollback(
-            state = state,
-            resolved = resolved,
-            current = current,
-            ownership = IntegrationOwnership.OWNED,
-            error = error,
-        )
-        return failedOutcome(RESTORE_FAILED, error)
+        val failure =
+            handleApplyRollback(
+                state = state,
+                resolved = resolved,
+                current = current,
+                ownership = IntegrationOwnership.OWNED,
+                error = error,
+            )
+        return failedOutcome(RESTORE_FAILED, failure)
     }
 
     private fun resolveReflection() {
@@ -465,21 +461,14 @@ object IndentRainbowSync {
                     "update",
                     configClass,
                 )
-
-            // Resolve IrColors.INSTANCE.refreshEditorIndentColors()
-            val irColorsClass =
-                Class.forName(
-                    "indent.rainbow.IrColors",
-                    true,
-                    classLoader,
-                )
-            val instance = irColorsClass.getDeclaredField("INSTANCE")[null]
-            irColorsInstance = instance
-            refreshMethod = instance.javaClass.getMethod("refreshEditorIndentColors")
         } catch (exception: ReflectiveOperationException) {
             resolutionFailure = exception
             logResolutionWarning(exception)
         } catch (exception: RuntimeException) {
+            if (exception.isAccentCancellation()) {
+                methodsResolved = false
+                throw exception
+            }
             resolutionFailure = exception
             logResolutionWarning(exception)
         }
@@ -493,6 +482,32 @@ object IndentRainbowSync {
     }
 }
 
+private fun rollbackPalette(
+    resolved: ResolvedIrState,
+    current: CurrentIrPalette,
+): Throwable? = captureFailure { resolved.writePalette(current.palette, current.typeValue) }
+
+private fun schemaFailure(
+    state: AyuIslandsState,
+    operation: String,
+    message: String,
+): IntegrationOutcome.Failed {
+    suspendOwnership(state)
+    return failedOutcome(operation, IllegalStateException(message))
+}
+
+private fun failedOutcome(
+    operation: String,
+    error: Throwable,
+): IntegrationOutcome.Failed {
+    if (error is RuntimeException) error.rethrowIfCancelled()
+    log.warn(
+        "Indent Rainbow $operation: ${error.javaClass.simpleName}: ${error.message}",
+        error,
+    )
+    return IntegrationOutcome.Failed(operation, error)
+}
+
 private fun resolveApplicationService(serviceClass: Class<*>): Any? {
     // IR's service class is resolved from IR's plugin classloader, so DevKit
     // cannot prove registration at compile time. Reflecting the platform
@@ -500,7 +515,7 @@ private fun resolveApplicationService(serviceClass: Class<*>): Any? {
     // a compile-time dependency.
     val application = ApplicationManager.getApplication()
     val getService = application.javaClass.getMethod("getService", Class::class.java)
-    return getService.invoke(application, serviceClass)
+    return invokeNative { getService.invoke(application, serviceClass) }
 }
 
 private fun suspendOwnership(state: AyuIslandsState) {
@@ -521,33 +536,20 @@ private fun captureRecoveryPalette(
     state: AyuIslandsState,
     resolved: ResolvedIrState,
     error: Throwable,
-) {
-    try {
-        state.storeIrApplied(resolved.readPalette().palette)
-        state.irOwnership = IntegrationOwnership.RECOVERY_PENDING.name
-    } catch (captureError: ReflectiveOperationException) {
-        error.addSuppressed(captureError)
-        suspendOwnership(state)
-    } catch (captureError: RuntimeException) {
-        error.addSuppressed(captureError)
-        suspendOwnership(state)
-    }
+): Throwable {
+    val captureError =
+        captureFailure {
+            state.storeIrApplied(resolved.readPalette().palette)
+            state.irOwnership = IntegrationOwnership.RECOVERY_PENDING.name
+        }
+    if (captureError != null) suspendOwnership(state)
+    return captureError?.let { combineUiFailures(error, it) } ?: error
 }
 
 private fun ResolvedIrState.writePaletteOrError(
     palette: IrPalette,
     typeValue: Any,
-): Throwable? =
-    try {
-        writePalette(palette, typeValue)
-        null
-    } catch (exception: InvocationTargetException) {
-        exception.cause ?: exception
-    } catch (exception: ReflectiveOperationException) {
-        exception
-    } catch (exception: RuntimeException) {
-        exception
-    }
+): Throwable? = captureFailure { writePalette(palette, typeValue) }
 
 private fun AyuIslandsState.migrateIrOwnership(): Boolean {
     if (isIrOwnershipMigrated) return false

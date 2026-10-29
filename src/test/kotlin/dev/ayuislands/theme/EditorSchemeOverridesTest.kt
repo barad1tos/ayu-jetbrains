@@ -9,6 +9,7 @@ import com.intellij.openapi.editor.markup.EffectType
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.ColorUtil
+import dev.ayuislands.accent.AccentApplyScope
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.syntax.IdeSyntaxSchemeWriter
@@ -23,11 +24,13 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.awt.Color
 import java.util.Properties
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -36,20 +39,19 @@ import kotlin.test.assertTrue
 
 class EditorSchemeOverridesTest {
     private val editorColorsManager = mockk<EditorColorsManager>()
-    private val colorKey = mockk<ColorKey>()
-    private val attributesKey = mockk<TextAttributesKey>()
+    private val colorKey: ColorKey = ColorKey.find("TEST_COLOR")
+    private val attributesKey: TextAttributesKey = TextAttributesKey.find("TEST_ATTRIBUTES")
     private val elementOwner = EditorSchemeOwner.Element(AccentElementId.BRACKET_MATCH)
 
     @BeforeTest
     fun setUp() {
         AyuEditorSchemeScope.resetClaims()
-        mockkObject(AyuVariant.Companion)
+        mockkObject(AyuVariant.Companion, EditorSchemeChange)
+        every { EditorSchemeChange.publish() } returns Unit
         mockkStatic(EditorColorsManager::class)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { EditorColorsManager.getInstance() } returns editorColorsManager
         every { editorColorsManager.allSchemes } answers { arrayOf(editorColorsManager.globalScheme) }
-        every { colorKey.externalName } returns "TEST_COLOR"
-        every { attributesKey.externalName } returns "TEST_ATTRIBUTES"
     }
 
     @AfterTest
@@ -68,6 +70,684 @@ class EditorSchemeOverridesTest {
         AyuEditorSchemeScope.restore(elementOwner)
 
         assertEquals(Color.RED, colors[colorKey])
+    }
+
+    @Test
+    fun `abort restores the previous owned color and its reload metadata`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        target.metaProperties.setProperty("future.ayu.setting", "opaque;future|value")
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+
+        abortAccent {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+            assertEquals(expected = Color.YELLOW, actual = colors[colorKey])
+        }
+
+        assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+        EditorSchemeOverrides.reset()
+        AyuEditorSchemeScope.restore(elementOwner)
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+        assertEquals(expected = "opaque;future|value", actual = target.metaProperties.getProperty("future.ayu.setting"))
+    }
+
+    @Test
+    fun `abort restores inherited color without freezing its resolved fallback`() {
+        val colors = mutableMapOf<ColorKey, Color?>()
+        val inherited = mutableMapOf(colorKey to Color.RED)
+        val target = scheme(colors = colors, inheritedColors = inherited)
+        every { editorColorsManager.globalScheme } returns target
+
+        abortAccent {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+            assertEquals(expected = Color.ORANGE, actual = target.getColor(colorKey))
+        }
+        inherited[colorKey] = Color.GREEN
+
+        assertFalse(colors.containsKey(colorKey))
+        assertEquals(expected = Color.GREEN, actual = target.getColor(colorKey))
+        assertTrue(target.metaProperties.isEmpty)
+    }
+
+    @Test
+    fun `abort preserves an explicit null color instead of inheriting a fallback`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to null)
+        val target = scheme(colors = colors, inheritedColors = mutableMapOf(colorKey to Color.RED))
+        every { editorColorsManager.globalScheme } returns target
+
+        abortAccent { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE) }
+
+        assertTrue(colors.containsKey(colorKey))
+        assertNull(target.getColor(colorKey))
+        assertTrue(target.metaProperties.isEmpty)
+    }
+
+    @Test
+    fun `abort restores cloned attributes and the prior ownership bytes`() {
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to fullAttributes(Color.RED))
+        val target = scheme(attributes = attributes)
+        every { editorColorsManager.globalScheme } returns target
+        val previous = fullAttributes(Color.ORANGE)
+        AyuEditorSchemeScope.writeAttributes(elementOwner, attributesKey, previous)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+        val attempted = fullAttributes(Color.YELLOW)
+
+        abortAccent {
+            AyuEditorSchemeScope.writeAttributes(elementOwner, attributesKey, attempted)
+            assertEquals(expected = attempted, actual = attributes[attributesKey])
+            attempted.foregroundColor = Color.PINK
+        }
+
+        assertEquals(expected = previous, actual = attributes[attributesKey])
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+    }
+
+    @Test
+    fun `aborted reenable restores relinquishment and permits a later explicit reenable`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        colors[colorKey] = Color.GREEN
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+        AyuEditorSchemeScope.observeElementEnabled(AccentElementId.BRACKET_MATCH, false)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+
+        abortAccent {
+            AyuEditorSchemeScope.observeElementEnabled(AccentElementId.BRACKET_MATCH, true)
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+            assertEquals(expected = Color.YELLOW, actual = colors[colorKey])
+        }
+
+        assertEquals(expected = Color.GREEN, actual = colors[colorKey])
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+        AyuEditorSchemeScope.observeElementEnabled(AccentElementId.BRACKET_MATCH, true)
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.PINK)
+        assertEquals(expected = Color.PINK, actual = colors[colorKey])
+        AyuEditorSchemeScope.restore(elementOwner)
+        assertEquals(expected = Color.GREEN, actual = colors[colorKey])
+    }
+
+    @Test
+    fun `abort removes a derived schemes new claim and inherited ownership`() {
+        val canonicalColors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val canonical = scheme(name = "Ayu Islands Mirage", colors = canonicalColors)
+        var current = canonical
+        every { editorColorsManager.globalScheme } answers { current }
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val derivedColors = canonicalColors.toMutableMap()
+        val derived = scheme(colors = derivedColors)
+        every { editorColorsManager.allSchemes } returns arrayOf(canonical, derived)
+        current = derived
+
+        abortAccent { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+
+        assertEquals(expected = Color.ORANGE, actual = derivedColors[colorKey])
+        assertTrue(derived.metaProperties.isEmpty)
+        assertSame(expected = canonical, actual = AyuEditorSchemeScope.claimedAccentSchemes().single())
+        AyuEditorSchemeScope.restore(elementOwner)
+        assertEquals(expected = Color.RED, actual = derivedColors[colorKey])
+        assertEquals(expected = Color.RED, actual = canonicalColors[colorKey])
+    }
+
+    @Test
+    fun `accent cancellation restores editor values before propagating`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        val cancellation = ProcessCanceledException()
+
+        abortAccent(cancellation) { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE) }
+
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+        assertTrue(target.metaProperties.isEmpty)
+    }
+
+    @Test
+    fun `accent rollback preserves foreign color and opaque metadata`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val metadataKey = target.metaProperties.stringPropertyNames().single()
+
+        abortAccent {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+            colors[colorKey] = Color.GREEN
+            target.metaProperties.setProperty(metadataKey, "foreign|opaque;future")
+        }
+
+        assertEquals(expected = Color.GREEN, actual = colors[colorKey])
+        assertEquals(expected = "foreign|opaque;future", actual = target.metaProperties.getProperty(metadataKey))
+    }
+
+    @Test
+    fun `a setter throwing after a forward color write restores the original`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        val failure = IllegalStateException("setter failed after mutation")
+        every { target.setColor(colorKey, Color.ORANGE) } answers {
+            colors[colorKey] = Color.ORANGE
+            throw failure
+        }
+
+        abortAccent(failure) { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE) }
+
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+        assertTrue(target.metaProperties.isEmpty)
+    }
+
+    @Test
+    fun `incomplete editor recovery retries before a later accent write`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+        var failRestore = true
+        every { target.setColor(colorKey, Color.ORANGE) } answers {
+            check(!failRestore) { "restore setter failed before mutation" }
+            colors[colorKey] = Color.ORANGE
+        }
+
+        abortAccent { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+        assertEquals(expected = Color.YELLOW, actual = colors[colorKey])
+        failRestore = false
+        val independentKey = ColorKey.find("TEST_INDEPENDENT_ACCENT_RECOVERY")
+        abortAccent {
+            AyuEditorSchemeScope.writeColor(elementOwner, independentKey, Color.PINK)
+            assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        }
+
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+    }
+
+    @Test
+    fun `editor recovery retains proven progress after a restore setter mutates then throws`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+        var restoreWrites = 0
+        every { target.setColor(colorKey, Color.ORANGE) } answers {
+            restoreWrites++
+            colors[colorKey] = Color.ORANGE
+            error("restore setter failed after mutation")
+        }
+
+        abortAccent { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+        assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        val independentKey = ColorKey.find("TEST_ACCENT_RECOVERY_PROGRESS")
+        abortAccent { AyuEditorSchemeScope.writeColor(elementOwner, independentKey, Color.PINK) }
+
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+        assertEquals(expected = 1, actual = restoreWrites)
+    }
+
+    @Test
+    fun `scheme replacement fences later writes and leaves obsolete claims available for cleanup`() {
+        val firstColors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val secondColors = mutableMapOf<ColorKey, Color?>(colorKey to Color.BLUE)
+        val first = scheme(colors = firstColors)
+        val second = scheme(colors = secondColors)
+        var current = first
+        every { editorColorsManager.globalScheme } answers { current }
+        every { editorColorsManager.allSchemes } returns arrayOf(first, second)
+        val failure = IllegalStateException("Editor scheme changed during accent application")
+
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                assertFailsWith<IllegalStateException> {
+                    scope.restoringOnFailure {
+                        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+                        current = second
+                        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+                        throw failure
+                    }
+                }
+            } finally {
+                scope.close()
+            }
+        }
+
+        assertEquals(expected = Color.ORANGE, actual = firstColors[colorKey])
+        assertEquals(expected = Color.BLUE, actual = secondColors[colorKey])
+        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().any { it === first })
+        AyuEditorSchemeScope.restore(elementOwner)
+        assertEquals(expected = Color.RED, actual = firstColors[colorKey])
+    }
+
+    @Test
+    fun `an observed foreign callback permanently relinquishes later writes in the attempt`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        every { target.setColor(colorKey, Color.YELLOW) } answers { colors[colorKey] = Color.GREEN }
+
+        abortAccent {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+            assertEquals(expected = Color.GREEN, actual = colors[colorKey])
+            colors[colorKey] = Color.ORANGE
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.PINK)
+            assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        }
+
+        assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        assertEquals(expected = "R;E:BRACKET_MATCH", actual = target.metaProperties.values.single())
+        EditorSchemeOverrides.reset()
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.PINK)
+        assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+    }
+
+    @Test
+    fun `a disabled element abort restores its previous accent and exact metadata`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+
+        abortAccent {
+            AyuEditorSchemeScope.observeElementEnabled(AccentElementId.BRACKET_MATCH, false)
+            AyuEditorSchemeScope.restore(elementOwner)
+            assertEquals(expected = Color.RED, actual = colors[colorKey])
+        }
+
+        assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+        EditorSchemeOverrides.reset()
+        AyuEditorSchemeScope.restore(elementOwner)
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+    }
+
+    @Test
+    fun `incomplete newer editor receipt blocks older overlap but restores independent entries`() {
+        val other = ColorKey.find("TEST_ACCENT_BLOCKED_RECOVERY")
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED, other to Color.BLUE)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+        var failRestore = true
+        every { target.setColor(colorKey, Color.YELLOW) } answers {
+            check(!failRestore || colors[colorKey] != Color.PINK) { "newer receipt restore failed" }
+            colors[colorKey] = Color.YELLOW
+        }
+
+        abortAccent {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+            AyuEditorSchemeScope.writeColor(elementOwner, other, Color.GREEN)
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.PINK)
+        }
+        assertEquals(expected = Color.PINK, actual = colors[colorKey])
+        assertEquals(expected = Color.BLUE, actual = colors[other])
+        failRestore = false
+        abortAccent {
+            AyuEditorSchemeScope.writeColor(elementOwner, other, Color.CYAN)
+            assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        }
+
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+    }
+
+    @Test
+    fun `aborted attributes restore inheritance while retaining later parent changes`() {
+        val inherited = mutableMapOf(attributesKey to fullAttributes(Color.RED))
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
+        val target = scheme(attributes = attributes, inheritedAttributes = inherited)
+        every { editorColorsManager.globalScheme } returns target
+
+        abortAccent { AyuEditorSchemeScope.writeAttributes(elementOwner, attributesKey, fullAttributes(Color.ORANGE)) }
+        inherited[attributesKey] = fullAttributes(Color.GREEN)
+
+        assertFalse(attributes.containsKey(attributesKey))
+        assertEquals(expected = fullAttributes(Color.GREEN), actual = target.getAttributes(attributesKey))
+        assertTrue(target.metaProperties.isEmpty)
+    }
+
+    @Test
+    fun `failed child cleanup does not leave a stale scheme failure claim after recovery`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        assertFalse(AyuEditorSchemeScope.hasAccentCleanupFailures())
+
+        abortAccent {
+            runCatching { AyuEditorSchemeScope.cleanClaimedAccentSchemes { error("child cleanup failed") } }
+            assertTrue(AyuEditorSchemeScope.hasAccentCleanupFailures())
+        }
+
+        assertFalse(AyuEditorSchemeScope.hasAccentCleanupFailures())
+        assertSame(expected = target, actual = AyuEditorSchemeScope.claimedAccentSchemes().single())
+    }
+
+    @Test
+    fun `raw checkpoint captures colors and attributes without materializing inherited values`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to null)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>()
+        val parent = mutableMapOf(attributesKey to fullAttributes(Color.RED))
+        val target = scheme(colors = colors, attributes = attributes, inheritedAttributes = parent)
+        every { editorColorsManager.globalScheme } returns target
+        val captured =
+            EditorSchemeOverrides.checkpoints.capture(
+                target,
+                elementOwner,
+                setOf(
+                    EditorSchemeOverrides.SchemeEntry.ColorEntry(colorKey),
+                    EditorSchemeOverrides.SchemeEntry.AttributesEntry(attributesKey),
+                ),
+            )
+        target.setColor(colorKey, Color.ORANGE)
+        target.setAttributes(attributesKey, fullAttributes(Color.YELLOW))
+
+        assertTrue(EditorSchemeOverrides.checkpoints.rollback(captured).isEmpty())
+        parent[attributesKey] = fullAttributes(Color.GREEN)
+
+        assertTrue(colors.containsKey(colorKey))
+        assertNull(colors[colorKey])
+        assertFalse(attributes.containsKey(attributesKey))
+        assertEquals(expected = fullAttributes(Color.GREEN), actual = target.getAttributes(attributesKey))
+    }
+
+    @Test
+    fun `pending editor recovery propagates cancellation ahead of an independent ordinary failure`() {
+        val other = ColorKey.find("TEST_ACCENT_RECOVERY_CANCELLATION")
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED, other to Color.BLUE)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        AyuEditorSchemeScope.writeColor(elementOwner, other, Color.CYAN)
+        var retry = false
+        val cancellation = ProcessCanceledException()
+        val ordinary = IllegalStateException("independent ordinary recovery failure")
+        every { target.setColor(colorKey, Color.ORANGE) } answers {
+            if (retry) throw cancellation else error("initial recovery failure")
+        }
+        every { target.setColor(other, Color.CYAN) } throws ordinary
+        abortAccent {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+            AyuEditorSchemeScope.writeColor(elementOwner, other, Color.PINK)
+        }
+        retry = true
+        val independent = ColorKey.find("TEST_ACCENT_NO_WRITE_AFTER_CANCEL")
+
+        abortAccent(cancellation) { AyuEditorSchemeScope.writeColor(elementOwner, independent, Color.GREEN) }
+
+        assertTrue(cancellation.suppressed.any { it === ordinary })
+        assertFalse(colors.containsKey(independent))
+    }
+
+    @Test
+    fun `a new scheme claim completes after its blocked entry recovers`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        var failRestore = true
+        every { target.setColor(colorKey, Color.RED) } answers {
+            check(!failRestore) { "restore failed before mutation" }
+            colors[colorKey] = Color.RED
+        }
+        abortAccent { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE) }
+        assertSame(expected = target, actual = AyuEditorSchemeScope.claimedAccentSchemes().single())
+        failRestore = false
+
+        SwingUtilities.invokeAndWait {
+            AyuEditorSchemeScope.observeElementEnabled(AccentElementId.BRACKET_MATCH, false)
+        }
+
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+        assertTrue(target.metaProperties.isEmpty)
+        assertTrue(AyuEditorSchemeScope.claimedAccentSchemes().isEmpty())
+    }
+
+    @Test
+    fun `scheme replacement inside a value setter stops subsequent ownership writes`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val first = scheme(colors = colors)
+        val second = scheme()
+        var current = first
+        every { editorColorsManager.globalScheme } answers { current }
+        every { editorColorsManager.allSchemes } returns arrayOf(first, second)
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        var atReplacement = Properties()
+        every { first.setColor(colorKey, Color.YELLOW) } answers {
+            colors[colorKey] = Color.YELLOW
+            atReplacement = Properties().apply { putAll(first.metaProperties) }
+            current = second
+        }
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                assertFailsWith<IllegalStateException> {
+                    scope.restoringOnFailure {
+                        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+                        scope.commit()
+                    }
+                }
+            } finally {
+                scope.close()
+            }
+        }
+
+        assertEquals(expected = atReplacement, actual = first.metaProperties)
+        assertTrue(second.metaProperties.isEmpty)
+        assertEquals(expected = Color.YELLOW, actual = colors[colorKey])
+        AyuEditorSchemeScope.restore(elementOwner)
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+    }
+
+    @Test
+    fun `child recovery refreshes restored colors before an independent segment commits`() {
+        val other = ColorKey.find("TEST_CHILD_RECOVERY_REFRESH")
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED, other to Color.BLUE)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        val notifications = mutableListOf<Color?>()
+        every { EditorSchemeChange.publish() } answers { notifications += colors[other] }
+        every { target.setColor(other, Color.PINK) } answers {
+            colors[other] = Color.PINK
+            error("element setter failed after mutation")
+        }
+
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                scope.runStep { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+                val rollback = scope.elementRollback()
+                assertFailsWith<IllegalStateException> {
+                    scope.runStep { AyuEditorSchemeScope.writeColor(elementOwner, other, Color.PINK) }
+                }
+                rollback()
+                assertEquals(expected = listOf(Color.BLUE), actual = notifications)
+                scope.commit()
+            } finally {
+                scope.close()
+            }
+        }
+
+        assertEquals(expected = Color.YELLOW, actual = colors[colorKey])
+        assertEquals(expected = Color.BLUE, actual = colors[other])
+        assertEquals(expected = listOf(Color.BLUE), actual = notifications)
+        AyuEditorSchemeScope.restore(elementOwner)
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+    }
+
+    @Test
+    fun `failed child refresh survives outer commit and retries on the next editor operation`() {
+        val other = ColorKey.find("TEST_CHILD_REFRESH_RETRY")
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED, other to Color.BLUE)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        val notifications = mutableListOf<Color?>()
+        val failure = IllegalStateException("editor listener failed")
+        var failRefresh = true
+        every { EditorSchemeChange.publish() } answers {
+            if (failRefresh) throw failure
+            notifications += colors[other]
+        }
+
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                scope.runStep { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+                val rollback = scope.elementRollback()
+                scope.runStep { AyuEditorSchemeScope.writeColor(elementOwner, other, Color.PINK) }
+                assertSame(expected = failure, actual = assertFailsWith<IllegalStateException> { rollback() })
+                scope.commit()
+            } finally {
+                scope.close()
+            }
+        }
+        assertEquals(expected = Color.BLUE, actual = colors[other])
+        failRefresh = false
+
+        SwingUtilities.invokeAndWait {
+            AyuEditorSchemeScope.observeElementEnabled(AccentElementId.BRACKET_MATCH, true)
+        }
+
+        assertEquals(expected = listOf(Color.BLUE), actual = notifications)
+        assertEquals(expected = Color.YELLOW, actual = colors[colorKey])
+    }
+
+    @Test
+    fun `failed recovery notification retries without repainting an already restored editor entry`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+        var restoreWrites = 0
+        every { target.setColor(colorKey, Color.ORANGE) } answers {
+            restoreWrites++
+            colors[colorKey] = Color.ORANGE
+        }
+        val original = IllegalStateException("outer failure")
+        val refreshFailure = IllegalStateException("scheme listener failed")
+        every { EditorSchemeChange.publish() } throws refreshFailure andThen Unit
+
+        abortAccent(original) { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+
+        assertTrue(original.suppressed.any { it === refreshFailure })
+        assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+        SwingUtilities.invokeAndWait {
+            AyuEditorSchemeScope.observeElementEnabled(
+                AccentElementId.BRACKET_MATCH,
+                false,
+            )
+        }
+        assertEquals(expected = 1, actual = restoreWrites)
+        io.mockk.verify(exactly = 2) { EditorSchemeChange.publish() }
+    }
+
+    @Test
+    fun `foreign ownership metadata recovery retains proven before and after setter progress`() {
+        for (afterMutation in listOf(false, true)) {
+            AyuEditorSchemeScope.resetClaims()
+            val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+            var failMetadata = false
+            var recoveryWrites = 0
+            val failure = IllegalStateException("relinquishment metadata setter failed")
+            val properties =
+                object : Properties() {
+                    override fun setProperty(
+                        key: String,
+                        value: String,
+                    ): Any? {
+                        if (value == "R;E:BRACKET_MATCH") {
+                            recoveryWrites++
+                            if (failMetadata) {
+                                if (afterMutation) super.setProperty(key, value)
+                                throw failure
+                            }
+                        }
+                        return super.setProperty(key, value)
+                    }
+                }
+            val target = scheme(colors = colors)
+            every { target.metaProperties } returns properties
+            every { editorColorsManager.globalScheme } returns target
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+            every { target.setColor(colorKey, Color.YELLOW) } answers { colors[colorKey] = Color.GREEN }
+            failMetadata = true
+
+            abortAccent(failure) { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+            assertEquals(expected = Color.GREEN, actual = colors[colorKey])
+            val failedWrites = recoveryWrites
+            failMetadata = false
+            SwingUtilities.invokeAndWait {
+                AyuEditorSchemeScope.observeElementEnabled(
+                    AccentElementId.BRACKET_MATCH,
+                    false,
+                )
+            }
+
+            assertEquals(expected = "R;E:BRACKET_MATCH", actual = properties.values.single())
+            assertEquals(expected = failedWrites + if (afterMutation) 0 else 1, actual = recoveryWrites)
+            EditorSchemeOverrides.reset()
+            colors[colorKey] = Color.ORANGE
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.PINK)
+            assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `standalone restore preserves ownership until a failing value setter can be retried`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        EditorSchemeOverrides.writeColor(target, EditorSchemeOwner.Vcs, colorKey, Color.ORANGE)
+        val savedMetadata = Properties().apply { putAll(target.metaProperties) }
+        var failRestore = true
+        every { target.setColor(colorKey, Color.RED) } answers {
+            check(!failRestore) { "standalone setter failed before mutation" }
+            colors[colorKey] = Color.RED
+        }
+
+        assertFailsWith<IllegalStateException> { EditorSchemeOverrides.restore(target, EditorSchemeOwner.Vcs) }
+        assertEquals(expected = Color.ORANGE, actual = colors[colorKey])
+        assertEquals(expected = savedMetadata, actual = target.metaProperties)
+        failRestore = false
+        EditorSchemeOverrides.restore(target, EditorSchemeOwner.Vcs)
+
+        assertEquals(expected = Color.RED, actual = colors[colorKey])
+        assertTrue(target.metaProperties.isEmpty)
+    }
+
+    @Test
+    fun `standalone restoration prioritizes cancellation after an independent ordinary error`() {
+        val other = ColorKey.find("TEST_STANDALONE_RESTORE_CANCELLATION")
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED, other to Color.BLUE)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        EditorSchemeOverrides.writeColor(target, EditorSchemeOwner.Vcs, colorKey, Color.ORANGE)
+        EditorSchemeOverrides.writeColor(target, EditorSchemeOwner.Vcs, other, Color.CYAN)
+        val ordinary = IllegalStateException("first restore failed")
+        val cancellation = ProcessCanceledException()
+        every { target.setColor(colorKey, Color.RED) } throws ordinary
+        every { target.setColor(other, Color.BLUE) } throws cancellation
+
+        val thrown =
+            assertFailsWith<ProcessCanceledException> {
+                EditorSchemeOverrides.restore(target, EditorSchemeOwner.Vcs)
+            }
+
+        assertSame(expected = cancellation, actual = thrown)
+        assertTrue(thrown.suppressed.any { it === ordinary })
+        io.mockk.verify(exactly = 1) { target.setColor(colorKey, Color.RED) }
+        io.mockk.verify(exactly = 1) { target.setColor(other, Color.BLUE) }
     }
 
     @Test
@@ -374,7 +1054,10 @@ class EditorSchemeOverridesTest {
             EditorSchemeOverrides.checkpoints.capture(
                 scheme,
                 EditorSchemeOwner.Syntax,
-                setOf(ownedKey, directKey),
+                setOf(
+                    ownedKey,
+                    directKey,
+                ).mapTo(mutableSetOf()) { EditorSchemeOverrides.SchemeEntry.AttributesEntry(it) },
             )
 
         EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
@@ -407,7 +1090,10 @@ class EditorSchemeOverridesTest {
             EditorSchemeOverrides.checkpoints.capture(
                 scheme,
                 EditorSchemeOwner.Syntax,
-                linkedSetOf(cancelledKey, restoredKey),
+                linkedSetOf(
+                    cancelledKey,
+                    restoredKey,
+                ).mapTo(linkedSetOf()) { EditorSchemeOverrides.SchemeEntry.AttributesEntry(it) },
             )
         scheme.setAttributes(cancelledKey, fullAttributes(Color.ORANGE))
         scheme.setAttributes(restoredKey, fullAttributes(Color.YELLOW))
@@ -570,7 +1256,12 @@ class EditorSchemeOverridesTest {
         val key = TextAttributesKey.find("TEST_PREVIEW_METADATA_RETRY")
         val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
         val scheme = scheme(attributes = attributes)
-        val saved = EditorSchemeOverrides.checkpoints.capture(scheme, EditorSchemeOwner.Syntax, setOf(key))
+        val saved =
+            EditorSchemeOverrides.checkpoints.capture(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                setOf(EditorSchemeOverrides.SchemeEntry.AttributesEntry(key)),
+            )
         EditorSchemeOverrides.writeAttributes(scheme, EditorSchemeOwner.Syntax, key, fullAttributes(Color.ORANGE))
         val preview = EditorSchemeOverrides.checkpoints.sealPreview(saved)
         val metadata = scheme.metaProperties
@@ -756,11 +1447,38 @@ class EditorSchemeOverridesTest {
         assertFalse(retry.changed)
     }
 
+    private fun abortAccent(
+        failure: RuntimeException = IllegalStateException("integration failed after editor writes"),
+        action: () -> Unit,
+    ) {
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                val thrown =
+                    assertFailsWith<RuntimeException> {
+                        scope.restoringOnFailure {
+                            scope.runStep(action)
+                            throw failure
+                        }
+                    }
+                assertSame(expected = failure, actual = thrown)
+            } finally {
+                scope.close()
+            }
+        }
+    }
+
     private fun preview(
         scheme: EditorColorsScheme,
         attributes: Map<TextAttributesKey, TextAttributes>,
     ): EditorSchemeOverrides.PreviewCheckpoint {
-        val saved = EditorSchemeOverrides.checkpoints.capture(scheme, EditorSchemeOwner.Syntax, attributes.keys)
+        val saved =
+            EditorSchemeOverrides.checkpoints.capture(
+                scheme,
+                EditorSchemeOwner.Syntax,
+                attributes.keys.mapTo(mutableSetOf()) { EditorSchemeOverrides.SchemeEntry.AttributesEntry(it) },
+            )
         attributes.forEach { (key, value) -> scheme.setAttributes(key, value) }
         return EditorSchemeOverrides.checkpoints.sealPreview(saved)
     }

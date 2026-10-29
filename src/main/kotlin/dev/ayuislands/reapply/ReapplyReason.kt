@@ -44,11 +44,15 @@ data class StepFailure(
     val error: Throwable,
 )
 
-/** Outcome of running a plan: the steps that failed (empty = clean). Steps isolate, never abort. */
+/** Completed request outcome; a superseded request is distinct from an executed clean plan. */
 data class ReapplyResult(
     val failures: List<StepFailure>,
+    val status: ReapplyStatus = ReapplyStatus.EXECUTED,
 ) {
-    val isClean: Boolean get() = failures.isEmpty()
+    val isClean: Boolean get() = status == ReapplyStatus.EXECUTED && failures.isEmpty()
 
     fun failed(step: ReapplyStep): Boolean = failures.any { it.step == step }
 }
+
+/** A stale downgrade request may finish without executing a replacement plan. */
+enum class ReapplyStatus { EXECUTED, SUPERSEDED }

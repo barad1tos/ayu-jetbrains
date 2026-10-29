@@ -8,9 +8,9 @@ import dev.ayuislands.accent.ChromeTintContext
 import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
+import dev.ayuislands.accent.putAccentUiDefault
 import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
-import javax.swing.UIManager
 
 /**
  * Base class for chrome tinting [AccentElement]s.
@@ -18,7 +18,7 @@ import javax.swing.UIManager
  * The five chrome elements (`StatusBarElement`, `MainToolbarElement`,
  * `NavBarElement`, `PanelBorderElement`, `ToolWindowStripeElement`) share the
  * same recipe: read intensity → for each bg key → [ChromeBaseColors.get] →
- * [ChromeTintBlender.blend] → [UIManager.put] → sample WCAG foreground → write to
+ * [ChromeTintBlender.blend] → [putAccentUiDefault] → sample WCAG foreground → write to
  * fg keys → push tinted background to the live peer via [LiveChromeRefresher].
  * Revert mirrors it: null every key, clear the peer. This base centralises the
  * template so subclasses declare *what* to tint:
@@ -47,7 +47,7 @@ import javax.swing.UIManager
  * element.
  *
  * EDT: callers are already on EDT (AccentApplicator dispatches its step plan
- * through `AccentApplyPlanRunner`), so [UIManager.put] + peer mutation are safe.
+ * through `AccentApplyPlanRunner`), so [putAccentUiDefault] + peer mutation are safe.
  */
 abstract class AbstractChromeElement : AccentElement {
     /** UIManager keys that receive a tinted color on apply, nulled on revert. */
@@ -99,14 +99,12 @@ abstract class AbstractChromeElement : AccentElement {
             val baseColor = ChromeBaseColors[key] ?: continue
             val tinted = ChromeTintBlender.blend(color, baseColor, intensity)
             if (!hasClaimedOwnership) {
-                // UIManager.put receives non-null key/value pairs here. Its only
-                // realistic RuntimeException path is a property listener throwing
-                // after UIDefaults has already mutated, so ownership must be claimed
-                // immediately before the write to keep rollback retryable.
+                // Claim before the scoped write: property listeners can throw
+                // after the native table has already changed.
                 claimOwnership()
                 hasClaimedOwnership = true
             }
-            UIManager.put(key, tinted)
+            putAccentUiDefault(key, tinted)
             ChromeBaseColors.rememberPluginTint(key, tinted)
             tintedBackgrounds[key] = tinted
         }
@@ -121,11 +119,11 @@ abstract class AbstractChromeElement : AccentElement {
 
     override fun revert() {
         for (key in backgroundKeys) {
-            UIManager.put(key, null)
+            putAccentUiDefault(key, null)
             ChromeBaseColors.forgetPluginTint(key)
         }
         for (key in foregroundKeys) {
-            UIManager.put(key, null)
+            putAccentUiDefault(key, null)
         }
         clearPeer()
     }
@@ -152,7 +150,7 @@ abstract class AbstractChromeElement : AccentElement {
         val samplingBg = tintedBackgrounds.values.firstOrNull() ?: return
         val contrast = WcagForeground.pickForeground(samplingBg, foregroundTextTarget)
         for (key in foregroundKeys) {
-            UIManager.put(key, contrast)
+            putAccentUiDefault(key, contrast)
         }
     }
 

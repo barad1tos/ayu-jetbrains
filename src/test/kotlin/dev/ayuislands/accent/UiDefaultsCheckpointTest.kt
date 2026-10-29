@@ -23,7 +23,12 @@ class UiDefaultsCheckpointTest {
             checkpoint.put(FOCUS_KEY, Color.RED)
             checkpoint.commit()
             val failure = IllegalStateException("notification failed after successful apply")
-            assertSame(failure, assertFailsWith<IllegalStateException> { checkpoint.restoreAfter(failure) })
+            assertSame(
+                failure,
+                assertFailsWith<IllegalStateException> {
+                    restoringScope(checkpoint).restoringOnFailure { throw failure }
+                },
+            )
             assertSame(Color.RED, UIManager.get(FOCUS_KEY))
         }
 
@@ -135,7 +140,12 @@ class UiDefaultsCheckpointTest {
             val checkpoint = UiDefaultsCheckpoint()
             checkpoint.put(FOCUS_KEY, Color.RED)
             val cancellation = CancellationException("accent operation cancelled")
-            assertSame(cancellation, assertFailsWith<CancellationException> { checkpoint.restoreAfter(cancellation) })
+            assertSame(
+                cancellation,
+                assertFailsWith<CancellationException> {
+                    restoringScope(checkpoint).restoringOnFailure { throw cancellation }
+                },
+            )
             assertSame(Color.BLUE, UIManager.get(FOCUS_KEY))
         }
 
@@ -154,7 +164,12 @@ class UiDefaultsCheckpointTest {
                     if (event.propertyName == FOCUS_KEY && event.newValue === Color.BLUE) throw recoveryFailure
                 }
             withListener(listener) {
-                val thrown = assertFailsWith<CancellationException> { checkpoint.restoreAfter(cancellation) }
+                val thrown =
+                    assertFailsWith<CancellationException> {
+                        restoringScope(
+                            checkpoint,
+                        ).restoringOnFailure { throw cancellation }
+                    }
                 assertSame(cancellation, thrown)
                 assertTrue(thrown.suppressed.contains(recoveryFailure))
                 assertSame(Color.GREEN, UIManager.get(BORDER_KEY))
@@ -178,7 +193,12 @@ class UiDefaultsCheckpointTest {
                     if (event.propertyName == FOCUS_KEY && event.newValue === Color.BLUE) throw cancellation
                 }
             withListener(listener) {
-                val thrown = assertFailsWith<CancellationException> { checkpoint.restoreAfter(failure) }
+                val thrown =
+                    assertFailsWith<CancellationException> {
+                        restoringScope(
+                            checkpoint,
+                        ).restoringOnFailure { throw failure }
+                    }
                 assertSame(cancellation, thrown)
                 assertTrue(thrown.suppressed.contains(failure))
                 assertTrue(thrown.suppressed.contains(recoveryFailure))
@@ -199,7 +219,12 @@ class UiDefaultsCheckpointTest {
                     if (event.propertyName == FOCUS_KEY && event.newValue === Color.BLUE) throw fatal
                 }
             withListener(listener) {
-                val thrown = assertFailsWith<OutOfMemoryError> { checkpoint.restoreAfter(CancellationException()) }
+                val thrown =
+                    assertFailsWith<OutOfMemoryError> {
+                        restoringScope(
+                            checkpoint,
+                        ).restoringOnFailure { throw CancellationException() }
+                    }
                 assertSame(fatal, thrown)
                 assertSame(Color.RED, UIManager.get(BORDER_KEY))
             }
@@ -272,7 +297,7 @@ class UiDefaultsCheckpointTest {
             withListener(listener) {
                 val thrown =
                     assertFailsWith<OutOfMemoryError> {
-                        checkpoint.restoreAfterTear(listOf(IllegalStateException("apply failed")))
+                        restoringScope(checkpoint).restoreAfterTear(listOf(IllegalStateException("apply failed")))
                     }
                 assertSame(fatal, thrown)
             }
@@ -325,4 +350,7 @@ class UiDefaultsCheckpointTest {
         const val FOCUS_KEY = "Component.focusColor"
         const val BORDER_KEY = "Button.default.focusedBorderColor"
     }
+
+    private fun restoringScope(checkpoint: UiDefaultsCheckpoint): AccentApplyScope =
+        AccentApplyScope().also { it.record(checkpoint) }
 }

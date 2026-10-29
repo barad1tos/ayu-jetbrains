@@ -5,6 +5,8 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
+import dev.ayuislands.accent.AccentApplyScope
+import dev.ayuislands.accent.AccentCheckpoint
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.runCatchingPreservingCancellation
@@ -12,6 +14,7 @@ import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.util.Collections
 import java.util.IdentityHashMap
+import javax.swing.SwingUtilities
 
 internal object AyuEditorSchemeScope {
     private val accentClaims: MutableSet<EditorColorsScheme> =
@@ -125,9 +128,7 @@ internal object AyuEditorSchemeScope {
             runCatchingPreservingCancellation { cleanup(scheme) }
                 .exceptionOrNull()
                 ?.let { failure ->
-                    synchronized(accentCleanupFailures) {
-                        accentCleanupFailures.add(scheme)
-                    }
+                    ClaimCheckpoint.add(scheme, accentCleanupFailures)
                     if (firstFailure == null) firstFailure = failure
                 }
         }
@@ -167,13 +168,50 @@ internal object AyuEditorSchemeScope {
     }
 
     private fun claim(scheme: EditorColorsScheme) {
-        val isNew = synchronized(accentClaims) { accentClaims.add(scheme) }
+        EditorSchemeOverrides.checkpoints.prepare()
+        val isNew = ClaimCheckpoint.add(scheme, accentClaims)
         if (!isNew) return
         val variant = AyuVariant.detect() ?: return
         val canonicalName = AyuEditorSchemeBinder.targetSchemeName(variant)
         if (scheme.name == canonicalName) return
         allSchemes().firstOrNull { it.name == canonicalName }?.let { canonical ->
             EditorSchemeOverrides.inherit(scheme, canonical)
+        }
+    }
+
+    private class ClaimCheckpoint(
+        private val scheme: EditorColorsScheme,
+        private val claims: MutableSet<EditorColorsScheme>,
+    ) : AccentCheckpoint {
+        override var hasPending = true
+            private set
+
+        override fun restore(blockedBy: List<AccentCheckpoint>) {
+            if (activeScheme() === scheme) {
+                if (EditorSchemeOverrides.checkpoints.blocksClaim(scheme, blockedBy)) return
+                synchronized(claims) { claims.remove(scheme) }
+            }
+            commit()
+        }
+
+        override fun commit() {
+            hasPending = false
+        }
+
+        override fun retain() = EditorSchemeOverrides.checkpoints.retain(this)
+
+        companion object {
+            fun add(
+                scheme: EditorColorsScheme,
+                claims: MutableSet<EditorColorsScheme>,
+            ): Boolean =
+                synchronized(claims) {
+                    if (scheme in claims) return false
+                    if (SwingUtilities.isEventDispatchThread()) {
+                        AccentApplyScope.active?.takeUnless { it.isCommitted }?.record(ClaimCheckpoint(scheme, claims))
+                    }
+                    claims.add(scheme)
+                }
         }
     }
 

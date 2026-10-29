@@ -9,12 +9,17 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.ui.ColorUtil
+import dev.ayuislands.accent.AccentApplyScope
+import dev.ayuislands.accent.AccentCheckpoint
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.combineUiFailures
+import dev.ayuislands.accent.restoreAccentCheckpoints
 import org.jdom.Element
 import java.awt.Color
 import java.util.Base64
 import java.util.EnumMap
 import java.util.IdentityHashMap
+import javax.swing.SwingUtilities
 import kotlin.coroutines.cancellation.CancellationException
 
 internal sealed interface EditorSchemeOwner {
@@ -40,9 +45,9 @@ internal object EditorSchemeOverrides {
     private val lock = Any()
     private val states = IdentityHashMap<EditorColorsScheme, MutableMap<SchemeEntry, OverrideState>>()
     private val elementEnabled = EnumMap<AccentElementId, Boolean>(AccentElementId::class.java)
-    val checkpoints = AttributeCheckpoints()
+    val checkpoints = SchemeCheckpoints()
 
-    internal data class AttributesCheckpoint(
+    internal data class SchemeCheckpoint(
         val scheme: EditorColorsScheme,
         val entries: Map<SchemeEntry, CheckpointEntry>,
     )
@@ -54,7 +59,7 @@ internal object EditorSchemeOverrides {
     )
 
     internal class PreviewCheckpoint(
-        val original: AttributesCheckpoint,
+        val original: SchemeCheckpoint,
         val expected: MutableMap<SchemeEntry, CheckpointEntry>,
         val pending: MutableSet<SchemeEntry>,
     )
@@ -93,13 +98,14 @@ internal object EditorSchemeOverrides {
         owner: EditorSchemeOwner,
     ) {
         synchronized(lock) {
+            checkpoints.prepare()
             hydrate(scheme)
-            val schemeStates = states[scheme] ?: return
+            val schemeStates: Map<SchemeEntry, OverrideState> = states[scheme] ?: return
 
-            var firstFailure: RuntimeException? = null
+            var firstFailure: Throwable? = null
             for ((entry, state) in schemeStates.toList()) {
-                val failure = restoreEntry(scheme, owner, schemeStates, entry, state) ?: continue
-                if (firstFailure == null) firstFailure = failure
+                val failure = restoreEntry(scheme, owner, entry, state) ?: continue
+                firstFailure = combineUiFailures(firstFailure, failure)
             }
             if (schemeStates.isEmpty()) states.remove(scheme)
             firstFailure?.let { throw it }
@@ -112,6 +118,7 @@ internal object EditorSchemeOverrides {
         schemes: () -> Iterable<EditorColorsScheme>,
     ) {
         synchronized(lock) {
+            checkpoints.observeEnabled(id, isEnabled)
             val wasEnabled = elementEnabled.put(id, isEnabled)
             if (wasEnabled == false && isEnabled) {
                 rearm(EditorSchemeOwner.Element(id), schemes())
@@ -123,11 +130,288 @@ internal object EditorSchemeOverrides {
         synchronized(lock) {
             states.clear()
             elementEnabled.clear()
+            checkpoints.reset()
         }
     }
 
-    internal class AttributeCheckpoints {
-        fun sealPreview(checkpoint: AttributesCheckpoint): PreviewCheckpoint =
+    internal class SchemeCheckpoints {
+        private val pending = mutableListOf<AccentCheckpoint>()
+        private var refresh: RefreshCheckpoint? = null
+        private val receipts = mutableListOf<EntryCheckpoint>()
+        private var boundScope: AccentApplyScope? = null
+        private var boundSegment: AccentApplyScope.Segment? = null
+        private var target: EditorColorsScheme? = null
+
+        fun prepare() {
+            val scope = activeScope()
+            scope?.checkWritable()
+            if (pending.isNotEmpty()) {
+                if (scope == null) restorePending() else scope.recover(::restorePending)
+            }
+            if (scope == null) return
+            if (boundScope !== scope) {
+                boundScope = scope
+                receipts.clear()
+                target = AyuEditorSchemeScope.activeScheme()
+            }
+            check(AyuEditorSchemeScope.activeScheme() === target) { "Editor scheme changed during accent application" }
+            if (boundSegment !== scope.segment || refresh?.hasPending != true) {
+                boundSegment = scope.segment
+                refresh = RefreshCheckpoint(target).also(scope::record)
+            }
+        }
+
+        fun retain(checkpoint: AccentCheckpoint) {
+            if (checkpoint.hasPending && checkpoint !in pending) pending += checkpoint
+        }
+
+        fun reset() {
+            pending.clear()
+            receipts.clear()
+            boundScope = null
+            boundSegment = null
+            target = null
+            refresh = null
+        }
+
+        private fun restorePending() = restoreAccentCheckpoints(pending)
+
+        fun blocksClaim(
+            scheme: EditorColorsScheme,
+            blockedBy: List<AccentCheckpoint>,
+        ): Boolean = blockedBy.any { it is EntryCheckpoint && it.scheme === scheme && it.hasPending }
+
+        fun observeEnabled(
+            id: AccentElementId,
+            enabled: Boolean,
+        ) {
+            prepare()
+            val scope = activeScope() ?: return
+            scope.record(EnabledCheckpoint(id, elementEnabled[id], enabled))
+        }
+
+        private fun activeScope(): AccentApplyScope? =
+            if (SwingUtilities.isEventDispatchThread()) AccentApplyScope.active?.takeUnless { it.isCommitted } else null
+
+        fun mutate(
+            scheme: EditorColorsScheme,
+            entry: SchemeEntry,
+            desired: CheckpointEntry,
+        ): Boolean {
+            val scope = activeScope()
+            scope?.checkWritable()
+            val previous = receipts.lastOrNull { it.scheme === scheme && it.entry == entry && it.isUnsettled }
+            if (scope != null && previous?.permitsWrite() == false) return false
+            val checkpoint = scope?.let { EntryCheckpoint(scheme, entry, snapshotEntry(scheme, entry), refresh) }
+            if (checkpoint != null) {
+                scope.record(checkpoint)
+                receipts += checkpoint
+            }
+            // Scoped forward writes persist the cleanup baseline before a setter can replace the scheme.
+            val components =
+                if (scope != null && desired.overrideState is OverrideState.Owned) {
+                    listOf(RestoreComponent.OWNERSHIP, RestoreComponent.METADATA, RestoreComponent.VALUE)
+                } else {
+                    RestoreComponent.entries
+                }
+            for (component in components) {
+                if (scope != null) prepare()
+                if (checkpoint == null) {
+                    writeComponent(scheme, entry, desired, component)
+                } else if (!checkpoint.write(desired, component)) {
+                    return false
+                }
+            }
+            if (scope != null) prepare()
+            return true
+        }
+
+        private inner class RefreshCheckpoint(
+            private val capturedTarget: EditorColorsScheme?,
+        ) : AccentCheckpoint {
+            private var needsRefresh = false
+            override var hasPending = true
+                private set
+
+            fun markChanged() {
+                needsRefresh = true
+            }
+
+            override fun restore(blockedBy: List<AccentCheckpoint>) {
+                if (AyuEditorSchemeScope.activeScheme() !== capturedTarget) {
+                    commit()
+                    return
+                }
+                if (needsRefresh) {
+                    EditorSchemeChange.publish()
+                    needsRefresh = false
+                }
+                if (blockedBy.none { it is EntryCheckpoint && it.hasPending }) commit()
+            }
+
+            override fun commit() {
+                hasPending = false
+                needsRefresh = false
+            }
+
+            override fun retain() = this@SchemeCheckpoints.retain(this)
+        }
+
+        private class EnabledCheckpoint(
+            private val id: AccentElementId,
+            private val previous: Boolean?,
+            private val expected: Boolean,
+        ) : AccentCheckpoint {
+            override var hasPending = true
+                private set
+
+            override fun restore(blockedBy: List<AccentCheckpoint>) {
+                if (elementEnabled[id] == expected) {
+                    if (previous == null) elementEnabled.remove(id) else elementEnabled[id] = previous
+                }
+                commit()
+            }
+
+            override fun commit() {
+                hasPending = false
+            }
+
+            override fun retain() = Unit
+        }
+
+        private inner class EntryCheckpoint(
+            val scheme: EditorColorsScheme,
+            val entry: SchemeEntry,
+            private val original: CheckpointEntry,
+            private val notifier: RefreshCheckpoint?,
+        ) : AccentCheckpoint {
+            private var expected = original
+            private var beforeWrite: CheckpointEntry? = null
+            private val capturedTarget = this@SchemeCheckpoints.target
+            private var state = EntryState.OWNED
+            override val hasPending: Boolean
+                get() = state == EntryState.OWNED || state == EntryState.RELINQUISHING
+            val isUnsettled: Boolean
+                get() = state != EntryState.RESTORED
+
+            fun permitsWrite(): Boolean = state == EntryState.OWNED && observe()
+
+            fun write(
+                desired: CheckpointEntry,
+                component: RestoreComponent,
+            ): Boolean {
+                if (!observe()) return false
+                val updated = expected.restoring(component, desired)
+                if (expected == updated) {
+                    beforeWrite = null
+                    return true
+                }
+                beforeWrite = expected
+                expected = updated
+                writeComponent(scheme, entry, expected, component)
+                if (!observe()) return false
+                check(expected == updated) { "Editor setter did not update ${entry.metadataKey}" }
+                beforeWrite = null
+                return true
+            }
+
+            private fun observe(): Boolean {
+                when (val current = snapshotEntry(scheme, entry)) {
+                    expected -> Unit
+                    beforeWrite -> expected = current
+                    else -> relinquish()
+                }
+                return state == EntryState.OWNED
+            }
+
+            private fun relinquish() {
+                if (AyuEditorSchemeScope.activeScheme() !== capturedTarget) {
+                    commit()
+                    return
+                }
+                state = EntryState.RELINQUISHING
+                val observed = snapshotEntry(scheme, entry)
+                if (observed.overrideState != expected.overrideState &&
+                    observed.overrideState != beforeWrite?.overrideState
+                ) {
+                    state = EntryState.RELINQUISHED
+                    return
+                }
+                val owner =
+                    observed.overrideState?.owner ?: run {
+                        state = EntryState.RELINQUISHED
+                        return
+                    }
+                val released = OverrideState.Relinquished(owner)
+                expected = expected.copy(overrideState = released)
+                writeComponent(scheme, entry, expected, RestoreComponent.OWNERSHIP)
+                val metadata = observed.metadataValue
+                if (metadata == expected.metadataValue || metadata == beforeWrite?.metadataValue) {
+                    val encoded = OverrideCodec.encode(released)
+                    beforeWrite = expected.copy(metadataValue = metadata)
+                    expected = expected.copy(metadataValue = encoded)
+                    if (metadata != encoded) writeComponent(scheme, entry, expected, RestoreComponent.METADATA)
+                }
+                state = EntryState.RELINQUISHED
+            }
+
+            override fun restore(blockedBy: List<AccentCheckpoint>) {
+                synchronized(lock) {
+                    if (!hasPending) return
+                    if (AyuEditorSchemeScope.activeScheme() !== capturedTarget) {
+                        commit()
+                        return
+                    }
+                    check(
+                        blockedBy.none {
+                            it is EntryCheckpoint &&
+                                it.scheme === scheme &&
+                                it.entry == entry &&
+                                it.hasPending
+                        },
+                    ) {
+                        "Editor restoration blocked by a newer write: ${entry.metadataKey}"
+                    }
+                    if (state == EntryState.RELINQUISHING) {
+                        relinquish()
+                        return
+                    }
+                    for (component in RestoreComponent.entries) {
+                        if (AyuEditorSchemeScope.activeScheme() !== capturedTarget) {
+                            commit()
+                            return
+                        }
+                        if (!restoreComponent(component)) return
+                    }
+                    commit()
+                }
+            }
+
+            private fun restoreComponent(component: RestoreComponent): Boolean {
+                val previousValue = snapshotEntry(scheme, entry).directValue
+                return try {
+                    write(original, component)
+                } finally {
+                    if (component == RestoreComponent.VALUE &&
+                        snapshotEntry(scheme, entry).directValue != previousValue
+                    ) {
+                        notifier?.markChanged()
+                    }
+                }
+            }
+
+            override fun commit() {
+                if (state != EntryState.RELINQUISHED) state = EntryState.RESTORED
+            }
+
+            override fun retain() {
+                this@SchemeCheckpoints.retain(this)
+            }
+        }
+
+        private enum class EntryState { OWNED, RELINQUISHING, RELINQUISHED, RESTORED }
+
+        fun sealPreview(checkpoint: SchemeCheckpoint): PreviewCheckpoint =
             synchronized(lock) {
                 PreviewCheckpoint(
                     checkpoint,
@@ -144,33 +428,15 @@ internal object EditorSchemeOverrides {
         fun capture(
             scheme: EditorColorsScheme,
             owner: EditorSchemeOwner,
-            keys: Set<TextAttributesKey>,
-        ): AttributesCheckpoint =
+            entries: Set<SchemeEntry>,
+        ): SchemeCheckpoint =
             synchronized(lock) {
                 hydrate(scheme)
-                val schemeStates = states[scheme].orEmpty()
-                val entries =
-                    buildSet {
-                        keys.mapTo(this) { key -> SchemeEntry.AttributesEntry(key) }
-                        schemeStates
-                            .filterValues { state -> state.owner == owner }
-                            .keys
-                            .filterIsInstanceTo<SchemeEntry.AttributesEntry, _>(this)
-                    }
-                AttributesCheckpoint(
-                    scheme = scheme,
-                    entries =
-                        entries.associateWith { entry ->
-                            CheckpointEntry(
-                                directValue = read(scheme, entry, isBaseline = true).snapshot(),
-                                overrideState = schemeStates[entry]?.snapshot(),
-                                metadataValue = scheme.metaProperties.getProperty(entry.metadataKey),
-                            )
-                        },
-                )
+                val owned = states[scheme].orEmpty().filterValues { it.owner == owner }.keys
+                SchemeCheckpoint(scheme, (entries + owned).associateWith { snapshotEntry(scheme, it) })
             }
 
-        fun rollback(checkpoint: AttributesCheckpoint): List<RuntimeException> =
+        fun rollback(checkpoint: SchemeCheckpoint): List<RuntimeException> =
             synchronized(lock) {
                 val failures = mutableListOf<RuntimeException>()
                 val schemeStates = states.getOrPut(checkpoint.scheme) { mutableMapOf() }
@@ -356,14 +622,14 @@ internal object EditorSchemeOverrides {
         }
     }
 
-    private enum class RestoreComponent { ATTRIBUTES, OWNERSHIP, METADATA }
+    private enum class RestoreComponent { VALUE, OWNERSHIP, METADATA }
 
     private fun CheckpointEntry.restoring(
         component: RestoreComponent,
         saved: CheckpointEntry,
     ): CheckpointEntry =
         when (component) {
-            RestoreComponent.ATTRIBUTES -> copy(directValue = saved.directValue.snapshot())
+            RestoreComponent.VALUE -> copy(directValue = saved.directValue.snapshot())
             RestoreComponent.OWNERSHIP -> copy(overrideState = saved.overrideState?.snapshot())
             RestoreComponent.METADATA -> copy(metadataValue = saved.metadataValue)
         }
@@ -375,7 +641,7 @@ internal object EditorSchemeOverrides {
         component: RestoreComponent,
     ) {
         when (component) {
-            RestoreComponent.ATTRIBUTES -> writeValue(scheme, entry, desired.directValue)
+            RestoreComponent.VALUE -> writeValue(scheme, entry, desired.directValue)
             RestoreComponent.OWNERSHIP -> {
                 val state = desired.overrideState
                 if (state == null) {
@@ -403,18 +669,23 @@ internal object EditorSchemeOverrides {
         value: SchemeValue,
     ): OverrideWriteResult {
         synchronized(lock) {
-            val schemeStates = states.getOrPut(scheme) { mutableMapOf() }
+            checkpoints.prepare()
             hydrate(scheme, entry)
-            return when (val state = schemeStates[entry]) {
+            return when (val state = states[scheme]?.get(entry)) {
                 null -> {
                     val original = read(scheme, entry, isBaseline = true)
-                    writeValue(scheme, entry, value)
-                    schemeStates[entry] = OverrideState.Owned(owner, original, value.snapshot())
-                    scheme.metaProperties.setProperty(
-                        entry.metadataKey,
-                        OverrideCodec.encode(schemeStates.getValue(entry)),
-                    )
-                    OverrideWriteResult.APPLIED
+                    val owned = OverrideState.Owned(owner, original, value.snapshot())
+                    val desired = CheckpointEntry(value.snapshot(), owned, OverrideCodec.encode(owned))
+                    if (checkpoints.mutate(
+                            scheme,
+                            entry,
+                            desired,
+                        )
+                    ) {
+                        OverrideWriteResult.APPLIED
+                    } else {
+                        OverrideWriteResult.RELINQUISHED
+                    }
                 }
 
                 is OverrideState.Relinquished -> OverrideWriteResult.RELINQUISHED
@@ -430,20 +701,28 @@ internal object EditorSchemeOverrides {
         value: SchemeValue,
         state: OverrideState.Owned,
     ): OverrideWriteResult {
-        val schemeStates = states.getValue(scheme)
         if (state.owner != owner) {
             log.warn("Skipping editor scheme override because $entry is already owned by ${state.owner}")
             return OverrideWriteResult.SKIPPED
         }
-        if (read(scheme, entry) != state.lastWritten) {
-            schemeStates[entry] = OverrideState.Relinquished(owner)
-            scheme.metaProperties.setProperty(entry.metadataKey, OverrideCodec.encode(schemeStates.getValue(entry)))
-            return OverrideWriteResult.RELINQUISHED
+        val current = snapshotEntry(scheme, entry)
+        val updated =
+            if (read(scheme, entry) != state.lastWritten) {
+                OverrideState.Relinquished(owner)
+            } else {
+                state.copy(lastWritten = value.snapshot())
+            }
+        val desired =
+            CheckpointEntry(
+                if (updated is OverrideState.Owned) value.snapshot() else current.directValue,
+                updated,
+                OverrideCodec.encode(updated),
+            )
+        return if (checkpoints.mutate(scheme, entry, desired) && updated is OverrideState.Owned) {
+            OverrideWriteResult.APPLIED
+        } else {
+            OverrideWriteResult.RELINQUISHED
         }
-        writeValue(scheme, entry, value)
-        schemeStates[entry] = state.copy(lastWritten = value.snapshot())
-        scheme.metaProperties.setProperty(entry.metadataKey, OverrideCodec.encode(schemeStates.getValue(entry)))
-        return OverrideWriteResult.APPLIED
     }
 
     private fun read(
@@ -512,11 +791,13 @@ internal object EditorSchemeOverrides {
         activeAttributes: Map<EditorColorsScheme, Set<String>> = emptyMap(),
     ) {
         synchronized(lock) {
+            checkpoints.prepare()
             schemes.forEach(::hydrate)
             val isTargeted = activeAttributes.isNotEmpty()
-            for ((scheme, schemeStates) in states) {
+            for (scheme in states.keys.toList()) {
                 if (isTargeted && scheme !in activeAttributes) continue
-                schemeStates.entries.removeIf { (entry, state) ->
+                val schemeStates: Map<SchemeEntry, OverrideState> = states[scheme].orEmpty()
+                for ((entry, state) in schemeStates.toList()) {
                     val activeKeyNames = activeAttributes[scheme]
                     val shouldRemove =
                         state is OverrideState.Relinquished &&
@@ -526,11 +807,19 @@ internal object EditorSchemeOverrides {
                                     entry !is SchemeEntry.AttributesEntry ||
                                     entry.key.externalName !in activeKeyNames
                             )
-                    if (shouldRemove) scheme.metaProperties.remove(entry.metadataKey)
-                    shouldRemove
+                    if (shouldRemove) {
+                        checkpoints.mutate(
+                            scheme,
+                            entry,
+                            snapshotEntry(scheme, entry).copy(
+                                overrideState = null,
+                                metadataValue = null,
+                            ),
+                        )
+                    }
                 }
             }
-            states.entries.removeIf { (_, schemeStates) -> schemeStates.isEmpty() }
+            states.entries.removeIf { it.value.isEmpty() }
         }
     }
 
@@ -547,11 +836,11 @@ internal object EditorSchemeOverrides {
         target: EditorColorsScheme,
         canonical: EditorColorsScheme,
     ) = synchronized(lock) {
+        checkpoints.prepare()
         hydrate(target)
         hydrate(canonical)
-        val targetStates = states.getOrPut(target) { mutableMapOf() }
         for ((entry, state) in states[canonical].orEmpty()) {
-            if (entry in targetStates) continue
+            if (states[target]?.containsKey(entry) == true) continue
             if (state is OverrideState.Owned && read(target, entry) != state.lastWritten) continue
             val inherited =
                 when (state) {
@@ -562,28 +851,34 @@ internal object EditorSchemeOverrides {
                         )
                     is OverrideState.Relinquished -> state
                 }
-            targetStates[entry] = inherited
-            target.metaProperties.setProperty(entry.metadataKey, OverrideCodec.encode(inherited))
+            checkpoints.mutate(
+                target,
+                entry,
+                snapshotEntry(target, entry).copy(
+                    overrideState = inherited,
+                    metadataValue = OverrideCodec.encode(inherited),
+                ),
+            )
         }
     }
 
     private fun restoreEntry(
         scheme: EditorColorsScheme,
         owner: EditorSchemeOwner,
-        schemeStates: MutableMap<SchemeEntry, OverrideState>,
         entry: SchemeEntry,
         state: OverrideState,
     ): RuntimeException? {
         if (state.owner != owner || state !is OverrideState.Owned) return null
-        if (read(scheme, entry) != state.lastWritten) {
-            schemeStates[entry] = OverrideState.Relinquished(owner)
-            scheme.metaProperties.setProperty(entry.metadataKey, OverrideCodec.encode(schemeStates.getValue(entry)))
-            return null
-        }
         return try {
-            writeValue(scheme, entry, state.original)
-            schemeStates.remove(entry)
-            scheme.metaProperties.remove(entry.metadataKey)
+            val current = snapshotEntry(scheme, entry)
+            val desired =
+                if (read(scheme, entry) != state.lastWritten) {
+                    val relinquished = OverrideState.Relinquished(owner)
+                    current.copy(overrideState = relinquished, metadataValue = OverrideCodec.encode(relinquished))
+                } else {
+                    CheckpointEntry(state.original.snapshot(), null, null)
+                }
+            checkpoints.mutate(scheme, entry, desired)
             null
         } catch (exception: RuntimeException) {
             exception

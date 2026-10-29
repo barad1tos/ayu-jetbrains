@@ -39,6 +39,7 @@ import java.awt.event.AWTEventListenerProxy
 import java.util.EnumSet
 import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.function.BiConsumer
 import javax.swing.UIDefaults
 import javax.swing.UIManager
 
@@ -210,6 +211,54 @@ class StartupLifecycleTest : BasePlatformTestCase() {
         }
     }
 
+    fun testConfirmedLicensedStartupCompletesWithoutRewritingSavedChoices() {
+        mockkObject(AyuLaf)
+        every { AyuLaf.currentThemeName() } returns "Ayu Mirage (Islands UI)"
+        settings.state.apply {
+            fontPresetEnabled = false
+            fontOwnershipVersion = 99
+            installedFontsSeeded = true
+            premiumOnboardingShown = true
+            freeOnboardingShown = true
+            proDefaultsApplied = true
+            workspaceDefaultsApplied = true
+            followSystemAppearance = false
+            glowEnabled = false
+            vcsColorEnabled = false
+            progressBar = false
+            isCgpOwnershipMigrated = true
+            isIrOwnershipMigrated = true
+            lastConfirmedEntitlement = LicenseEntitlement.LICENSED.name
+            mirageAccent = "#5B8DEF"
+            lastAppliedAccentHex = "#5B8DEF"
+            lastApplyOk = true
+        }
+        val expectedXml = encodedState(settings.state)
+        val reconciled = mutableListOf<LicenseEntitlement>()
+        hasAppliedAccent = true
+        try {
+            runStartup(
+                AyuIslandsStartupActivity(
+                    entitlementProvider = { LicenseEntitlement.LICENSED },
+                    reconcile = { entitlement, projects ->
+                        assertEquals(listOf(project), projects.toList())
+                        reconciled += entitlement
+                        ReconciliationResult.Success
+                    },
+                    scheduleRecheck = { _, _ -> },
+                    recheckDelayProvider = { null },
+                    projectsProvider = { listOf(project) },
+                ),
+            )
+
+            assertEquals(listOf(LicenseEntitlement.LICENSED), reconciled)
+            assertEquals(expectedXml, encodedState(settings.state))
+            assertEquals(Color.decode("#5B8DEF"), UIManager.getColor(ACCENT_KEY))
+        } finally {
+            unmockkObject(AyuLaf)
+        }
+    }
+
     private fun assertStartupPreservesState() {
         val expectedXml = encodedState(settings.state)
         hasAppliedAccent = true
@@ -325,7 +374,8 @@ class StartupLifecycleTest : BasePlatformTestCase() {
 
     private fun ownDefaults(defaults: UIDefaults): Map<Any, Any> {
         val snapshot = LinkedHashMap<Any, Any>()
-        defaults.forEach { key, value -> snapshot[key] = value }
+        val capture = BiConsumer<Any, Any> { key, value -> snapshot[key] = value }
+        defaults.forEach(capture)
         return snapshot
     }
 

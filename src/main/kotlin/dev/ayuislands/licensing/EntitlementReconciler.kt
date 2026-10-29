@@ -5,7 +5,10 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.concurrency.annotations.RequiresEdt
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentLifecycle
 import dev.ayuislands.accent.CodeGlanceProIntegration
+import dev.ayuislands.accent.LifecycleTiming
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.accent.toolbar.QuickSwitcherPopup
 import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
@@ -32,6 +35,27 @@ internal data class ReconciliationResult(
 
     companion object {
         val Success = ReconciliationResult(emptyList())
+    }
+}
+
+/** Defers the entire confirmed workflow, including result bookkeeping, until accent rollback has finished. */
+internal fun requestEntitlement(
+    observed: LicenseEntitlement,
+    current: () -> LicenseEntitlement,
+    onFailure: (RuntimeException) -> Unit,
+    action: (LicenseEntitlement) -> Unit,
+) {
+    if (observed == LicenseEntitlement.UNKNOWN) {
+        action(observed)
+        return
+    }
+    AccentLifecycle.request { timing ->
+        try {
+            action(if (timing == LifecycleTiming.DEFERRED) current() else observed)
+        } catch (failure: RuntimeException) {
+            failure.rethrowIfCancelled()
+            onFailure(failure)
+        }
     }
 }
 

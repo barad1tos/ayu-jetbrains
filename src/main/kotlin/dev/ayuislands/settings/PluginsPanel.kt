@@ -158,7 +158,9 @@ class PluginsPanel : SettingsParticipant {
             }
 
             row {
-                label("Allowed features").gap(RightGap.COLUMNS)
+                label("Allowed features")
+            }
+            row {
                 panel {
                     row {
                         panel {

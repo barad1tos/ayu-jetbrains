@@ -12,6 +12,7 @@ import java.awt.Window
 import java.util.ArrayDeque
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
+import javax.swing.SwingUtilities
 
 /**
  * Live Swing peer refresher for chrome surfaces — finds peers and mutates their
@@ -105,7 +106,7 @@ internal object LiveChromeRefresher {
         when (target) {
             ChromeTarget.StatusBar -> {
                 forEachUsableStatusBarComponent { component ->
-                    component.background = color
+                    ChromePeerOverrides.put(component, color)
                     paintNavBarCompactPanel(component, color)
                     component.repaint()
                 }
@@ -128,7 +129,7 @@ internal object LiveChromeRefresher {
         when (target) {
             ChromeTarget.StatusBar -> {
                 forEachUsableStatusBarComponent { component ->
-                    component.background = null
+                    ChromePeerOverrides.put(component, null)
                     clearNavBarCompactPanel(component)
                     component.repaint()
                 }
@@ -176,7 +177,7 @@ internal object LiveChromeRefresher {
     ) {
         walk(statusBarRoot) { component ->
             if (component.javaClass.name == NAVBAR_COMPACT_PANEL_FQN && component is JComponent) {
-                component.background = color
+                ChromePeerOverrides.put(component, color)
                 // Match `refreshOnTree`: the matched panel pins its own bg in init and
                 // ignores Swing inheritance, so a parent-only repaint is not enough.
                 component.repaint()
@@ -191,7 +192,7 @@ internal object LiveChromeRefresher {
     private fun clearNavBarCompactPanel(statusBarRoot: Container) {
         walk(statusBarRoot) { component ->
             if (component.javaClass.name == NAVBAR_COMPACT_PANEL_FQN && component is JComponent) {
-                component.background = null
+                ChromePeerOverrides.put(component, null)
                 component.repaint()
             }
         }
@@ -223,14 +224,15 @@ internal object LiveChromeRefresher {
         try {
             lookup()
         } catch (exception: RuntimeException) {
+            if (exception.isAccentCancellation()) throw exception
             log.debug("$name unavailable during live refresh", exception)
             null
         }
 
     /**
      * Iterates top-level windows, skipping ones that are not [Window.isShowing] (disposed,
-     * hidden, pooled popups) and isolating per-window failures so one flaky peer doesn't
-     * abort chrome apply for the rest of the desktop.
+     * hidden, pooled popups). Ordinary standalone per-window failures stay isolated
+     * so one flaky peer does not abort the remaining windows.
      *
      * Uses [Window.getWindows] (broader than `WindowManager.allProjectFrames`) to catch
      * pooled dialogs and detached popups that still cache stale chrome colors; the
@@ -243,20 +245,15 @@ internal object LiveChromeRefresher {
      * ClassCast on reflective match, IllegalState on detached frame), so narrowing
      * the catch here also satisfies detekt's TooGenericExceptionCaught.
      *
-     * The per-window catch around `action(window)` is defense-in-depth for callers
-     * that might pass an `action` lambda not wrapped in [walk]. Every current caller
-     * ([refreshOnTree], [clearOnTree], and the two `*InsideAncestor` variants)
-     * delegates to [walk], whose own per-component catch swallows broken peers
-     * before they can reach this layer — so the per-window catch is structurally
-     * unreachable today. Keep it: this is a `private inline fun` whose signature
-     * accepts an arbitrary `(Window) -> Unit`, and a future non-walk caller would
-     * otherwise regress the isolation guarantee.
+     * Known pending recovery failures always propagate. During an uncommitted
+     * [AccentApplyScope], ordinary peer write failures also reach child recovery.
      */
     private inline fun forEachShowingWindow(action: (Window) -> Unit) {
         val windows =
             try {
                 Window.getWindows()
             } catch (exception: RuntimeException) {
+                if (exception.isAccentCancellation()) throw exception
                 log.warn(
                     "Live refresh could not enumerate AWT windows; skipping pass",
                     exception,
@@ -265,11 +262,26 @@ internal object LiveChromeRefresher {
             }
         for (window in windows) {
             if (!window.isShowing) continue
-            try {
-                action(window)
-            } catch (exception: RuntimeException) {
-                log.debug("Live refresh skipped for ${window.javaClass.simpleName}", exception)
+            visitPeer("Live refresh skipped for ${window.javaClass.simpleName}") { action(window) }
+        }
+    }
+
+    /** Shares tree/window isolation while preserving known recovery and scoped write failures. */
+    private inline fun visitPeer(
+        failureMessage: String,
+        action: () -> Unit,
+    ) {
+        try {
+            action()
+        } catch (recovery: PeerRecoveryFailure) {
+            throw recovery
+        } catch (exception: RuntimeException) {
+            if (exception.isAccentCancellation() ||
+                (SwingUtilities.isEventDispatchThread() && AccentApplyScope.active?.isCommitted == false)
+            ) {
+                throw exception
             }
+            log.debug(failureMessage, exception)
         }
     }
 
@@ -284,7 +296,7 @@ internal object LiveChromeRefresher {
     ) {
         walk(root) { component ->
             if (component is JComponent && component.javaClass.name == classNameFqn.value) {
-                component.background = color
+                ChromePeerOverrides.put(component, color)
                 component.repaint()
             }
         }
@@ -297,7 +309,7 @@ internal object LiveChromeRefresher {
     ) {
         walk(root) { component ->
             if (component is JComponent && component.javaClass.name == classNameFqn.value) {
-                component.background = null
+                ChromePeerOverrides.put(component, null)
                 component.repaint()
             }
         }
@@ -319,7 +331,7 @@ internal object LiveChromeRefresher {
                 component.javaClass.name == targetFqn.value &&
                 hasAncestorWithClassName(component, ancestorFqn)
             ) {
-                component.background = color
+                ChromePeerOverrides.put(component, color)
                 component.repaint()
             }
         }
@@ -336,7 +348,7 @@ internal object LiveChromeRefresher {
                 component.javaClass.name == targetFqn.value &&
                 hasAncestorWithClassName(component, ancestorFqn)
             ) {
-                component.background = null
+                ChromePeerOverrides.put(component, null)
                 component.repaint()
             }
         }
@@ -365,9 +377,11 @@ internal object LiveChromeRefresher {
      * heap (orders of magnitude more slack) and keeps per-visit try/catch +
      * broken-container logging semantics.
      *
-     * Each visit is isolated so a single flaky peer (mid-dispose, ClassCast on
-     * reflective match, NPE inside repaint) doesn't abort the rest of the tree.
-     * Catches [RuntimeException] rather than [Throwable] so [Error]s
+     * Ordinary standalone visits are isolated; known pending recovery failures propagate.
+     * During an uncommitted [AccentApplyScope], ordinary peer write failures also
+     * reach child recovery. Unreadable child lists retain their per-subtree isolation.
+     * Catches [RuntimeException] rather than
+     * [Throwable] so [Error]s
      * ([OutOfMemoryError], [StackOverflowError]) still propagate instead of being
      * silently swallowed at DEBUG, and narrower than [Exception] so detekt's
      * TooGenericExceptionCaught stays happy — the Swing peer surface only throws
@@ -381,16 +395,13 @@ internal object LiveChromeRefresher {
         queue.addLast(component)
         while (queue.isNotEmpty()) {
             val current = queue.removeFirst()
-            try {
-                visit(current)
-            } catch (exception: RuntimeException) {
-                log.debug("Live refresh visit failed on ${current.javaClass.name}", exception)
-            }
+            visitPeer("Live refresh visit failed on ${current.javaClass.name}") { visit(current) }
             if (current !is Container) continue
             val children =
                 try {
                     current.components
                 } catch (exception: RuntimeException) {
+                    if (exception.isAccentCancellation()) throw exception
                     logBrokenContainer(current, exception)
                     continue
                 }

@@ -552,6 +552,30 @@ class PluginsPanelTest {
     }
 
     @Test
+    fun `allowed features remain readable in a narrow settings panel`() {
+        state.externalThemeEnhancementsEnabled = true
+        val pluginsPanel = PluginsPanel()
+        val dialog = buildDialogPanel(pluginsPanel)
+        dialog.setSize(600, 1200)
+        descendants(dialog, Container::class.java).forEach(Container::doLayout)
+        val checkboxes = descendants(dialog, JCheckBox::class.java)
+
+        for (label in listOf("Quick switcher", "CodeGlance Pro", "Chrome tint", "Glow", "Indent Rainbow")) {
+            val checkbox = checkboxes.single { it.text == label }
+            val bounds = SwingUtilities.convertRectangle(checkbox.parent, checkbox.bounds, dialog)
+            assertTrue(
+                bounds.x >= 0 && bounds.x + bounds.width <= dialog.width,
+                "$label must fit inside the settings panel: $bounds, panel width ${dialog.width}",
+            )
+            assertTrue(
+                checkbox.width >= checkbox.preferredSize.width,
+                "$label must retain enough width to display its complete label",
+            )
+        }
+        assertFalse(pluginsPanel.isModified(), "Laying out the controls must preserve the user's choices")
+    }
+
+    @Test
     fun `external accent picker renders stored fallback accent`() {
         state.externalThemeAccent = "#AABBCC"
         val pluginsPanel = PluginsPanel()
