@@ -258,7 +258,11 @@ object AccentApplicator {
                         scope.checkWritable()
                         state.lastApplyOk = containedFailures.isEmpty()
                         // Every write ran: a contained element failure stays torn but keeps its colors.
-                        if (participation == null) scope.commit() else participation.commit(scope)
+                        try {
+                            scope.commit()
+                        } finally {
+                            participation?.recordAcceptance(scope)
+                        }
                     }
                     put(AccentApplyStep.PublishAccentChanged) {
                         if (containedFailures.isEmpty()) {

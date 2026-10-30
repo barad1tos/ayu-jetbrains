@@ -516,7 +516,11 @@ class QuickSwitcherRelatedTogglesSectionTest {
         return try {
             scope.record(participation.checkpoint)
             participation.beforeAcceptance(outcome)
-            participation.commit(scope)
+            try {
+                scope.commit()
+            } finally {
+                participation.recordAcceptance(scope)
+            }
             outcome
         } finally {
             scope.close()

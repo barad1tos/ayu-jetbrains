@@ -12,11 +12,7 @@ internal class AccentApplyParticipation(
     var isAccepted: Boolean = false
         private set
 
-    fun commit(scope: AccentApplyScope) {
-        try {
-            scope.commit()
-        } finally {
-            isAccepted = scope.isCommitted
-        }
+    fun recordAcceptance(scope: AccentApplyScope) {
+        isAccepted = scope.isCommitted
     }
 }
