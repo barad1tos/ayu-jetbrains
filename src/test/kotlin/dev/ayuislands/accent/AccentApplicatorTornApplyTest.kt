@@ -31,6 +31,8 @@ import dev.ayuislands.accent.elements.ProgressBarElement
 import dev.ayuislands.accent.elements.SearchResultsElement
 import dev.ayuislands.accent.elements.StatusBarElement
 import dev.ayuislands.accent.elements.ToolWindowStripeElement
+import dev.ayuislands.accent.toolbar.QuickSwitcherRelatedTogglesSection
+import dev.ayuislands.accent.toolbar.popup.ToggleTile
 import dev.ayuislands.indent.FakePaletteType
 import dev.ayuislands.indent.IndentRainbowSync
 import dev.ayuislands.indent.IrHarness
@@ -41,6 +43,7 @@ import dev.ayuislands.indent.irBasePalette
 import dev.ayuislands.indent.resetIrBindings
 import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
@@ -62,6 +65,7 @@ import java.io.File
 import java.util.Properties
 import java.util.concurrent.CancellationException
 import java.util.function.BiConsumer
+import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -1290,6 +1294,250 @@ class AccentApplicatorTornApplyTest {
             }
         }
     }
+
+    @Test
+    fun `parent abort after visual writes restores its preference without trusting the attempted accent`() {
+        withSuccessfulVisualApply {
+            state.chromeTintingEnabled = true
+            val previousPreference = state.chromeTintingEnabled
+            val checkpoint = UiDefaultsCheckpoint()
+            checkpoint.onRestore { state.chromeTintingEnabled = previousPreference }
+            state.chromeTintingEnabled = false
+            val participation =
+                AccentApplyParticipation(checkpoint) {
+                    assertEquals(
+                        expected = Color(0x44, 0x55, 0x66),
+                        actual = UIManager.getColor("Component.focusColor"),
+                    )
+                    assertFalse(state.chromeTintingEnabled)
+                    checkNotNull(AccentApplyScope.active).requestAbort()
+                }
+
+            val outcome =
+                assertIs<AccentApplyOutcome.Torn>(AccentApplicator.applyFromHexString("#445566", participation))
+
+            assertEquals(AccentApplyStep.MarkApplyClean, outcome.failures.single().step)
+            assertFalse(participation.isAccepted)
+            assertTrue(state.chromeTintingEnabled)
+            assertSame(Color.BLUE, UIManager.getColor("Component.focusColor"))
+            assertFalse(state.lastApplyOk)
+            assertNull(state.trustedCachedAccent())
+            verify(exactly = 0) { listener.accentChanged(any(), any(), any()) }
+        }
+    }
+
+    @Test
+    fun `chrome toggle restores its preference together with interrupted visual writes`() {
+        prepareChromeToggle()
+        withRealUiDefaults {
+            val previous = UIManager.put("Component.focusColor", Color.BLUE)
+            try {
+                chromeToggle().toggleSwitch.flip()
+
+                assertTrue(state.chromeTintingEnabled)
+                assertSame(Color.BLUE, UIManager.getColor("Component.focusColor"))
+                assertFalse(state.lastApplyOk)
+            } finally {
+                UIManager.put("Component.focusColor", previous)
+            }
+        }
+    }
+
+    @Test
+    fun `foreign gate edit after visual writes vetoes acceptance without overwriting the edit`() {
+        every { ComponentTreeRefresher.notifyOnly(any()) } answers {
+            state.chromeTintingEnabled = true
+        }
+        withSuccessfulVisualApply {
+            prepareChromeToggle()
+            chromeToggle().toggleSwitch.flip()
+
+            assertTrue(state.chromeTintingEnabled)
+            assertSame(Color.BLUE, UIManager.getColor("Component.focusColor"))
+            assertFalse(state.lastApplyOk)
+            verify(exactly = 0) { listener.accentChanged(any(), any(), any()) }
+        }
+    }
+
+    @Test
+    fun `chrome participation refuses contained visual failures before accepting its preference`() {
+        val broken = mockk<AccentElement>(relaxed = true)
+        every { broken.id } returns AccentElementId.CARET_ROW
+        every { broken.displayName } returns "Caret Row"
+        every { broken.apply(any()) } throws IllegalStateException("element failed")
+        mockEpExtensionList(listOf(broken))
+        withSuccessfulVisualApply {
+            prepareChromeToggle()
+            val outcome =
+                AccentPreferenceChange.apply(
+                    AccentPreference.CHROME_TINTING,
+                    false,
+                    AccentContext.Ayu(AyuVariant.MIRAGE),
+                )
+
+            assertIs<AccentApplyOutcome.Torn>(outcome)
+            assertTrue(state.chromeTintingEnabled)
+            assertSame(Color.BLUE, UIManager.getColor("Component.focusColor"))
+            assertFalse(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `chrome publication failure keeps the accepted preference and visual color`() {
+        withSuccessfulVisualApply {
+            prepareChromeToggle()
+            every { listener.accentChanged(any(), any(), any()) } throws IllegalStateException("subscriber failed")
+
+            val outcome =
+                AccentPreferenceChange.apply(
+                    AccentPreference.CHROME_TINTING,
+                    false,
+                    AccentContext.Ayu(AyuVariant.MIRAGE),
+                )
+
+            assertTrue(assertIs<AccentApplyOutcome.Torn>(outcome).visualsApplied)
+            assertFalse(state.chromeTintingEnabled)
+            assertEquals(
+                expected = Color(0x44, 0x55, 0x66),
+                actual = UIManager.getColor("Component.focusColor"),
+            )
+            assertTrue(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `chrome publication cancellation keeps the accepted preference before propagating`() {
+        withSuccessfulVisualApply {
+            prepareChromeToggle()
+            val cancellation = CancellationException("subscriber cancelled")
+            every { listener.accentChanged(any(), any(), any()) } throws cancellation
+            val tile = chromeToggle()
+
+            assertSame(cancellation, assertFailsWith<CancellationException> { tile.toggleSwitch.flip() })
+
+            assertFalse(state.chromeTintingEnabled)
+            assertFalse(tile.toggleSwitch.isSelected)
+            assertEquals(
+                expected = Color(0x44, 0x55, 0x66),
+                actual = UIManager.getColor("Component.focusColor"),
+            )
+            assertTrue(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `late visual cancellation restores chrome preference and visual color`() {
+        withSuccessfulVisualApply {
+            prepareChromeToggle()
+            val cancellation = ProcessCanceledException()
+            every { ComponentTreeRefresher.notifyOnly(any()) } throws cancellation
+            val tile = chromeToggle()
+
+            assertSame(cancellation, assertFailsWith<ProcessCanceledException> { tile.toggleSwitch.flip() })
+
+            assertTrue(state.chromeTintingEnabled)
+            assertTrue(tile.toggleSwitch.isSelected)
+            assertSame(Color.BLUE, UIManager.getColor("Component.focusColor"))
+            assertFalse(state.lastApplyOk)
+        }
+    }
+
+    @Test
+    fun `replaced settings target is preserved when chrome attempt aborts`() {
+        withSuccessfulVisualApply {
+            prepareChromeToggle()
+            val replacement = AyuIslandsState().apply { chromeTintingEnabled = false }
+            every { ComponentTreeRefresher.notifyOnly(any()) } answers {
+                every { mockSettings.state } returns replacement
+            }
+            try {
+                val outcome =
+                    AccentPreferenceChange.apply(
+                        AccentPreference.CHROME_TINTING,
+                        false,
+                        AccentContext.Ayu(AyuVariant.MIRAGE),
+                    )
+
+                assertIs<AccentApplyOutcome.Torn>(outcome)
+                assertFalse(replacement.chromeTintingEnabled)
+                assertSame(replacement, mockSettings.state)
+                assertSame(Color.BLUE, UIManager.getColor("Component.focusColor"))
+                assertFalse(state.lastApplyOk)
+            } finally {
+                every { mockSettings.state } returns state
+            }
+        }
+    }
+
+    @Test
+    fun `failed accepted rotation cleanup retries latest settings without undoing the accepted preference`() {
+        withSuccessfulVisualApply {
+            prepareChromeToggle()
+            state.followSystemAccent = true
+            state.accentRotationEnabled = true
+            val service = mockk<AccentRotationService>(relaxed = true)
+            mockkObject(AccentRotationService.Companion)
+            every { AccentRotationService.getInstance() } returns service
+            every { service.startRotation() } throws IllegalStateException("scheduler unavailable")
+            try {
+                val outcome =
+                    AccentPreferenceChange.apply(
+                        AccentPreference.FOLLOW_SYSTEM,
+                        false,
+                        AccentContext.Ayu(AyuVariant.MIRAGE),
+                    )
+
+                assertIs<AccentApplyOutcome.Torn>(outcome)
+                assertFalse(state.followSystemAccent)
+                assertTrue(state.accentRotationEnabled)
+                assertEquals(
+                    expected = Color(0x44, 0x55, 0x66),
+                    actual = UIManager.getColor("Component.focusColor"),
+                )
+
+                val replacement = AyuIslandsState().apply { followSystemAccent = true }
+                every { mockSettings.state } returns replacement
+                assertIs<AccentApplyOutcome.Applied>(
+                    AccentPreferenceChange.apply(
+                        AccentPreference.CHROME_TINTING,
+                        false,
+                        AccentContext.Ayu(AyuVariant.MIRAGE),
+                    ),
+                )
+
+                assertFalse(state.followSystemAccent)
+                assertTrue(replacement.followSystemAccent)
+                verify(exactly = 1) { service.startRotation() }
+                verify(exactly = 1) { service.stopRotation() }
+            } finally {
+                every { service.startRotation() } returns Unit
+                every { mockSettings.state } returns state
+                AccentPreferenceChange.apply(
+                    AccentPreference.CHROME_TINTING,
+                    true,
+                    AccentContext.Ayu(AyuVariant.MIRAGE),
+                )
+            }
+        }
+    }
+
+    private fun prepareChromeToggle() {
+        state.chromeTintingEnabled = true
+        state.chromeStatusBar = true
+        mockkObject(LicenseChecker)
+        every { LicenseChecker.isLicensedOrGrace() } returns true
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns project
+        mockkObject(AccentResolver)
+        every { AccentResolver.resolve(project, any<AccentContext>()) } returns "#445566"
+        every { AccentResolver.source(any()) } returns AccentResolver.Source.GLOBAL
+    }
+
+    private fun chromeToggle(): ToggleTile =
+        (QuickSwitcherRelatedTogglesSection(context = AccentContext.Ayu(AyuVariant.MIRAGE)).component as JPanel)
+            .components
+            .filterIsInstance<ToggleTile>()
+            .first { tile -> tile.components.filterIsInstance<JLabel>().any { it.text == "Chrome tinting" } }
 
     @Test
     fun `nested apply cannot mix colors or replace the restart cache`() {

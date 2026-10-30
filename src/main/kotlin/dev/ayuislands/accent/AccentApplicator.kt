@@ -153,7 +153,10 @@ object AccentApplicator {
 
     /** Apply synchronously on EDT, retaining restart metadata and returning this invocation's outcome. */
     @RequiresEdt
-    internal fun apply(accentHex: AccentHex): AccentApplyOutcome {
+    internal fun apply(
+        accentHex: AccentHex,
+        participation: AccentApplyParticipation? = null,
+    ): AccentApplyOutcome {
         check(SwingUtilities.isEventDispatchThread()) { "Accent application must run on EDT" }
         if (AccentApplyScope.active != null) {
             val failure = IllegalStateException("Accent application is already in progress")
@@ -166,6 +169,7 @@ object AccentApplicator {
         val scope = AccentApplyScope()
         try {
             scope.open()
+            participation?.let { scope.record(it.checkpoint) }
             val trimmedHex = accentHex.value
             val accent = accentHex.toColor()
             val state = AyuIslandsSettings.getInstance().state
@@ -250,9 +254,11 @@ object AccentApplicator {
                     // (AyuIslandsAppListener.appFrameCreated) falls through to the
                     // resolver rather than trusting the cached hex.
                     put(AccentApplyStep.MarkApplyClean) {
+                        participation?.beforeAcceptance(AccentApplyOutcome.of(accentHex, containedFailures))
+                        scope.checkWritable()
                         state.lastApplyOk = containedFailures.isEmpty()
                         // Every write ran: a contained element failure stays torn but keeps its colors.
-                        scope.commit()
+                        if (participation == null) scope.commit() else participation.commit(scope)
                     }
                     put(AccentApplyStep.PublishAccentChanged) {
                         if (containedFailures.isEmpty()) {
@@ -291,10 +297,13 @@ object AccentApplicator {
 
     /** Resolve the focused project's existing override chain and update the cache from its outcome. */
     @RequiresEdt
-    internal fun applyForFocusedProject(context: AccentContext): AccentApplyOutcome {
+    internal fun applyForFocusedProject(
+        context: AccentContext,
+        participation: AccentApplyParticipation? = null,
+    ): AccentApplyOutcome {
         val focusedProject = resolveFocusedProject()
         val hex = AccentResolver.resolve(focusedProject, context)
-        val outcome = applyFromHexString(hex)
+        val outcome = applyFromHexString(hex, participation)
         ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
         return outcome
     }
@@ -745,7 +754,10 @@ object AccentApplicator {
 
     /** Reject malformed input without mutating preferences or the restart cache. */
     @RequiresEdt
-    internal fun applyFromHexString(accentHex: String): AccentApplyOutcome {
+    internal fun applyFromHexString(
+        accentHex: String,
+        participation: AccentApplyParticipation? = null,
+    ): AccentApplyOutcome {
         check(SwingUtilities.isEventDispatchThread()) { "Accent application must run on EDT" }
         val accent =
             AccentHex.of(accentHex) ?: run {
@@ -782,7 +794,7 @@ object AccentApplicator {
                 }
                 return AccentApplyOutcome.Rejected(accentHex)
             }
-        return apply(accent)
+        return apply(accent, participation)
     }
 
     /** Complete inline on EDT or after one queued EDT turn; cancellation does not invoke the callback. */

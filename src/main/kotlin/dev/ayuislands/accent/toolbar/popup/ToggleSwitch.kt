@@ -23,23 +23,22 @@ import javax.swing.JComponent
  * accent (read lazily via [accentSupplier] at paint time); OFF state fills with a
  * subtle pressed background and 1-px inner border.
  *
- * Bound to a hidden [javax.swing.JCheckBox] in [ToggleTile] so the Kotlin UI DSL
- * `bindSelected({ state.X }, { state.X = it })` plumbing continues to drive
- * persistence — this widget only mirrors and writes the model.
+ * Reads its selection from the bound model. A requested change can be refused,
+ * rolled back, or accepted before a later failure; the indicator mirrors the
+ * model after the listener finishes in every case.
  *
  * Pattern A — every state mutation triggers `repaint()` on the calling thread
  * (already EDT for mouse events).
  *
- * @param initialSelected starting state of the switch.
- * @param accentSupplier provides the current accent hex; re-invoked on every paint.
- * @param listener fires on every flip with the new selection value.
+ * [selectedSupplier] provides the current model selection; [listener] receives
+ * the requested selection on every flip. [accentSupplier] is read on every paint.
  */
 internal class ToggleSwitch(
-    initialSelected: Boolean,
+    private val selectedSupplier: () -> Boolean,
     private val accentSupplier: () -> String,
     private val listener: (Boolean) -> Unit,
 ) : JComponent() {
-    var isSelected: Boolean = initialSelected
+    var isSelected: Boolean = selectedSupplier()
         private set
 
     init {
@@ -58,12 +57,16 @@ internal class ToggleSwitch(
 
     /**
      * Programmatic flip — used by [ToggleTile] to forward a click on the surrounding
-     * tile body. Updates the model and notifies [listener] exactly once.
+     * tile body. Requests the opposite of the current model value exactly once,
+     * then reads back the actual selection even if [listener] throws.
      */
     internal fun flip() {
-        isSelected = !isSelected
-        listener(isSelected)
-        repaint()
+        try {
+            listener(!selectedSupplier())
+        } finally {
+            isSelected = selectedSupplier()
+            repaint()
+        }
     }
 
     override fun paintComponent(g: Graphics) {
