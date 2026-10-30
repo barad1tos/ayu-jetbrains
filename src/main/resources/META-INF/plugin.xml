@@ -516,6 +516,9 @@
     </applicationListeners>
 
     <actions>
+        <action id="AyuIslands.StudioPrototype"
+                class="dev.ayuislands.studio.prototype.AyuStudioPreviewAction"/>
+
         <action id="AyuIslands.ShowWhatsNew"
                 class="dev.ayuislands.whatsnew.ShowWhatsNewAction">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
