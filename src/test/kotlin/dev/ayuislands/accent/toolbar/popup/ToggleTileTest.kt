@@ -39,11 +39,13 @@ class ToggleTileTest {
     @Test
     fun `clicking anywhere on the tile flips the bound switch`() {
         var captured: Boolean? = null
+        var isSelected = false
         val switch =
             ToggleSwitch(
-                initialSelected = false,
+                selectedSupplier = { isSelected },
                 accentSupplier = { "#FFB454" },
             ) { newValue ->
+                isSelected = newValue
                 captured = newValue
             }
         val tile =
@@ -115,7 +117,7 @@ class ToggleTileTest {
     @Test
     fun `tile exposes its toggle switch as a read-only field`() {
         val switch =
-            ToggleSwitch(initialSelected = true, accentSupplier = { "#FFB454" }, listener = {})
+            ToggleSwitch(selectedSupplier = { true }, accentSupplier = { "#FFB454" }, listener = {})
         val tile =
             ToggleTile(
                 icon = EmptyIcon.create(SAMPLE_ICON_SIZE) as Icon,
@@ -128,7 +130,7 @@ class ToggleTileTest {
 
     private fun newTile(): ToggleTile {
         val switch =
-            ToggleSwitch(initialSelected = false, accentSupplier = { "#FFB454" }, listener = {})
+            ToggleSwitch(selectedSupplier = { false }, accentSupplier = { "#FFB454" }, listener = {})
         return ToggleTile(
             icon = EmptyIcon.create(SAMPLE_ICON_SIZE) as Icon,
             label = "Chrome tinting",

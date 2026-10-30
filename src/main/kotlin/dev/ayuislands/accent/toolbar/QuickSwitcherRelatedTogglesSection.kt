@@ -6,7 +6,10 @@ import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentDefaults
+import dev.ayuislands.accent.AccentPreference
+import dev.ayuislands.accent.AccentPreferenceChange
 import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.ToggleSwitch
 import dev.ayuislands.accent.toolbar.popup.ToggleTile
@@ -106,7 +109,7 @@ internal class QuickSwitcherRelatedTogglesSection(
     ): ToggleTile {
         val switch =
             ToggleSwitch(
-                initialSelected = toggle.isSelected(),
+                selectedSupplier = { toggle.isSelected() },
                 accentSupplier = accentSupplier,
                 listener = { newValue ->
                     toggle.setSelected(newValue, context)
@@ -150,8 +153,7 @@ private fun QuickSwitcherToggle.setSelected(
     val state = AyuIslandsSettings.getInstance().state
     when (this) {
         QuickSwitcherToggle.CHROME -> {
-            state.chromeTintingEnabled = selected
-            applyFocusedAccent(context)
+            applyAccentPreference(AccentPreference.CHROME_TINTING, selected, context)
         }
         QuickSwitcherToggle.GLOW -> {
             state.glowEnabled = selected
@@ -169,25 +171,20 @@ private fun QuickSwitcherToggle.setSelected(
             }
         }
         QuickSwitcherToggle.FOLLOW_SYSTEM -> {
-            state.followSystemAccent = selected
-            if (state.accentRotationEnabled) {
-                val service = AccentRotationService.getInstance()
-                if (selected) {
-                    service.stopRotation()
-                } else if (LicenseChecker.isLicensedOrGrace()) {
-                    service.startRotation()
-                }
-            }
-            applyFocusedAccent(context)
+            applyAccentPreference(AccentPreference.FOLLOW_SYSTEM, selected, context)
         }
     }
 }
 
-private fun applyFocusedAccent(context: AccentContext?) {
-    val activeContext = context ?: AccentContext.detectQuickSwitcher() ?: AccentContext.detect() ?: return
+private fun applyAccentPreference(
+    preference: AccentPreference,
+    selected: Boolean,
+    context: AccentContext?,
+) {
     try {
-        AccentApplicator.applyForFocusedProject(activeContext)
+        AccentPreferenceChange.apply(preference, selected, context)
     } catch (exception: RuntimeException) {
+        exception.rethrowIfCancelled()
         logger<QuickSwitcherRelatedTogglesSection>().warn(
             "Quick switcher toggle failed to reapply focused accent",
             exception,
