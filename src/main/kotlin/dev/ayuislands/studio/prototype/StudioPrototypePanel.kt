@@ -45,6 +45,7 @@ private const val DETAILS_ROWS = 3
 private const val GLOW_WIDTH = 8
 private const val SELECTION_LINE = 2
 private const val YOURS_SAMPLE = "Yours (sample)"
+private const val KEEP_MINE_LABEL = "Keep mine"
 
 /** Native design preview whose only editable state belongs to the supplied session. */
 internal class StudioPrototypePanel(
@@ -317,7 +318,7 @@ internal class StudioPrototypePanel(
             update.isEnabled = session.activeProfileName != null
             membership.forEach { (section, checkbox) ->
                 checkbox.isSelected = section in session.includedSections
-                checkbox.text = "${section.displayName} — ${if (checkbox.isSelected) "Included" else "Keep mine"}"
+                checkbox.text = "${section.displayName} — ${if (checkbox.isSelected) "Included" else KEEP_MINE_LABEL}"
             }
             inspector.refresh(sections[selectedSurfaceIndex])
             refreshProfileDetails()
@@ -384,8 +385,8 @@ internal class StudioPrototypePanel(
             sections.mapNotNull { section ->
                 difference(
                     section.displayName,
-                    if (section in session.currentIncludedSections) "Included" else "Keep mine",
-                    if (section in session.includedSections) "Included" else "Keep mine",
+                    if (section in session.currentIncludedSections) "Included" else KEEP_MINE_LABEL,
+                    if (section in session.includedSections) "Included" else KEEP_MINE_LABEL,
                 )
             }
         val catalogChanges =
