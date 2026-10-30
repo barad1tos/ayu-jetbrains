@@ -47,6 +47,12 @@ private const val SELECTION_LINE = 2
 private const val YOURS_SAMPLE = "Yours (sample)"
 private const val KEEP_MINE_LABEL = "Keep mine"
 
+private data class ProfileChoice(
+    val name: String?,
+) {
+    override fun toString(): String = name ?: YOURS_SAMPLE
+}
+
 /** Native design preview whose only editable state belongs to the supplied session. */
 internal class StudioPrototypePanel(
     val session: StudioPrototypeSession,
@@ -69,7 +75,7 @@ internal class StudioPrototypePanel(
     private val details = textArea("Appearance details", DETAILS_ROWS)
     private val status = textArea("Preview status", 2)
     private val pendingDifferences = textArea("Pending differences", DETAILS_ROWS)
-    private val profileBrowser = named(JComboBox<String>(), "Profile browser")
+    private val profileBrowser = named(JComboBox<ProfileChoice>(), "Profile browser")
     private val activate = named(JButton("Activate"), "Activate profile")
     private val profileName = named(JTextField(PROFILE_NAME_COLUMNS), "Profile name")
     private val update = named(JButton("Update profile"), "Update profile")
@@ -312,9 +318,9 @@ internal class StudioPrototypePanel(
         isRefreshing = true
         try {
             val browsed = profileBrowser.selectedItem
-            val names = listOf(YOURS_SAMPLE) + session.profiles.map { it.name }
-            profileBrowser.model = DefaultComboBoxModel(names.toTypedArray())
-            profileBrowser.selectedIndex = names.indexOf(browsed).coerceAtLeast(0)
+            val choices = listOf(ProfileChoice(null)) + session.profiles.map { ProfileChoice(it.name) }
+            profileBrowser.model = DefaultComboBoxModel(choices.toTypedArray())
+            profileBrowser.selectedIndex = choices.indexOf(browsed).coerceAtLeast(0)
             update.isEnabled = session.activeProfileName != null
             membership.forEach { (section, checkbox) ->
                 checkbox.isSelected = section in session.includedSections

@@ -265,6 +265,33 @@ class StudioPrototypePanelTest {
         }
 
     @Test
+    fun `profile matching the base label stays separately selectable`() =
+        onEdt {
+            val session = StudioPrototypeSession()
+            val panel = StudioPrototypePanel(session)
+            val intensity = control<JSlider>(panel, "Glow intensity")
+            intensity.value = 71
+            control<JTextField>(panel, "Profile name").text = "Yours (sample)"
+            control<JButton>(panel, "Create profile").doClick()
+            panel.applyPreview()
+
+            intensity.value = 24
+            panel.applyPreview()
+            val browser = control<JComboBox<*>>(panel, "Profile browser")
+            val savedIndex = browser.itemCount - 1
+            browser.selectedIndex = savedIndex
+            control<JButton>(panel, "Activate profile").doClick()
+
+            assertEquals("Yours (sample)", session.activeProfileName)
+            assertEquals(71, session.current.glowIntensities.getValue(GlowStyle.SOFT))
+            assertEquals(savedIndex, browser.selectedIndex)
+            browser.selectedIndex = 0
+            control<JButton>(panel, "Activate profile").doClick()
+            assertEquals(null, session.activeProfileName)
+            assertEquals(24, session.current.glowIntensities.getValue(GlowStyle.SOFT))
+        }
+
+    @Test
     fun `profile activation and update use the selected accepted profile`() =
         onEdt {
             val session = StudioPrototypeSession()
