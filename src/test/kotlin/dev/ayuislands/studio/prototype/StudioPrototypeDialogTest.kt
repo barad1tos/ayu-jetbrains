@@ -7,6 +7,7 @@ import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JList
+import javax.swing.JRootPane
 import javax.swing.JSpinner
 import javax.swing.SwingUtilities
 import kotlin.test.Test
@@ -96,7 +97,7 @@ class StudioPrototypeDialogTest {
         onEdt {
             val dialog = StudioPrototypeDialog(null)
             try {
-                val panel = descendants(dialog.contentPane).filterIsInstance<StudioPrototypePanel>().single()
+                val panel = descendants(findDialogRoot(dialog)).filterIsInstance<StudioPrototypePanel>().single()
                 block(dialog, panel)
             } finally {
                 if (!dialog.isDisposed) dialog.doCancelAction()
@@ -105,7 +106,11 @@ class StudioPrototypeDialogTest {
     }
 
     private fun buttons(dialog: StudioPrototypeDialog): List<JButton> =
-        descendants(dialog.contentPane).filterIsInstance<JButton>().toList()
+        descendants(findDialogRoot(dialog)).filterIsInstance<JButton>().toList()
+
+    private fun findDialogRoot(dialog: StudioPrototypeDialog): Container =
+        generateSequence<Container>(dialog.preferredFocusedComponent) { it.parent }
+            .first { it is JRootPane || it.parent == null }
 
     private inline fun <reified T : Component> component(
         container: Container,
