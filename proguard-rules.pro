@@ -102,6 +102,9 @@
 # plugin.xml: action (Tools → Show What's New…)
 -keep class dev.ayuislands.whatsnew.ShowWhatsNewAction { *; }
 
+# plugin.xml: action (Find Action → Ayu Studio Preview)
+-keep class dev.ayuislands.studio.prototype.AyuStudioPreviewAction { *; }
+
 # plugin.xml: action (Tools → Ayu Islands → Rescan Project Language)
 -keep class dev.ayuislands.actions.RescanLanguageAction { *; }
 

@@ -132,6 +132,8 @@ Languages without explicit overrides inherit from themed `DEFAULT_*` attributes 
 
 Output: `build/distributions/ayu-jetbrains-<version>.zip`
 
+Source builds include **Ayu Studio Preview** in **Find Action**. This design preview lets you explore surface selection, local appearance drafts and sample profiles. Its Apply and Cancel actions affect only the open preview; it does not change IDE settings or save profiles between windows.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 ## Community
