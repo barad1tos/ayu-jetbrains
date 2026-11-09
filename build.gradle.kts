@@ -13,7 +13,7 @@ buildscript {
 
 plugins {
     // 2.18.1 breaks the verifyPlugin compatibility matrix; keep in sync with Dependabot.
-    id("org.jetbrains.intellij.platform") version "2.19.0"
+    id("org.jetbrains.intellij.platform") version "2.20.0"
     kotlin("jvm") version "2.4.21"
     id("org.jetbrains.kotlinx.kover") version "0.9.11"
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
