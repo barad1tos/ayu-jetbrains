@@ -1,93 +1,50 @@
 package dev.ayuislands.settings
 
-import com.intellij.openapi.application.ApplicationManager
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
-import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.glow.GlowOverlayManager
-import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.rotation.AccentRotationService
+import dev.ayuislands.licensing.LicenseDefaults
+import dev.ayuislands.licensing.confirmUnlicensed
+import dev.ayuislands.studio.StudioFixtures
+import dev.ayuislands.studio.persistence.AyuSettingsView
 import dev.ayuislands.testing.SnapshotAssert.assertMatchesSnapshot
-import io.mockk.every
-import io.mockk.just
-import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
-import io.mockk.runs
-import io.mockk.unmockkAll
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class AyuIslandsStateSnapshotTest {
-    @BeforeTest
-    fun setUp() {
-        mockkObject(AyuIslandsSettings.Companion)
-        mockkObject(AccentApplicator)
-        mockkObject(GlowOverlayManager.Companion)
-        mockkStatic(ApplicationManager::class)
-        every { AccentApplicator.apply(any()) } answers
-            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
-        every { GlowOverlayManager.syncGlowForAllProjects() } just runs
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        val appMock = mockk<com.intellij.openapi.application.Application>(relaxed = true)
-        every { ApplicationManager.getApplication() } returns appMock
-        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { appMock.getService(AccentRotationService::class.java) } returns rotationService
-    }
-
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
-    }
-
     @Test
     fun `fresh state matches snapshot`() {
-        val state = AyuIslandsState()
-        assertMatchesSnapshot("settings/fresh-state.txt", serializeState(state))
+        assertMatchesSnapshot("settings/fresh-state.txt", serializeState(AyuIslandsState()))
     }
 
     @Test
-    fun `after enableProDefaults matches snapshot`() {
+    fun `first Pro recipe matches snapshot`() {
         val state = AyuIslandsState()
-        val settings = mockk<AyuIslandsSettings>(relaxed = true)
-        every { settings.state } returns state
-        every { AyuIslandsSettings.getInstance() } returns settings
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertMatchesSnapshot("settings/after-enable-pro-defaults.txt", serializeState(state))
     }
 
     @Test
-    fun `revertToFreeDefaults preserves the complete settings snapshot`() {
+    fun `confirmed free entitlement preserves the complete settings snapshot`() {
         val state = AyuIslandsState()
-        val settings = mockk<AyuIslandsSettings>(relaxed = true)
-        every { settings.state } returns state
-        every { settings.getAccentForVariant(any()) } returns "#FFCC66"
-        every { AyuIslandsSettings.getInstance() } returns settings
-        LicenseChecker.enableProDefaults()
-        LicenseChecker.applyWorkspaceDefaults()
+        LicenseDefaults.enablePro(state)
+        LicenseDefaults.applyWorkspace(state)
         val before = serializeState(state)
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        kotlin.test.assertEquals(before, serializeState(state))
+
+        val accepted = confirmUnlicensed(state)
+
+        assertEquals(before, serializeState(accepted.settings))
     }
 
     @Test
-    fun `after applyWorkspaceDefaults matches snapshot`() {
+    fun `first workspace recipe matches snapshot`() {
         val state = AyuIslandsState()
-        val settings = mockk<AyuIslandsSettings>(relaxed = true)
-        every { settings.state } returns state
-        every { AyuIslandsSettings.getInstance() } returns settings
-        LicenseChecker.applyWorkspaceDefaults()
-        assertMatchesSnapshot(
-            "settings/after-apply-workspace-defaults.txt",
-            serializeState(state),
-        )
+        LicenseDefaults.applyWorkspace(state)
+        assertMatchesSnapshot("settings/after-apply-workspace-defaults.txt", serializeState(state))
     }
 }
 
+private fun serializeState(state: AyuIslandsState): String = serializeState(StudioFixtures.legacyView(state).settings)
+
 @Suppress("LongMethod")
-private fun serializeState(state: AyuIslandsState): String =
+private fun serializeState(state: AyuSettingsView): String =
     buildString {
         appendLine("accentRotationEnabled=${state.accentRotationEnabled}")
         appendLine("accentRotationIntervalHours=${state.accentRotationIntervalHours}")

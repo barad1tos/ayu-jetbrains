@@ -15,7 +15,7 @@ class ProgressBarElement : AccentElement {
     override val displayName = "Progress Bar"
     private val schemeOwner = EditorSchemeOwner.Element(id)
 
-    private val uiKeys =
+    internal val uiKeys =
         listOf(
             "ProgressBar.foreground",
             "ProgressBar.progressCounterBackground",
@@ -23,14 +23,20 @@ class ProgressBarElement : AccentElement {
 
     private val editorKey = ColorKey.find("PROGRESS_BAR_TRACK")
 
+    internal fun uiColors(color: Color): Map<String, Color> = uiKeys.associateWith { color }
+
+    internal fun editorColors(color: Color): Map<ColorKey, Color> = mapOf(editorKey to color)
+
     override fun apply(color: Color) {
         val scheme = AyuEditorSchemeScope.activeScheme()
-        for (key in uiKeys) {
-            putAccentUiDefault(key, color)
+        for ((key, value) in uiColors(color)) {
+            putAccentUiDefault(key, value)
         }
         if (scheme == null) return
         runOnEdt {
-            AyuEditorSchemeScope.writeColor(scheme, schemeOwner, editorKey, color)
+            for ((key, value) in editorColors(color)) {
+                AyuEditorSchemeScope.writeColor(scheme, schemeOwner, key, value)
+            }
         }
     }
 

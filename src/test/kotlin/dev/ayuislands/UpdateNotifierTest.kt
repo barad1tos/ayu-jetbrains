@@ -9,7 +9,19 @@ import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.SettingsBadgeState
 import dev.ayuislands.settings.SettingsBadges
+import dev.ayuislands.studio.StudioFixtures
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.fields.StudioMetadataPolicy
+import dev.ayuislands.studio.migration.MigrationResult
+import dev.ayuislands.studio.migration.StudioLegacyMigration
+import dev.ayuislands.studio.model.AcceptanceBlock
+import dev.ayuislands.studio.model.AcceptanceResult
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioMetadataCommand
+import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.persistence.StudioLegacyProjection
 import dev.ayuislands.whatsnew.WhatsNewLauncher
 import io.mockk.every
 import io.mockk.mockk
@@ -17,10 +29,12 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.Job
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -28,6 +42,7 @@ class UpdateNotifierTest {
     private val project = mockk<Project>(relaxed = true)
     private val state = AyuIslandsState()
     private val descriptor = mockk<IdeaPluginDescriptor>()
+    private val service = mockk<StudioService>()
 
     @BeforeTest
     fun setUp() {
@@ -37,7 +52,13 @@ class UpdateNotifierTest {
 
         val settings = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settings
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
+        mockkObject(StudioService.Companion)
+        every { StudioService.getInstance() } returns service
+        every { service.metadata(any(), any()) } answers {
+            secondArg<(AcceptanceResult) -> Unit>()(acceptMetadata(firstArg()))
+            Job().apply { complete() }
+        }
 
         // Default: launcher returns false so the balloon path runs as before —
         // keeps every existing test exercising its original code path. Tests
@@ -49,6 +70,45 @@ class UpdateNotifierTest {
     @AfterTest
     fun tearDown() {
         unmockkAll()
+    }
+
+    private fun badgeState(): SettingsBadgeState = SettingsBadgeState.from(StudioFixtures.legacyView(state).settings)
+
+    private fun acceptMetadata(command: StudioMetadataCommand): AcceptanceResult {
+        val before = assertIs<MigrationResult.Ready>(StudioLegacyMigration.plan(StudioFixtures.capture(state))).document
+        val after =
+            StudioMetadataPolicy.apply(before, command)
+                ?: return AcceptanceResult.Blocked(StudioList(listOf(AcceptanceBlock.INVALID_REQUEST)))
+        if (after == before) return AcceptanceResult.NoChanges
+        val accepted = requireNotNull(StudioLegacyProjection.project(after, StudioTarget.Global)).settings
+        state.lastSeenVersion = accepted.lastSeenVersion
+        state.settingsBadgesExpireAtMs = accepted.settingsBadgesExpireAtMs
+        state.acknowledgedSettingsBadges.clear()
+        state.acknowledgedSettingsBadges.addAll(accepted.acknowledgedSettingsBadges)
+        state.settingsBadgeDeadlines.clear()
+        state.settingsBadgeDeadlines.putAll(accepted.settingsBadgeDeadlines)
+        return AcceptanceResult.Accepted(after.header.revision, StudioList(emptyList()))
+    }
+
+    @Test
+    fun `refused metadata leaves version unchanged and does not announce update`() {
+        state.lastSeenVersion = "2.8.8"
+        every { AyuPlugin.findLoadedPlugin(any<PluginId>()) } returns descriptor
+        every { descriptor.version } returns "2.8.9"
+        every { service.metadata(any(), any()) } answers {
+            secondArg<
+                (
+                    AcceptanceResult,
+                ) -> Unit,
+            >()(AcceptanceResult.Blocked(StudioList(listOf(AcceptanceBlock.RECOVERY))))
+            Job().apply { complete() }
+        }
+
+        UpdateNotifier.showIfUpdated(project)
+
+        assertEquals("2.8.8", state.lastSeenVersion)
+        verify(exactly = 0) { WhatsNewLauncher.openIfEligible(any(), any()) }
+        verify(exactly = 0) { NotificationGroupManager.getInstance() }
     }
 
     @Test
@@ -86,7 +146,7 @@ class UpdateNotifierTest {
 
         UpdateNotifier.showIfUpdated(project)
 
-        assertTrue(SettingsBadges.pendingAnchors(state).isEmpty())
+        assertTrue(SettingsBadges.pendingAnchors(badgeState()).isEmpty())
         assertTrue(state.settingsBadgeDeadlines.isEmpty())
     }
 
@@ -121,7 +181,7 @@ class UpdateNotifierTest {
 
         assertEquals("2.8.0", state.lastSeenVersion)
         assertTrue(overdueId in state.acknowledgedSettingsBadges)
-        assertTrue(SettingsBadges.isPending(state, newlyRegisteredId))
+        assertTrue(SettingsBadges.isPending(badgeState(), newlyRegisteredId))
         val newDeadline = state.settingsBadgeDeadlines.getValue(newlyRegisteredId).toLong()
         assertTrue(
             newDeadline in

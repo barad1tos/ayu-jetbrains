@@ -1,5 +1,17 @@
 package dev.ayuislands.accent
 
+/** Explicit final accent choices; native UI colors remain read at the resolver boundary. */
+internal sealed interface AccentFallback {
+    data class Global(
+        val hex: String,
+    ) : AccentFallback
+
+    data class External(
+        val source: ExternalAccentSource,
+        val hex: String?,
+    ) : AccentFallback
+}
+
 /**
  * Bundle of the three seams that distinguish the accent-ladder consumers:
  * where mappings are read from ([AccentMappingsView]), how the language

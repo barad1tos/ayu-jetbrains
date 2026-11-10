@@ -33,6 +33,10 @@ internal class CgpCheckpoint(
     private lateinit var expected: CgpViewport
     private val beforeWrite = mutableMapOf<CgpPart, CgpViewport>()
     private val foreign = mutableSetOf<CgpPart>()
+    var blocked: Set<CgpPart> = emptySet()
+    override val hasBlocked: Boolean
+        get() = blocked.isNotEmpty()
+
     override val currentState: Boolean
         get() = isCurrent()
 
@@ -42,17 +46,46 @@ internal class CgpCheckpoint(
     override val foreignNative: Boolean
         get() = foreign.isNotEmpty()
 
+    /**
+     * Capture before any setter; recovery also admits a value whose rollback acknowledgement was
+     * lost.
+     */
+    fun capture(
+        resolved: CgpAccess,
+        before: CgpViewport,
+        written: CgpViewport = before,
+    ) {
+        check(access == null)
+        access = resolved
+        original = before
+        expected = written
+        CgpPart.entries.filterNot { before.matches(it, written) }.forEach { beforeWrite[it] = before }
+    }
+
+    fun writeState(part: CgpPart): AccentWriteState {
+        observe(part)
+        return when {
+            part in foreign -> AccentWriteState.RELINQUISHED
+            expected.matches(part, original) -> AccentWriteState.RESTORED
+            else -> AccentWriteState.OWNED
+        }
+    }
+
+    fun relinquish(parts: Set<CgpPart>) {
+        foreign += parts
+    }
+
     fun write(
         resolved: CgpAccess,
         part: CgpPart,
         target: CgpViewport,
     ) {
         if (access == null) {
-            access = resolved
-            original = resolved.readViewport()
-            expected = original
+            capture(resolved, resolved.readViewport())
         }
-        check(isCurrent() && isTarget(resolved)) { "CodeGlance Pro target changed during accent application" }
+        check(isCurrent() && isTarget(resolved)) {
+            "CodeGlance Pro target changed during accent application"
+        }
         observe(part)
         if (part in foreign) return
         beforeWrite[part] = expected
@@ -65,7 +98,8 @@ internal class CgpCheckpoint(
         val previous = beforeWrite[part]
         when {
             observed.matches(part, expected) -> Unit
-            previous != null && observed.matches(part, previous) -> expected = expected.replacing(part, previous)
+            previous != null && observed.matches(part, previous) ->
+                expected = expected.replacing(part, previous)
             else -> foreign += part
         }
         beforeWrite.remove(part)
@@ -80,6 +114,7 @@ internal class CgpCheckpoint(
     private fun restoreViewport(resolved: CgpAccess): Throwable? {
         var failure: Throwable? = null
         for (part in CgpPart.entries) {
+            if (part in blocked) continue
             val error =
                 captureFailure {
                     observe(part)

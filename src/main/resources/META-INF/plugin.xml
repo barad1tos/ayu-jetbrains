@@ -21,9 +21,9 @@
       <li><b>Aesthetic engine, not a skin</b> — 500+ hand-tuned UI properties,
           expanded semantic highlighting, and dedicated settings panels to shape
           how the IDE looks and feels</li>
-      <li><b>4 curated presets</b> — Whisper, Ambient, Neon, Cyberpunk. Each
-          synchronizes font, glow intensity, and indent colors into one
-          cohesive mood</li>
+      <li><b>4 starter profiles</b> — Whisper, Ambient, Neon, Cyberpunk.
+          Coordinate Accent, Font, Glow, Syntax, and VCS choices, then save
+          your own named profiles.</li>
       <li><b>Syntax control surface</b> — language-aware syntax presets for
           everyone, plus Pro-level Custom tuning and readability controls when
           you want comments, docs, and operators to recede.</li>
@@ -34,6 +34,22 @@
           <i>"brilliant"</i> and invited it to
           <a href="https://ayutheme.com">ayutheme.com</a></li>
     </ul>
+
+    <h3>Ayu Islands 3.0 — Work Profiles</h3>
+    <p><b>Manual Work Profiles are Free.</b> Choose Whisper, Ambient, Neon,
+    or Cyberpunk, or create your own named profiles. Upgrading from 2.x
+    keeps your existing appearance in <b>Custom</b> and preserves saved
+    settings, mappings, and preferences.</p>
+    <p>Seven familiar sections — Accent, Font, Glow, Syntax, VCS,
+    Workspace, and Plugins — keep their existing controls. Profiles group
+    the five appearance sections; Workspace, plugin settings, and
+    project/language mappings stay shared across profiles. Each included
+    feature keeps its own Free or Pro requirements.</p>
+    <p>Changes preview immediately inside Settings. Compare <b>Current and
+    Draft</b>, then click <b>Apply</b> to commit your choices. <b>Cancel</b>
+    leaves the accepted appearance unchanged. Create, update, rename, or
+    delete your own profiles from the profile menu, or apply a saved
+    profile from the Quick-Switcher Widget.</p>
 
     <h3>Premium — make the IDE feel yours</h3>
     <ul>
@@ -61,7 +77,7 @@
       <li><b>Peacock-parity chrome tinting</b> — when a project / language
           accent fires, every chrome surface (status bar, nav bar, tool
           stripes, panel borders) tints automatically. Intensity slider in
-          Settings → Theme Synchronization. WCAG-aware foreground keeps
+          Settings → Ayu Islands → Accent → Chrome Tinting. WCAG-aware foreground keeps
           text readable at any saturation. Inspired by Peacock for VS Code
           (johnpapa.net), built on JetBrains primitives — not ported.</li>
       <li><b>Accent from project icon</b> — when enabled, projects without a
@@ -117,10 +133,20 @@
     12 accent presets + custom picker + macOS system sync.
     4 font presets with one-click apply and live preview.
     Full VCS/diff colors and a 16-color terminal scheme.
+    Manual Work Profiles with Current and Draft comparison.
     All free. No time limit. No feature degradation.</p>
   ]]></description>
 
     <change-notes><![CDATA[
+    <h3>3.0.0</h3>
+    <ul>
+      <li>[Free] <b>Work Profiles</b> — start with Whisper, Ambient, Neon, or Cyberpunk, or save your own named appearance. Choose a profile in Settings or the Quick-Switcher. Profile management is free; included features keep their existing Free or Pro requirements.</li>
+      <li>[Free] <b>Redesigned Settings</b> — the familiar Accent, Font, Glow, Syntax, VCS, Workspace, and Plugins sections share a compact layout. Changes appear immediately in local previews, with Current and Draft comparison. Apply commits your choices; Cancel leaves the accepted appearance unchanged.</li>
+      <li>[Fix] <b>Keep your 2.x setup</b> — existing appearance migrates to Custom, preserving rotation, Glow shapes and intensities, fonts, syntax tuning, project and language mappings, and shared settings. Opening the new panel does not replace your choices with a starter profile.</li>
+      <li>[Fix] <b>Preserve choices when toggling effects</b> — Quick-Switcher and Settings toggles enable or disable effects without resetting their saved styles, per-surface selections, or intensities.</li>
+      <li>[Fix] <b>Consistent appearance changes</b> — failed or interrupted changes recover across editor colors, fonts, Glow, accents, and workspace effects while retaining settings changed elsewhere. A recovery that needs attention stays visible and can be retried.</li>
+    </ul>
+
     <h3>2.8.9</h3>
     <ul>
       <li>[Free] <b>Keep native accents on external themes</b> — fixes the inability to retain a non-Ayu theme's own accent reported in <a href="https://github.com/barad1tos/ayu-jetbrains/issues/377">#377</a>. Turn off Override native theme accent under Plugins → External Theme Support → Accent Inheritance while keeping selected Ayu enhancements. The option stays on by default; saved accent sources, custom colors, and Chrome tint choices remain unchanged.</li>
@@ -404,8 +430,8 @@
          Marketplace reject the upload. -->
     <product-descriptor
             code="PAYUISLANDS"
-            release-date="20260718"
-            release-version="28"
+            release-date="20261109"
+            release-version="30"
             optional="true"/>
 
     <extensionPoints>
@@ -439,18 +465,6 @@
                 id="dev.ayuislands.settings.AyuIslandsConfigurable"
                 bundle="messages.AyuIslandsBundle"
                 key="configurable.display.name"/>
-
-        <!-- Persistent accent color state -->
-        <applicationService
-                serviceImplementation="dev.ayuislands.settings.AyuIslandsSettings"/>
-
-        <!-- Per-project and per-language accent overrides -->
-        <applicationService
-                serviceImplementation="dev.ayuislands.settings.mappings.AccentMappingsSettings"/>
-
-        <!-- Syntax intensity persistent state -->
-        <applicationService
-                serviceImplementation="dev.ayuislands.syntax.SyntaxIntensityState"/>
 
         <!-- Plugin lifecycle -->
         <postStartupActivity

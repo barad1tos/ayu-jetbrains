@@ -9,7 +9,7 @@ import java.awt.Color
  *
  * Accent hex strings flow through many call sites (settings panels,
  * rotation, LAF listener, startup, applicator, resolver) as raw `String`.
- * Historically only [AccentApplicator.apply] validated the shape at its
+ * Historically only the legacy applicator validated the shape at its
  * boundary — every other caller had to remember to respect the same
  * contract. A single bad hex reaching [Color.decode] throws
  * [NumberFormatException] and aborts the first painted frame.

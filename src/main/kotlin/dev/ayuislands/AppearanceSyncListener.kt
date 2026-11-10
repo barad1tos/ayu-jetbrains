@@ -2,12 +2,14 @@ package dev.ayuislands
 
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.wm.IdeFrame
-import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.StudioNativeChange
+import dev.ayuislands.studio.model.StudioThemeChange
 
 class AppearanceSyncListener : ApplicationActivationListener {
     override fun applicationActivated(ideFrame: IdeFrame) {
-        val settings = AyuIslandsSettings.getInstance()
-        if (!settings.state.followSystemAppearance) return
-        AppearanceSyncService.getInstance().syncIfNeeded()
+        val studio = StudioService.getInstance()
+        if (studio.acceptedView?.settings?.followSystemAppearance != true) return
+        studio.nativeChanged(StudioNativeChange.Theme(StudioThemeChange.FollowSystem))
     }
 }

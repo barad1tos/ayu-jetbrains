@@ -35,6 +35,8 @@ internal class LicenseRecheckScheduler(
     override fun dispose() = Unit
 
     companion object {
+        const val RETRY_DELAY_MS = 5_000L
+
         fun getInstance(): LicenseRecheckScheduler = service()
     }
 }

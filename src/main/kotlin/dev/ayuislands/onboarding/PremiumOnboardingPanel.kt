@@ -4,8 +4,6 @@ package dev.ayuislands.onboarding
 
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.Project
@@ -16,15 +14,13 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontCatalog
-import dev.ayuislands.font.FontInstallConsent
-import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
-import dev.ayuislands.font.FontPresetApplicator
-import dev.ayuislands.font.FontSettings
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.FontJobStatus
+import dev.ayuislands.studio.session.StudioQuickCommand
+import dev.ayuislands.studio.ui.StudioCommandFeedback
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
@@ -60,6 +56,7 @@ internal class PremiumOnboardingPanel(
     private val project: Project,
     private val virtualFile: VirtualFile,
 ) : JPanel(BorderLayout()) {
+    private val target = StudioService.getInstance().capture(project)
     private var activeGlowColor: Color? = null
     private var activeGlowWidth: Int = 0
     private var activeGlowAlpha: Float = 0f
@@ -74,6 +71,7 @@ internal class PremiumOnboardingPanel(
     private var trialHeadlineLabel: JBLabel? = null
     private var fontRowContainer: JPanel? = null
     private val installingFonts: MutableSet<FontPreset> = mutableSetOf()
+    private var choiceGeneration = 0L
     private val scaler = ContentScaler()
 
     init {
@@ -89,7 +87,9 @@ internal class PremiumOnboardingPanel(
                     }
                 }
 
-                override fun ancestorRemoved(event: AncestorEvent) = Unit
+                override fun ancestorRemoved(event: AncestorEvent) {
+                    choiceGeneration++
+                }
 
                 override fun ancestorMoved(event: AncestorEvent) = Unit
             },
@@ -476,8 +476,8 @@ internal class PremiumOnboardingPanel(
         // is never passed in here. requirePreset encodes that invariant in the
         // type and fails fast if someone ever adds CUSTOM to the curated list.
         val entry = FontCatalog.requirePreset(preset)
-        val state = AyuIslandsSettings.getInstance().state
-        val installed = state.installedFonts.contains(entry.familyName)
+        val state = target?.let { StudioService.getInstance().view(it) }?.settings
+        val installed = state?.installedFonts?.contains(entry.familyName) == true
         val installing = installingFonts.contains(preset)
         val tint = FONT_CARD_TINT
 
@@ -571,30 +571,29 @@ internal class PremiumOnboardingPanel(
 
     private fun handleFontCardClick(preset: FontPreset) {
         if (preset in installingFonts) return
+        val captured = target ?: return
+        val service = StudioService.getInstance()
+        val baseline = service.document(captured) ?: return
+        val settings = service.view(captured)?.settings ?: return
         val entry = FontCatalog.requirePreset(preset)
-        val state = AyuIslandsSettings.getInstance().state
-        if (state.installedFonts.contains(entry.familyName)) {
-            FontInstaller.applyOnly(preset, project)
+        val generation = ++choiceGeneration
+        val command = StudioQuickCommand.Onboarding(preset, null)
+        if (settings.installedFonts.contains(entry.familyName)) {
+            service.submitQuick(captured, command) { StudioCommandFeedback.show(project, it) }
             return
         }
         if (!LicenseChecker.isLicensedOrGrace()) {
             LicenseChecker.requestLicense("Unlock font installation")
             return
         }
-        val consent = FontInstallConsent.confirmInstall(entry, project) ?: return
         installingFonts.add(preset)
         refreshFontRow()
-        try {
-            FontInstaller.install(entry, consent, project) {
-                installingFonts.remove(preset)
-                ApplicationManager.getApplication().invokeLater {
-                    if (!project.isDisposed) refreshFontRow()
-                }
-            }
-        } catch (exception: IllegalArgumentException) {
-            LOG.warn("Font install dispatch failed for ${preset.name}", exception)
+        service.installFont(project, preset) { status ->
             installingFonts.remove(preset)
-            refreshFontRow()
+            if (!project.isDisposed) refreshFontRow()
+            if (status == FontJobStatus.INSTALLED && !project.isDisposed && generation == choiceGeneration) {
+                service.submitQuick(captured, command, baseline) { StudioCommandFeedback.show(project, it) }
+            }
         }
     }
 
@@ -610,59 +609,23 @@ internal class PremiumOnboardingPanel(
         )
 
     private fun closeWizard() {
+        choiceGeneration++
         if (project.isDisposed) return
         FileEditorManager.getInstance(project).closeFile(virtualFile)
-    }
-
-    private fun logIncompletePreset(
-        presetName: String,
-        field: String,
-    ) {
-        LOG.warn("Preset $presetName missing $field, skipping apply")
     }
 
     private fun applyPreset(
         glowPreset: GlowPreset,
         fontPreset: FontPreset,
     ) {
-        val presetName = glowPreset.name
-        val style = glowPreset.style ?: return logIncompletePreset(presetName, "style")
-        val intensity = glowPreset.intensity ?: return logIncompletePreset(presetName, "intensity")
-        val width = glowPreset.width ?: return logIncompletePreset(presetName, "width")
-        val animation = glowPreset.animation ?: return logIncompletePreset(presetName, "animation")
-        val state = AyuIslandsSettings.getInstance().state
-
-        state.glowEnabled = true
-        state.glowStyle = style.name
-        state.glowPreset = glowPreset.name
-        state.setIntensityForStyle(style, intensity)
-        state.setWidthForStyle(style, width)
-        state.glowAnimation = animation.name
-
-        state.fontPresetEnabled = true
-        state.fontPresetName = fontPreset.name
-        try {
-            FontPresetApplicator.apply(
-                FontSettings
-                    .decode(null, fontPreset)
-                    .copy(applyToConsole = state.fontApplyToConsole),
-            )
-        } catch (exception: RuntimeException) {
-            LOG.warn("Failed to apply font preset ${fontPreset.name}", exception)
+        choiceGeneration++
+        val captured = target ?: return
+        StudioService.getInstance().submitQuick(
+            captured,
+            StudioQuickCommand.Onboarding(fontPreset, glowPreset),
+        ) { result ->
+            StudioCommandFeedback.show(project, result)
         }
-
-        ApplicationManager.getApplication().invokeLater {
-            if (!project.isDisposed) {
-                try {
-                    GlowOverlayManager.getInstance(project).initialize()
-                    GlowOverlayManager.syncGlowForAllProjects()
-                } catch (exception: RuntimeException) {
-                    LOG.warn("Failed to sync glow after onboarding preset", exception)
-                }
-            }
-        }
-
-        LOG.info("Onboarding preset applied: ${glowPreset.name}")
     }
 
     private data class PresetCard(
@@ -674,8 +637,6 @@ internal class PremiumOnboardingPanel(
     )
 
     companion object {
-        private val LOG = logger<PremiumOnboardingPanel>()
-
         // Typography
         private const val CARD_NAME_SIZE = 15
         private const val CARD_DESC_SIZE = 11

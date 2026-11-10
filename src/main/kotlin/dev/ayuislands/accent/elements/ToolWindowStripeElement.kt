@@ -4,7 +4,6 @@ import com.intellij.openapi.diagnostic.logger
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.WcagForeground
-import dev.ayuislands.accent.putAccentUiDefault
 import java.awt.Color
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -12,7 +11,7 @@ private val toolWindowStripeFirstApplyLogged = AtomicBoolean(false)
 
 /**
  * Tints the tool window stripe and its active/selected stripe button.
- * [writeForegrounds] is overridden to implement the split-fg pick (stripe bg
+ * [calculateForegrounds] is overridden to implement the split-fg pick (stripe bg
  * and selected bg sampled independently); [onBackgroundsTinted] wires the
  * first-apply diagnostic.
  *
@@ -67,20 +66,21 @@ class ToolWindowStripeElement : AbstractChromeElement() {
      * Sampling the contrast foreground against only one and reusing the pick for
      * the other can drop non-selected stripe icons below WCAG AA.
      */
-    override fun writeForegrounds(tintedBackgrounds: Map<String, Color>) {
-        val tintedSelectedBackground = tintedBackgrounds[SELECTED_BACKGROUND_KEY]
-        if (tintedSelectedBackground != null) {
-            val selectedForeground =
-                WcagForeground.pickForeground(tintedSelectedBackground, foregroundTextTarget)
-            putAccentUiDefault(SELECTED_FOREGROUND_KEY, selectedForeground)
+    override fun calculateForegrounds(tintedBackgrounds: Map<String, Color>): Sequence<Pair<String, Color>> =
+        sequence {
+            val tintedSelectedBackground = tintedBackgrounds[SELECTED_BACKGROUND_KEY]
+            if (tintedSelectedBackground != null) {
+                val selectedForeground =
+                    WcagForeground.pickForeground(tintedSelectedBackground, foregroundTextTarget)
+                yield(SELECTED_FOREGROUND_KEY to selectedForeground)
+            }
+            val tintedStripeBackground = tintedBackgrounds[STRIPE_BACKGROUND_KEY]
+            if (tintedStripeBackground != null) {
+                val stripeForeground =
+                    WcagForeground.pickForeground(tintedStripeBackground, foregroundTextTarget)
+                yield(STRIPE_FOREGROUND_KEY to stripeForeground)
+            }
         }
-        val tintedStripeBackground = tintedBackgrounds[STRIPE_BACKGROUND_KEY]
-        if (tintedStripeBackground != null) {
-            val stripeForeground =
-                WcagForeground.pickForeground(tintedStripeBackground, foregroundTextTarget)
-            putAccentUiDefault(STRIPE_FOREGROUND_KEY, stripeForeground)
-        }
-    }
 
     private companion object {
         private val LOG = logger<ToolWindowStripeElement>()

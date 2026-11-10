@@ -7,6 +7,7 @@ import com.intellij.notification.NotificationType
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -33,7 +34,7 @@ class LicenseCheckerTrialExpiryTest {
     fun setUp() {
         state = AyuIslandsState()
         settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
@@ -149,7 +150,7 @@ class LicenseCheckerTrialExpiryTest {
         every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(7)
         state.trialExpiryWarningShown = false
 
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -168,7 +169,7 @@ class LicenseCheckerTrialExpiryTest {
         state.trialExpiryWarningShown = true
         state.trialExpiry3DayWarningShown = false
 
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -185,7 +186,7 @@ class LicenseCheckerTrialExpiryTest {
         every { facade.isEvaluationLicense } returns true
         every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(10)
 
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         verify(exactly = 0) {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
@@ -197,7 +198,7 @@ class LicenseCheckerTrialExpiryTest {
         every { LicensingFacade.getInstance() } returns facade
         every { facade.isEvaluationLicense } returns false
 
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         verify(exactly = 0) {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
@@ -212,7 +213,7 @@ class LicenseCheckerTrialExpiryTest {
         state.trialExpiryWarningShown = true
         state.trialExpiry3DayWarningShown = true
 
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         verify(exactly = 0) {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
@@ -230,26 +231,26 @@ class LicenseCheckerTrialExpiryTest {
 
         // Day 8: outside the window, no notification
         every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(8)
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         // Day 7: first warning fires and the 7-day flag is latched
         every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(7)
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         // Days 6, 5, 4: still within the 7-day window but flag prevents re-firing
         for (daysRemaining in listOf(6L, 5L, 4L)) {
             every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(daysRemaining)
-            LicenseChecker.checkTrialExpiryWarning(null)
+            checkTrialWarning()
         }
 
         // Day 3: second (3-day) warning fires
         every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(3)
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         // Days 2, 1: both flags latched, silence
         for (daysRemaining in listOf(2L, 1L)) {
             every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(daysRemaining)
-            LicenseChecker.checkTrialExpiryWarning(null)
+            checkTrialWarning()
         }
 
         // Exactly two notifications total across the whole week
@@ -286,7 +287,7 @@ class LicenseCheckerTrialExpiryTest {
 
         // Session resumes on day 3 — 3-day warning must still fire
         every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(3)
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -307,7 +308,7 @@ class LicenseCheckerTrialExpiryTest {
 
         for (daysRemaining in listOf(7L, 5L, 3L, 1L, 0L)) {
             every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(daysRemaining)
-            LicenseChecker.checkTrialExpiryWarning(null)
+            checkTrialWarning()
         }
 
         verify(exactly = 0) {
@@ -322,17 +323,29 @@ class LicenseCheckerTrialExpiryTest {
         every { facade.getExpirationDate(LicenseChecker.PRODUCT_CODE) } returns dateFromNow(7)
 
         // Session 1: day 7, warning fires
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
         // Session 2: same persisted state, same day — must stay silent
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
         // Session 3: one more restart, still the same day
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         verify(exactly = 1) {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
         }
         assertEquals(true, state.trialExpiryWarningShown)
     }
+
+    private fun checkTrialWarning() =
+        kotlinx.coroutines.runBlocking {
+            LicenseChecker.checkTrialExpiryWarning(null, StudioFixtures.legacyView(state).settings) { field ->
+                when (field) {
+                    "trialExpiryWarningShown" -> state.trialExpiryWarningShown = true
+                    "trialExpiry3DayWarningShown" -> state.trialExpiry3DayWarningShown = true
+                    else -> error("Unexpected warning marker: $field")
+                }
+                true
+            }
+        }
 
     /**
      * Create a [Date] representing [daysFromNow] days in the future (or past if negative).

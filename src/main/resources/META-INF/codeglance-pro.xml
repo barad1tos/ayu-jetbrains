@@ -1,1 +1,6 @@
-<idea-plugin/>
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceInterface="dev.ayuislands.accent.CgpAccessProvider"
+                            serviceImplementation="dev.ayuislands.integration.codeglance.CodeGlanceAdapter"/>
+    </extensions>
+</idea-plugin>

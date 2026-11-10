@@ -1,0 +1,7 @@
+SETTINGS	waveformDirection	TEXT	Q0xPQ0tXSVNF
+SETTINGS	waveformBaseline	TEXT	T1VUU0lERQ==
+SETTINGS	waveformTraceDensity	INTEGER	MQ==
+SETTINGS	waveformTraceLength	INTEGER	MTY3
+SETTINGS	waveformAmplitude	INTEGER	MTA=
+SETTINGS	waveformIntensity	INTEGER	NzA=
+SETTINGS	waveformLoopSeconds	FLOAT	MzA=

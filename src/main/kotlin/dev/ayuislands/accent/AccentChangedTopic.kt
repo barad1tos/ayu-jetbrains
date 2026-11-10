@@ -4,15 +4,9 @@ import com.intellij.openapi.project.Project
 import com.intellij.util.messages.Topic
 
 /**
- * Listener fired after a successful [AccentApplicator.apply] OR a same-hex focus
- * swap routed through [dev.ayuislands.settings.mappings.ProjectAccentSwapService].
- *
- * Subscribers (toolbar stripe / chip today, the planned IDE status-bar widget
- * tomorrow) receive the focused `project`, the post-resolution [AccentHex], and
- * the [AccentResolver.Source] that won the resolution chain. Filter by `project`
- * if you only care about your own window — the topic is application-scoped so
- * it fans out to every subscriber regardless of which window's apply triggered
- * it.
+ * Receives each usable project's resolved accent after a Studio acceptance is published.
+ * The application-scoped topic lets toolbar, status-bar and glow subscribers filter their
+ * own project without persisting another copy of the effective accent.
  *
  * The hex is a validated [AccentHex] value class, lifting the `#RRGGBB`
  * contract into the type per Pattern K. Subscribers can decode without

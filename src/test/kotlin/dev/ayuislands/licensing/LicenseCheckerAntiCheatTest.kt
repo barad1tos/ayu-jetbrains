@@ -7,6 +7,7 @@ import com.intellij.ui.LicensingFacade
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.long
 import io.kotest.property.checkAll
@@ -44,7 +45,7 @@ class LicenseCheckerAntiCheatTest {
     fun setUp() {
         state = AyuIslandsState()
         val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
@@ -91,7 +92,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         state.lastKnownLicensedMs = Long.MAX_VALUE
 
-        val result = LicenseChecker.isLicensedOrGrace()
+        val result = recordLicenseObservation(state)
 
         assertFalse(result, "Far-future stamp must not grant grace")
         assertEquals(0L, state.lastKnownLicensedMs, "Tampered stamp must be reset on detection")
@@ -102,7 +103,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         state.lastKnownLicensedMs = fixedNow + hoursMs
 
-        val result = LicenseChecker.isLicensedOrGrace()
+        val result = recordLicenseObservation(state)
 
         assertFalse(result)
         assertEquals(0L, state.lastKnownLicensedMs)
@@ -115,7 +116,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         state.lastKnownLicensedMs = fixedNow + 1L
 
-        val result = LicenseChecker.isLicensedOrGrace()
+        val result = recordLicenseObservation(state)
 
         assertFalse(result, "Even a one-millisecond rollback is rejected — strict > guard")
         assertEquals(0L, state.lastKnownLicensedMs)
@@ -126,7 +127,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         state.lastKnownLicensedMs = fixedNow
 
-        val result = LicenseChecker.isLicensedOrGrace()
+        val result = recordLicenseObservation(state)
 
         assertTrue(result, "elapsed=0 is inside the grace window")
     }
@@ -138,7 +139,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         state.lastKnownLicensedMs = fixedNow - (48L * hoursMs) + 1L
 
-        val result = LicenseChecker.isLicensedOrGrace()
+        val result = recordLicenseObservation(state)
 
         assertTrue(result, "47:59:59.999 must still grant grace")
     }
@@ -148,7 +149,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         state.lastKnownLicensedMs = fixedNow - (48L * hoursMs)
 
-        val result = LicenseChecker.isLicensedOrGrace()
+        val result = recordLicenseObservation(state)
 
         assertFalse(result, "Exactly 48 h must be outside the grace window (strict <)")
     }
@@ -158,7 +159,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         state.lastKnownLicensedMs = fixedNow - (72L * hoursMs)
 
-        val result = LicenseChecker.isLicensedOrGrace()
+        val result = recordLicenseObservation(state)
 
         assertFalse(result)
     }
@@ -168,7 +169,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         state.lastKnownLicensedMs = 0L
 
-        val result = LicenseChecker.isLicensedOrGrace()
+        val result = recordLicenseObservation(state)
 
         assertFalse(result, "Never-licensed user must never receive grace")
     }
@@ -180,7 +181,7 @@ class LicenseCheckerAntiCheatTest {
         setStampLicensed()
         state.lastKnownLicensedMs = 0L
 
-        LicenseChecker.isLicensedOrGrace()
+        recordLicenseObservation(state)
 
         assertEquals(fixedNow, state.lastKnownLicensedMs)
     }
@@ -193,7 +194,7 @@ class LicenseCheckerAntiCheatTest {
         val tampered = fixedNow + 10_000L
         state.lastKnownLicensedMs = tampered
 
-        LicenseChecker.isLicensedOrGrace()
+        recordLicenseObservation(state)
 
         assertEquals(tampered, state.lastKnownLicensedMs, "maxOf never regresses stored stamp")
     }
@@ -203,7 +204,7 @@ class LicenseCheckerAntiCheatTest {
         setStampLicensed()
         state.lastKnownLicensedMs = fixedNow - 1_000_000L
 
-        LicenseChecker.isLicensedOrGrace()
+        recordLicenseObservation(state)
 
         assertEquals(fixedNow, state.lastKnownLicensedMs)
     }
@@ -214,7 +215,7 @@ class LicenseCheckerAntiCheatTest {
             setStampLicensed()
             checkAll(Arb.long(0L..Long.MAX_VALUE / 2)) { seed ->
                 state.lastKnownLicensedMs = seed
-                LicenseChecker.isLicensedOrGrace()
+                recordLicenseObservation(state)
                 assertTrue(
                     state.lastKnownLicensedMs >= seed,
                     "clamp regressed seed=$seed -> ${state.lastKnownLicensedMs}",
@@ -232,7 +233,7 @@ class LicenseCheckerAntiCheatTest {
             setStampUnlicensed()
             checkAll(Arb.long(1L..Long.MAX_VALUE / 2)) { offset ->
                 state.lastKnownLicensedMs = fixedNow + offset
-                val result = LicenseChecker.isLicensedOrGrace()
+                val result = recordLicenseObservation(state)
                 assertFalse(result, "future-stamp offset=$offset must not grant grace")
                 assertEquals(0L, state.lastKnownLicensedMs, "stamp must reset after detection")
             }
@@ -360,7 +361,7 @@ class LicenseCheckerAntiCheatTest {
         state.lastKnownLicensedMs = stamp
 
         repeat(1000) {
-            LicenseChecker.isLicensedOrGrace()
+            recordLicenseObservation(state)
         }
 
         assertEquals(stamp, state.lastKnownLicensedMs, "unlicensed grace path must not touch stamp")
@@ -371,7 +372,7 @@ class LicenseCheckerAntiCheatTest {
         setStampUnlicensed()
         repeat(100) {
             state.lastKnownLicensedMs = fixedNow + 1L
-            LicenseChecker.isLicensedOrGrace()
+            recordLicenseObservation(state)
             assertEquals(0L, state.lastKnownLicensedMs)
         }
     }

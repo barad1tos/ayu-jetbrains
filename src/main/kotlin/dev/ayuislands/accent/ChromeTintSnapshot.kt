@@ -1,16 +1,6 @@
 package dev.ayuislands.accent
 
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.util.withScopedValue
-
-/**
- * Immutable chrome settings captured from the Settings panel's pending values.
- *
- * The chrome settings UI intentionally commits state only after the re-apply
- * succeeds. Chrome elements still need the pending values during that apply,
- * so settings exposes this snapshot through [ChromeTintContext] while the
- * existing applicator path runs instead of committing global state early.
- */
+/** Explicit Chrome choices captured from one Studio candidate before native writes. */
 internal data class ChromeTintSnapshot(
     val chromeStatusBar: Boolean,
     val chromeMainToolbar: Boolean,
@@ -20,33 +10,16 @@ internal data class ChromeTintSnapshot(
     val intensity: TintIntensity,
     val chromeTintingEnabled: Boolean = true,
 ) {
-    fun isToggleEnabled(
-        id: AccentElementId,
-        fallbackState: AyuIslandsState,
-    ): Boolean =
-        when (id) {
-            AccentElementId.STATUS_BAR -> chromeTintingEnabled && chromeStatusBar
-            AccentElementId.MAIN_TOOLBAR -> chromeTintingEnabled && chromeMainToolbar
-            AccentElementId.TOOL_WINDOW_STRIPE -> chromeTintingEnabled && chromeToolWindowStripe
-            AccentElementId.NAV_BAR -> chromeTintingEnabled && chromeNavBar
-            AccentElementId.PANEL_BORDER -> chromeTintingEnabled && chromePanelBorder
-            else -> fallbackState.isToggleEnabled(id)
-        }
-}
-
-internal object ChromeTintContext {
-    private val current = ThreadLocal<ChromeTintSnapshot?>()
-
-    fun currentIntensity(fallbackState: AyuIslandsState): TintIntensity =
-        current.get()?.intensity ?: fallbackState.effectiveChromeTintIntensity()
-
-    fun isToggleEnabled(
-        fallbackState: AyuIslandsState,
-        id: AccentElementId,
-    ): Boolean = current.get()?.isToggleEnabled(id, fallbackState) ?: fallbackState.isToggleEnabled(id)
-
-    fun <T> withSnapshot(
-        snapshot: ChromeTintSnapshot?,
-        block: () -> T,
-    ): T = current.withScopedValue(snapshot, block)
+    fun isToggleEnabled(id: AccentElementId): Boolean {
+        require(id.group == AccentGroup.CHROME) { "Not a Chrome element: $id" }
+        return chromeTintingEnabled &&
+            when (id) {
+                AccentElementId.STATUS_BAR -> chromeStatusBar
+                AccentElementId.MAIN_TOOLBAR -> chromeMainToolbar
+                AccentElementId.TOOL_WINDOW_STRIPE -> chromeToolWindowStripe
+                AccentElementId.NAV_BAR -> chromeNavBar
+                AccentElementId.PANEL_BORDER -> chromePanelBorder
+                else -> error("Unmapped Chrome element: $id")
+            }
+    }
 }

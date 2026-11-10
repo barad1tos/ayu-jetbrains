@@ -4,33 +4,18 @@ import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * Invariant lock: `quickSwitcherWidgetEnabled` defaults to `true` (the chip is
- * FREE and surfaces on first launch after install) AND survives the save/reload
- * cycle via [com.intellij.openapi.components.SimplePersistentStateComponent.loadState]
- * so a user who explicitly disables the chip never sees it re-enable itself
- * on the next IDE restart.
- *
- * Mirrors the [AyuIslandsStatePersistenceTest] `roundTrip` harness — IntelliJ's
- * `XmlSerializerUtil.copyBean` reads/writes the same fields used by real IDE
- * restarts, so an in-memory round-trip is representative of on-disk
- * persistence.
- */
+/** Legacy XML import and accepted Studio persistence retain user choices across reload. */
 class AyuIslandsStateQuickSwitcherTest {
-    private fun roundTrip(mutate: (AyuIslandsState) -> Unit): AyuIslandsSettings {
-        val original = AyuIslandsSettings()
-        mutate(original.state)
-        val savedState = original.state
-        val reloaded = AyuIslandsSettings()
-        reloaded.loadState(savedState)
-        return reloaded
-    }
+    private fun roundTrip(mutate: (AyuIslandsState) -> Unit): dev.ayuislands.studio.persistence.AyuSettingsView =
+        dev.ayuislands.studio.StudioFixtures
+            .persistedView(freshSettingsState().apply(mutate))
+            .settings
 
     @Test
     fun `quickSwitcherWidgetEnabled defaults to true on a fresh state`() {
-        val settings = AyuIslandsSettings()
+        val settings = freshSettingsState()
         assertTrue(
-            settings.state.quickSwitcherWidgetEnabled,
+            settings.quickSwitcherWidgetEnabled,
             "Chip is FREE and surfaces on first launch — the toggle must default to true",
         )
     }
@@ -42,7 +27,7 @@ class AyuIslandsStateQuickSwitcherTest {
                 state.quickSwitcherWidgetEnabled = false
             }
         assertFalse(
-            reloaded.state.quickSwitcherWidgetEnabled,
+            reloaded.quickSwitcherWidgetEnabled,
             "An explicitly-disabled chip must NOT re-enable across IDE restart " +
                 "(XML round-trip preserves the false value)",
         )
@@ -56,7 +41,7 @@ class AyuIslandsStateQuickSwitcherTest {
                 state.quickSwitcherWidgetEnabled = true
             }
         assertTrue(
-            reloaded.state.quickSwitcherWidgetEnabled,
+            reloaded.quickSwitcherWidgetEnabled,
             "Last-write-wins across reload — the final true survives the round-trip",
         )
     }

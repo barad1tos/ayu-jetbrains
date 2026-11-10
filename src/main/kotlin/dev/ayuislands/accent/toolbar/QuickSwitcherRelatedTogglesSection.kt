@@ -1,129 +1,61 @@
 package dev.ayuislands.accent.toolbar
 
 import com.intellij.icons.AllIcons
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ui.JBUI
-import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AccentDefaults
-import dev.ayuislands.accent.AccentPreference
-import dev.ayuislands.accent.AccentPreferenceChange
-import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.ToggleSwitch
 import dev.ayuislands.accent.toolbar.popup.ToggleTile
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.rotation.AccentRotationService
-import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AccentPanelEvent
+import dev.ayuislands.studio.persistence.AyuSettingsView
+import dev.ayuislands.studio.session.StudioQuickCommand
 import java.awt.GridLayout
 import javax.swing.Icon
 import javax.swing.JComponent
 import javax.swing.JPanel
 
-/**
- * Grid of [ToggleTile] composites (icon + label + [ToggleSwitch]). Premium
- * mode uses the full 2-column × 2-row layout; free mode keeps Follow System
- * Accent as a single tile.
- *
- * The popup is an immediate command surface, not a Settings form. Each tile
- * writes the persistent state field and then runs the matching runtime
- * side-effect so the visible IDE changes without waiting for Settings Apply.
- *
- * "Chrome tinting" is intentionally a master toggle here: Settings remains the
- * granular 5-surface editor, while the compact popup answers the user's
- * expectation that the named feature turns on or off as one unit.
- *
- * Pattern A — mouse events already run on EDT.
- */
+/** Preserves the native tile order and reads each toggle from accepted Studio choices. */
 internal class QuickSwitcherRelatedTogglesSection(
-    private val context: AccentContext? = AccentContext.detectQuickSwitcher(),
-    private val showPremiumToggles: Boolean = true,
+    context: AccentContext? = AccentContext.detectQuickSwitcher(),
+    showPremiumToggles: Boolean = true,
+    private val commands: QuickSwitcherCommands? = QuickSwitcherCommands.capture(context = context),
 ) {
-    val component: JComponent
-
-    init {
-        val accentSupplier: () -> String = {
-            val activeContext = context ?: AccentContext.detectQuickSwitcher()
-            try {
-                if (activeContext == null) {
-                    AccentDefaults.MIRAGE_HEX
-                } else {
-                    AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), activeContext)
-                }
-            } catch (exception: RuntimeException) {
-                LOG.warn("Toggles section accent resolve failed", exception)
-                AccentDefaults.MIRAGE_HEX
+    val component: JComponent =
+        JPanel(
+            GridLayout(
+                if (showPremiumToggles) 2 else 1,
+                if (showPremiumToggles) 2 else 1,
+                JBUI.scale(Density.TILE_GAP),
+                JBUI.scale(Density.TILE_GAP),
+            ),
+        ).apply {
+            isOpaque = false
+            if (showPremiumToggles) {
+                add(tile(AllIcons.General.Layout, "Chrome tinting", QuickSwitcherToggle.CHROME))
+                add(tile(AllIcons.General.Note, "Glow", QuickSwitcherToggle.GLOW))
+                add(tile(AllIcons.Actions.Refresh, "Accent rotation", QuickSwitcherToggle.ROTATION))
             }
+            add(tile(AllIcons.General.Settings, "Follow system accent", QuickSwitcherToggle.FOLLOW_SYSTEM))
         }
 
-        val followTile =
-            buildTile(
-                AllIcons.General.Settings,
-                "Follow system accent",
-                QuickSwitcherToggle.FOLLOW_SYSTEM,
-                accentSupplier,
-            )
-
-        val rows = if (showPremiumToggles) PREMIUM_GRID_ROWS else FREE_GRID_ROWS
-        val columns = if (showPremiumToggles) PREMIUM_GRID_COLUMNS else FREE_GRID_COLUMNS
-        component =
-            JPanel(
-                GridLayout(
-                    rows,
-                    columns,
-                    JBUI.scale(Density.TILE_GAP),
-                    JBUI.scale(Density.TILE_GAP),
-                ),
-            ).apply {
-                isOpaque = false
-                if (showPremiumToggles) {
-                    add(
-                        buildTile(
-                            AllIcons.General.Layout,
-                            "Chrome tinting",
-                            QuickSwitcherToggle.CHROME,
-                            accentSupplier,
-                        ),
-                    )
-                    add(buildTile(AllIcons.General.Note, "Glow", QuickSwitcherToggle.GLOW, accentSupplier))
-                    add(
-                        buildTile(
-                            AllIcons.Actions.Refresh,
-                            "Accent rotation",
-                            QuickSwitcherToggle.ROTATION,
-                            accentSupplier,
-                        ),
-                    )
-                }
-                add(followTile)
-            }
-    }
-
-    private fun buildTile(
+    private fun tile(
         icon: Icon,
         label: String,
         toggle: QuickSwitcherToggle,
-        accentSupplier: () -> String,
     ): ToggleTile {
-        val switch =
+        lateinit var control: ToggleSwitch
+        control =
             ToggleSwitch(
-                selectedSupplier = { toggle.isSelected() },
-                accentSupplier = accentSupplier,
-                listener = { newValue ->
-                    toggle.setSelected(newValue, context)
+                selectedSupplier = { commands?.view?.settings?.let(toggle::selected) == true },
+                accentSupplier = { commands?.accent() },
+                listener = { selected ->
+                    if (toggle == QuickSwitcherToggle.FOLLOW_SYSTEM || LicenseChecker.isLicensedOrGrace()) {
+                        commands?.submit(toggle.command(selected)) { control.repaint() }
+                    }
                 },
             )
-        return ToggleTile(icon, label, switch)
-    }
-
-    private companion object {
-        const val PREMIUM_GRID_ROWS = 2
-        const val PREMIUM_GRID_COLUMNS = 2
-        const val FREE_GRID_ROWS = 1
-        const val FREE_GRID_COLUMNS = 1
-        val LOG = logger<QuickSwitcherRelatedTogglesSection>()
+        return ToggleTile(icon, label, control)
     }
 }
 
@@ -132,73 +64,21 @@ private enum class QuickSwitcherToggle {
     GLOW,
     ROTATION,
     FOLLOW_SYSTEM,
-}
+    ;
 
-private fun QuickSwitcherToggle.isSelected(): Boolean {
-    val state = AyuIslandsSettings.getInstance().state
-    return when (this) {
-        QuickSwitcherToggle.CHROME ->
-            state.chromeTintingEnabled && state.hasChromeTintingSurfaceEnabled()
-        QuickSwitcherToggle.GLOW -> state.glowEnabled
-        QuickSwitcherToggle.ROTATION -> state.accentRotationEnabled
-        QuickSwitcherToggle.FOLLOW_SYSTEM -> state.followSystemAccent
-    }
-}
+    fun selected(settings: AyuSettingsView): Boolean =
+        when (this) {
+            CHROME -> settings.chromeTintingEnabled && settings.hasChromeTintingSurfaceEnabled()
+            GLOW -> settings.glowEnabled
+            ROTATION -> settings.accentRotationEnabled
+            FOLLOW_SYSTEM -> settings.followSystemAccent
+        }
 
-private fun QuickSwitcherToggle.setSelected(
-    selected: Boolean,
-    context: AccentContext?,
-) {
-    if (this != QuickSwitcherToggle.FOLLOW_SYSTEM && !LicenseChecker.isLicensedOrGrace()) return
-    val state = AyuIslandsSettings.getInstance().state
-    when (this) {
-        QuickSwitcherToggle.CHROME -> {
-            applyAccentPreference(AccentPreference.CHROME_TINTING, selected, context)
+    fun command(selected: Boolean): StudioQuickCommand =
+        when (this) {
+            CHROME -> StudioQuickCommand.Accent(AccentPanelEvent.ChromeEnabled(selected))
+            GLOW -> StudioQuickCommand.GlowEnabled(selected)
+            ROTATION -> StudioQuickCommand.Accent(AccentPanelEvent.RotationEnabled(selected))
+            FOLLOW_SYSTEM -> StudioQuickCommand.Accent(AccentPanelEvent.FollowSystem(selected))
         }
-        QuickSwitcherToggle.GLOW -> {
-            state.glowEnabled = selected
-            syncGlowOverlays(selected)
-        }
-        QuickSwitcherToggle.ROTATION -> {
-            state.accentRotationEnabled = selected
-            val service = AccentRotationService.getInstance()
-            if (selected) {
-                if (!state.followSystemAccent) {
-                    service.startRotation()
-                }
-            } else {
-                service.stopRotation()
-            }
-        }
-        QuickSwitcherToggle.FOLLOW_SYSTEM -> {
-            applyAccentPreference(AccentPreference.FOLLOW_SYSTEM, selected, context)
-        }
-    }
-}
-
-private fun applyAccentPreference(
-    preference: AccentPreference,
-    selected: Boolean,
-    context: AccentContext?,
-) {
-    try {
-        AccentPreferenceChange.apply(preference, selected, context)
-    } catch (exception: RuntimeException) {
-        exception.rethrowIfCancelled()
-        logger<QuickSwitcherRelatedTogglesSection>().warn(
-            "Quick switcher toggle failed to reapply focused accent",
-            exception,
-        )
-    }
-}
-
-private fun syncGlowOverlays(glowEnabled: Boolean) {
-    try {
-        GlowOverlayManager.syncGlowForAllProjects()
-    } catch (exception: RuntimeException) {
-        logger<QuickSwitcherRelatedTogglesSection>().warn(
-            "Quick switcher toggle failed to sync glow overlays (enabled=$glowEnabled)",
-            exception,
-        )
-    }
 }

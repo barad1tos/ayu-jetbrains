@@ -1,8 +1,13 @@
 package dev.ayuislands.accent
 
 import dev.ayuislands.glow.GlowTabMode
+import dev.ayuislands.studio.model.StudioProcess
+import dev.ayuislands.studio.persistence.RestoreStatus
+import dev.ayuislands.studio.session.StudioAccentDefaults
+import dev.ayuislands.studio.session.StudioAccentReferences
 import java.awt.Color
 import java.beans.PropertyChangeListener
+import java.time.Instant
 import java.util.concurrent.CancellationException
 import javax.swing.SwingUtilities
 import javax.swing.UIDefaults
@@ -278,6 +283,347 @@ class UiDefaultsOwnershipTest {
             )
         }
     }
+
+    @Test
+    fun `prepared ownership has no effect before acknowledgement and retains the native baseline`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint)
+            val prepared = requireNotNull(owner.prepare(KEY, UiOverrideValue(Color.RED), checkpoint))
+            assertNull(owner.observeClaim(KEY))
+
+            assertSame(Color.BLUE, UIManager.get(KEY))
+            assertFalse(owner.ownsAny(setOf(KEY)))
+            assertTrue(owner.apply(prepared))
+            assertSame(prepared.transition.next, owner.observeClaim(KEY))
+            assertFalse(owner.apply(prepared))
+            assertTrue(owner.ownsAny(setOf(KEY)))
+            checkpoint.commit()
+            owner.restore()
+            assertSame(Color.BLUE, UIManager.get(KEY))
+        }
+
+    @Test
+    fun `prepared release restores absence only after acknowledgement and rollback restores the old claim`() =
+        onEdt { owner ->
+            write(owner, KEY, Color.RED)
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint)
+            val release = requireNotNull(owner.prepare(KEY, null, checkpoint))
+
+            assertSame(Color.RED, UIManager.get(KEY))
+            assertTrue(owner.ownsAny(setOf(KEY)))
+            assertTrue(owner.apply(release))
+            assertNull(readRawUiDefault(UIManager.getDefaults(), KEY))
+            assertFalse(owner.ownsAny(setOf(KEY)))
+            checkpoint.restore()
+            assertSame(Color.RED, UIManager.get(KEY))
+            assertTrue(owner.ownsAny(setOf(KEY)))
+            owner.restore()
+            assertNull(readRawUiDefault(UIManager.getDefaults(), KEY))
+        }
+
+    @Test
+    fun `stale prepared release cannot discard a newer owned value`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            write(owner, KEY, Color.RED)
+            val checkpoint = UiDefaultsCheckpoint()
+            val release = requireNotNull(owner.prepare(KEY, null, checkpoint))
+            write(owner, KEY, Color.GREEN)
+
+            assertFalse(owner.apply(release))
+            assertSame(Color.GREEN, UIManager.get(KEY))
+            assertTrue(owner.ownsAny(setOf(KEY)))
+            owner.restore()
+            assertSame(Color.BLUE, UIManager.get(KEY))
+            assertFalse(owner.apply(release))
+        }
+
+    @Test
+    fun `foreign raw drift rejects the prepared write and stays relinquished until explicit release`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            write(owner, KEY, Color.RED)
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint)
+            val prepared = requireNotNull(owner.prepare(KEY, UiOverrideValue(Color.GREEN), checkpoint))
+            val foreign = Color(255, 0, 0)
+            UIManager.put(KEY, foreign)
+
+            assertFalse(owner.apply(prepared))
+            write(owner, KEY, Color.YELLOW)
+            assertSame(expected = foreign, actual = UIManager.get(KEY))
+            assertFalse(owner.ownsAny(setOf(KEY)))
+            val release = requireNotNull(owner.prepare(KEY, null, checkpoint))
+            var events = 0
+            withListener({ event -> if (event.propertyName == KEY) events++ }) {
+                assertTrue(owner.apply(release))
+            }
+            assertEquals(0, events)
+            checkpoint.commit()
+            write(owner, KEY, Color.YELLOW)
+            owner.restore()
+            assertSame(expected = foreign, actual = UIManager.get(KEY))
+        }
+
+    @Test
+    fun `unused prepared writes and observations expire with their checkpoint`() =
+        onEdt { owner ->
+            for (commit in listOf(false, true)) {
+                for (requested in listOf(null, UiOverrideValue(Color.RED))) {
+                    val checkpoint = UiDefaultsCheckpoint()
+                    owner.record(checkpoint)
+                    val prepared = requireNotNull(owner.prepare(KEY, requested, checkpoint))
+                    if (commit) checkpoint.commit() else checkpoint.restore()
+                    assertFalse(owner.apply(prepared))
+                    assertFalse(owner.ownsAny(setOf(KEY)))
+                    assertNull(readRawUiDefault(UIManager.getDefaults(), KEY))
+                }
+            }
+        }
+
+    @Test
+    fun `prepared release over an absent value has no native event unlike an explicit null write`() =
+        onEdt { owner ->
+            val checkpoint = UiDefaultsCheckpoint()
+            val release = requireNotNull(owner.prepare(KEY, null, checkpoint))
+            var events = 0
+            withListener({ event -> if (event.propertyName == KEY) events++ }) {
+                assertTrue(owner.apply(release))
+                assertEquals(0, events)
+                checkpoint.put(KEY, null)
+                assertEquals(1, events)
+            }
+            checkpoint.restore()
+        }
+
+    @Test
+    fun `prepared writes retain rollback ownership when a native listener throws`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            write(owner, KEY, Color.RED)
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint)
+            val prepared = requireNotNull(owner.prepare(KEY, UiOverrideValue(Color.GREEN), checkpoint))
+            val failure = IllegalStateException("listener failed after native mutation")
+            withListener({ event ->
+                if (event.propertyName == KEY && event.newValue === Color.GREEN) throw failure
+            }) {
+                assertSame(failure, assertFailsWith<IllegalStateException> { owner.apply(prepared) })
+            }
+            assertSame(Color.GREEN, UIManager.get(KEY))
+            assertTrue(owner.ownsAny(setOf(KEY)))
+            assertFalse(owner.apply(prepared))
+            checkpoint.restore()
+            assertSame(Color.RED, UIManager.get(KEY))
+            owner.restore()
+            assertSame(Color.BLUE, UIManager.get(KEY))
+        }
+
+    @Test
+    fun `a newer claim installed by a native listener survives prepared settlement`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint)
+            val prepared = requireNotNull(owner.prepare(KEY, UiOverrideValue(Color.RED), checkpoint))
+            withListener({ event ->
+                if (event.propertyName == KEY && event.newValue === Color.RED) write(owner, KEY, Color.GREEN)
+            }) {
+                assertFalse(owner.apply(prepared))
+            }
+            assertSame(Color.GREEN, UIManager.get(KEY))
+            assertTrue(owner.ownsAny(setOf(KEY)))
+            checkpoint.restore()
+            assertSame(Color.GREEN, UIManager.get(KEY))
+            owner.restore()
+            assertSame(Color.BLUE, UIManager.get(KEY))
+        }
+
+    @Test
+    fun `a prepared lazy release retains raw provider identity without evaluation`() =
+        onEdt { owner ->
+            var evaluations = 0
+            val original =
+                UIDefaults.LazyValue {
+                    evaluations++
+                    Color.BLUE
+                }
+            UIManager.put(KEY, original)
+            write(owner, KEY, Color.RED)
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint)
+            val release = requireNotNull(owner.prepare(KEY, null, checkpoint))
+            assertEquals(0, evaluations)
+            assertTrue(owner.apply(release))
+            assertEquals(0, evaluations)
+            assertSame(original, readRawUiDefault(UIManager.getDefaults(), KEY))
+            checkpoint.restore()
+            assertSame(Color.RED, UIManager.get(KEY))
+            owner.restore()
+            assertEquals(0, evaluations)
+            assertSame(original, readRawUiDefault(UIManager.getDefaults(), KEY))
+        }
+
+    @Test
+    fun `a foreign owner cannot consume or apply a prepared claim`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint)
+            val prepared = requireNotNull(owner.prepare(KEY, UiOverrideValue(Color.RED), checkpoint))
+            val other = UiDefaultsOwnership()
+            assertFalse(other.apply(prepared))
+            assertSame(Color.BLUE, UIManager.get(KEY))
+            assertTrue(owner.apply(prepared))
+            checkpoint.restore()
+            assertSame(Color.BLUE, UIManager.get(KEY))
+        }
+
+    @Test
+    fun `portable blocker defers claim-only rollback until its newer ownership settles`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            write(owner, KEY, Color.RED)
+            UIManager.put(KEY, Color.YELLOW)
+            write(owner, KEY, Color.GREEN)
+            assertSame(UiOverrideState.Relinquished, owner.observeClaim(KEY))
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint)
+            val release = requireNotNull(owner.prepare(KEY, null, checkpoint))
+            assertTrue(owner.apply(release))
+            assertSame(UiOverrideState.Unowned, owner.observeClaim(KEY))
+            assertFailsWith<IllegalStateException> { checkpoint.restoreFields(setOf(KEY)) }
+            assertSame(UiOverrideState.Unowned, owner.observeClaim(KEY))
+            assertTrue(checkpoint.hasPending)
+            checkpoint.restoreFields(emptySet())
+            assertSame(UiOverrideState.Relinquished, owner.observeClaim(KEY))
+            assertFalse(checkpoint.hasPending)
+            assertSame(Color.YELLOW, UIManager.get(KEY))
+        }
+
+    @Test
+    fun `scoped ownership rollback leaves unrelated user release available for a later change`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            UIManager.put(OTHER_KEY, Color.GREEN)
+            write(owner, KEY, Color.RED)
+            write(owner, OTHER_KEY, Color.ORANGE)
+            val checkpoint = UiDefaultsCheckpoint()
+            owner.record(checkpoint, setOf(KEY))
+            owner.put(KEY, Color.YELLOW, checkpoint)
+            owner.restore(setOf(OTHER_KEY))
+            checkpoint.restore()
+            assertSame(Color.RED, UIManager.get(KEY))
+            assertSame(UiOverrideState.Unowned, owner.observeClaim(OTHER_KEY))
+            write(owner, OTHER_KEY, Color.PINK)
+            assertSame(Color.PINK, UIManager.get(OTHER_KEY))
+            owner.restore()
+            assertSame(Color.GREEN, UIManager.get(OTHER_KEY))
+        }
+
+    @Test
+    fun `Studio default binding freezes evidence and restores only its selected claim`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            UIManager.put(OTHER_KEY, Color.GREEN)
+            write(owner, KEY, Color.RED)
+            write(owner, OTHER_KEY, Color.ORANGE)
+            val references = StudioAccentReferences("defaults", StudioProcess(42, Instant.EPOCH))
+            val change = StudioAccentDefaults.prepare(references, owner, KEY, UiOverrideValue(Color.YELLOW))
+            val original = change.receipts
+            assertEquals(2, original.size)
+            assertTrue(original.all { it.status == RestoreStatus.PENDING })
+            assertSame(Color.RED, UIManager.get(KEY))
+            change.apply()
+            assertSame(Color.YELLOW, UIManager.get(KEY))
+            assertTrue(change.receipts.all { it.status == RestoreStatus.OWNED })
+            owner.restore(setOf(OTHER_KEY))
+            change.restore(emptyList())
+            assertSame(Color.RED, UIManager.get(KEY))
+            assertSame(UiOverrideState.Unowned, owner.observeClaim(OTHER_KEY))
+            assertTrue(change.receipts.all { it.status == RestoreStatus.RESTORED })
+            original.zip(change.receipts).forEach { (before, after) ->
+                assertEquals(before, after.copy(status = before.status))
+            }
+            owner.restore()
+            assertSame(Color.BLUE, UIManager.get(KEY))
+        }
+
+    @Test
+    fun `Studio claim-only release remains pending behind a newer receipt`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            write(owner, KEY, Color.RED)
+            UIManager.put(KEY, Color.YELLOW)
+            write(owner, KEY, Color.GREEN)
+            val references = StudioAccentReferences("release", StudioProcess(42, Instant.EPOCH))
+            val change = StudioAccentDefaults.prepare(references, owner, KEY, null)
+            assertEquals(1, change.receipts.size)
+            change.apply()
+            assertSame(UiOverrideState.Unowned, owner.observeClaim(KEY))
+            val receipt = change.receipts.single()
+            assertEquals(RestoreStatus.OWNED, receipt.status)
+            val newer = receipt.copy(id = "newer", identity = receipt.identity.copy(ownerToken = "newer"))
+            assertFailsWith<IllegalStateException> { change.restore(listOf(newer)) }
+            assertSame(UiOverrideState.Unowned, owner.observeClaim(KEY))
+            assertEquals(RestoreStatus.PENDING, change.receipts.single().status)
+            change.restore(emptyList())
+            assertSame(UiOverrideState.Relinquished, owner.observeClaim(KEY))
+            assertSame(Color.YELLOW, UIManager.get(KEY))
+            assertEquals(RestoreStatus.RESTORED, change.receipts.single().status)
+        }
+
+    @Test
+    fun `Studio interrupted default write retains rollback and never adopts a foreign color`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            val references = StudioAccentReferences("interrupted", StudioProcess(42, Instant.EPOCH))
+            val change = StudioAccentDefaults.prepare(references, owner, KEY, UiOverrideValue(Color.RED))
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == KEY && event.newValue === Color.RED) error("after write")
+                }
+            withListener(listener) {
+                assertFailsWith<IllegalStateException> { change.apply() }
+            }
+            assertSame(Color.RED, UIManager.get(KEY))
+            assertTrue(change.receipts.all { it.status == RestoreStatus.PENDING })
+            val foreign = Color(Color.RED.rgb)
+            UIManager.put(KEY, foreign)
+            change.restore(emptyList())
+            assertSame(expected = foreign, actual = UIManager.get(KEY))
+            assertTrue(change.receipts.all { it.status == RestoreStatus.FOREIGN })
+            UIManager.put(KEY, Color.RED)
+            val terminal = change.receipts
+            change.restore(emptyList())
+            assertSame(Color.RED, UIManager.get(KEY))
+            assertEquals(terminal, change.receipts)
+        }
+
+    @Test
+    fun `Studio acceptance retains visuals and provenance while cancellation of unused raw writes stays inert`() =
+        onEdt { owner ->
+            UIManager.put(KEY, Color.BLUE)
+            val references = StudioAccentReferences("accept", StudioProcess(42, Instant.EPOCH))
+            val change = StudioAccentDefaults.prepare(references, owner, KEY, UiOverrideValue(Color.RED))
+            change.apply()
+            val applied = change.receipts
+            change.accept()
+            assertSame(Color.RED, UIManager.get(KEY))
+            assertEquals(applied, change.receipts)
+            change.accept()
+            assertFailsWith<IllegalStateException> { change.restore(emptyList()) }
+            owner.restore()
+            assertSame(Color.BLUE, UIManager.get(KEY))
+            val unused = StudioAccentDefaults.prepareRaw(references, KEY, Color.GREEN)
+            unused.restore(emptyList())
+            assertSame(Color.BLUE, UIManager.get(KEY))
+            assertEquals(RestoreStatus.RESTORED, unused.receipts.single().status)
+            assertFailsWith<IllegalStateException> { unused.apply() }
+        }
 
     private fun write(
         owner: UiDefaultsOwnership,

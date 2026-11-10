@@ -59,7 +59,7 @@ class FontDetectorTest {
     fun `detectAll returns true for CUSTOM regardless of installation`() {
         FontDetector.invalidateCache()
         val result = FontDetector.detectAll()
-        assertTrue(result[FontPreset.CUSTOM] == true, "CUSTOM should always be true (not curated)")
+        assertEquals(true, result[FontPreset.CUSTOM], "CUSTOM should always be true (not curated)")
     }
 
     // ---- isInstalled ----
@@ -77,7 +77,7 @@ class FontDetectorTest {
      * may or may not be installed locally.
      */
     private fun findUninstalledPreset(): FontPreset? {
-        val environment = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+        val environment = GraphicsEnvironment.getLocalGraphicsEnvironment()
         val systemFonts = environment.availableFontFamilyNames.map { it.lowercase() }.toSet()
         return FontPreset.entries.firstOrNull { preset ->
             preset.isCurated && preset.fontAliases.none { systemFonts.contains(it.lowercase()) }
@@ -110,10 +110,15 @@ class FontDetectorTest {
         FontDetector.invalidateCache()
         val aliasToRecord = preset.fontAliases.first()
         val state =
-            dev.ayuislands.settings.AyuIslandsState().apply {
+            AyuIslandsState().apply {
                 installedFonts.add(aliasToRecord)
             }
-        val settings = AyuIslandsSettings().apply { loadState(state) }
+        val settings = io.mockk.mockk<AyuIslandsSettings>()
+        every { settings.state } answers {
+            dev.ayuislands.studio.StudioFixtures
+                .legacyView(state)
+                .settings
+        }
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
 
@@ -147,8 +152,8 @@ class FontDetectorTest {
     fun `listMonospaceFonts returns sorted list`() {
         FontDetector.invalidateCache()
         val fonts = FontDetector.listMonospaceFonts()
-        val sorted = fonts.sorted()
-        assertEquals(sorted, fonts, "Monospace font list should be sorted alphabetically")
+        val expected = fonts.sorted()
+        assertEquals(expected, fonts, "Monospace font list should be sorted alphabetically")
     }
 
     @Test
@@ -208,7 +213,12 @@ class FontDetectorTest {
         availableFonts: Array<String>,
     ) {
         mockkObject(AyuIslandsSettings.Companion)
-        val settings = AyuIslandsSettings().apply { loadState(state) }
+        val settings = io.mockk.mockk<AyuIslandsSettings>()
+        every { settings.state } answers {
+            dev.ayuislands.studio.StudioFixtures
+                .legacyView(state)
+                .settings
+        }
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkStatic(GraphicsEnvironment::class)
@@ -254,7 +264,11 @@ class FontDetectorTest {
         // return false so the preview falls back to "Install X to preview"
         // instead of stranding the panel.
         mockkObject(AyuIslandsSettings.Companion)
-        val settings = AyuIslandsSettings().apply { loadState(AyuIslandsState()) }
+        val settings = io.mockk.mockk<AyuIslandsSettings>()
+        every { settings.state } returns
+            dev.ayuislands.studio.StudioFixtures
+                .legacyView(AyuIslandsState())
+                .settings
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkStatic(GraphicsEnvironment::class)
@@ -269,7 +283,11 @@ class FontDetectorTest {
         // Same defense for a generic AWT/JBR throw (e.g. macOS font cache
         // corruption surfaces as InternalError or RuntimeException).
         mockkObject(AyuIslandsSettings.Companion)
-        val settings = AyuIslandsSettings().apply { loadState(AyuIslandsState()) }
+        val settings = io.mockk.mockk<AyuIslandsSettings>()
+        every { settings.state } returns
+            dev.ayuislands.studio.StudioFixtures
+                .legacyView(AyuIslandsState())
+                .settings
         every { AyuIslandsSettings.getInstance() } returns settings
 
         mockkStatic(GraphicsEnvironment::class)

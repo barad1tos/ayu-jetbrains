@@ -1,28 +1,43 @@
 package dev.ayuislands.accent
 
-import dev.ayuislands.integration.IntegrationOutcome
 import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.integration.SettingsCheckpoint
 import dev.ayuislands.integration.captureFailure
-import javax.swing.SwingUtilities
+
+internal enum class IntegrationAction {
+    KEEP,
+    APPLY,
+    RESTORE,
+    SUSPEND,
+}
 
 /** Shares only receipt lifetime and native mutation observation between the two adapters. */
 internal abstract class IntegrationCheckpoint : AccentCheckpoint {
     private var done = false
+    private var isRetained = false
 
     protected abstract val currentState: Boolean
     protected abstract val currentTarget: Boolean
     protected abstract val metadata: SettingsCheckpoint
     protected abstract val foreignNative: Boolean
+    protected open val hasBlocked: Boolean = false
+
+    val isAvailable: Boolean
+        get() = currentState && currentTarget
 
     /** Whole-integration restart recovery cannot claim fields changed by another writer. */
     protected val recoveryOwnership: IntegrationOwnership
-        get() = if (foreignNative) IntegrationOwnership.SUSPENDED else IntegrationOwnership.RECOVERY_PENDING
+        get() =
+            if (foreignNative) IntegrationOwnership.SUSPENDED else IntegrationOwnership.RECOVERY_PENDING
 
     override val hasPending: Boolean
         get() = !done
 
     fun captureMetadata() = metadata.capture()
+
+    internal fun retainUntilAccepted() {
+        isRetained = true
+    }
 
     protected abstract fun restoreNative()
 
@@ -38,8 +53,9 @@ internal abstract class IntegrationCheckpoint : AccentCheckpoint {
 
     final override fun restore(blockedBy: List<AccentCheckpoint>) {
         if (done) return
+        if (isRetained && !isAvailable) return
         if (currentState) restoreCurrent()
-        commit()
+        if (!hasBlocked) commit()
     }
 
     private fun restoreCurrent() {
@@ -48,7 +64,7 @@ internal abstract class IntegrationCheckpoint : AccentCheckpoint {
             return
         }
         restoreNative()
-        if (!currentState) return
+        if (!currentState || hasBlocked) return
         if (currentTarget) metadata.restore(foreignNative) else metadata.suspendIfOwned()
     }
 
@@ -57,50 +73,8 @@ internal abstract class IntegrationCheckpoint : AccentCheckpoint {
     }
 }
 
-/** One bounded pending receipt, retried only by its adapter's existing entry points. */
-internal class IntegrationReceipts<R : IntegrationCheckpoint> {
-    private var boundScope: AccentApplyScope? = null
-    private var bound: R? = null
-    private var pending: R? = null
-
-    val current: R?
-        get() = if (currentScope() === boundScope) bound else null
-
-    fun run(
-        create: () -> R,
-        onFailure: (Throwable) -> IntegrationOutcome.Failed,
-        action: () -> IntegrationOutcome,
-    ): IntegrationOutcome {
-        val scope = currentScope()
-        pending?.let { receipt ->
-            val failure =
-                captureFailure {
-                    if (scope == null) receipt.restore() else scope.recover { receipt.restore() }
-                }
-            if (failure != null) return onFailure(failure)
-            if (!receipt.hasPending) pending = null
-        }
-        if (scope == null) return action()
-        scope.checkWritable()
-        if (boundScope !== scope) {
-            boundScope = scope
-            bound = create().also(scope::record)
-            scope.onClose {
-                bound = null
-                boundScope = null
-            }
-        }
-        return try {
-            action()
-        } finally {
-            bound?.captureMetadata()
-        }
-    }
-
-    fun retain(receipt: R) {
-        pending = receipt
-    }
+/** The caller owns every native receipt; no global pending slot or child apply scope is enrolled. */
+internal object IntegrationReceipts {
+    fun <R : IntegrationCheckpoint> prepare(create: () -> R): R =
+        create().also(IntegrationCheckpoint::retainUntilAccepted)
 }
-
-private fun currentScope(): AccentApplyScope? =
-    if (SwingUtilities.isEventDispatchThread()) AccentApplyScope.active?.takeUnless { it.isCommitted } else null

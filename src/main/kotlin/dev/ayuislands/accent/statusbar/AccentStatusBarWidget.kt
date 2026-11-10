@@ -92,7 +92,7 @@ internal class AccentStatusBarWidget(
     fun refreshFromProject() {
         if (project.isDisposed) return
         val context = AccentContext.detect() ?: return
-        val chain = AccentResolver.resolveChain(project, context)
+        val chain = AccentResolver.resolveChain(project, context) ?: return
         panel.updateFromChain(chain)
     }
 

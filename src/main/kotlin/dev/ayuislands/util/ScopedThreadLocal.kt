@@ -12,9 +12,6 @@ package dev.ayuislands.util
  * Non-local returns from [block] are honoured by the `inline` modifier; the
  * slot is still restored on the way out.
  *
- * Shared between [dev.ayuislands.accent.ChromeTintContext] and
- * [dev.ayuislands.vcs.VcsColorContext] which both rely on the same
- * "state untouched on throw" invariant.
  */
 internal inline fun <T, V : Any> ThreadLocal<V?>.withScopedValue(
     value: V?,

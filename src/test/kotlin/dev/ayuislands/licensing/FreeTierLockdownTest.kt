@@ -1,114 +1,40 @@
 package dev.ayuislands.licensing
 
-import com.intellij.notification.Notification
-import com.intellij.notification.NotificationGroup
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.notification.NotificationType
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.application.ModalityState
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentElementId
 import dev.ayuislands.accent.AccentGroup
-import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformMovement
-import dev.ayuislands.rotation.AccentRotationService
-import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.CommitPathDisplayMode
 import dev.ayuislands.settings.PanelWidthMode
-import io.mockk.every
-import io.mockk.just
-import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
-import io.mockk.runs
-import io.mockk.unmockkAll
-import io.mockk.verify
 import org.w3c.dom.Element
-import javax.swing.SwingUtilities
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
-import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * Runtime downgrade contract: saved premium and free-tier preferences remain
- * unchanged while runtime services are stopped or reapplied through entitlement gates.
- *
- * "Free tier" is the pair (6 themes + full accent palette + colour picker). The
- * themes live in `plugin.xml` as `<themeProvider>` entries; a sanity test here
- * pins that the plugin still ships exactly the six expected ids.
- */
 class FreeTierLockdownTest {
     private lateinit var state: AyuIslandsState
-    private lateinit var settings: AyuIslandsSettings
-    private lateinit var rotationService: AccentRotationService
 
-    @BeforeTest
-    fun setUp() {
+    @BeforeTest fun setUp() {
         state = AyuIslandsState()
-        // Stubbed applies report success, so the persisted clean flag must read
-        // clean too — ThemeReapplication's tear-escalation check consults it.
-        state.lastApplyOk = true
-        settings = mockk()
-        every { settings.state } returns state
-        every { settings.getAccentForVariant(any()) } returns "#FFCC66"
-
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
-
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers
-            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
-
-        mockkObject(GlowOverlayManager.Companion)
-        every { GlowOverlayManager.syncGlowForAllProjects() } just runs
-
-        mockkStatic(ApplicationManager::class)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.isDispatchThread } returns true
-        rotationService = mockk(relaxed = true)
-        every { app.getService(AccentRotationService::class.java) } returns rotationService
-
-        mockkStatic(NotificationGroupManager::class)
-        val ngm = mockk<NotificationGroupManager>()
-        val group = mockk<NotificationGroup>()
-        val notification = mockk<Notification>(relaxed = true)
-        every { NotificationGroupManager.getInstance() } returns ngm
-        every { ngm.getNotificationGroup(any()) } returns group
-        every {
-            group.createNotification(any<String>(), any<String>(), any<NotificationType>())
-        } returns notification
-        every { notification.notify(any()) } just runs
-    }
-
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
     }
 
     // ---------- Individual premium-feature lockdown ----------
 
     @Test
-    fun `revertToFreeDefaults preserves glow preference`() {
+    fun `accepted license loss preserves glow preference`() {
         state.glowEnabled = true
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertTrue(state.glowEnabled)
+        val accepted = confirmUnlicensed(state).settings
+        assertTrue(accepted.glowEnabled)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves waveform preferences`() {
+    fun `accepted license loss preserves waveform preferences`() {
         state.glowEnabled = true
         state.glowShape = GlowShape.WAVEFORM.name
         state.waveformDirection = WaveformMovement.COUNTER_CLOCKWISE.name
@@ -118,158 +44,157 @@ class FreeTierLockdownTest {
         state.waveformAmplitude = 16
         state.waveformIntensity = 88
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertTrue(state.glowEnabled)
-        assertEquals(GlowShape.WAVEFORM.name, state.glowShape)
-        assertEquals(WaveformMovement.COUNTER_CLOCKWISE.name, state.waveformDirection)
-        assertEquals(WaveformBaseline.CENTERED.name, state.waveformBaseline)
-        assertEquals(4, state.waveformTraceDensity)
-        assertEquals(640, state.waveformTraceLength)
-        assertEquals(16, state.waveformAmplitude)
-        assertEquals(88, state.waveformIntensity)
+        assertTrue(accepted.glowEnabled)
+        assertEquals(GlowShape.WAVEFORM.name, accepted.glowShape)
+        assertEquals(WaveformMovement.COUNTER_CLOCKWISE.name, accepted.waveformDirection)
+        assertEquals(WaveformBaseline.CENTERED.name, accepted.waveformBaseline)
+        assertEquals(4, accepted.waveformTraceDensity)
+        assertEquals(640, accepted.waveformTraceLength)
+        assertEquals(16, accepted.waveformAmplitude)
+        assertEquals(88, accepted.waveformIntensity)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves accent rotation and stops the service`() {
+    fun `accepted license loss preserves accent rotation`() {
         state.accentRotationEnabled = true
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertTrue(state.accentRotationEnabled)
-        verify(exactly = 1) { rotationService.stopRotation() }
+        assertTrue(accepted.accentRotationEnabled)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves both plugin integrations`() {
+    fun `accepted license loss preserves both plugin integrations`() {
         state.cgpIntegrationEnabled = true
         state.irIntegrationEnabled = true
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.DARK)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertTrue(state.cgpIntegrationEnabled)
-        assertTrue(state.irIntegrationEnabled)
+        assertTrue(accepted.cgpIntegrationEnabled)
+        assertTrue(accepted.irIntegrationEnabled)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves every element choice`() {
+    fun `accepted license loss preserves every element choice`() {
         // Free choices remain immediately effective. Premium CHROME choices stay
         // persisted while runtime entitlement suppresses their rendering.
         for (id in AccentElementId.entries) {
             state.setToggle(id, id.group == AccentGroup.CHROME)
         }
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.LIGHT)
+        val accepted = confirmUnlicensed(state).settings
 
         for (id in AccentElementId.entries.filter { elementId -> elementId.group != AccentGroup.CHROME }) {
-            assertFalse(state.isToggleEnabled(id), "${id.name} must be preserved on free-tier revert")
+            assertFalse(accepted.isToggleEnabled(id), "${id.name} must be preserved on free-tier revert")
         }
         for (id in AccentElementId.entries.filter { elementId -> elementId.group == AccentGroup.CHROME }) {
-            assertTrue(state.isToggleEnabled(id), "${id.name} must be preserved on free-tier revert")
+            assertTrue(accepted.isToggleEnabled(id), "${id.name} must be preserved on free-tier revert")
         }
         assertEquals(13, AccentElementId.entries.size, "element inventory changed — update the preservation test")
     }
 
     @Test
-    fun `revertToFreeDefaults preserves chrome intensity and UI state`() {
+    fun `accepted license loss preserves chrome intensity and UI state`() {
         state.chromeTintIntensity = 75
         state.chromeTintingGroupExpanded = true
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.LIGHT)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertEquals(75, state.chromeTintIntensity)
-        assertTrue(state.chromeTintingGroupExpanded)
+        assertEquals(75, accepted.chromeTintIntensity)
+        assertTrue(accepted.chromeTintingGroupExpanded)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves the project icon accent preference`() {
+    fun `accepted license loss preserves the project icon accent preference`() {
         state.projectIconAccentEnabled = true
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertTrue(state.projectIconAccentEnabled)
+        assertTrue(accepted.projectIconAccentEnabled)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves the external chrome tint preference`() {
+    fun `accepted license loss preserves the external chrome tint preference`() {
         // Runtime entitlement gates paid behavior. Keep the stored choice so a
         // renewed license restores the exact external-theme preference.
         state.externalThemeChromeTintEnabled = true
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertTrue(state.externalThemeChromeTintEnabled)
+        assertTrue(accepted.externalThemeChromeTintEnabled)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves glowTabMode preference`() {
+    fun `accepted license loss preserves glowTabMode preference`() {
         state.glowTabMode = "FULL"
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertEquals("FULL", state.glowTabMode)
+        val accepted = confirmUnlicensed(state).settings
+        assertEquals("FULL", accepted.glowTabMode)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves all three panel width modes`() {
+    fun `accepted license loss preserves all three panel width modes`() {
         state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
         state.commitPanelWidthMode = PanelWidthMode.FIXED.name
         state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertEquals(PanelWidthMode.AUTO_FIT.name, state.projectPanelWidthMode)
-        assertEquals(PanelWidthMode.FIXED.name, state.commitPanelWidthMode)
-        assertEquals(PanelWidthMode.AUTO_FIT.name, state.gitPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, accepted.projectPanelWidthMode)
+        assertEquals(PanelWidthMode.FIXED.name, accepted.commitPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, accepted.gitPanelWidthMode)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves project-view hide toggles`() {
+    fun `accepted license loss preserves project-view hide toggles`() {
         state.hideProjectRootPath = true
         state.hideProjectViewHScrollbar = true
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertTrue(state.hideProjectRootPath)
-        assertTrue(state.hideProjectViewHScrollbar)
+        val accepted = confirmUnlicensed(state).settings
+        assertTrue(accepted.hideProjectRootPath)
+        assertTrue(accepted.hideProjectViewHScrollbar)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves commit path display controls`() {
+    fun `accepted license loss preserves commit path display controls`() {
         state.commitPanelPathDisplayMode = CommitPathDisplayMode.TOOLTIP.name
         state.commitPanelPathMinHiddenLevels = 2
         state.commitPanelPathMaxHiddenLevels = 4
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertEquals(CommitPathDisplayMode.TOOLTIP.name, state.commitPanelPathDisplayMode)
-        assertEquals(2, state.commitPanelPathMinHiddenLevels)
-        assertEquals(4, state.commitPanelPathMaxHiddenLevels)
+        assertEquals(CommitPathDisplayMode.TOOLTIP.name, accepted.commitPanelPathDisplayMode)
+        assertEquals(2, accepted.commitPanelPathMinHiddenLevels)
+        assertEquals(4, accepted.commitPanelPathMaxHiddenLevels)
     }
 
     // ---------- Free-tier preservation ----------
 
     @Test
-    fun `revertToFreeDefaults preserves custom accent colors per variant`() {
+    fun `accepted license loss preserves custom accent colors per variant`() {
         state.mirageAccent = "#ABCDEF"
         state.darkAccent = "#123456"
         state.lightAccent = "#FEDCBA"
 
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        val accepted = confirmUnlicensed(state).settings
 
-        assertEquals("#ABCDEF", state.mirageAccent, "Mirage accent is a free-tier asset")
-        assertEquals("#123456", state.darkAccent)
-        assertEquals("#FEDCBA", state.lightAccent)
+        assertEquals("#ABCDEF", accepted.mirageAccent, "Mirage accent is a free-tier asset")
+        assertEquals("#123456", accepted.darkAccent)
+        assertEquals("#FEDCBA", accepted.lightAccent)
     }
 
     @Test
-    fun `revertToFreeDefaults preserves followSystemAppearance preference`() {
+    fun `accepted license loss preserves followSystemAppearance preference`() {
         state.followSystemAppearance = true
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertTrue(state.followSystemAppearance, "followSystemAppearance is free and orthogonal to glow")
+        val accepted = confirmUnlicensed(state).settings
+        assertTrue(accepted.followSystemAppearance, "followSystemAppearance is free and orthogonal to glow")
     }
 
     @Test
-    fun `revertToFreeDefaults preserves everBeenPro so future re-purchase skips default restore`() {
+    fun `accepted license loss preserves everBeenPro so future re-purchase skips default restore`() {
         state.everBeenPro = true
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        assertTrue(state.everBeenPro, "everBeenPro must survive revert; it gates default restore on re-purchase")
+        val accepted = confirmUnlicensed(state).settings
+        assertTrue(accepted.everBeenPro, "everBeenPro must survive revert; it gates default restore on re-purchase")
     }
 
     // ---------- Plugin.xml pin: 6 theme providers ----------
@@ -310,77 +235,5 @@ class FreeTierLockdownTest {
             providers.length,
             "free-tier theme catalog is locked to six providers (ids: $providerIds)",
         )
-    }
-
-    // ---------- Idempotency and concurrency ----------
-
-    @Test
-    fun `revertToFreeDefaults is idempotent across ten sequential calls`() {
-        state.glowEnabled = true
-        state.accentRotationEnabled = true
-        state.cgpIntegrationEnabled = true
-
-        repeat(10) {
-            LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-        }
-
-        assertTrue(state.glowEnabled)
-        assertTrue(state.accentRotationEnabled)
-        assertTrue(state.cgpIntegrationEnabled)
-        // Every element choice stays at its constructor default.
-        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
-            assertTrue(state.isToggleEnabled(id))
-        }
-        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
-            assertFalse(state.isToggleEnabled(id))
-        }
-        assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
-    }
-
-    @Test
-    fun `revertToFreeDefaults preserves state under concurrent callers`() {
-        val application = ApplicationManager.getApplication()
-        every { application.isDispatchThread } answers { SwingUtilities.isEventDispatchThread() }
-        every { application.invokeLater(any<Runnable>(), any<ModalityState>()) } answers {
-            SwingUtilities.invokeLater(firstArg<Runnable>())
-        }
-        // Plain threads exercise repeated runtime fallback while confirming that
-        // the method has no persisted-state write surface.
-        repeat(3) {
-            state.glowEnabled = true
-            state.accentRotationEnabled = true
-            state.cgpIntegrationEnabled = true
-            state.irIntegrationEnabled = true
-            state.glowTabMode = "FULL"
-            state.hideProjectRootPath = true
-            state.hideProjectViewHScrollbar = true
-            // Seed free toggles false and persisted premium choices true.
-            for (id in AccentElementId.entries) {
-                state.setToggle(id, id.group == AccentGroup.CHROME)
-            }
-
-            val threads =
-                (1..4).map {
-                    Thread { LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE) }
-                }
-            threads.forEach { thread -> thread.start() }
-            threads.forEach { thread -> thread.join(5_000L) }
-            threads.forEach { thread -> assertFalse(thread.isAlive, "thread still alive — suspected deadlock") }
-            SwingUtilities.invokeAndWait { }
-
-            assertTrue(state.glowEnabled)
-            assertTrue(state.accentRotationEnabled)
-            assertTrue(state.cgpIntegrationEnabled)
-            assertTrue(state.irIntegrationEnabled)
-            assertEquals("FULL", state.glowTabMode)
-            assertTrue(state.hideProjectRootPath)
-            assertTrue(state.hideProjectViewHScrollbar)
-            for (id in AccentElementId.entries.filter { elementId -> elementId.group != AccentGroup.CHROME }) {
-                assertFalse(state.isToggleEnabled(id), "${id.name} must be preserved after concurrent revert")
-            }
-            for (id in AccentElementId.entries.filter { elementId -> elementId.group == AccentGroup.CHROME }) {
-                assertTrue(state.isToggleEnabled(id), "${id.name} must be preserved after concurrent revert")
-            }
-        }
     }
 }

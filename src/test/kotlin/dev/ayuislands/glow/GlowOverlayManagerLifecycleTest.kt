@@ -12,6 +12,7 @@ import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
+import com.intellij.testFramework.junit5.RunInEdt
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AccentChangeListener
@@ -31,12 +32,20 @@ import dev.ayuislands.glow.waveform.RouteSnapshot
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEdge
+import dev.ayuislands.glow.waveform.WaveformEngine
+import dev.ayuislands.glow.waveform.WaveformEvent
 import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.WaveformRouteLayer
+import dev.ayuislands.glow.waveform.WaveformState
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.model.StudioProcess
+import dev.ayuislands.studio.persistence.RestoreStatus
+import dev.ayuislands.studio.session.HeldGlowManager
+import dev.ayuislands.studio.session.StudioGlowPlayback
+import dev.ayuislands.studio.session.StudioGlowReferences
 import io.mockk.Runs
 import io.mockk.clearAllMocks
 import io.mockk.every
@@ -45,6 +54,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
+import io.mockk.spyk
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Color
@@ -53,13 +63,17 @@ import java.awt.KeyboardFocusManager
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Window
+import java.time.Instant
 import javax.swing.JLayeredPane
+import javax.swing.JPanel
+import javax.swing.RepaintManager
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -75,6 +89,7 @@ import kotlin.test.assertTrue
  * `updateGlow()` — overlays get disposed when no accent context is active, and
  * the three fallbacks are gone (regression-locked by [GlowFallbackBannedApiGuardTest]).
  */
+@RunInEdt
 class GlowOverlayManagerLifecycleTest {
     private val mockApplication = mockk<com.intellij.openapi.application.Application>(relaxed = true)
     private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
@@ -84,7 +99,6 @@ class GlowOverlayManagerLifecycleTest {
     @BeforeTest
     fun setUp() {
         mockkStatic(SwingUtilities::class)
-        every { SwingUtilities.isEventDispatchThread() } returns true
 
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
@@ -92,7 +106,11 @@ class GlowOverlayManagerLifecycleTest {
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
-        every { mockSettings.state } returns state
+        every { mockSettings.state } answers {
+            dev.ayuislands.studio.StudioFixtures
+                .legacyView(state)
+                .settings
+        }
         state.glowEnabled = true
         state.externalThemeEnhancementsEnabled = false
         state.lastAppliedAccentHex = null
@@ -119,6 +137,1307 @@ class GlowOverlayManagerLifecycleTest {
     fun tearDown() {
         unmockkAll()
         clearAllMocks()
+    }
+
+    @Test
+    fun `lifecycle and timer callbacks share the real EDT`() {
+        assertTrue(EventQueue.isDispatchThread())
+    }
+
+    @Test
+    fun `playback capture preserves native order and actual mode without stopping anything`() {
+        val manager = GlowOverlayManager(stubProject("playback-capture"))
+        val first = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        val second = spyk(GlowGlassPane(Color.CYAN, GlowStyle.SHARP_NEON, 70, 4))
+        seedAttachedPane(manager, first, "Terminal")
+        seedAttachedPane(manager, second, "Editor")
+        val running = mockk<GlowAnimator>(relaxed = true)
+        every { running.currentAnimation } returns GlowAnimation.BREATHE
+        setAnimator(manager, running)
+        val hold = manager.holdUpdates()
+        val before = listOf(first.captureAppearance(), second.captureAppearance())
+
+        val pause = manager.capturePlayback(hold)
+
+        assertEquals(listOf("Terminal", "Editor"), pause.targets.map { it.id })
+        assertEquals(GlowAnimation.BREATHE, pause.animation)
+        assertNull(pause.routeConfig)
+        assertFalse(pause.isComplete)
+        verify(exactly = 0) { first.stopAnimation() }
+        verify(exactly = 0) { second.stopAnimation() }
+        assertSame(running, readAnimator(manager))
+        pause.stop()
+        assertTrue(pause.isComplete)
+        assertNull(readAnimator(manager))
+        assertEquals(before, listOf(first.captureAppearance(), second.captureAppearance()))
+        assertEquals(listOf("Terminal", "Editor"), readOverlaysMap(manager).keys.toList())
+        assertSame(first, readGlassPane(manager, "Terminal"))
+        assertSame(second, readGlassPane(manager, "Editor"))
+        hold.release()
+    }
+
+    @Test
+    fun `playback pause retains actual route configuration after native disposal`() {
+        val manager = GlowOverlayManager(stubProject("playback-route-capture"))
+        val config = WaveformConfig(movement = WaveformMovement.CHAOTIC, amplitude = 27, loopSeconds = 18f)
+        val controller = readRouteController(manager)
+        val hold = manager.holdUpdates()
+        try {
+            controller.configure(RoutePlayback(config, emptyList()))
+
+            val pause = manager.capturePlayback(hold)
+
+            assertSame(config, pause.routeConfig)
+            assertTrue(controller.isActive)
+            assertFalse(pause.isComplete)
+            pause.stop()
+            assertTrue(pause.isComplete)
+            assertFalse(controller.isActive)
+            assertSame(config, pause.routeConfig)
+        } finally {
+            controller.dispose()
+            hold.release()
+        }
+    }
+
+    @Test
+    fun `playback pause retries only failed cleanup and leaves other panes attached`() {
+        val manager = GlowOverlayManager(stubProject("playback-retry"))
+        val first = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        val second = spyk(GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 70, 4))
+        seedAttachedPane(manager, first, "Terminal")
+        seedAttachedPane(manager, second, "Editor")
+        val failure = IllegalStateException("native timer shutdown")
+        var shouldFail = true
+        every { first.stopAnimation() } answers {
+            callOriginal()
+            if (shouldFail) throw failure
+        }
+        val hold = manager.holdUpdates()
+        val pause = manager.capturePlayback(hold)
+
+        assertSame(failure, assertFailsWith<IllegalStateException> { pause.stop() })
+        assertFalse(pause.isComplete)
+        verify(exactly = 1) { second.stopAnimation() }
+        shouldFail = false
+        pause.stop()
+        pause.stop()
+        assertTrue(pause.isComplete)
+        verify(exactly = 2) { first.stopAnimation() }
+        verify(exactly = 1) { second.stopAnimation() }
+        assertNotNull(first.parent)
+        assertNotNull(second.parent)
+        hold.release()
+    }
+
+    @Test
+    fun `playback pause leaves replaced targets untouched and completes independent cleanup`() {
+        val manager = GlowOverlayManager(stubProject("playback-replacement"))
+        val original = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        val other = spyk(GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 70, 4))
+        val replacement = spyk(GlowGlassPane(Color.PINK, GlowStyle.SOFT, 40, 3))
+        seedAttachedPane(manager, original, "Terminal")
+        seedAttachedPane(manager, other, "Editor")
+        val hold = manager.holdUpdates()
+        val pause = manager.capturePlayback(hold)
+        seedAttachedPane(manager, replacement, "Terminal")
+
+        assertFailsWith<IllegalStateException> { pause.stop() }
+        assertFalse(pause.isComplete)
+        verify(exactly = 0) { original.stopAnimation() }
+        verify(exactly = 0) { replacement.stopAnimation() }
+        verify(exactly = 1) { other.stopAnimation() }
+        assertSame(replacement, readGlassPane(manager, "Terminal"))
+        hold.release()
+        assertFailsWith<IllegalStateException> { pause.stop() }
+    }
+
+    @Test
+    fun `playback pause requires its active manager hold and observes newer blockers before effects`() {
+        val manager = GlowOverlayManager(stubProject("playback-lease"))
+        val other = GlowOverlayManager(stubProject("other-playback-lease"))
+        val pane = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        seedAttachedPane(manager, pane, "Editor")
+        val hold = manager.holdUpdates()
+        val otherHold = other.holdUpdates()
+
+        assertFailsWith<IllegalStateException> { manager.capturePlayback(otherHold) }
+        val pause = manager.capturePlayback(hold)
+        assertFailsWith<IllegalStateException> { pause.stop(isBlocked = true) }
+        verify(exactly = 0) { pane.stopAnimation() }
+        pause.stop()
+        assertTrue(pause.isComplete)
+        hold.release()
+        assertFailsWith<IllegalStateException> { manager.capturePlayback(hold) }
+        otherHold.release()
+    }
+
+    private fun seedAttachedPane(
+        manager: GlowOverlayManager,
+        pane: GlowGlassPane,
+        id: String,
+    ) {
+        val root = javax.swing.JRootPane()
+        val host = JPanel()
+        root.contentPane.add(host)
+        root.layeredPane.add(pane)
+        seedOverlaysMapWithMocks(manager, pane, host, root.layeredPane, id)
+    }
+
+    @Test
+    fun `restart validation requires the captured hold and completed native shutdown`() {
+        val manager = GlowOverlayManager(stubProject("restart-validation"))
+        val other = GlowOverlayManager(stubProject("other-restart-validation"))
+        val pane = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        seedAttachedPane(manager, pane, "Editor")
+        val hold = manager.holdUpdates()
+        val otherHold = other.holdUpdates()
+        val pause = manager.capturePlayback(hold)
+        try {
+            assertFailsWith<IllegalStateException> { pause.checkRestart(hold) }
+            pause.stop()
+            assertFailsWith<IllegalStateException> { pause.checkRestart(otherHold) }
+            pause.checkRestart(hold)
+            verify(exactly = 1) { pane.stopAnimation() }
+        } finally {
+            hold.release()
+            otherHold.release()
+        }
+        assertFailsWith<IllegalStateException> { pause.checkRestart(hold) }
+    }
+
+    @Test
+    fun `restart validation rejects replacement after an otherwise completed pause`() {
+        val manager = GlowOverlayManager(stubProject("restart-replacement"))
+        val original = GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6)
+        val replacement = spyk(GlowGlassPane(Color.CYAN, GlowStyle.SHARP_NEON, 70, 4))
+        seedAttachedPane(manager, original, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            seedAttachedPane(manager, replacement, "Editor")
+
+            assertFailsWith<IllegalStateException> { pause.checkRestart(hold) }
+
+            assertTrue(pause.isComplete)
+            assertSame(replacement, readGlassPane(manager, "Editor"))
+            verify(exactly = 0) { replacement.stopAnimation() }
+        } finally {
+            hold.release()
+        }
+    }
+
+    @Test
+    fun `Studio playback settles original evidence only after actual animation resumes`() {
+        val manager = GlowOverlayManager(stubProject("studio-playback"))
+        val pane = GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6)
+        seedAttachedPane(manager, pane, "Editor")
+        val keyboard = mockk<KeyboardFocusManager>()
+        mockkStatic(KeyboardFocusManager::class)
+        every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns keyboard
+        every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Editor")
+        val previous = GlowAnimator()
+        previous.start(GlowAnimation.BREATHE) { pane.animationAlpha = it }
+        setAnimator(manager, previous)
+        state.glowAnimation = GlowAnimation.PULSE.name
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            val playback =
+                StudioGlowPlayback(
+                    StudioGlowReferences("transaction", StudioProcess(42, Instant.EPOCH)),
+                    HeldGlowManager(manager, hold),
+                    pause,
+                    activationRequest(pause.targets, GlowAnimation.PULSE),
+                )
+            val original = playback.receipts.single()
+            val newer = original.copy(id = "newer", identity = original.identity.copy(ownerToken = "newer"))
+            assertFailsWith<IllegalStateException> { playback.pause(listOf(newer)) }
+            assertSame(previous, readAnimator(manager))
+            val other = newer.copy(identity = newer.identity.copy(resource = "another-manager"))
+            playback.pause(listOf(other))
+            playback.start(emptyMap(), { _, _ -> }, {})
+            assertEquals(GlowAnimation.PULSE, assertNotNull(readAnimator(manager)).currentAnimation)
+            assertEquals(RestoreStatus.OWNED, playback.receipts.single().status)
+            assertFailsWith<IllegalStateException> { playback.stopForward(listOf(newer)) }
+            assertEquals(GlowAnimation.PULSE, assertNotNull(readAnimator(manager)).currentAnimation)
+            playback.stopForward(emptyList())
+            assertEquals(original, playback.receipts.single())
+            assertNull(readAnimator(manager))
+
+            playback.prepareRestore(emptyList())
+            val prepared = playback.receipts
+            assertTrue(prepared.size > 1)
+            assertNull(readAnimator(manager))
+            assertTrue(playback.restore(emptyList()))
+            val resumed = assertNotNull(readAnimator(manager))
+            assertEquals(GlowAnimation.BREATHE, resumed.currentAnimation)
+            assertEquals(GlowAnimation.PULSE.name, state.glowAnimation)
+            assertTrue(playback.receipts.all { it.status == RestoreStatus.RESTORED })
+            for (receipt in prepared) {
+                assertEquals(receipt, playback.receipts.single { it.id == receipt.id }.copy(status = receipt.status))
+            }
+            playback.prepareRestore(emptyList())
+            assertTrue(playback.restore(emptyList()))
+            assertSame(resumed, readAnimator(manager))
+            assertEquals(prepared.size, playback.receipts.size)
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `Studio rollback retains failed startup health and acknowledges a distinct retry`() {
+        val manager = GlowOverlayManager(stubProject("studio-playback-retry"))
+        val pane = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig())
+        seedAttachedPane(manager, pane, "Editor")
+        val keyboard = mockk<KeyboardFocusManager>()
+        mockkStatic(KeyboardFocusManager::class)
+        every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns keyboard
+        every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Editor")
+        every { PowerSaveMode.isEnabled() } returns true
+        var shouldFail = true
+        every { pane.activateWaveform(any(), any(), any()) } answers {
+            callOriginal()
+            check(!shouldFail) { "After native activation" }
+        }
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            val playback =
+                StudioGlowPlayback(
+                    StudioGlowReferences("transaction", StudioProcess(42, Instant.EPOCH)),
+                    HeldGlowManager(manager, hold),
+                    pause,
+                    activationRequest(pause.targets),
+                )
+            playback.pause(emptyList())
+            playback.stopForward(emptyList())
+            playback.prepareRestore(emptyList())
+            assertFailsWith<IllegalStateException> { playback.restore(emptyList()) }
+            assertNotNull(pane.currentWaveformEngine)
+            playback.prepareRestore(emptyList())
+            assertFalse(playback.restore(emptyList()))
+            assertNull(pane.currentWaveformEngine)
+            val cleaned = playback.receipts
+            assertEquals(RestoreStatus.PENDING, cleaned.first().status)
+            assertTrue(cleaned.drop(1).all { it.status == RestoreStatus.RESTORED })
+
+            shouldFail = false
+            playback.prepareRestore(emptyList())
+            assertTrue(playback.receipts.size > cleaned.size)
+            assertEquals(
+                playback.receipts.size,
+                playback.receipts
+                    .map { it.id }
+                    .distinct()
+                    .size,
+            )
+            assertEquals(cleaned, playback.receipts.take(cleaned.size))
+            assertTrue(playback.restore(emptyList()))
+            assertTrue(playback.receipts.all { it.status == RestoreStatus.RESTORED })
+            val restored = assertNotNull(pane.currentWaveformEngine)
+            playback.prepareRestore(emptyList())
+            assertTrue(playback.restore(emptyList()))
+            assertSame(restored, pane.currentWaveformEngine)
+            verify(exactly = 2) { pane.activateWaveform(any(), any(), any()) }
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `restart restores actual animation on the same focused pane without rewriting preferences`() {
+        val manager = GlowOverlayManager(stubProject("restart-same-focus"))
+        val pane = GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6)
+        seedAttachedPane(manager, pane, "Editor")
+        val keyboard = mockk<KeyboardFocusManager>()
+        mockkStatic(KeyboardFocusManager::class)
+        every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns keyboard
+        every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Editor")
+        setActiveGlow(manager, "Editor")
+        val previous = GlowAnimator()
+        previous.start(GlowAnimation.BREATHE) { pane.animationAlpha = it }
+        setAnimator(manager, previous)
+        state.glowAnimation = GlowAnimation.PULSE.name
+        val appearance = pane.captureAppearance()
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause)
+            assertNull(readAnimator(manager))
+            assertFailsWith<IllegalStateException> { restart.checkApplied() }
+
+            restart.start()
+            val resumed = assertNotNull(readAnimator(manager))
+            assertEquals(GlowAnimation.BREATHE, resumed.currentAnimation)
+            restart.start()
+            assertSame(resumed, readAnimator(manager))
+            assertEquals(appearance, pane.captureAppearance())
+            assertEquals(GlowAnimation.PULSE.name, state.glowAnimation)
+            restart.stop()
+            assertNull(readAnimator(manager))
+            assertEquals(GlowAnimation.NONE, resumed.currentAnimation)
+            assertFailsWith<IllegalStateException> { restart.start() }
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `forward activation uses new targets and explicit mode without rebasing the original pause`() {
+        val manager = GlowOverlayManager(stubProject("activation-new-target"))
+        val original = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        val added = spyk(GlowGlassPane(Color.CYAN, GlowStyle.SHARP_NEON, 70, 4))
+        seedAttachedPane(manager, original, "Editor")
+        val keyboard = spyk(KeyboardFocusManager.getCurrentKeyboardFocusManager())
+        mockkStatic(KeyboardFocusManager::class)
+        every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns keyboard
+        every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Editor")
+        val previous = GlowAnimator()
+        previous.start(GlowAnimation.BREATHE) { original.animationAlpha = it }
+        setAnimator(manager, previous)
+        state.glowAnimation = GlowAnimation.NONE.name
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            seedAttachedPane(manager, added, "Terminal")
+            every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Terminal")
+            added.configureRouteMode(true)
+            val activation =
+                manager.preparePlayback(
+                    hold,
+                    pause,
+                    activationRequest(
+                        manager.capturePlayback(hold).targets.filter { it.id == "Terminal" },
+                        GlowAnimation.PULSE,
+                    ),
+                )
+            assertNull(readAnimator(manager))
+            verify(exactly = 0) { added.startFadeIn(any()) }
+            assertFailsWith<IllegalStateException> { pause.checkRestart(hold) }
+
+            activation.start()
+
+            assertEquals(GlowAnimation.PULSE, assertNotNull(readAnimator(manager)).currentAnimation)
+            assertFalse(added.hasRouteMode())
+            verify(exactly = 1) { added.startFadeIn(any()) }
+            verify(exactly = 0) { original.startFadeIn(any()) }
+            verify(exactly = 0) { original.startFadeOut(any()) }
+            verify(exactly = 1) { original.stopAnimation() }
+            verify(exactly = 0) { added.stopAnimation() }
+            assertEquals(GlowAnimation.NONE.name, state.glowAnimation)
+            assertEquals(GlowAnimation.BREATHE, pause.animation)
+            assertEquals(listOf("Editor"), pause.targets.map { it.id })
+            activation.stop()
+            added.parent.remove(added)
+            (readOverlaysMap(manager) as MutableMap<*, *>).remove("Terminal")
+            every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Editor")
+            val restored = manager.preparePlayback(hold, pause)
+            restored.start()
+            assertEquals(GlowAnimation.BREATHE, assertNotNull(readAnimator(manager)).currentAnimation)
+            restored.stop()
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `forward route uses eligible targets in native order and leaves excluded panes untouched`() {
+        val manager = GlowOverlayManager(stubProject("activation-route-subset"))
+        val config = WaveformConfig(movement = WaveformMovement.CHAOTIC, amplitude = 21)
+        val first = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        val hidden = GlowGlassPane(Color.ORANGE, GlowStyle.GRADIENT, 23, 5)
+        val last = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        first.configureWaveform(GlowShape.WAVEFORM, config)
+        last.configureWaveform(GlowShape.WAVEFORM, config)
+        hidden.isVisible = false
+        hidden.animationAlpha = 0.3f
+        seedAttachedPane(manager, first, "Editor")
+        seedAttachedPane(manager, hidden, "Project")
+        seedAttachedPane(manager, last, "Terminal")
+        val before = hidden.captureAppearance()
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val activation =
+                manager.preparePlayback(
+                    hold,
+                    pause,
+                    activationRequest(
+                        manager.capturePlayback(hold).targets.filter { it.id != "Project" },
+                        routeConfig = config,
+                    ),
+                )
+            activation.start()
+            val playback = assertNotNull(readRouteController(manager).currentPlayback)
+            assertSame(config, playback.config)
+            assertEquals(listOf("Editor", "Terminal"), playback.targets.map { it.id })
+            assertEquals(before, hidden.captureAppearance())
+            assertEquals(0.3f, hidden.animationAlpha)
+            assertFalse(hidden.hasRouteMode())
+            activation.accept()
+            pause.overlays.prepareRemoval("Project").cleanup()
+            assertEquals(listOf("Editor", "Terminal"), readOverlaysMap(manager).keys.toList())
+            assertTrue(readRouteController(manager).isActive)
+            assertSame(config, readRouteController(manager).currentConfig)
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `rollback preserves an explicitly active route even without current panes`() {
+        val manager = GlowOverlayManager(stubProject("restart-empty-route"))
+        val controller = readRouteController(manager)
+        val config = WaveformConfig(movement = WaveformMovement.CHAOTIC, amplitude = 21)
+        val hold = manager.holdUpdates()
+        try {
+            controller.configure(RoutePlayback(config, emptyList()))
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause)
+            restart.start()
+
+            assertTrue(controller.isActive)
+            assertSame(config, assertNotNull(controller.currentPlayback).config)
+
+            restart.stop()
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `accepted old overlay cleanup preserves the new animator and active pane`() {
+        val manager = GlowOverlayManager(stubProject("accepted-overlay-cleanup"))
+        val previousPane = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        val activePane = GlowGlassPane(Color.CYAN, GlowStyle.SHARP_NEON, 70, 4)
+        seedAttachedPane(manager, previousPane, "Project")
+        seedAttachedPane(manager, activePane, "Terminal")
+        val keyboard = spyk(KeyboardFocusManager.getCurrentKeyboardFocusManager())
+        mockkStatic(KeyboardFocusManager::class)
+        every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns keyboard
+        every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Terminal")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            val removal = pause.overlays.prepareRemoval("Project")
+            val hiddenAppearance = previousPane.captureAppearance().copy(isVisible = false)
+            val hidden = requireNotNull(pause.overlays.capturePane("Project", hiddenAppearance))
+            pause.stop()
+            hidden.apply()
+            val activation =
+                manager.preparePlayback(
+                    hold,
+                    pause,
+                    activationRequest(
+                        manager.capturePlayback(hold).targets.filter { it.id == "Terminal" },
+                        GlowAnimation.PULSE,
+                    ),
+                )
+            activation.start()
+            val animator = assertNotNull(readAnimator(manager))
+            val appearance = activePane.captureAppearance()
+            activation.accept()
+            hidden.accept()
+
+            removal.cleanup()
+            removal.cleanup()
+            activation.accept()
+
+            assertSame(animator, readAnimator(manager))
+            assertEquals(GlowAnimation.PULSE, animator.currentAnimation)
+            assertSame(activePane, readGlassPane(manager, "Terminal"))
+            assertEquals(appearance, activePane.captureAppearance())
+            assertEquals(listOf("Terminal"), readOverlaysMap(manager).keys.toList())
+            verify(exactly = 1) { previousPane.stopAnimation() }
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `activation requires exact completed pause and known target identities`() {
+        val manager = GlowOverlayManager(stubProject("activation-admission"))
+        val other = GlowOverlayManager(stubProject("activation-other"))
+        val hold = manager.holdUpdates()
+        val otherHold = other.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            assertFailsWith<IllegalStateException> {
+                manager.preparePlayback(
+                    hold,
+                    pause,
+                    activationRequest(emptyList()),
+                )
+            }
+            pause.stop()
+            assertFailsWith<IllegalStateException> {
+                other.preparePlayback(
+                    otherHold,
+                    pause,
+                    activationRequest(emptyList()),
+                )
+            }
+            assertFailsWith<IllegalArgumentException> {
+                manager.preparePlayback(
+                    hold,
+                    pause,
+                    activationRequest(
+                        listOf(
+                            RouteOverlay(
+                                "missing",
+                                GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8),
+                                JPanel(),
+                                JLayeredPane(),
+                            ),
+                        ),
+                    ),
+                )
+            }
+            val activation =
+                manager.preparePlayback(
+                    hold,
+                    pause,
+                    activationRequest(emptyList(), GlowAnimation.PULSE),
+                )
+            activation.start()
+            assertNull(readAnimator(manager))
+            activation.stop()
+        } finally {
+            hold.release()
+            otherHold.release()
+            manager.dispose()
+            other.dispose()
+        }
+    }
+
+    @Test
+    fun `activation rejects a changed census before starting native playback`() {
+        val manager = GlowOverlayManager(stubProject("activation-census-change"))
+        val original = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        seedAttachedPane(manager, original, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val activation =
+                manager.preparePlayback(
+                    hold,
+                    pause,
+                    activationRequest(pause.targets),
+                )
+            seedAttachedPane(manager, GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8), "Project")
+
+            assertFailsWith<IllegalStateException> { activation.start() }
+
+            verify(exactly = 0) { original.startFadeIn(any()) }
+            verify(exactly = 0) { original.startFadeOut(any()) }
+            activation.stop()
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `activation rejects same id replacement before late preparation`() {
+        val manager = GlowOverlayManager(stubProject("activation-replaced-target"))
+        val original = GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6)
+        val replacement = spyk(GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8))
+        seedAttachedPane(manager, original, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            val request = activationRequest(pause.targets)
+            pause.stop()
+            seedAttachedPane(manager, replacement, "Editor")
+
+            assertFailsWith<IllegalStateException> { manager.preparePlayback(hold, pause, request) }
+            verify(exactly = 0) { replacement.startFadeIn(any()) }
+            verify(exactly = 0) { replacement.startFadeOut(any()) }
+            assertSame(replacement, readGlassPane(manager, "Editor"))
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `activation freezes target order and environment before late preparation`() {
+        val manager = GlowOverlayManager(stubProject("activation-frozen-intent"))
+        val first = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        val last = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        seedAttachedPane(manager, first, "Editor")
+        seedAttachedPane(manager, last, "Terminal")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            val targets =
+                pause.targets.map { GlowPlaybackTarget(it, it.pane.captureAppearance(), it.pane.waveformFailure) }
+            val mutableTargets = targets.toMutableList()
+            val request =
+                GlowPlaybackRequest.Activate(
+                    GlowAnimation.NONE,
+                    null,
+                    mutableTargets,
+                    capturePlaybackEnvironment(pause.targets),
+                )
+            mutableTargets.clear()
+            assertEquals(targets, request.targets)
+            pause.stop()
+            val reversed = activationRequest(pause.targets.reversed())
+            assertFailsWith<IllegalStateException> { manager.preparePlayback(hold, pause, reversed) }
+            every { PowerSaveMode.isEnabled() } returns true
+            assertFailsWith<IllegalStateException> { manager.preparePlayback(hold, pause, request) }
+            verify(exactly = 0) { first.startFadeIn(any()) }
+            verify(exactly = 0) { first.startFadeOut(any()) }
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `activation rejects foreign appearance and failure before late preparation`() {
+        val manager = GlowOverlayManager(stubProject("activation-foreign-fields"))
+        val pane = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        seedAttachedPane(manager, pane, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            val request = activationRequest(pause.targets)
+            pause.stop()
+            pane.glowColor = Color(Color.ORANGE.rgb)
+            assertFailsWith<IllegalStateException> { manager.preparePlayback(hold, pause, request) }
+            pane.glowColor = Color.ORANGE
+            pane.glowIntensity = 36
+            assertFailsWith<IllegalStateException> { manager.preparePlayback(hold, pause, request) }
+            assertEquals(36, pane.glowIntensity)
+            pane.glowIntensity = 35
+            pane.failRouteWaveform(IllegalStateException("foreign failure"))
+            val failure = assertNotNull(pane.waveformFailure)
+            assertFailsWith<IllegalStateException> { manager.preparePlayback(hold, pause, request) }
+            assertSame(failure, pane.waveformFailure)
+            verify(exactly = 0) { pane.startFadeIn(any()) }
+            verify(exactly = 0) { pane.startFadeOut(any()) }
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `activation admits recorded engines and rejects an unrecorded replacement`() {
+        val manager = GlowOverlayManager(stubProject("activation-engine-provenance"))
+        val pane = spyk(GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8))
+        seedAttachedPane(manager, pane, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val engines = mutableMapOf<GlowGlassPane, WaveformEngine>()
+            pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig()) { engines[pane] = it }
+            val request = activationRequest(pause.targets)
+            assertSame(engines[pane], pane.currentWaveformEngine)
+            manager.preparePlayback(hold, pause, request, engines)
+            pane.stopAnimation()
+            pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig())
+            val replacement = assertNotNull(pane.currentWaveformEngine)
+            val before = replacement.state
+
+            assertFailsWith<IllegalStateException> { manager.preparePlayback(hold, pause, request, engines) }
+            assertFailsWith<IllegalStateException> { manager.preparePlayback(hold, pause, request) }
+            assertSame(replacement, pane.currentWaveformEngine)
+            assertEquals(before, replacement.state)
+            verify(exactly = 0) { pane.startFadeIn(any()) }
+            verify(exactly = 0) { pane.startFadeOut(any()) }
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `activation admits the engine prepared on a detached addition`() {
+        val project = stubProject("activation-detached-engine")
+        val manager = GlowOverlayManager(project)
+        val root = javax.swing.JRootPane()
+        val host = JPanel().apply { setSize(400, 300) }
+        root.contentPane.add(host)
+        state.glowEnabled = true
+        state.glowShape = GlowShape.WAVEFORM.name
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            val addition =
+                assertNotNull(
+                    manager.prepareOverlay(
+                        GlowHost("Editor", host, true),
+                        loadGlowRuntimeInput(state),
+                        AccentContext.Ayu(AyuVariant.MIRAGE),
+                        hold,
+                    ),
+                )
+            val pane = addition.entry.glassPane
+            val engine = assertNotNull(pane.currentWaveformEngine)
+            val target = RouteOverlay("Editor", pane, host, root.layeredPane)
+            val request = activationRequest(listOf(target))
+            pause.stop()
+            addition.apply()
+            val activation = manager.preparePlayback(hold, pause, request, mapOf(pane to engine))
+            assertSame(engine, pane.currentWaveformEngine)
+            activation.start()
+            activation.stop()
+            addition.restore()
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    private fun activationRequest(
+        targets: List<RouteOverlay>,
+        animation: GlowAnimation = GlowAnimation.NONE,
+        routeConfig: WaveformConfig? = null,
+    ): GlowPlaybackRequest.Activate =
+        GlowPlaybackRequest.Activate(
+            animation,
+            routeConfig,
+            targets.map { GlowPlaybackTarget(it, it.pane.captureAppearance(), it.pane.waveformFailure) },
+            capturePlaybackEnvironment(targets),
+        )
+
+    @Test
+    fun `route restart rejects a foreign engine before touching any prepared pane`() {
+        rejectForeignRouteEngine(duringPublication = false)
+    }
+
+    @Test
+    fun `route restart rechecks native engines after publishing its retained route`() {
+        rejectForeignRouteEngine(duringPublication = true)
+    }
+
+    private fun rejectForeignRouteEngine(duringPublication: Boolean) {
+        val manager = GlowOverlayManager(stubProject("restart-foreign-route-engine"))
+        val controller = readRouteController(manager)
+        val config = WaveformConfig(movement = WaveformMovement.CHAOTIC)
+        val first = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        val last = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        for (pane in listOf(first, last)) pane.configureWaveform(GlowShape.WAVEFORM, config)
+        seedAttachedPane(manager, first, "Editor")
+        seedAttachedPane(manager, last, "Terminal")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            first.animationAlpha = 0.4f
+            val restart = manager.preparePlayback(hold, pause, activationRequest(pause.targets, routeConfig = config))
+            var foreign: WaveformEngine? = null
+            var before: WaveformState? = null
+            val replaceEngine = {
+                last.configureWaveform(GlowShape.WAVEFORM, config)
+                val engine = assertNotNull(last.currentWaveformEngine)
+                engine.handle(WaveformEvent.Activate(powerSaveEnabled = true))
+                foreign = engine
+                before = engine.state
+            }
+            if (!duringPublication) replaceEngine()
+
+            assertFailsWith<IllegalStateException> {
+                restart.start(onRouteCreated = { if (duringPublication) replaceEngine() })
+            }
+
+            val retained = assertNotNull(foreign)
+            assertSame(retained, last.currentWaveformEngine)
+            assertEquals(assertNotNull(before), retained.state)
+            assertFalse(controller.isActive)
+            assertNull(controller.currentPlayback)
+            if (!duringPublication) assertEquals(0.4f, first.animationAlpha)
+            restart.stop()
+            assertSame(retained, last.currentWaveformEngine)
+            assertEquals(before, retained.state)
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `route pane activation preserves an engine replaced while its earlier peer repaints`() {
+        val manager = GlowOverlayManager(stubProject("restart-foreign-peer-engine"))
+        val controller = readRouteController(manager)
+        val config = WaveformConfig(movement = WaveformMovement.CHAOTIC)
+        val first = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        val last = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        for (pane in listOf(first, last)) pane.configureWaveform(GlowShape.WAVEFORM, config)
+        seedAttachedPane(manager, first, "Editor")
+        seedAttachedPane(manager, last, "Terminal")
+        val hold = manager.holdUpdates()
+        val previous = RepaintManager.currentManager(first)
+        var foreign: WaveformEngine? = null
+        var before: WaveformState? = null
+        val observer =
+            object : RepaintManager() {
+                override fun addDirtyRegion(
+                    component: javax.swing.JComponent,
+                    x: Int,
+                    y: Int,
+                    width: Int,
+                    height: Int,
+                ) {
+                    if (component === first && controller.currentPlayback != null && foreign == null) {
+                        last.configureWaveform(GlowShape.WAVEFORM, config)
+                        val engine = assertNotNull(last.currentWaveformEngine)
+                        engine.handle(WaveformEvent.Activate(powerSaveEnabled = true))
+                        foreign = engine
+                        before = engine.state
+                    }
+                    super.addDirtyRegion(component, x, y, width, height)
+                }
+            }
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause, activationRequest(pause.targets, routeConfig = config))
+            RepaintManager.setCurrentManager(observer)
+
+            assertFailsWith<IllegalStateException> { restart.start() }
+
+            val retained = assertNotNull(foreign)
+            assertSame(retained, last.currentWaveformEngine)
+            assertEquals(assertNotNull(before), retained.state)
+            restart.stop()
+            assertSame(retained, last.currentWaveformEngine)
+            assertEquals(before, retained.state)
+        } finally {
+            RepaintManager.setCurrentManager(previous)
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `restart evidence freezes native preparation while reporting current cleanup progress`() {
+        val manager = GlowOverlayManager(stubProject("restart-frozen-evidence"))
+        val pane = GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6)
+        seedAttachedPane(manager, pane, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause)
+            val prepared = restart.record
+            val expected = prepared.intent.targets.single()
+            assertSame(pane, expected.overlay.pane)
+            assertSame(Color.ORANGE, expected.appearance.color)
+            assertNull(expected.failure)
+            assertEquals(GlowCheckpointPhase.PREPARED, prepared.phase)
+            assertFalse(prepared.intent.environment.isPowerSaveEnabled)
+            pane.glowColor = Color.CYAN
+            pane.failRouteWaveform(IllegalStateException("Foreign occurrence"))
+            val failure = assertNotNull(pane.waveformFailure)
+            every { PowerSaveMode.isEnabled() } returns true
+
+            assertSame(prepared.intent, restart.record.intent)
+            val recordedTarget =
+                restart.record.intent.targets
+                    .single()
+            assertSame(Color.ORANGE, recordedTarget.appearance.color)
+            assertNull(recordedTarget.failure)
+            assertFalse(restart.record.intent.environment.isPowerSaveEnabled)
+            assertFailsWith<IllegalStateException> { restart.start() }
+            restart.stop()
+            assertEquals(GlowCheckpointPhase.RESTORED, restart.record.phase)
+            assertEquals(GlowCheckpointPhase.PREPARED, prepared.phase)
+            assertSame(prepared.intent, restart.record.intent)
+            assertSame(Color.CYAN, pane.glowColor)
+            assertSame(failure, pane.waveformFailure)
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `restart rejects a changed environment before creating native resources`() {
+        val manager = GlowOverlayManager(stubProject("restart-stale-environment"))
+        val pane = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        seedAttachedPane(manager, pane, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause)
+            every { PowerSaveMode.isEnabled() } returns true
+
+            assertFailsWith<IllegalStateException> { restart.start() }
+            verify(exactly = 0) { pane.startFadeIn(any()) }
+            verify(exactly = 0) { pane.startFadeOut(any()) }
+            assertNull(readAnimator(manager))
+            restart.stop()
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `route restart hands off its exact request without restarting accepted playback`() {
+        val manager = GlowOverlayManager(stubProject("restart-route-handoff"))
+        val controller = readRouteController(manager)
+        val config = WaveformConfig(movement = WaveformMovement.CHAOTIC, amplitude = 27, loopSeconds = 18f)
+        val pane = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        pane.configureWaveform(GlowShape.WAVEFORM, config)
+        pane.animationAlpha = 0.4f
+        seedAttachedPane(manager, pane, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            controller.configure(RoutePlayback(config, manager.capturePlayback(hold).targets))
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause)
+            restart.start()
+            val selected = assertNotNull(controller.currentPlayback)
+            assertSame(config, selected.config)
+            assertEquals(1f, pane.animationAlpha)
+            restart.start()
+            assertSame(selected, controller.currentPlayback)
+            restart.accept()
+            restart.accept()
+            assertNull(controller.currentPlayback)
+            assertTrue(controller.isActive)
+            assertSame(config, controller.currentConfig)
+            assertFailsWith<IllegalStateException> { restart.stop() }
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `accepted restart releases ownership after application activity changes`() {
+        val manager = GlowOverlayManager(stubProject("restart-accepted-environment"))
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause)
+            restart.start()
+            every { mockApplication.isActive } returns false
+            assertFailsWith<IllegalStateException> { restart.checkApplied() }
+
+            restart.accept()
+            restart.accept()
+            assertTrue(hold.needsRefresh)
+            assertFailsWith<IllegalStateException> { restart.stop() }
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `restart never replaces a foreign route installed by the alpha repaint`() {
+        val manager = GlowOverlayManager(stubProject("restart-repaint-route"))
+        val controller = readRouteController(manager)
+        val config = WaveformConfig(movement = WaveformMovement.CHAOTIC, amplitude = 27)
+        val pane = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        pane.configureWaveform(GlowShape.WAVEFORM, config)
+        seedAttachedPane(manager, pane, "Editor")
+        val hold = manager.holdUpdates()
+        val previous = RepaintManager.currentManager(pane)
+        val replacement = RoutePlayback(config.copy(amplitude = 17), emptyList())
+        var shouldReplace = true
+        val observer =
+            object : RepaintManager() {
+                override fun addDirtyRegion(
+                    component: javax.swing.JComponent,
+                    x: Int,
+                    y: Int,
+                    width: Int,
+                    height: Int,
+                ) {
+                    if (component === pane && shouldReplace) {
+                        shouldReplace = false
+                        controller.configure(replacement)
+                    }
+                    super.addDirtyRegion(component, x, y, width, height)
+                }
+            }
+        try {
+            controller.configure(RoutePlayback(config, manager.capturePlayback(hold).targets))
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause)
+            RepaintManager.setCurrentManager(observer)
+
+            assertFailsWith<IllegalStateException> { restart.start() }
+            assertFalse(shouldReplace)
+            assertSame(replacement, controller.currentPlayback)
+            restart.stop()
+            assertSame(replacement, controller.currentPlayback)
+            assertTrue(controller.isActive)
+        } finally {
+            RepaintManager.setCurrentManager(previous)
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `failed restart retains cleanup and requires a new attempt`() {
+        val manager = GlowOverlayManager(stubProject("restart-partial-failure"))
+        val pane = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig(amplitude = 17))
+        seedAttachedPane(manager, pane, "Editor")
+        val keyboard = mockk<KeyboardFocusManager>()
+        mockkStatic(KeyboardFocusManager::class)
+        every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns keyboard
+        every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Editor")
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val appearance = pane.captureAppearance()
+            val restart = manager.preparePlayback(hold, pause)
+            val cause = IllegalStateException("Engine registration failed after fade startup")
+            assertSame(
+                cause,
+                assertFailsWith<IllegalStateException> {
+                    restart.start(onEngineCreated = { _, _ -> throw cause })
+                },
+            )
+            assertFailsWith<IllegalStateException> { restart.checkApplied() }
+            assertFailsWith<IllegalStateException> { restart.start() }
+            restart.stop()
+            restart.stop()
+            assertEquals(appearance, pane.captureAppearance())
+            val replacement = manager.preparePlayback(hold, pause)
+            replacement.start()
+            replacement.checkApplied()
+            replacement.stop()
+            assertEquals(appearance, pane.captureAppearance())
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `restart cleanup preserves a replacement animator and fade`() {
+        val manager = GlowOverlayManager(stubProject("restart-replaced-animator"))
+        val pane = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 50, 8)
+        seedAttachedPane(manager, pane, "Editor")
+        val keyboard = mockk<KeyboardFocusManager>()
+        mockkStatic(KeyboardFocusManager::class)
+        every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns keyboard
+        every { keyboard.permanentFocusOwner } returns readOverlayHost(manager, "Editor")
+        val previous = GlowAnimator()
+        previous.start(GlowAnimation.BREATHE) { pane.animationAlpha = it }
+        setAnimator(manager, previous)
+        val hold = manager.holdUpdates()
+        try {
+            val pause = manager.capturePlayback(hold)
+            pause.stop()
+            val restart = manager.preparePlayback(hold, pause)
+            restart.start()
+            val owned = assertNotNull(readAnimator(manager))
+            val replacement = GlowAnimator()
+            replacement.start(GlowAnimation.PULSE) { pane.animationAlpha = it }
+            setAnimator(manager, replacement)
+            var replacementFade: Timer? = null
+            pane.startFadeIn { replacementFade = it }
+
+            restart.stop()
+
+            assertEquals(GlowAnimation.NONE, owned.currentAnimation)
+            assertSame(replacement, readAnimator(manager))
+            assertEquals(GlowAnimation.PULSE, replacement.currentAnimation)
+            assertTrue(assertNotNull(replacementFade).isRunning)
+        } finally {
+            hold.release()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `playback pause retains failed animator shutdown before entering platform disposal`() {
+        val manager = GlowOverlayManager(stubProject("playback-animator-failure"))
+        val pane = spyk(GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6))
+        seedAttachedPane(manager, pane, "Editor")
+        val running = mockk<GlowAnimator>(relaxed = true)
+        val failure = IllegalStateException("animator timer shutdown")
+        every { running.stop() } throws failure
+        setAnimator(manager, running)
+        val hold = manager.holdUpdates()
+        val pause = manager.capturePlayback(hold)
+
+        assertSame(failure, assertFailsWith<IllegalStateException> { pause.stop() })
+        assertFalse(pause.isComplete)
+        assertSame(running, readAnimator(manager))
+        verify(exactly = 0) { running.dispose() }
+        verify(exactly = 1) { pane.stopAnimation() }
+        every { running.stop() } just Runs
+        pause.stop()
+        assertTrue(pause.isComplete)
+        assertNull(readAnimator(manager))
+        verify(exactly = 1) { running.dispose() }
+        verify(exactly = 1) { pane.stopAnimation() }
+        hold.release()
+    }
+
+    @Test
+    fun `held updates retain native panes and coalesce accent without changing preferences`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+        val manager = GlowOverlayManager(stubProject("held-appearance"))
+        markManagerWarm(manager)
+        val pane = GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6)
+        seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), mockk(relaxed = true))
+        val before = pane.captureAppearance()
+        val hold = manager.holdUpdates()
+        val finalAccent = AccentHex.require("#123456")
+
+        manager.updateGlow(AccentHex.require("#5CCFE6"))
+        manager.updateGlow(finalAccent)
+        manager.previewPlacements(GlowPlacement.SIDE_EDGES, GlowPlacement.SIDE_EDGES)
+        every { LicenseChecker.isLicensedOrGrace() } returns false
+        manager.updateGlow()
+
+        assertEquals(before, pane.captureAppearance())
+        assertSame(pane, readGlassPane(manager, PROJECT_ID))
+        assertEquals(finalAccent, hold.pendingAccent)
+        assertTrue(hold.needsRefresh)
+        assertTrue(state.glowEnabled)
+        assertNull(state.lastAppliedAccentHex)
+        hold.release()
+        manager.updateGlow()
+        assertTrue(readOverlaysMap(manager).isEmpty())
+    }
+
+    @Test
+    fun `held updates stop armed initialization callbacks until a fresh refresh`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.invokeLater(any()) } answers { scheduled += firstArg<Runnable>() }
+        val project = stubProject("held-initialization")
+        val manager = GlowOverlayManager(project)
+        markManagerWarm(manager)
+        val windows = mockk<ToolWindowManager>(relaxed = true)
+        mockkStatic(ToolWindowManager::class)
+        every { ToolWindowManager.getInstance(project) } returns windows
+        manager.initialize()
+        val stale = scheduled.single()
+        val hold = manager.holdUpdates()
+
+        stale.run()
+
+        verify(exactly = 0) { windows.toolWindowIdSet }
+        assertTrue(hold.needsRefresh)
+        hold.release()
+        stale.run()
+        verify(exactly = 0) { windows.toolWindowIdSet }
+    }
+
+    @Test
+    fun `held off EDT accent publication retains the exact payload`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.invokeLater(any()) } answers { scheduled += firstArg<Runnable>() }
+        val project = stubProject("held-accent")
+        val connection = mockk<MessageBusConnection>(relaxed = true)
+        every { project.messageBus.connect(any<Disposable>()) } returns connection
+        val accentListener = slot<AccentChangeListener>()
+        every { connection.subscribe(eq(AccentChangedTopic.TOPIC), capture(accentListener)) } just Runs
+        val manager = GlowOverlayManager(project)
+        manager.initialize()
+        val hold = manager.holdUpdates()
+        val accent = AccentHex.require("#123456")
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        accentListener.captured.accentChanged(project, accent, AccentResolver.Source.GLOBAL)
+        every { SwingUtilities.isEventDispatchThread() } answers { EventQueue.isDispatchThread() }
+
+        scheduled.toList().forEach(Runnable::run)
+
+        assertEquals(accent, hold.pendingAccent)
+        hold.release()
+        manager.dispose()
+    }
+
+    @Test
+    fun `held geometry callbacks do not move the captured pane`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.invokeLater(any()) } answers { scheduled += firstArg<Runnable>() }
+        val manager = GlowOverlayManager(stubProject("held-bounds"))
+        val host = spyk(JPanel(null))
+        val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
+        val layeredPane = JLayeredPane()
+        every { host.width } returns 120
+        every { host.height } returns 80
+        every { host.isShowing } returns true
+        every { rootPane.layeredPane } returns layeredPane
+        every { SwingUtilities.getRootPane(host) } returns rootPane
+        var position = Point(50, 40)
+        every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } answers { position }
+        val moved = slot<java.awt.event.ComponentListener>()
+        every { host.addComponentListener(capture(moved)) } answers { callOriginal() }
+        attachOverlay(manager, PROJECT_ID, host)
+        val pane = readGlassPane(manager, PROJECT_ID)
+        val before = pane.bounds
+        val hold = manager.holdUpdates()
+        position = Point(150, 140)
+
+        scheduled.toList().forEach(Runnable::run)
+        moved.captured.componentMoved(
+            java.awt.event.ComponentEvent(host, java.awt.event.ComponentEvent.COMPONENT_MOVED),
+        )
+
+        assertEquals(before, pane.bounds)
+        assertTrue(hold.needsRefresh)
+        hold.release()
+        manager.dispose()
+    }
+
+    @Test
+    fun `queued Power Save cannot target a replacement manager after a hold`() {
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.invokeLater(any()) } answers { scheduled += firstArg<Runnable>() }
+        val project = stubProject("power-save-owner")
+        val original = GlowOverlayManager(project)
+        val replacement = GlowOverlayManager(project)
+        val originalPane = mockk<GlowGlassPane>(relaxed = true)
+        val replacementPane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(original, originalPane, mockk(relaxed = true), mockk(relaxed = true))
+        seedOverlaysMapWithMocks(replacement, replacementPane, mockk(relaxed = true), mockk(relaxed = true))
+        setActiveGlow(original, PROJECT_ID)
+        setActiveGlow(replacement, PROJECT_ID)
+        every { project.getService(GlowOverlayManager::class.java) } returns original
+        every { mockProjectManager.openProjects } returns arrayOf(project)
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        GlowOverlayManager.broadcastPowerSave(true)
+        every { SwingUtilities.isEventDispatchThread() } answers { EventQueue.isDispatchThread() }
+        original.holdUpdates().release()
+        every { project.getService(GlowOverlayManager::class.java) } returns replacement
+
+        scheduled.single().run()
+
+        verify(exactly = 0) { originalPane.changeWaveformPowerSave(any()) }
+        verify(exactly = 0) { replacementPane.changeWaveformPowerSave(any()) }
     }
 
     @Test
@@ -186,6 +1505,83 @@ class GlowOverlayManagerLifecycleTest {
 
         verify(exactly = 1) { animator.dispose() }
         assertNull(readAnimator(manager))
+    }
+
+    @Test
+    fun `selecting no animation stops the previous timer on the retained pane`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+        for (animation in listOf(GlowAnimation.PULSE, GlowAnimation.BREATHE, GlowAnimation.REACTIVE)) {
+            val manager = GlowOverlayManager(stubProject("animation-$animation"))
+            markManagerWarm(manager)
+            val pane = GlowGlassPane(Color.ORANGE, GlowStyle.SOFT, 35, 6)
+            seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), mockk(relaxed = true))
+            setActiveGlow(manager, PROJECT_ID)
+            val animator = GlowAnimator()
+            animator.start(animation) { alpha -> pane.animationAlpha = alpha }
+            val timerField = GlowAnimator::class.java.getDeclaredField("timer").apply { isAccessible = true }
+            val timer = timerField.get(animator) as Timer
+            setAnimator(manager, animator)
+            state.glowAnimation = GlowAnimation.NONE.name
+
+            try {
+                manager.updateGlow()
+
+                assertFalse(timer.isRunning, "$animation timer must stop when None is selected")
+                assertNull(readAnimator(manager))
+                assertSame(pane, readGlassPane(manager, PROJECT_ID))
+                assertEquals(1.0f, pane.animationAlpha)
+                assertEquals(GlowAnimation.NONE.name, state.glowAnimation)
+            } finally {
+                manager.dispose()
+                pane.stopAnimation()
+            }
+        }
+    }
+
+    @Test
+    fun `disabling the active target disposes its animator`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+        val manager = GlowOverlayManager(stubProject("disabled-target"))
+        markManagerWarm(manager)
+        seedOverlaysMapWithMocks(manager, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
+        val animator = mockk<GlowAnimator>(relaxed = true)
+        setAnimator(manager, animator)
+        setActiveGlow(manager, PROJECT_ID)
+        state.glowProject = false
+
+        manager.updateGlow()
+
+        verify(exactly = 1) { animator.dispose() }
+        assertNull(readAnimator(manager))
+        assertTrue(readOverlaysMap(manager).isEmpty())
+        assertFalse(state.glowProject)
+        assertTrue(state.glowEnabled)
+    }
+
+    @Test
+    fun `failed target removal retains the same entry for retry`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        every { SwingUtilities.invokeLater(any()) } just Runs
+        val manager = GlowOverlayManager(stubProject("target-removal-retry"))
+        markManagerWarm(manager)
+        val pane = mockk<GlowGlassPane>(relaxed = true)
+        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), layeredPane)
+        val original = assertNotNull(readOverlaysMap(manager)[PROJECT_ID])
+        state.glowProject = false
+        every { layeredPane.remove(pane) } throws IllegalStateException("interrupted detach")
+
+        assertFailsWith<IllegalStateException> { manager.updateGlow() }
+        assertSame(original, readOverlaysMap(manager)[PROJECT_ID])
+
+        every { layeredPane.remove(pane) } just Runs
+        manager.updateGlow()
+
+        verify(exactly = 2) { layeredPane.remove(pane) }
+        assertTrue(readOverlaysMap(manager).isEmpty())
+        assertFalse(state.glowProject)
     }
 
     @Test
@@ -267,8 +1663,8 @@ class GlowOverlayManagerLifecycleTest {
 
         manager.updateGlow()
         val host = attachableHost()
-        invokeAttachOverlay(manager, "Project", host)
-        invokeAttachOverlay(manager, "Editor", host, isEditorOverlay = true)
+        attachOverlay(manager, "Project", host)
+        attachOverlay(manager, "Editor", host, isEditorOverlay = true)
 
         assertTrue(readOverlaysMap(manager).isEmpty())
         assertTrue(state.glowProject)
@@ -290,8 +1686,8 @@ class GlowOverlayManagerLifecycleTest {
 
         manager.updateGlow()
         val host = attachableHost()
-        invokeAttachOverlay(manager, "Project", host)
-        invokeAttachOverlay(manager, "Editor", host, isEditorOverlay = true)
+        attachOverlay(manager, "Project", host)
+        attachOverlay(manager, "Editor", host, isEditorOverlay = true)
 
         assertTrue(readOverlaysMap(manager).isEmpty())
         assertFalse(state.glowEnabled)
@@ -736,7 +2132,7 @@ class GlowOverlayManagerLifecycleTest {
             manager.updateGlow()
             rebuildRouteGraph(manager)
 
-            invokeAttachOverlay(manager, LATE_OVERLAY_KEY, attachableHost())
+            attachOverlay(manager, LATE_OVERLAY_KEY, attachableHost())
 
             assertTrue(lateOverlayPane(manager).hasRouteMode())
         } finally {
@@ -1040,9 +2436,9 @@ class GlowOverlayManagerLifecycleTest {
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
         every { SwingUtilities.invokeLater(any()) } answers { firstArg<Runnable>().run() }
         val project = stubProject("bounds-project")
-        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val host = spyk(JPanel(null))
         val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
-        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        val layeredPane = JLayeredPane()
         every { host.width } returns 120
         every { host.height } returns 80
         every { host.isShowing } returns true
@@ -1051,13 +2447,13 @@ class GlowOverlayManagerLifecycleTest {
         every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(50, 40)
 
         val solidManager = GlowOverlayManager(project)
-        invokeAttachOverlay(solidManager, "solid", host)
+        attachOverlay(solidManager, "solid", host)
         assertEquals(Rectangle(50, 40, 120, 80), readGlassPane(solidManager, "solid").bounds)
 
         state.glowShape = GlowShape.WAVEFORM.name
         state.waveformAmplitude = 10
         val waveformManager = GlowOverlayManager(project)
-        invokeAttachOverlay(waveformManager, "waveform", host)
+        attachOverlay(waveformManager, "waveform", host)
         val margin = WaveformPainter.marginFor(10, state.getWidthForStyle(GlowStyle.SOFT)).toInt()
         assertEquals(
             Rectangle(50 - margin, 40 - margin, 120 + margin * 2, 80 + margin * 2),
@@ -1077,7 +2473,7 @@ class GlowOverlayManagerLifecycleTest {
         every { editorManager.selectedEditor } returns mockk()
         val host = SettlingEditorHost().apply { setSize(800, 600) }
         val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
-        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        val layeredPane = JLayeredPane()
         every { rootPane.layeredPane } returns layeredPane
         every { SwingUtilities.getRootPane(host) } returns rootPane
         every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
@@ -1095,7 +2491,7 @@ class GlowOverlayManagerLifecycleTest {
             }
 
         LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
-            invokeAttachOverlay(GlowOverlayManager(project), "settling-editor", host, isEditorOverlay = true)
+            attachOverlay(GlowOverlayManager(project), "settling-editor", host, isEditorOverlay = true)
             assertTrue(warnings.isEmpty(), "initial fallback must remain silent: $warnings")
             assertEquals(1, scheduled.size)
 
@@ -1120,13 +2516,13 @@ class GlowOverlayManagerLifecycleTest {
         every { editorManager.selectedEditor } returns mockk()
         val host = SettlingEditorHost().apply { setSize(800, 600) }
         val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
-        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        val layeredPane = JLayeredPane()
         every { rootPane.layeredPane } returns layeredPane
         every { SwingUtilities.getRootPane(host) } returns rootPane
         every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
         val manager = GlowOverlayManager(project)
 
-        invokeAttachOverlay(manager, "disposed-settling-editor", host, isEditorOverlay = true)
+        attachOverlay(manager, "disposed-settling-editor", host, isEditorOverlay = true)
         assertEquals(1, scheduled.size)
 
         scheduled.removeAt(0).run()
@@ -1223,9 +2619,9 @@ class GlowOverlayManagerLifecycleTest {
         val manager = GlowOverlayManager(project)
         val extendedManager = mockk<FileEditorManagerEx>()
         val editorRoot = mockk<javax.swing.JComponent>()
-        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val host = spyk(JPanel(null))
         val rootPane = mockk<javax.swing.JRootPane>()
-        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        val layeredPane = JLayeredPane()
 
         mockkStatic(FileEditorManager::class)
         mockkStatic(FileEditorManagerEx::class)
@@ -1275,9 +2671,9 @@ class GlowOverlayManagerLifecycleTest {
         val selectedEditor = mockk<FileEditor>()
         val selectedRoot = mockk<javax.swing.JComponent>()
         val mainRoot = mockk<javax.swing.JComponent>()
-        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val host = spyk(JPanel(null))
         val rootPane = mockk<javax.swing.JRootPane>()
-        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        val layeredPane = JLayeredPane()
 
         mockkStatic(FileEditorManager::class)
         mockkStatic(FileEditorManagerEx::class)
@@ -1319,7 +2715,7 @@ class GlowOverlayManagerLifecycleTest {
         // Seed the overlays map with a sentinel so we can prove the guard did
         // NOT dispose. If updateGlow walked the disposal path, the sentinel
         // would be cleared.
-        val sentinelKey = "GUARD_SENTINEL"
+        val sentinelKey = PROJECT_ID
         seedOverlaysMap(manager, sentinelKey)
 
         manager.updateGlow()
@@ -1507,9 +2903,9 @@ class GlowOverlayManagerLifecycleTest {
 
         val project = stubProject("late-overlay-project")
         val manager = GlowOverlayManager(project)
-        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val host = spyk(JPanel(null))
         val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
-        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        val layeredPane = JLayeredPane()
         every { host.width } returns 120
         every { host.height } returns 80
         every { host.isShowing } returns true
@@ -1518,7 +2914,7 @@ class GlowOverlayManagerLifecycleTest {
         every { SwingUtilities.convertPoint(host, 0, 0, layeredPane) } returns Point(0, 0)
         every { AccentResolver.resolve(project, AccentContext.Ayu(AyuVariant.MIRAGE)) } returns "#FFCC66"
 
-        invokeAttachOverlay(manager, LATE_OVERLAY_KEY, host)
+        attachOverlay(manager, LATE_OVERLAY_KEY, host)
 
         assertEquals(
             Color.decode("#5CCFE6"),
@@ -1545,7 +2941,7 @@ class GlowOverlayManagerLifecycleTest {
         every { rootPane.layeredPane } returns layeredPane
         every { SwingUtilities.getRootPane(host) } returns rootPane
 
-        invokeAttachOverlay(manager, "ExternalLateOverlay", host)
+        attachOverlay(manager, "ExternalLateOverlay", host)
 
         assertTrue(
             readOverlaysMap(manager).isEmpty(),
@@ -1688,7 +3084,9 @@ class GlowOverlayManagerLifecycleTest {
 
         verify(exactly = 0) { glassPane.glowColor = any<Color>() }
 
-        scheduled.forEach { it.run() }
+        while (scheduled.isNotEmpty()) {
+            scheduled.removeFirst().run()
+        }
 
         verify(exactly = 1) { glassPane.glowColor = Color.decode("#5CCFE6") }
         verify(exactly = 0) { glassPane.glowColor = Color.decode("#FFCC66") }
@@ -1778,18 +3176,25 @@ class GlowOverlayManagerLifecycleTest {
         )
     }
 
-    private fun stubProject(name: String): Project =
-        mockk(relaxed = true) {
+    private fun stubProject(name: String): Project {
+        val toolWindows = mockk<ToolWindowManager>(relaxed = true)
+        val editors = mockk<FileEditorManagerEx>(relaxed = true)
+        every { editors.selectedEditor } returns null
+        every { editors.component } returns null
+        return mockk(relaxed = true) {
             every { isDisposed } returns false
             every { isDefault } returns false
             every { this@mockk.name } returns name
+            every { getService(ToolWindowManager::class.java) } returns toolWindows
+            every { getService(FileEditorManager::class.java) } returns editors
         }
+    }
 
     private fun attachableHost(): javax.swing.JComponent {
         every { SwingUtilities.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val host = spyk(JPanel(null))
         val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
-        val layeredPane = mockk<JLayeredPane>(relaxed = true)
+        val layeredPane = JLayeredPane()
         every { host.width } returns 120
         every { host.height } returns 80
         every { host.isShowing } returns true
@@ -1862,9 +3267,7 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     private fun setWaveformFailed(pane: GlowGlassPane) {
-        val field = GlowGlassPane::class.java.getDeclaredField("waveformFailed")
-        field.isAccessible = true
-        field.setBoolean(pane, true)
+        pane.failRouteWaveform(IllegalStateException("Fixture waveform failure"))
     }
 
     private fun invokeUpdateOverlayBounds(
@@ -1879,9 +3282,10 @@ class GlowOverlayManagerLifecycleTest {
                 GlowGlassPane::class.java,
                 javax.swing.JComponent::class.java,
                 JLayeredPane::class.java,
+                Boolean::class.javaPrimitiveType,
             )
         method.isAccessible = true
-        method.invoke(manager, pane, host, layeredPane)
+        method.invoke(manager, pane, host, layeredPane, true)
     }
 
     private fun invokeAttachEditorOverlayIfNeeded(manager: GlowOverlayManager) {
@@ -2116,21 +3520,13 @@ class GlowOverlayManagerLifecycleTest {
         return commitHost
     }
 
-    private fun invokeAttachOverlay(
+    private fun attachOverlay(
         manager: GlowOverlayManager,
         id: String,
         host: javax.swing.JComponent,
         isEditorOverlay: Boolean = false,
     ) {
-        val method =
-            GlowOverlayManager::class.java.getDeclaredMethod(
-                "attachOverlay",
-                String::class.java,
-                javax.swing.JComponent::class.java,
-                Boolean::class.javaPrimitiveType,
-            )
-        method.isAccessible = true
-        method.invoke(manager, id, host, isEditorOverlay)
+        manager.prepareOverlay(GlowHost(id, host, isEditorOverlay), loadGlowRuntimeInput(state))?.installLegacy()
     }
 
     /**
@@ -2177,7 +3573,7 @@ class GlowOverlayManagerLifecycleTest {
      * passed in. The non-disposal-path `updateOverlayStyles` iteration just
      * assigns properties on the glassPane mock, which relaxed-mock no-ops.
      *
-     * Seeds under [DISPOSAL_TARGET_KEY] by default (the disposal-path tests
+     * Seeds under [PROJECT_ID] by default (the disposal-path tests
      * don't vary the key); the placement-push test varies [key] only to seed
      * two entries, while each pane's `isEditorOverlay` flag selects placement.
      */
@@ -2186,7 +3582,7 @@ class GlowOverlayManagerLifecycleTest {
         glassPane: GlowGlassPane,
         host: javax.swing.JComponent,
         layeredPane: JLayeredPane,
-        key: String = DISPOSAL_TARGET_KEY,
+        key: String = PROJECT_ID,
     ) {
         val field = GlowOverlayManager::class.java.getDeclaredField("overlays")
         field.isAccessible = true
@@ -2253,7 +3649,7 @@ class GlowOverlayManagerLifecycleTest {
         private const val OVERLAY_ENTRY_PRIMARY_CTOR_ARITY = 5
 
         /** Sentinel key for the disposal-path test seed. */
-        private const val DISPOSAL_TARGET_KEY = "DISPOSAL_TARGET"
+        private const val PROJECT_ID = "Project"
 
         /** Sentinel key for the late-overlay attach-path test. */
         private const val LATE_OVERLAY_KEY = "LateOverlay"

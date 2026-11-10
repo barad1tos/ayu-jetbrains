@@ -10,6 +10,8 @@ import java.awt.Component
 import java.awt.Container
 import java.awt.Window
 import java.util.ArrayDeque
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
@@ -147,6 +149,47 @@ internal object LiveChromeRefresher {
         }
     }
 
+    /** Captures all peers before any write; unavailable services or unreadable trees abort the census. */
+    internal fun collect(target: ChromeTarget): List<JComponent> {
+        check(SwingUtilities.isEventDispatchThread()) { "Chrome peer census must run on EDT" }
+        val peers = mutableListOf<JComponent>()
+        when (target) {
+            ChromeTarget.StatusBar -> {
+                forEachUsableStatusBarComponent(requireComplete = true) { peers += collectOnTree(it, target) }
+            }
+
+            is ChromeTarget.ByClassName, is ChromeTarget.ByClassNameInside -> {
+                forEachShowingWindow(requireComplete = true) { peers += collectOnTree(it, target) }
+            }
+        }
+        val seen = Collections.newSetFromMap(IdentityHashMap<JComponent, Boolean>())
+        return peers.filter(seen::add)
+    }
+
+    /** Shares the native traversal and target predicates without setters, repaint, or failure-log mutations. */
+    internal fun collectOnTree(
+        root: Component,
+        target: ChromeTarget,
+    ): List<JComponent> {
+        check(SwingUtilities.isEventDispatchThread()) { "Chrome peer census must run on EDT" }
+        return buildList {
+            walk(root, requireComplete = true) { component ->
+                val matches =
+                    when (target) {
+                        ChromeTarget.StatusBar -> {
+                            component === root || component.javaClass.name == NAVBAR_COMPACT_PANEL_FQN
+                        }
+                        is ChromeTarget.ByClassName -> component.javaClass.name == target.fqn.value
+                        is ChromeTarget.ByClassNameInside -> {
+                            component.javaClass.name == target.target.value &&
+                                hasAncestorWithClassName(component, target.ancestor)
+                        }
+                    }
+                if (component is JComponent && matches) add(component)
+            }
+        }
+    }
+
     /**
      * IntelliJ 2026.1 Compact Navigation moved the path widget into the
      * status bar tree as `NavBarItemComponent` instances under `NewNavBarPanel`.
@@ -198,9 +241,12 @@ internal object LiveChromeRefresher {
         }
     }
 
-    private inline fun forEachUsableStatusBarComponent(action: (JComponent) -> Unit) {
-        val projectManager = safeService("ProjectManager") { ProjectManager.getInstance() } ?: return
-        val windowManager = safeService("WindowManager") { WindowManager.getInstance() } ?: return
+    private inline fun forEachUsableStatusBarComponent(
+        requireComplete: Boolean = false,
+        action: (JComponent) -> Unit,
+    ) {
+        val projectManager = safeService("ProjectManager", requireComplete) { ProjectManager.getInstance() } ?: return
+        val windowManager = safeService("WindowManager", requireComplete) { WindowManager.getInstance() } ?: return
         for (project in projectManager.openProjects) {
             if (!project.isUsable()) continue
             val statusBar = windowManager.getStatusBar(project) ?: continue
@@ -219,12 +265,15 @@ internal object LiveChromeRefresher {
      */
     private inline fun <T : Any> safeService(
         name: String,
+        requireComplete: Boolean,
         crossinline lookup: () -> T?,
     ): T? =
         try {
-            lookup()
+            val service = lookup()
+            check(!requireComplete || service != null) { "$name unavailable during Chrome peer census" }
+            service
         } catch (exception: RuntimeException) {
-            if (exception.isAccentCancellation()) throw exception
+            if (requireComplete || exception.isAccentCancellation()) throw exception
             log.debug("$name unavailable during live refresh", exception)
             null
         }
@@ -248,12 +297,15 @@ internal object LiveChromeRefresher {
      * Known pending recovery failures always propagate. During an uncommitted
      * [AccentApplyScope], ordinary peer write failures also reach child recovery.
      */
-    private inline fun forEachShowingWindow(action: (Window) -> Unit) {
+    private inline fun forEachShowingWindow(
+        requireComplete: Boolean = false,
+        action: (Window) -> Unit,
+    ) {
         val windows =
             try {
                 Window.getWindows()
             } catch (exception: RuntimeException) {
-                if (exception.isAccentCancellation()) throw exception
+                if (requireComplete || exception.isAccentCancellation()) throw exception
                 log.warn(
                     "Live refresh could not enumerate AWT windows; skipping pass",
                     exception,
@@ -262,13 +314,14 @@ internal object LiveChromeRefresher {
             }
         for (window in windows) {
             if (!window.isShowing) continue
-            visitPeer("Live refresh skipped for ${window.javaClass.simpleName}") { action(window) }
+            visitPeer("Live refresh skipped for ${window.javaClass.simpleName}", requireComplete) { action(window) }
         }
     }
 
     /** Shares tree/window isolation while preserving known recovery and scoped write failures. */
     private inline fun visitPeer(
         failureMessage: String,
+        requireComplete: Boolean = false,
         action: () -> Unit,
     ) {
         try {
@@ -276,11 +329,8 @@ internal object LiveChromeRefresher {
         } catch (recovery: PeerRecoveryFailure) {
             throw recovery
         } catch (exception: RuntimeException) {
-            if (exception.isAccentCancellation() ||
-                (SwingUtilities.isEventDispatchThread() && AccentApplyScope.active?.isCommitted == false)
-            ) {
-                throw exception
-            }
+            val uncommitted = SwingUtilities.isEventDispatchThread() && AccentApplyScope.active?.isCommitted == false
+            if (requireComplete || exception.isAccentCancellation() || uncommitted) throw exception
             log.debug(failureMessage, exception)
         }
     }
@@ -389,19 +439,20 @@ internal object LiveChromeRefresher {
      */
     private fun walk(
         component: Component,
+        requireComplete: Boolean = false,
         visit: (Component) -> Unit,
     ) {
         val queue: ArrayDeque<Component> = ArrayDeque()
         queue.addLast(component)
         while (queue.isNotEmpty()) {
             val current = queue.removeFirst()
-            visitPeer("Live refresh visit failed on ${current.javaClass.name}") { visit(current) }
+            visitPeer("Live refresh visit failed on ${current.javaClass.name}", requireComplete) { visit(current) }
             if (current !is Container) continue
             val children =
                 try {
                     current.components
                 } catch (exception: RuntimeException) {
-                    if (exception.isAccentCancellation()) throw exception
+                    if (requireComplete || exception.isAccentCancellation()) throw exception
                     logBrokenContainer(current, exception)
                     continue
                 }

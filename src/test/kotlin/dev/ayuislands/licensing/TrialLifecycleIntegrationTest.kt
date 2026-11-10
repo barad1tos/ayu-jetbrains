@@ -4,30 +4,19 @@ import com.intellij.notification.Notification
 import com.intellij.notification.NotificationGroup
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.ui.LicensingFacade
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
-import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.glow.GlowOverlayManager
-import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
-import io.mockk.runs
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
-import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -69,10 +58,12 @@ class TrialLifecycleIntegrationTest {
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
-        mockkStatic(SwingUtilities::class)
-        every { SwingUtilities.isEventDispatchThread() } returns true
         settings = mockk()
-        every { settings.state } returns state
+        every { settings.state } answers {
+            dev.ayuislands.studio.StudioFixtures
+                .legacyView(state)
+                .settings
+        }
         every { settings.getAccentForVariant(any()) } returns "#FFCC66"
 
         mockkObject(AyuIslandsSettings.Companion)
@@ -98,20 +89,6 @@ class TrialLifecycleIntegrationTest {
 
         System.clearProperty("ayu.islands.dev")
 
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers
-            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
-
-        mockkObject(GlowOverlayManager.Companion)
-        every { GlowOverlayManager.syncGlowForAllProjects() } just runs
-
-        mockkStatic(ApplicationManager::class)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.isDispatchThread } returns true
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        every { app.getService(AccentRotationService::class.java) } returns rotationService
-
         notification = mockk(relaxed = true)
         every { notification.addAction(any()) } returns notification
         notificationGroup = mockk()
@@ -129,6 +106,23 @@ class TrialLifecycleIntegrationTest {
         LicenseCheckerClockSeam.restore()
         unmockkAll()
     }
+
+    private fun checkTrialWarning() =
+        kotlinx.coroutines.runBlocking {
+            LicenseChecker.checkTrialExpiryWarning(
+                null,
+                dev.ayuislands.studio.StudioFixtures
+                    .legacyView(state)
+                    .settings,
+            ) { field ->
+                when (field) {
+                    "trialExpiryWarningShown" -> state.trialExpiryWarningShown = true
+                    "trialExpiry3DayWarningShown" -> state.trialExpiry3DayWarningShown = true
+                    else -> error("Unexpected warning marker: $field")
+                }
+                true
+            }
+        }
 
     private fun dateFromNow(offsetDays: Long): Date {
         val localDate = fakeTodayUtc.plusDays(offsetDays)
@@ -165,11 +159,11 @@ class TrialLifecycleIntegrationTest {
         // check writes `lastKnownLicensedMs`, StartupLicenseHandler calls
         // enableProDefaults(). User gets Pro experience out of the box.
         advanceToTrialDay(0)
-        assertTrue(LicenseChecker.isLicensedOrGrace(), "Day 0: eval stamp must be treated as licensed")
+        assertTrue(recordLicenseObservation(state), "Day 0: eval stamp must be treated as licensed")
         assertEquals(30L, LicenseChecker.getTrialDaysRemaining())
         assertTrue(state.lastKnownLicensedMs > 0, "Day 0: licensed check must stamp lastKnownLicensedMs")
 
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertTrue(state.everBeenPro, "Day 0: Pro activation must set everBeenPro latch")
         assertTrue(state.proDefaultsApplied)
         assertTrue(state.glowEnabled)
@@ -179,7 +173,7 @@ class TrialLifecycleIntegrationTest {
         // must stay silent outside the 7-day window.
         for (day in listOf(1, 10, 15, 22)) {
             advanceToTrialDay(day)
-            LicenseChecker.checkTrialExpiryWarning(null)
+            checkTrialWarning()
         }
         verify(exactly = 0) {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
@@ -194,7 +188,7 @@ class TrialLifecycleIntegrationTest {
         // Day 23: 7 days remaining. First warning fires and latches.
         advanceToTrialDay(23)
         assertEquals(7L, LicenseChecker.getTrialDaysRemaining())
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
         assertTrue(state.trialExpiryWarningShown)
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -207,7 +201,7 @@ class TrialLifecycleIntegrationTest {
         // Day 24-26: still within 7-day window but latch silences further warnings.
         for (day in listOf(24, 25, 26)) {
             advanceToTrialDay(day)
-            LicenseChecker.checkTrialExpiryWarning(null)
+            checkTrialWarning()
         }
         // Still exactly one notification so far.
         verify(exactly = 1) {
@@ -216,7 +210,7 @@ class TrialLifecycleIntegrationTest {
 
         // Day 27: 3 days remaining, second warning fires.
         advanceToTrialDay(27)
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
         assertTrue(state.trialExpiry3DayWarningShown)
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -229,7 +223,7 @@ class TrialLifecycleIntegrationTest {
         // Day 28-29: both latched, silence.
         for (day in listOf(28, 29)) {
             advanceToTrialDay(day)
-            LicenseChecker.checkTrialExpiryWarning(null)
+            checkTrialWarning()
         }
         verify(exactly = 2) {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
@@ -238,7 +232,7 @@ class TrialLifecycleIntegrationTest {
         // Day 30: expires today. Marketplace still honors the stamp.
         advanceToTrialDay(30)
         assertEquals(0L, LicenseChecker.getTrialDaysRemaining())
-        assertTrue(LicenseChecker.isLicensedOrGrace())
+        assertTrue(recordLicenseObservation(state))
 
         // Day 31: eval stamp gone, facade still reachable. The 48 h offline
         // grace carries the user from their last licensed check on Day 30 into
@@ -248,7 +242,7 @@ class TrialLifecycleIntegrationTest {
         val lastLicensedStamp = state.lastKnownLicensedMs
         assertTrue(lastLicensedStamp > 0)
         assertTrue(
-            LicenseChecker.isLicensedOrGrace(),
+            recordLicenseObservation(state),
             "Day 31 within 48 h grace: user must still see Pro",
         )
 
@@ -257,13 +251,12 @@ class TrialLifecycleIntegrationTest {
         state.lastKnownLicensedMs = fakeNowMs
         fakeNowMs += 49L * 3_600_000L
         assertFalse(
-            LicenseChecker.isLicensedOrGrace(),
+            recordLicenseObservation(state),
             "Day 31 + 49 h: grace window must close",
         )
 
-        // StartupLicenseHandler would now invoke revertToFreeDefaults +
-        // notifyTrialExpired. Simulate that.
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
+        // Confirmed loss preserves saved preferences before the one-time expiry notice.
+        confirmUnlicensed(state)
         assertFalse(state.glowEnabled, "saved glow choice remains off")
         assertTrue(state.accentRotationEnabled, "saved rotation choice survives runtime shutdown")
         assertTrue(state.cgpIntegrationEnabled, "saved integration choice survives runtime fallback")
@@ -277,14 +270,10 @@ class TrialLifecycleIntegrationTest {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
         }
 
-        // Day 45: user purchases. We simulate what StartupLicenseHandler.applyLicensedDefaults
-        // does — reset trialExpiredNotified + proDefaultsApplied, then enableProDefaults().
+        // Day 45: renewed entitlement preserves first-activation guards and user choices.
         advanceToLicensed()
-        assertTrue(LicenseChecker.isLicensedOrGrace())
-        state.trialExpiredNotified = false
-        state.proDefaultsApplied = false
-        state.premiumOnboardingShown = false
-        LicenseChecker.enableProDefaults()
+        assertTrue(recordLicenseObservation(state))
+        LicenseDefaults.enablePro(state)
 
         // `everBeenPro` guard means enableProDefaults is a no-op for
         // customizations — glow stays off as it was at revert / Day 10.
@@ -321,7 +310,7 @@ class TrialLifecycleIntegrationTest {
     @Test
     fun `seven-day warning fires exactly once even across many same-day checks`() {
         advanceToTrialDay(23) // 7 days remaining
-        repeat(100) { LicenseChecker.checkTrialExpiryWarning(null) }
+        repeat(100) { checkTrialWarning() }
         verify(exactly = 1) {
             notificationGroup.createNotification(any<String>(), any<String>(), any<NotificationType>())
         }
@@ -332,7 +321,7 @@ class TrialLifecycleIntegrationTest {
         // Simulate a returning user who already saw the 7-day warning in a prior session.
         state.trialExpiryWarningShown = true
         advanceToTrialDay(27) // 3 days remaining
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
         assertTrue(state.trialExpiry3DayWarningShown)
         verify(exactly = 1) {
             notificationGroup.createNotification(
@@ -348,7 +337,7 @@ class TrialLifecycleIntegrationTest {
         for (day in 0..30) {
             advanceToTrialDay(day)
             assertTrue(
-                LicenseChecker.isLicensedOrGrace(),
+                recordLicenseObservation(state),
                 "Day $day: user must have Pro access throughout the trial",
             )
         }
@@ -357,7 +346,7 @@ class TrialLifecycleIntegrationTest {
     @Test
     fun `lastKnownLicensedMs advances monotonically across consecutive licensed checks`() {
         advanceToTrialDay(0)
-        LicenseChecker.isLicensedOrGrace()
+        recordLicenseObservation(state)
         val first = state.lastKnownLicensedMs
         assertEquals(fakeNowMs, first, "First call pins the stamp to the fake clock")
 
@@ -365,7 +354,7 @@ class TrialLifecycleIntegrationTest {
         // deterministic and fast, and exercises the same monotonic-advance path.
         fakeNowMs += 5L
         advanceToTrialDay(1)
-        LicenseChecker.isLicensedOrGrace()
+        recordLicenseObservation(state)
         assertEquals(fakeNowMs, state.lastKnownLicensedMs, "Second call tracks the forward-moving clock")
         assertTrue(state.lastKnownLicensedMs > first, "Stamp must advance, not regress")
     }
@@ -374,12 +363,12 @@ class TrialLifecycleIntegrationTest {
     fun `trial warning reuses the same state object across simulated sessions`() {
         // Day 23: 7-day warning.
         advanceToTrialDay(23)
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
         val afterSession1 = state.trialExpiryWarningShown
 
         // Day 24 (new "session"): same state instance, latch persisted.
         advanceToTrialDay(24)
-        LicenseChecker.checkTrialExpiryWarning(null)
+        checkTrialWarning()
 
         assertTrue(afterSession1, "Session 1 must latch the 7-day warning")
         assertTrue(state.trialExpiryWarningShown, "Session 2 must see the persisted latch")
@@ -388,17 +377,17 @@ class TrialLifecycleIntegrationTest {
     @Test
     fun `re-purchase after grace expiry restores isLicensedOrGrace`() {
         advanceToTrialDay(0)
-        LicenseChecker.isLicensedOrGrace()
+        recordLicenseObservation(state)
         state.everBeenPro = true
 
         advanceToPostTrial()
         state.lastKnownLicensedMs = fakeNowMs
         fakeNowMs += 49L * 3_600_000L
-        assertFalse(LicenseChecker.isLicensedOrGrace())
+        assertFalse(recordLicenseObservation(state))
 
         advanceToLicensed()
         assertTrue(
-            LicenseChecker.isLicensedOrGrace(),
+            recordLicenseObservation(state),
             "Re-purchase must immediately restore licensed state",
         )
     }
@@ -407,7 +396,7 @@ class TrialLifecycleIntegrationTest {
     fun `first licensed check on fresh install stamps lastKnownLicensedMs to a positive value`() {
         advanceToTrialDay(0)
         assertEquals(0L, state.lastKnownLicensedMs, "Precondition: fresh install has no stamp")
-        LicenseChecker.isLicensedOrGrace()
+        recordLicenseObservation(state)
         assertTrue(state.lastKnownLicensedMs > 0, "First licensed check writes a real timestamp")
         assertNotNull(LicenseChecker.getTrialDaysRemaining())
     }

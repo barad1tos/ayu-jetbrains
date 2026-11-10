@@ -16,16 +16,192 @@ import java.awt.event.ActionEvent
 import java.awt.event.ActionListener
 import java.awt.geom.AffineTransform
 import java.awt.image.BufferedImage
+import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.RepaintManager
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class GlowGlassPaneLifecycleTest {
+    @Test
+    fun `failed fade startup retains its scheduled callback for cleanup`() {
+        for (fadeIn in listOf(true, false)) {
+            withTimerScheduling {
+                val pane = trackedPane()
+                startFailure = IllegalStateException("After fade scheduling")
+                assertFailsWith<IllegalStateException> {
+                    if (fadeIn) pane.startFadeIn() else pane.startFadeOut()
+                }
+                val scheduled = startedCallbacks.single()
+                pane.stopAnimation()
+
+                assertTrue(stoppedCallbacks.any { it === scheduled })
+            }
+        }
+    }
+
+    @Test
+    fun `failed waveform startup retains its scheduled callback for cleanup`() =
+        withTimerScheduling {
+            val pane = trackedPane()
+            pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig())
+            startFailure = IllegalStateException("After waveform scheduling")
+            assertFailsWith<IllegalStateException> { pane.activateWaveform(powerSaveEnabled = false) }
+            val scheduled = startedCallbacks.single()
+            pane.stopAnimation()
+
+            assertTrue(stoppedCallbacks.any { it === scheduled })
+        }
+
+    @Test
+    fun `failed playback cleanup preserves a replacement fade`() =
+        withTimerScheduling {
+            val pane = trackedPane()
+            val playback = pane.Playback()
+            startFailure = IllegalStateException("After fade scheduling")
+            assertFailsWith<IllegalStateException> {
+                playback.start(isFocused = true, isApplicationActive = true, powerSaveEnabled = false)
+            }
+            val failed = startedCallbacks.single()
+            startFailure = null
+            pane.startFadeIn()
+            val replacement = startedCallbacks.last()
+            playback.stop()
+
+            assertTrue(stoppedCallbacks.any { it === failed })
+            assertFalse(stoppedCallbacks.any { it === replacement })
+            fire(replacement)
+            assertTrue(alphaSum(paint(pane)) > 0)
+            val starts = startedCallbacks.size
+            assertFailsWith<IllegalStateException> {
+                playback.start(isFocused = true, isApplicationActive = true, powerSaveEnabled = false)
+            }
+            assertEquals(starts, startedCallbacks.size)
+        }
+
+    @Test
+    fun `failed playback cleanup preserves replacement waveform and preferences`() =
+        withTimerScheduling {
+            val pane = trackedPane()
+            val config = WaveformConfig(amplitude = 9, intensity = 64, loopSeconds = 2.1f)
+            pane.configureWaveform(GlowShape.WAVEFORM, config)
+            pane.stopAnimation()
+            val playback = pane.Playback()
+            assertFailsWith<IllegalStateException> {
+                playback.start(isFocused = true, isApplicationActive = true, powerSaveEnabled = false) {
+                    startFailure = IllegalStateException("After waveform scheduling")
+                }
+            }
+            val failed = startedCallbacks.toList()
+            assertEquals(2, failed.size)
+            startFailure = null
+            pane.stopAnimation()
+            pane.configureWaveform(GlowShape.WAVEFORM, config)
+            pane.activateWaveform(powerSaveEnabled = false)
+            pane.startFadeIn()
+            val replacement = startedCallbacks.drop(failed.size)
+            val appearance = pane.captureAppearance()
+            playback.stop()
+            playback.stop()
+
+            assertTrue(failed.all { callback -> stoppedCallbacks.any { it === callback } })
+            assertTrue(replacement.none { callback -> stoppedCallbacks.any { it === callback } })
+            assertEquals(appearance, pane.captureAppearance())
+            pane.changeWaveformPowerSave(enabled = true)
+            assertTrue(stoppedCallbacks.any { it === replacement.first() })
+        }
+
+    @Test
+    fun `waveform replacement during restart repaint survives the old stop directive`() =
+        withTimerScheduling {
+            val pane = trackedPane()
+            val config = WaveformConfig(amplitude = 9)
+            pane.configureWaveform(GlowShape.WAVEFORM, config)
+            pane.stopAnimation()
+            val playback = pane.Playback()
+            val previous = RepaintManager.currentManager(pane)
+            var shouldReplace = true
+            val observer =
+                object : RepaintManager() {
+                    override fun addDirtyRegion(
+                        component: JComponent,
+                        x: Int,
+                        y: Int,
+                        width: Int,
+                        height: Int,
+                    ) {
+                        if (component === pane && shouldReplace) {
+                            shouldReplace = false
+                            pane.stopAnimation()
+                            pane.configureWaveform(GlowShape.WAVEFORM, config)
+                            pane.activateWaveform(powerSaveEnabled = false)
+                        }
+                        super.addDirtyRegion(component, x, y, width, height)
+                    }
+                }
+            try {
+                RepaintManager.setCurrentManager(observer)
+                assertFailsWith<IllegalStateException> {
+                    playback.start(isFocused = true, isApplicationActive = true, powerSaveEnabled = true)
+                }
+                assertFalse(shouldReplace)
+                val replacement = startedCallbacks.last()
+                playback.stop()
+                assertFalse(stoppedCallbacks.any { it === replacement })
+                pane.changeWaveformPowerSave(enabled = true)
+                assertTrue(stoppedCallbacks.any { it === replacement })
+            } finally {
+                RepaintManager.setCurrentManager(previous)
+            }
+        }
+
+    @Test
+    fun `completing fade does not stop its replacement installed during repaint`() =
+        withTimerScheduling {
+            val pane = trackedPane()
+            pane.startFadeIn()
+            repeat(ENDPOINT_TICKS) { fire(startedCallbacks.single()) }
+            pane.startFadeIn()
+            val completing = startedCallbacks.last()
+            val previous = RepaintManager.currentManager(pane)
+            var shouldReplace = true
+            val observer =
+                object : RepaintManager() {
+                    override fun addDirtyRegion(
+                        component: JComponent,
+                        x: Int,
+                        y: Int,
+                        width: Int,
+                        height: Int,
+                    ) {
+                        if (component === pane && shouldReplace) {
+                            shouldReplace = false
+                            pane.startFadeOut()
+                        }
+                        super.addDirtyRegion(component, x, y, width, height)
+                    }
+                }
+            try {
+                RepaintManager.setCurrentManager(observer)
+                fire(completing)
+
+                assertFalse(shouldReplace)
+                val replacement = startedCallbacks.last()
+                assertFalse(stoppedCallbacks.any { it === replacement })
+                val visible = alphaSum(paint(pane))
+                fire(replacement)
+                assertTrue(alphaSum(paint(pane)) < visible)
+            } finally {
+                RepaintManager.setCurrentManager(previous)
+            }
+        }
+
     @Test
     fun `pane follows its host layout while remaining transparent and click-through`() =
         onEdt {
@@ -308,6 +484,7 @@ class GlowGlassPaneLifecycleTest {
                     constructedWith<Timer>(EqMatcher(16), callbackMatcher).start()
                 } answers {
                     fixture.startedCallbacks += callbackMatcher.callback()
+                    fixture.startFailure?.let { failure -> throw failure }
                 }
                 every {
                     constructedWith<Timer>(EqMatcher(16), callbackMatcher).stop()
@@ -340,6 +517,7 @@ class GlowGlassPaneLifecycleTest {
         val stoppedCallbacks = mutableListOf<ActionListener>()
         val callbackMatchers = List(TIMER_SLOT_COUNT) { CallbackMatcher() }
         val createdPanes = mutableListOf<GlowGlassPane>()
+        var startFailure: RuntimeException? = null
 
         fun trackedPane(): GlowGlassPane = newPane().also(createdPanes::add)
     }

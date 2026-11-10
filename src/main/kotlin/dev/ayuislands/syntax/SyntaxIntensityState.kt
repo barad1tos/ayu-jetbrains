@@ -1,11 +1,10 @@
 package dev.ayuislands.syntax
 
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.BaseState
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.SimplePersistentStateComponent
-import com.intellij.openapi.components.State
-import com.intellij.openapi.components.Storage
+import com.intellij.openapi.components.service
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.persistence.SyntaxStateView
 import java.awt.Font
 
 internal const val SYNTAX_INTENSITY_SCHEMA_VERSION = 4
@@ -28,12 +27,6 @@ enum class FontStyleOverride(
     ITALIC(Font.ITALIC),
     BOLD_ITALIC(Font.BOLD or Font.ITALIC),
     ;
-
-    val isBold: Boolean
-        get() = fontType and Font.BOLD != 0
-
-    val isItalic: Boolean
-        get() = fontType and Font.ITALIC != 0
 
     companion object {
         /**
@@ -71,12 +64,6 @@ enum class FontEmphasis(
     BOLD_ITALIC(Font.BOLD or Font.ITALIC),
     ;
 
-    val isBold: Boolean
-        get() = fontType and Font.BOLD != 0
-
-    val isItalic: Boolean
-        get() = fontType and Font.ITALIC != 0
-
     companion object {
         fun fromName(raw: String?): FontEmphasis? = entries.firstOrNull { it.name == raw }
 
@@ -93,90 +80,20 @@ enum class FontEmphasis(
     }
 }
 
-/**
- * Application-level persistence for per-language syntax tuning.
- *
- * Storage file: `ayu-islands-syntax-intensity.xml`. It stays distinct from the
- * legacy `ayu-islands-syntax-mode.xml` so the two persisted contracts cannot
- * be conflated. [SyntaxIntensityBaseState.schemaVersion] tracks compatible
- * changes within the current storage shape.
- *
- *  - `customOverrides` uses a flat composite-key `Map<String, String>`
- *    (`"language|category"` -> `"0..100"`). This is the BaseState shape that
- *    round-trips reliably while preserving unknown persisted entries.
- *  - `schemaVersion` is `4` since the sparse additive [FontEmphasis] layer was
- *    added. A v3 config has no `customEmphasis` element, so it deserialises to
- *    an empty map and needs no read-time migration; all legacy fields and
- *    replacement-style tokens remain unchanged.
- *  - [toPresetConfig] is the one-way bridge that adapts the flat
- *    composite-key map back into the nested
- *    `Map<String, Map<String, Int>>` shape consumed by
- *    [SyntaxIntensityApplicator.compute] and [SyntaxPreset.detect].
- *    [SyntaxPresetConfig] is the boundary type, keeping storage independent
- *    from preset behavior.
- */
+/** Accepted syntax projection; the legacy bean below is migration input only. */
 @Service
-@State(
-    name = "AyuIslandsSyntaxIntensityState",
-    storages = [Storage(value = "ayu-islands-syntax-intensity.xml")],
-)
-class SyntaxIntensityState : SimplePersistentStateComponent<SyntaxIntensityBaseState>(SyntaxIntensityBaseState()) {
-    /**
-     * Adapt the persisted flat `customOverrides: Map<String, String>` shape
-     * back to the nested `Map<String, Map<String, Int>>` shape consumed by
-     * [SyntaxIntensityApplicator.compute] and [SyntaxPreset.detect].
-     *
-     * The `customStyles` flat map is reshaped in parallel into a nested
-     * `language -> category -> fontType Int` map via the same `|`-split guard,
-     * decoding each value through [FontStyleOverride.fromName] so a tampered
-     * style token is skipped (the `fontType` bitmask is what the applicator
-     * writes into `TextAttributes.fontType`).
-     *
-     * Tamper resistance: keys missing the `|` separator, keys with an empty
-     * language ("|MISSING_LANG"), keys with an empty category ("Java|"),
-     * intensity values that don't parse as `Int`, and style values that don't
-     * decode to a [FontStyleOverride] are silently skipped — the BaseState
-     * round-trip preserves whatever XML contains, and this bridge is the
-     * place that normalises the surface presented to the applicator. No
-     * `runCatching` / `catch (Throwable)` — guarded with explicit conditionals
-     * + [String.toIntOrNull] / [FontStyleOverride.fromName].
-     *
-     * The default `selectedPreset` is `"AMBIENT"` — even
-     * if a future XML schema bug nulls the field out, the DTO consumer
-     * passes the literal through [SyntaxPreset.fromName] which falls back
-     * to [SyntaxPreset.AMBIENT].
-     */
-    fun toPresetConfig(): SyntaxPresetConfig =
-        SyntaxPresetConfig(
-            selectedPreset = state.selectedPreset ?: "AMBIENT",
-            subordinatePreset = state.subordinatePreset ?: "AMBIENT",
-            // Intensity slider cells: flat "language|category" -> "0..100".
-            customOverrides = SyntaxCellCodec.decode(state.customOverrides) { it.toIntOrNull() },
-            // Font-style cells: flat "language|category" -> FontStyleOverride
-            // name. Decoded to the java.awt.Font bitmask the applicator writes
-            // into TextAttributes.fontType; a tampered token decodes to null
-            // and the cell is dropped, mirroring the toIntOrNull discipline.
-            customStyles = SyntaxCellCodec.decode(state.customStyles) { FontStyleOverride.fromName(it)?.fontType },
-            readabilityOptions =
-                SyntaxReadabilityOptions(
-                    dimComments = state.dimComments,
-                    softenDocumentation = state.softenDocumentation,
-                    quietOperators = state.quietOperators,
-                    emphasizeDeclarations = state.emphasizeDeclarations,
-                ),
-            customEmphasis = SyntaxCellCodec.decode(state.customEmphasis) { FontEmphasis.fromName(it)?.fontType },
-        )
+internal class SyntaxIntensityState {
+    val state: SyntaxStateView? get() = StudioService.getInstance().acceptedView?.syntax
+
+    fun toPresetConfig(): SyntaxPresetConfig? = state?.toPresetConfig()
 
     companion object {
-        fun getInstance(): SyntaxIntensityState {
-            val app = ApplicationManager.getApplication()
-            return app.getService(SyntaxIntensityState::class.java)
-        }
+        fun getInstance(): SyntaxIntensityState = service()
     }
 }
 
 /**
- * BaseState backing for [SyntaxIntensityState].
+ * Legacy import data. This bean is not an independent persistence owner.
  *
  * Persisted schema:
  *  - [selectedPreset]: enum name string, default `"AMBIENT"`.

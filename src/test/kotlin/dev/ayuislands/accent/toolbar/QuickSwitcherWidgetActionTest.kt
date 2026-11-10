@@ -7,6 +7,7 @@ import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -165,7 +166,7 @@ class QuickSwitcherWidgetActionTest {
         val state = AyuIslandsState()
         state.quickSwitcherWidgetEnabled = quickSwitcherEnabled
         val settings = mockk<AyuIslandsSettings>(relaxed = true)
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
         return state

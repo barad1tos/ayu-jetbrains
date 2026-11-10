@@ -1,7 +1,7 @@
 package dev.ayuislands.accent
 
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
-import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.studio.persistence.AccentMappingsView as AcceptedAccentMappings
 
 /**
  * Read-side contract over one accent-override mapping set, walked by
@@ -47,7 +47,7 @@ internal interface AccentMappingsView {
 }
 
 /**
- * [AccentMappingsView] over the persisted [AccentMappingsState].
+ * [AccentMappingsView] over the persisted accepted mappings projection.
  *
  * The state is read lazily so constructing a view (e.g. as a default argument)
  * never touches the [AccentMappingsSettings] service before the engine's license
@@ -61,28 +61,32 @@ internal interface AccentMappingsView {
  * entries as absent rather than as unmatchable lookup keys.
  */
 internal class PersistedAccentMappingsView(
-    stateSupplier: () -> AccentMappingsState = { AccentMappingsSettings.getInstance().state },
+    stateSupplier: () -> AcceptedAccentMappings? = { AccentMappingsSettings.getInstance().state },
 ) : AccentMappingsView {
-    private val state: AccentMappingsState by lazy(LazyThreadSafetyMode.NONE, stateSupplier)
+    private val state: AcceptedAccentMappings? by lazy(LazyThreadSafetyMode.NONE, stateSupplier)
 
-    override fun projectAccent(projectKey: String): String? = state.projectAccents[projectKey]
+    override fun projectAccent(projectKey: String): String? = state?.projectAccents?.get(projectKey)
 
     override fun forcedLanguageId(projectKey: String): String? =
-        state.forcedProjectLanguages[projectKey]?.trim()?.takeIf { it.isNotEmpty() }
+        state
+            ?.forcedProjectLanguages
+            ?.get(projectKey)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
 
     override fun hasForcedLanguageEntry(projectKey: String): Boolean =
-        state.forcedProjectLanguages.containsKey(projectKey)
+        state?.forcedProjectLanguages?.containsKey(projectKey) == true
 
-    override fun languageAccent(languageId: String): String? = state.languageAccents[languageId]
+    override fun languageAccent(languageId: String): String? = state?.languageAccents?.get(languageId)
 
     override val hasLanguageAccents: Boolean
-        get() = state.languageAccents.isNotEmpty()
+        get() = state?.languageAccents?.isNotEmpty() == true
 
     override val languageFallbackAccent: String?
-        get() = state.languageFallbackAccent?.trim()?.takeIf { it.isNotEmpty() }
+        get() = state?.languageFallbackAccent?.trim()?.takeIf { it.isNotEmpty() }
 
-    override fun projectFallbackAccent(projectKey: String): String? = state.projectFallbackAccents[projectKey]
+    override fun projectFallbackAccent(projectKey: String): String? = state?.projectFallbackAccents?.get(projectKey)
 
     override fun hasProjectFallbackCandidate(projectKey: String): Boolean =
-        state.projectFallbackAccents.containsKey(projectKey)
+        state?.projectFallbackAccents?.containsKey(projectKey) == true
 }

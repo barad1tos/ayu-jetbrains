@@ -43,9 +43,6 @@
 -keep enum dev.ayuislands.accent.AyuVariant { *; }
 -keep enum dev.ayuislands.accent.AccentElementId { *; }
 -keep enum dev.ayuislands.accent.AccentGroup { *; }
-# Step names appear verbatim in torn-apply/revert WARN logs — obfuscation
-# would break the triage grep contract ("Accent apply torn at <step>").
--keep enum dev.ayuislands.accent.AccentApplyStep { *; }
 -keep enum dev.ayuislands.glow.GlowStyle { *; }
 -keep enum dev.ayuislands.glow.GlowAnimation { *; }
 -keep enum dev.ayuislands.glow.GlowTabMode { *; }
@@ -76,10 +73,6 @@
 # plugin.xml: applicationListeners
 -keep class dev.ayuislands.AyuIslandsAppListener { *; }
 -keep class dev.ayuislands.AppearanceSyncListener { *; }
--keep class dev.ayuislands.AppearanceSyncService { *; }
-
-# plugin.xml: applicationService (accent rotation)
--keep class dev.ayuislands.rotation.AccentRotationService { *; }
 
 # plugin.xml: applicationService (syntax intensity presets and overlays)
 -keep class dev.ayuislands.syntax.SyntaxOverlayLoader { *; }

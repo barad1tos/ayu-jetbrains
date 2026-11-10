@@ -1,5 +1,6 @@
 package dev.ayuislands.indent
 
+import dev.ayuislands.accent.AccentWriteState
 import dev.ayuislands.accent.IntegrationCheckpoint
 import dev.ayuislands.accent.combineUiFailures
 import dev.ayuislands.integration.IntegrationOwnership
@@ -36,6 +37,10 @@ internal class IrCheckpoint(
     private val beforeWrite = mutableMapOf<IrPart, CurrentIrPalette>()
     private val foreign = mutableSetOf<IrPart>()
     private var refreshPending = false
+    var blocked: Set<IrPart> = emptySet()
+    override val hasBlocked: Boolean
+        get() = blocked.isNotEmpty()
+
     override val currentState: Boolean
         get() = isCurrent()
 
@@ -45,17 +50,44 @@ internal class IrCheckpoint(
     override val foreignNative: Boolean
         get() = foreign.isNotEmpty()
 
+    /** Capture before any setter, retaining the native enum identity within this process. */
+    fun capture(
+        resolved: ResolvedIrState,
+        before: CurrentIrPalette,
+        written: CurrentIrPalette = before,
+    ) {
+        check(access == null)
+        access = resolved
+        original = before
+        expected = written
+        refreshPending = before != written
+        IrPart.entries.filterNot { before.matches(it, written) }.forEach { beforeWrite[it] = before }
+    }
+
+    fun writeState(part: IrPart): AccentWriteState {
+        observe(part)
+        return when {
+            part in foreign -> AccentWriteState.RELINQUISHED
+            expected.matches(part, original) -> AccentWriteState.RESTORED
+            else -> AccentWriteState.OWNED
+        }
+    }
+
+    fun relinquish(parts: Set<IrPart>) {
+        foreign += parts
+    }
+
     fun write(
         resolved: ResolvedIrState,
         part: IrPart,
         target: CurrentIrPalette,
     ) {
         if (access == null) {
-            access = resolved
-            original = resolved.readPalette()
-            expected = original
+            capture(resolved, resolved.readPalette())
         }
-        check(isCurrent() && isTarget(resolved)) { "Indent Rainbow target changed during accent application" }
+        check(isCurrent() && isTarget(resolved)) {
+            "Indent Rainbow target changed during accent application"
+        }
         observe(part)
         if (part in foreign) return
         beforeWrite[part] = expected
@@ -73,7 +105,8 @@ internal class IrCheckpoint(
         val previous = beforeWrite[part]
         when {
             observed.matches(part, expected) -> Unit
-            previous != null && observed.matches(part, previous) -> expected = expected.replacing(part, previous)
+            previous != null && observed.matches(part, previous) ->
+                expected = expected.replacing(part, previous)
             else -> foreign += part
         }
         beforeWrite.remove(part)
@@ -88,6 +121,7 @@ internal class IrCheckpoint(
     private fun restorePalette(resolved: ResolvedIrState): Throwable? {
         var failure: Throwable? = null
         for (part in IrPart.entries) {
+            if (part in blocked) continue
             val error = captureFailure { restorePart(resolved, part) }
             if (error != null) failure = combineUiFailures(failure, error)
         }
@@ -141,7 +175,8 @@ private fun CurrentIrPalette.replacing(
     other: CurrentIrPalette,
 ): CurrentIrPalette =
     when (part) {
-        IrPart.TYPE -> copy(palette = palette.copy(type = other.palette.type), typeValue = other.typeValue)
+        IrPart.TYPE ->
+            copy(palette = palette.copy(type = other.palette.type), typeValue = other.typeValue)
         IrPart.PALETTE -> copy(palette = palette.copy(palette = other.palette.palette))
         IrPart.COUNT -> copy(palette = palette.copy(colorCount = other.palette.colorCount))
     }

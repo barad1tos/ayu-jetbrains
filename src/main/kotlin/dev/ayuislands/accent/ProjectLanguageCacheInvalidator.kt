@@ -2,6 +2,7 @@ package dev.ayuislands.accent
 
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManagerListener
+import dev.ayuislands.studio.StudioService
 
 /**
  * Application-level listener that drops a closed project's language-detection
@@ -14,7 +15,12 @@ import com.intellij.openapi.project.ProjectManagerListener
  * closed.
  */
 class ProjectLanguageCacheInvalidator : ProjectManagerListener {
+    override fun projectClosing(project: Project) {
+        StudioService.getInstance().projectClosing(project)
+    }
+
     override fun projectClosed(project: Project) {
         ProjectLanguageDetector.invalidate(project)
+        StudioService.getInstance().projectClosed()
     }
 }

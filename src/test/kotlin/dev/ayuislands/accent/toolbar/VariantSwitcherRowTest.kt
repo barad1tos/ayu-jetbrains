@@ -3,41 +3,36 @@ package dev.ayuislands.accent.toolbar
 import com.intellij.ide.ui.LafManager
 import com.intellij.ide.ui.laf.UIThemeLookAndFeelInfo
 import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.IslandsUiPill
 import dev.ayuislands.accent.toolbar.popup.SegmentedControl
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.StudioNativeChange
+import dev.ayuislands.studio.model.StudioThemeChange
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.Job
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * Coverage for the variant row's `SegmentedControl` + `IslandsUiPill` layout,
- * the theme apply path via `LafManager.setCurrentLookAndFeel(laf, false)`
- * (locks in the `lockEditorScheme = false` second arg), and the warn-and-return
- * no-op when the requested theme is missing from `installedThemes`.
- *
- * Mirrors the `@Suppress("UnstableApiUsage")` on the production `VariantSwitcherRow.applyVariantAndChrome` —
- * the experimental theme API (`UIThemeLookAndFeelInfo`, `getInstalledThemes`,
- * `setCurrentLookAndFeel(UIThemeLookAndFeelInfo, Boolean)`) is the canonical Ayu
- * path with no stable alternative on the current platform target.
- */
-@Suppress("UnstableApiUsage")
 class VariantSwitcherRowTest {
+    private val studio = mockk<StudioService>()
     private val lafManager = mockk<LafManager>(relaxed = true)
     private val mirageTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
+        mockkObject(StudioService.Companion)
+        every { StudioService.getInstance() } returns studio
+        every { studio.nativeChanged(any()) } returns Job().apply { complete() }
         mockkStatic(LafManager::class)
         every { LafManager.getInstance() } returns lafManager
         every { lafManager.currentUIThemeLookAndFeel } returns mirageTheme
@@ -64,7 +59,7 @@ class VariantSwitcherRowTest {
     }
 
     @Test
-    fun `selecting a SegmentedControl cell resolves theme by name and calls setCurrentLookAndFeel`() {
+    fun `selecting a variant submits the exact theme through shared admission`() {
         val darkTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
         every { darkTheme.name } returns "Ayu Dark"
         every { lafManager.installedThemes } returns sequenceOf(mirageTheme, darkTheme)
@@ -95,100 +90,9 @@ class VariantSwitcherRowTest {
             )
         darkCell.dispatchEvent(click)
 
-        verify { lafManager.setCurrentLookAndFeel(darkTheme, false) }
-        verify { lafManager.updateUI() }
-    }
-
-    @Test
-    fun `applyVariantAndChrome swallows RuntimeException from installedThemes lookup`() {
-        // Pattern B regression lock — `installedThemes` access throws a
-        // RuntimeException (e.g. plugin reload race). Must NOT propagate to
-        // the segment-click handler; chip stays usable.
-        every { lafManager.installedThemes } throws RuntimeException("install race")
-
-        val row = VariantSwitcherRow(AyuVariant.MIRAGE)
-        val segmented =
-            row.component.components
-                .filterIsInstance<SegmentedControl>()
-                .single()
-        val darkCell = segmented.components[1]
-        val click =
-            java.awt.event.MouseEvent(
-                darkCell,
-                java.awt.event.MouseEvent.MOUSE_CLICKED,
-                0L,
-                0,
-                5,
-                5,
-                1,
-                false,
-                java.awt.event.MouseEvent.BUTTON1,
-            )
-        // Must NOT throw.
-        darkCell.dispatchEvent(click)
-        verify(exactly = 0) { lafManager.setCurrentLookAndFeel(any<UIThemeLookAndFeelInfo>(), any()) }
-    }
-
-    @Test
-    fun `applyVariantAndChrome swallows RuntimeException from setCurrentLookAndFeel`() {
-        // Pattern B — the platform LAF setter can throw on a malformed
-        // UIThemeLookAndFeelInfo. The chip must absorb the throw and log,
-        // not crash the popup mouse chain.
-        val darkTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
-        every { darkTheme.name } returns "Ayu Dark"
-        every { lafManager.installedThemes } returns sequenceOf(mirageTheme, darkTheme)
-        every {
-            lafManager.setCurrentLookAndFeel(any<UIThemeLookAndFeelInfo>(), any())
-        } throws RuntimeException("malformed LAF")
-
-        val row = VariantSwitcherRow(AyuVariant.MIRAGE)
-        val segmented =
-            row.component.components
-                .filterIsInstance<SegmentedControl>()
-                .single()
-        val darkCell = segmented.components[1]
-        val click =
-            java.awt.event.MouseEvent(
-                darkCell,
-                java.awt.event.MouseEvent.MOUSE_CLICKED,
-                0L,
-                0,
-                5,
-                5,
-                1,
-                false,
-                java.awt.event.MouseEvent.BUTTON1,
-            )
-        // Must NOT throw.
-        darkCell.dispatchEvent(click)
-        // updateUI must NOT run when setCurrentLookAndFeel threw.
-        verify(exactly = 0) { lafManager.updateUI() }
-    }
-
-    @Test
-    fun `missing theme in installedThemes is a warn-and-return no-op`() {
-        every { lafManager.installedThemes } returns emptySequence()
-
-        val row = VariantSwitcherRow(AyuVariant.MIRAGE)
-        val segmented =
-            row.component.components
-                .filterIsInstance<SegmentedControl>()
-                .single()
-        val darkCell = segmented.components[1]
-        val click =
-            java.awt.event.MouseEvent(
-                darkCell,
-                java.awt.event.MouseEvent.MOUSE_CLICKED,
-                0L,
-                0,
-                5,
-                5,
-                1,
-                false,
-                java.awt.event.MouseEvent.BUTTON1,
-            )
-        darkCell.dispatchEvent(click)
-
+        verify(exactly = 1) {
+            studio.nativeChanged(StudioNativeChange.Theme(StudioThemeChange.Explicit("Ayu Dark")))
+        }
         verify(exactly = 0) { lafManager.setCurrentLookAndFeel(any<UIThemeLookAndFeelInfo>(), any()) }
         verify(exactly = 0) { lafManager.updateUI() }
     }
@@ -218,7 +122,10 @@ class VariantSwitcherRowTest {
             )
         pill.dispatchEvent(click)
 
-        verify { lafManager.setCurrentLookAndFeel(islandsTheme, false) }
+        verify(exactly = 1) {
+            studio.nativeChanged(StudioNativeChange.Theme(StudioThemeChange.Explicit("Ayu Mirage (Islands UI)")))
+        }
+        verify(exactly = 0) { lafManager.setCurrentLookAndFeel(any<UIThemeLookAndFeelInfo>(), any()) }
     }
 
     @Test
@@ -269,12 +176,7 @@ class VariantSwitcherRowTest {
     }
 
     @Test
-    fun `IslandsUiPill accent supplier returns MIRAGE_HEX fallback when resolver throws`() {
-        // Locks the Pattern B catch inside `resolveCurrentAccent`.
-        // `AccentResolver` can throw under a plugin reload race or corrupted
-        // persisted state; the pill's accent supplier MUST swallow the throw
-        // and return `AccentDefaults.MIRAGE_HEX` so the popup keeps painting
-        // with a sane fallback instead of crashing the EDT.
+    fun `IslandsUiPill remains paintable when the accepted accent is unavailable`() {
         val islandsTheme = mockk<UIThemeLookAndFeelInfo>(relaxed = true)
         every { islandsTheme.name } returns "Ayu Mirage (Islands UI)"
         every { lafManager.currentUIThemeLookAndFeel } returns islandsTheme
@@ -295,23 +197,37 @@ class VariantSwitcherRowTest {
             )
         val g2 = image.createGraphics()
         try {
-            // Must NOT throw — the supplier swallows and substitutes
-            // MIRAGE_HEX. The verify below proves the resolver was reached
-            // and threw; the lack of an escaping exception proves the catch.
             pill.paint(g2)
         } finally {
             g2.dispose()
         }
         verify(atLeast = 1) { AccentResolver.resolve(any(), any<AyuVariant>()) }
-        // Behavior pin — IslandsUiPill resolves to MIRAGE_HEX when the
-        // resolver throws; the constant itself is the value the user sees
-        // painted in the fallback. Lock the exact literal so any future
-        // rename or hex bump forces a deliberate test update (Pattern L).
-        assertEquals(
-            "#FFB454",
-            AccentDefaults.MIRAGE_HEX,
-            "AccentDefaults.MIRAGE_HEX is the canonical Ayu Mirage default — changing it requires updating this lock.",
-        )
+    }
+
+    @Test
+    fun `variant admission failure leaves the popup callback usable`() {
+        every { studio.nativeChanged(any()) } throws IllegalStateException("admission unavailable")
+
+        val row = VariantSwitcherRow(AyuVariant.MIRAGE)
+        val segmented =
+            row.component.components
+                .filterIsInstance<SegmentedControl>()
+                .single()
+        val darkCell = segmented.components[1]
+        val click =
+            java.awt.event.MouseEvent(
+                darkCell,
+                java.awt.event.MouseEvent.MOUSE_CLICKED,
+                0L,
+                0,
+                5,
+                5,
+                1,
+                false,
+                java.awt.event.MouseEvent.BUTTON1,
+            )
+        darkCell.dispatchEvent(click)
+        verify(exactly = 1) { studio.nativeChanged(any()) }
     }
 
     private companion object {

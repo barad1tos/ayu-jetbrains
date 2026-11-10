@@ -91,13 +91,18 @@ class GlowLifecycleGuardTest {
     @Test
     fun `focus ring and late overlay attach honor external glow allow-list`() {
         val focusBody = extractFunctionBody("fun initializeFocusRingGlow(")
-        val attachBody = extractFunctionBody("fun attachOverlay(")
+        val toolWindowBody = extractFunctionBody("fun attachToolWindowOverlay(")
+        val editorBody = extractFunctionBody("fun attachEditorOverlayIfNeeded(")
+        val prepareBody = extractFunctionBody("fun prepareOverlay(")
 
-        if (!focusBody.contains("isExternalGlowBlocked(context, state, \"initializeFocusRingGlow\")")) {
+        if (!focusBody.contains("isExternalGlowBlocked(context, current, \"initializeFocusRingGlow\")")) {
             fail("initializeFocusRingGlow must guard AccentContext.External through isExternalGlowBlocked")
         }
-        if (!attachBody.contains("isExternalGlowBlocked(context, state, \"attachOverlay($")) {
-            fail("attachOverlay must guard AccentContext.External through isExternalGlowBlocked")
+        if (!toolWindowBody.contains("prepareOverlay(") || !editorBody.contains("prepareOverlay(")) {
+            fail("Legacy and retained overlay attachment must share the guarded creation path")
+        }
+        if (!prepareBody.contains("isExternalGlowBlocked(context, candidate, \"attachOverlay($")) {
+            fail("prepareOverlay must guard AccentContext.External through isExternalGlowBlocked")
         }
     }
 }

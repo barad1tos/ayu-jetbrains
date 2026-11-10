@@ -9,9 +9,9 @@ import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
 import dev.ayuislands.AyuLaf
-import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentResolutionChain
+import dev.ayuislands.accent.AccentResolutionChainBuilder
 import dev.ayuislands.accent.AccentResolutionStep
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
@@ -23,8 +23,11 @@ import dev.ayuislands.accent.toolbar.actions.PinAccentAction
 import dev.ayuislands.accent.toolbar.actions.RandomAccentAction
 import dev.ayuislands.accent.toolbar.popup.IconPillButton
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
+import dev.ayuislands.studio.model.ProfileDefinition
+import dev.ayuislands.studio.model.ProfileId
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.session.StudioQuickCommand
 import io.mockk.CapturingSlot
 import io.mockk.Runs
 import io.mockk.every
@@ -40,11 +43,13 @@ import java.awt.Container
 import javax.swing.AbstractButton
 import javax.swing.JComponent
 import javax.swing.JLabel
+import javax.swing.JMenuItem
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
@@ -52,8 +57,8 @@ import kotlin.test.assertTrue
  *   - early-return when `AyuVariant.detect() == null` (non-Ayu belt-and-braces),
  *   - the exact six-flag builder combination required by the JBPopup contract.
  *
- * Does NOT exercise variant/accent grid wiring — those have their own tests; this
- * file only verifies the popup envelope.
+ * Variant and accent-grid wiring have dedicated tests; this file covers the
+ * popup envelope and profile-menu choices.
  */
 class QuickSwitcherPopupTest {
     @AfterTest
@@ -117,13 +122,14 @@ class QuickSwitcherPopupTest {
 
         QuickSwitcherPopup.show(JLabel())
 
-        verify(exactly = 1) {
-            AccentResolver.resolveChain(
-                null,
-                any<AccentContext>(),
-            )
-        }
-        val texts = contentSlot.captured.visibleTexts()
+        val diagnostics =
+            contentSlot.captured
+                .descendants()
+                .filterIsInstance<QuickSwitcherAccentDiagnosticsPanel>()
+                .single()
+        val texts = diagnostics.visibleTexts()
+        assertTrue(texts.contains("Project fallback · polyglot project"))
+        assertTrue(texts.contains("#FFB454"))
         assertTrue(texts.contains("Show resolution chain..."))
     }
 
@@ -179,6 +185,31 @@ class QuickSwitcherPopupTest {
     }
 
     @Test
+    fun `profile menu distinguishes duplicate names and submits each original identity in catalog order`() {
+        SwingUtilities.invokeAndWait {
+            val fixture = stubPopupBodyDependencies()
+            val original = StudioFixtures.legacyDocument(fixture.state)
+            val factory =
+                original.catalog.filterIsInstance<ProfileDefinition.Factory>().single { it.name == "Ambient" }
+            val user =
+                ProfileDefinition.User(ProfileId("personal-ambient"), "Ambient", original.currents.global.appearance, 1)
+            val document = original.copy(catalog = StudioList(listOf(factory, user)))
+            val commands = requireNotNull(QuickSwitcherCommands.capture())
+
+            val menu = QuickSwitcherPopup.buildProfileMenu(document, commands)
+
+            val items = menu.components.filterIsInstance<JMenuItem>()
+            assertEquals(listOf("Ambient · Factory", "Ambient · User · personal"), items.map { it.text })
+            items.forEach { it.doClick() }
+            assertEquals(
+                listOf(factory.id, user.id),
+                fixture.requests.map { assertIs<StudioQuickCommand.Profile>(it.second).profile },
+            )
+            assertTrue(fixture.requests.all { it.first == fixture.target })
+        }
+    }
+
+    @Test
     fun `closeOpenPopups cancels tracked popups and closed popups are removed`() {
         stubPopupBodyDependencies()
         val (_, popup) = stubPopupBuilder()
@@ -231,37 +262,26 @@ class QuickSwitcherPopupTest {
         detectedVariant: AyuVariant? = AyuVariant.MIRAGE,
         chain: AccentResolutionChain = polyglotFallbackChain(),
         licensed: Boolean = false,
-    ) {
+    ): QuickSwitcherFixture {
+        val fixture = QuickSwitcherFixture()
+        fixture.context = context
+        fixture.licensed = licensed
         mockkObject(AyuVariant.Companion)
         every { AyuVariant.detect() } returns detectedVariant
-        mockkObject(AccentContext.Companion)
-        every { AccentContext.detectQuickSwitcher() } returns context
-        // The grid resolves the current accent at construction — stub the chain.
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.resolveFocusedProject() } returns null
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
-        every { AccentResolver.resolveChain(any(), any<AccentContext>()) } returns chain
+        every { AccentResolutionChainBuilder.resolve(any(), any(), any()) } returns chain
         // VariantSwitcherRow reads the active theme name during construction.
         mockkStatic(LafManager::class)
         val lafManager = mockk<LafManager>(relaxed = true)
         every { LafManager.getInstance() } returns lafManager
         mockkObject(AyuLaf)
         every { AyuLaf.currentThemeName(lafManager) } returns ""
-        // The premium block reads settings and license state while binding rows.
-        val settings = mockk<AyuIslandsSettings>(relaxed = true)
-        every { settings.state } returns AyuIslandsState()
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
-        mockkObject(LicenseChecker)
-        every { LicenseChecker.isLicensedOrGrace() } returns licensed
         // The quick-actions row instantiates actions that query ApplicationManager.
         mockkStatic(ApplicationManager::class)
         val mockApp = mockk<Application>(relaxed = true)
         every { ApplicationManager.getApplication() } returns mockApp
         val actionManager = mockk<ActionManager>(relaxed = true)
         every { mockApp.getService(ActionManager::class.java) } returns actionManager
+        return fixture
     }
 
     private fun stubPopupBuilder(

@@ -25,6 +25,7 @@ import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
 import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import javax.swing.Timer
 import javax.swing.UIManager
 
@@ -49,6 +50,10 @@ class GlowGlassPane(
     private var fadeTimer: Timer? = null
     private var waveformTimer: Timer? = null
     private var waveformEngine: WaveformEngine? = null
+
+    internal val currentWaveformEngine: WaveformEngine?
+        get() = waveformEngine
+
     private var waveformFrame: WaveformFrame? = null
     private var waveformPlan: WaveformRenderPlan? = null
     private var isRouteMode = false
@@ -72,7 +77,10 @@ class GlowGlassPane(
     private var topSpansRefreshAtMs = 0L
     private var waveformConfig = WaveformConfig()
     private var glowShape = GlowShape.SOLID
-    private var waveformFailed = false
+    internal var waveformFailure: GlowWaveformFailure? = null
+        private set
+    private val waveformFailed: Boolean
+        get() = waveformFailure != null
     private var waveformFailureLogged = false
     private var slowWaveformLogged = false
     private var topSpansFailureLogged = false
@@ -82,6 +90,18 @@ class GlowGlassPane(
 
     internal val usesWaveformBounds: Boolean
         get() = glowShape == GlowShape.WAVEFORM
+
+    internal fun captureAppearance(): GlowPaneAppearance =
+        GlowPaneAppearance(
+            glowColor,
+            glowStyle,
+            glowIntensity,
+            glowWidth,
+            glowPlacement,
+            glowShape,
+            waveformConfig,
+            isVisible,
+        )
 
     internal val waveformMargin: Int
         get() = WaveformPainter.marginFor(waveformConfig.amplitude, glowWidth).toInt()
@@ -183,14 +203,16 @@ class GlowGlassPane(
     internal fun configureWaveform(
         shape: GlowShape,
         config: WaveformConfig,
+        preserveFailure: Boolean = false,
+        onEngineCreated: (WaveformEngine) -> Unit = {},
     ) {
         val previousShape = glowShape
         val previousConfig = waveformConfig
         val geometryChanged = previousShape != shape || previousConfig != config
         val shouldRetry =
-            waveformFailed &&
-                shape == GlowShape.WAVEFORM &&
-                (previousShape != GlowShape.WAVEFORM || previousConfig != config)
+            !preserveFailure &&
+                waveformFailed &&
+                shouldRetryWaveform(previousShape, previousConfig, shape, config)
         glowShape = shape
         waveformConfig = config
         if (geometryChanged) {
@@ -199,10 +221,10 @@ class GlowGlassPane(
         }
         if (shouldRetry) {
             applyTimerDirective(TimerDirective.STOP)
-            waveformEngine = WaveformEngine(config)
+            waveformEngine = WaveformEngine(config).also(onEngineCreated)
             waveformFrame = null
             waveformPlan = null
-            waveformFailed = false
+            waveformFailure = null
             waveformFailureLogged = false
         }
         if (shape == GlowShape.SOLID) {
@@ -218,17 +240,22 @@ class GlowGlassPane(
 
         val engine = waveformEngine
         if (engine == null) {
-            waveformEngine = WaveformEngine(config)
+            waveformEngine = WaveformEngine(config).also(onEngineCreated)
         } else {
             applyWaveformUpdate(engine.handle(WaveformEvent.Configure(config)))
         }
         repaint()
     }
 
-    internal fun activateWaveform(powerSaveEnabled: Boolean) {
+    internal fun activateWaveform(
+        powerSaveEnabled: Boolean,
+        onEngineCreated: (WaveformEngine) -> Unit = {},
+        onTimerCreated: (Timer) -> Unit = {},
+    ) {
         if (isRouteMode || glowShape != GlowShape.WAVEFORM || waveformFailed) return
-        val engine = waveformEngine ?: WaveformEngine(waveformConfig).also { waveformEngine = it }
-        applyWaveformUpdate(engine.handle(WaveformEvent.Activate(powerSaveEnabled)))
+        val engine =
+            waveformEngine ?: WaveformEngine(waveformConfig).also(onEngineCreated).also { waveformEngine = it }
+        applyWaveformUpdate(engine.handle(WaveformEvent.Activate(powerSaveEnabled)), onTimerCreated)
     }
 
     internal fun deactivateWaveform() {
@@ -273,8 +300,25 @@ class GlowGlassPane(
             ),
         )
 
-    internal fun failRouteWaveform(exception: RuntimeException) {
-        reportWaveformFailure(exception)
+    internal fun failRouteWaveform(
+        exception: RuntimeException,
+        playback: RoutePlayback? = null,
+    ) {
+        reportWaveformFailure(exception, GlowFailureOrigin.Route(playback))
+    }
+
+    internal fun restoreWaveformFailure(
+        expected: GlowWaveformFailure?,
+        before: GlowWaveformFailure?,
+    ) {
+        check(SwingUtilities.isEventDispatchThread()) { "Glow recovery must run on EDT" }
+        check(waveformFailure === expected) { "Glow waveform failure was replaced" }
+        if (expected === before) return
+        stopAnimation()
+        check(waveformFailure === expected) { "Glow waveform failure changed during shutdown" }
+        waveformFailure = before
+        waveformFailureLogged = before?.cause != null
+        repaint()
     }
 
     internal val waveformTrackLength: Float
@@ -336,9 +380,16 @@ class GlowGlassPane(
         }
     }
 
-    private fun applyWaveformUpdate(update: WaveformUpdate) {
+    private fun applyWaveformUpdate(
+        update: WaveformUpdate,
+        onTimerCreated: (Timer) -> Unit = {},
+    ) {
+        val engine = waveformEngine
+        val scheduled = waveformTimer
         if (update.fallbackToSolid) {
-            waveformFailed = true
+            if (waveformFailure == null) {
+                waveformFailure = GlowWaveformFailure(GlowFailureOrigin.Local(waveformEngine), null)
+            }
             waveformPlan = null
         }
         val frame = update.frame
@@ -349,7 +400,8 @@ class GlowGlassPane(
                 waveformFrame = frame
             }
         }
-        applyTimerDirective(update.timerDirective)
+        if (waveformEngine !== engine || waveformTimer !== scheduled) return
+        applyTimerDirective(update.timerDirective, onTimerCreated)
         if (update.needsRepaint && (frame == null || waveformFailed)) repaint()
     }
 
@@ -378,7 +430,10 @@ class GlowGlassPane(
         }
     }
 
-    private fun applyTimerDirective(directive: TimerDirective) {
+    private fun applyTimerDirective(
+        directive: TimerDirective,
+        onTimerCreated: (Timer) -> Unit = {},
+    ) {
         when (directive) {
             TimerDirective.KEEP -> {
                 // Keep the current timer state.
@@ -386,7 +441,7 @@ class GlowGlassPane(
 
             TimerDirective.START -> {
                 if (waveformTimer != null || waveformFailed) return
-                waveformTimer =
+                val createdTimer =
                     Timer(WAVEFORM_TIMER_INTERVAL_MS) {
                         val engine = waveformEngine ?: return@Timer
                         try {
@@ -401,10 +456,11 @@ class GlowGlassPane(
                         } catch (exception: RuntimeException) {
                             reportWaveformFailure(exception)
                         }
-                    }.also { timer ->
-                        timer.isCoalesce = true
-                        timer.start()
                     }
+                onTimerCreated(createdTimer)
+                waveformTimer = createdTimer
+                createdTimer.isCoalesce = true
+                createdTimer.start()
             }
 
             TimerDirective.STOP -> {
@@ -414,36 +470,49 @@ class GlowGlassPane(
         }
     }
 
-    private fun reportWaveformFailure(exception: RuntimeException) {
+    private fun reportWaveformFailure(
+        exception: RuntimeException,
+        origin: GlowFailureOrigin = GlowFailureOrigin.Local(waveformEngine),
+    ) {
         if (!waveformFailureLogged) {
             waveformFailureLogged = true
             log.warn("Waveform glow render failed", exception)
         }
-        waveformFailed = true
+        waveformFailure = GlowWaveformFailure(origin, exception)
         waveformPlan = null
         waveformEngine?.handle(WaveformEvent.RenderFailed)?.let(::applyWaveformUpdate)
         applyTimerDirective(TimerDirective.STOP)
         repaint()
     }
 
-    fun startFadeIn() {
+    fun startFadeIn(onTimerCreated: (Timer) -> Unit = {}) {
         fadeTimer?.stop()
-        fadeTimer =
+        lateinit var createdTimer: Timer
+        createdTimer =
             Timer(FADE_TIMER_INTERVAL_MS) {
+                if (fadeTimer !== createdTimer) return@Timer
                 fadeAlpha = (fadeAlpha + FADE_STEP).coerceAtMost(1.0f)
                 repaint()
-                if (fadeAlpha >= 1.0f) fadeTimer?.stop()
-            }.also { it.start() }
+                if (fadeTimer === createdTimer && fadeAlpha >= 1.0f) createdTimer.stop()
+            }
+        onTimerCreated(createdTimer)
+        fadeTimer = createdTimer
+        createdTimer.start()
     }
 
-    fun startFadeOut() {
+    fun startFadeOut(onTimerCreated: (Timer) -> Unit = {}) {
         fadeTimer?.stop()
-        fadeTimer =
+        lateinit var createdTimer: Timer
+        createdTimer =
             Timer(FADE_TIMER_INTERVAL_MS) {
+                if (fadeTimer !== createdTimer) return@Timer
                 fadeAlpha = (fadeAlpha - FADE_STEP).coerceAtLeast(0.0f)
                 repaint()
-                if (fadeAlpha <= 0.0f) fadeTimer?.stop()
-            }.also { it.start() }
+                if (fadeTimer === createdTimer && fadeAlpha <= 0.0f) createdTimer.stop()
+            }
+        onTimerCreated(createdTimer)
+        fadeTimer = createdTimer
+        createdTimer.start()
     }
 
     fun stopAnimation() {
@@ -453,6 +522,115 @@ class GlowGlassPane(
         waveformEngine = null
         waveformFrame = null
         waveformPlan = null
+    }
+
+    /** Retains native resources even when scheduling fails after publication. */
+    internal inner class Playback {
+        val appearance: GlowPaneAppearance = captureAppearance()
+        val failure: GlowWaveformFailure? = waveformFailure
+        private val preparedEngine = waveformEngine
+        private val preparedRouteMode = isRouteMode
+        private var ownedEngine: WaveformEngine? = null
+        private val pendingFades = mutableListOf<Timer>()
+        private var pendingWaveform: Timer? = null
+        private var phase = GlowCheckpointPhase.PREPARED
+
+        init {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
+            check(fadeTimer == null && waveformTimer == null) { "Glow playback is not paused" }
+        }
+
+        fun checkPrepared(routeMode: Boolean = preparedRouteMode) {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
+            check(phase == GlowCheckpointPhase.PREPARED) { "Glow playback was already started" }
+            checkAppearance()
+            check(waveformEngine === preparedEngine && isRouteMode == routeMode) {
+                "Glow playback changed before restart"
+            }
+            check(fadeTimer == null && waveformTimer == null) { "Glow playback is not paused" }
+        }
+
+        fun start(
+            isFocused: Boolean,
+            isApplicationActive: Boolean,
+            powerSaveEnabled: Boolean,
+            onEngineCreated: (WaveformEngine) -> Unit = {},
+        ) {
+            checkPrepared(routeMode = false)
+            phase = GlowCheckpointPhase.APPLYING
+            if (isFocused) startFadeIn(::recordFade) else startFadeOut(::recordFade)
+            if (isFocused && isApplicationActive && isWaveform) {
+                ownedEngine = preparedEngine
+                activateWaveform(
+                    powerSaveEnabled,
+                    onEngineCreated = { created ->
+                        ownedEngine = created
+                        onEngineCreated(created)
+                        checkAppearance()
+                        check(waveformEngine === preparedEngine && !isRouteMode) {
+                            "Glow waveform changed during restart"
+                        }
+                    },
+                    onTimerCreated = { pendingWaveform = it },
+                )
+            }
+            checkCurrent()
+            phase = GlowCheckpointPhase.APPLIED
+        }
+
+        fun checkCurrent(routeMode: Boolean = false) {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
+            checkAppearance()
+            check(
+                waveformEngine === (ownedEngine ?: preparedEngine) &&
+                    fadeTimer === pendingFades.lastOrNull() &&
+                    waveformTimer === pendingWaveform &&
+                    isRouteMode == routeMode,
+            ) { "Glow playback was replaced during restart" }
+        }
+
+        private fun checkAppearance() {
+            val actual = captureAppearance()
+            check(GlowPaneField.entries.all { GlowPaneFields.matches(it, actual, appearance) }) {
+                "Glow appearance changed during restart"
+            }
+            check(waveformFailure === failure) { "Glow waveform health changed during restart" }
+        }
+
+        /** Route reconciliation can create more than one fade before the outer attempt settles. */
+        fun recordFade(timer: Timer) {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
+            check(phase == GlowCheckpointPhase.PREPARED || phase == GlowCheckpointPhase.APPLYING) {
+                "Glow playback cannot retain another fade"
+            }
+            pendingFades.add(timer)
+            phase = GlowCheckpointPhase.APPLYING
+        }
+
+        fun stop() {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
+            if (phase == GlowCheckpointPhase.RESTORED) return
+            phase = GlowCheckpointPhase.RESTORING
+            for (retained in pendingFades.toList()) {
+                retained.stop()
+                if (fadeTimer === retained) fadeTimer = null
+                pendingFades.remove(retained)
+            }
+            pendingWaveform?.let { retained ->
+                retained.stop()
+                if (waveformTimer === retained) waveformTimer = null
+                pendingWaveform = null
+            }
+            ownedEngine?.let { retained ->
+                if (waveformEngine === retained) {
+                    waveformEngine = null
+                    waveformFrame = null
+                    waveformPlan = null
+                }
+                ownedEngine = null
+            }
+            phase = GlowCheckpointPhase.RESTORED
+        }
     }
 }
 

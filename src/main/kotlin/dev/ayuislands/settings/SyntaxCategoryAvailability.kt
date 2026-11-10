@@ -1,9 +1,7 @@
 package dev.ayuislands.settings
 
 import com.intellij.ui.InplaceButton
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.syntax.PrimitiveCategory
-import dev.ayuislands.syntax.SyntaxIntensityService
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JSlider
@@ -19,16 +17,14 @@ internal class SyntaxCategoryAvailability(
 ) {
     private var snapshot = SyntaxAvailabilitySnapshot()
 
-    fun refreshCapabilities(variant: AyuVariant) {
-        val actuatedByLanguage =
-            SyntaxIntensityService
-                .getInstance()
-                .tunableCategories(variant)
-                ?.mapValues { (_, categories) -> categories.toSet() }
+    fun refreshCapabilities(actuatedByLanguage: Map<String, Set<PrimitiveCategory>>?) {
         snapshot = snapshot.copy(actuatedByLanguage = actuatedByLanguage)
     }
 
-    fun refreshRows(language: String) {
+    fun refreshRows(
+        language: String,
+        isEditable: Boolean = true,
+    ) {
         val availableCategories = availableFor(language)
         visibilityChanged(availableCategories)
         for (category in PrimitiveCategory.entries) {
@@ -39,12 +35,12 @@ internal class SyntaxCategoryAvailability(
                 } else {
                     "$language highlighter does not expose ${category.displayName}"
                 }
-            applyAvailability(categoryLabels[category], isAvailable, reason)
-            applyAvailability(sliders[category], isAvailable, reason)
-            applyAvailability(sliderLabels[category], isAvailable, reason)
-            applyAvailability(resetButtons[category], isAvailable, reason, updateVisibility = false)
+            applyAvailability(categoryLabels[category], isAvailable, isEditable, reason)
+            applyAvailability(sliders[category], isAvailable, isEditable, reason)
+            applyAvailability(sliderLabels[category], isAvailable, isEditable, reason)
+            applyAvailability(resetButtons[category], isAvailable, isEditable, reason, updateVisibility = false)
             styleControls[category]?.let { control ->
-                control.setAvailable(isAvailable, reason)
+                control.setAvailable(isAvailable && isEditable, reason)
                 control.component.isVisible = isAvailable
             }
         }
@@ -56,12 +52,15 @@ internal class SyntaxCategoryAvailability(
         val nativeConfirmed =
             when (state) {
                 is SyntaxCapabilityState.Confirmed -> state.evidence.confirmedCells.toSet()
+
                 is SyntaxCapabilityState.Incompatible -> state.confirmedCells.toSet()
+
                 is SyntaxCapabilityState.Checking,
                 is SyntaxCapabilityState.SupportUnavailable,
                 is SyntaxCapabilityState.TemporarilyUnavailable,
-                null,
                 -> emptySet()
+
+                null -> null
             }
         snapshot = snapshot.copy(nativeConfirmed = nativeConfirmed)
         state?.languageId?.let(::refreshRows)
@@ -70,10 +69,11 @@ internal class SyntaxCategoryAvailability(
     private fun applyAvailability(
         component: JComponent?,
         isAvailable: Boolean,
+        isEditable: Boolean,
         reason: String?,
         updateVisibility: Boolean = true,
     ) {
-        component?.isEnabled = isAvailable
+        component?.isEnabled = isAvailable && isEditable
         if (updateVisibility) component?.isVisible = isAvailable
         component?.toolTipText = reason
     }

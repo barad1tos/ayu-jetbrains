@@ -1,9 +1,11 @@
 package dev.ayuislands.settings
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.ui.TitledSeparator
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTabbedPane
+import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.CollapsibleRow
 import com.intellij.ui.dsl.builder.Row
 import com.intellij.util.ui.JBUI
@@ -16,9 +18,31 @@ import java.awt.Graphics2D
 import java.awt.Insets
 import java.awt.RenderingHints
 import javax.swing.JComponent
+import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.border.Border
 import javax.swing.border.CompoundBorder
+import javax.swing.event.ChangeListener
+
+/** Detached UI metadata used by the pure badge lifecycle; accepted storage remains with Studio. */
+internal data class SettingsBadgeState(
+    var lastSeenVersion: String? = null,
+    val acknowledgedSettingsBadges: MutableSet<String> = linkedSetOf(),
+    val settingsBadgeDeadlines: MutableMap<String, String> = linkedMapOf(),
+    var settingsBadgesExpireAtMs: Long = 0,
+) {
+    companion object {
+        fun from(view: dev.ayuislands.studio.persistence.AyuSettingsView): SettingsBadgeState =
+            SettingsBadgeState(
+                view.lastSeenVersion,
+                LinkedHashSet(view.acknowledgedSettingsBadges),
+                LinkedHashMap(view.settingsBadgeDeadlines),
+                view.settingsBadgesExpireAtMs,
+            )
+
+        fun current(): SettingsBadgeState? = AyuIslandsSettings.getInstance().state?.let(::from)
+    }
+}
 
 /**
  * A settings surface introduced in the current release cycle.
@@ -27,11 +51,12 @@ import javax.swing.border.CompoundBorder
  * null when the anchor is visible as soon as its tab opens. Grouped anchors
  * get an accent dot on the group title and retire on expansion instead of on
  * tab visit — a visit never reveals what a collapsed spoiler hides.
+ * A null [tabTitle] identifies the shared header, visible from every tab.
  */
 internal data class SettingsBadgeAnchor(
     val id: String,
     val title: String,
-    val tabTitle: String,
+    val tabTitle: String? = null,
     val collapsibleGroupTitle: String? = null,
 )
 
@@ -85,6 +110,14 @@ internal object SettingsBadges {
     val registry: List<SettingsBadgeAnchor> =
         listOf(
             SettingsBadgeAnchor(
+                id = "work-profiles",
+                title = "Work profiles",
+            ),
+            SettingsBadgeAnchor(
+                id = "settings-draft-preview",
+                title = "Current and Draft preview",
+            ),
+            SettingsBadgeAnchor(
                 id = "chrome-tint-external-themes",
                 title = "Chrome tint on external themes",
                 tabTitle = "Plugins",
@@ -121,7 +154,7 @@ internal object SettingsBadges {
     private val anchorVisible = mutableMapOf<String, () -> Boolean>()
     internal var onBadgesChanged: (() -> Unit)? = null
 
-    fun pendingAnchors(state: AyuIslandsState): List<SettingsBadgeAnchor> {
+    fun pendingAnchors(state: SettingsBadgeState): List<SettingsBadgeAnchor> {
         // Defensive fresh-install check: UpdateNotifier seeds the set on first
         // run, but Settings may open before the startup activity gets there.
         if (state.lastSeenVersion == null) return emptyList()
@@ -129,7 +162,7 @@ internal object SettingsBadges {
     }
 
     fun isPending(
-        state: AyuIslandsState,
+        state: SettingsBadgeState,
         anchorId: String,
     ): Boolean = pendingAnchors(state).any { it.id == anchorId }
 
@@ -139,18 +172,28 @@ internal object SettingsBadges {
      * [acknowledgeAnchor] when the group expands.
      */
     fun acknowledgeTab(
-        state: AyuIslandsState,
+        state: SettingsBadgeState,
         tabTitle: String,
     ) {
         for (anchor in registry) {
-            if (anchor.tabTitle != tabTitle) continue
+            if (anchor.tabTitle != null && anchor.tabTitle != tabTitle) continue
             if (isVisibleOnTabVisit(anchor)) applyEvent(state, anchor.id, BadgeEvent.ACKNOWLEDGE)
         }
     }
 
+    fun visibleAnchors(tabTitle: String): List<String> =
+        registry.filter { (it.tabTitle == null || it.tabTitle == tabTitle) && isVisibleOnTabVisit(it) }.map { it.id }
+
+    fun markSeen(
+        state: SettingsBadgeState,
+        ids: List<String>,
+    ) {
+        ids.filter { id -> registry.any { it.id == id } }.forEach { applyEvent(state, it, BadgeEvent.ACKNOWLEDGE) }
+    }
+
     /** Direct retirement (group expanded, deep link followed) with a live badge refresh. */
     fun acknowledgeAnchor(
-        state: AyuIslandsState,
+        state: SettingsBadgeState,
         anchorId: String,
     ) {
         applyEvent(state, anchorId, BadgeEvent.ACKNOWLEDGE)
@@ -161,8 +204,11 @@ internal object SettingsBadges {
     fun registerGroupExpanded(
         anchorId: String,
         isExpanded: () -> Boolean,
-    ) {
+    ): Disposable {
         groupExpanded[anchorId] = isExpanded
+        return Disposable {
+            if (groupExpanded[anchorId] === isExpanded) groupExpanded.remove(anchorId)
+        }
     }
 
     /** Direct anchors report whether their row is currently visible. */
@@ -192,12 +238,12 @@ internal object SettingsBadges {
     }
 
     /** Fresh install: everything is new to this user, so nothing is badged. */
-    fun seedAllAcknowledged(state: AyuIslandsState) {
+    fun seedAllAcknowledged(state: SettingsBadgeState) {
         for ((anchorId) in registry) applyEvent(state, anchorId, BadgeEvent.ACKNOWLEDGE)
     }
 
     /** The registry bounds the persisted set — drop ids of removed entries. */
-    fun pruneStaleIds(state: AyuIslandsState) {
+    fun pruneStaleIds(state: SettingsBadgeState) {
         val known = registry.map { it.id }.toSet()
         state.acknowledgedSettingsBadges.retainAll(known)
         state.settingsBadgeDeadlines.keys.retainAll(known)
@@ -205,7 +251,7 @@ internal object SettingsBadges {
 
     /** Arms only newly discovered anchors; existing deadlines never move. */
     fun armExpiry(
-        state: AyuIslandsState,
+        state: SettingsBadgeState,
         nowMs: Long,
     ) {
         migrateLegacyExpiry(state)
@@ -214,14 +260,14 @@ internal object SettingsBadges {
 
     /** Called on startup: each pending anchor retires at its own cap. */
     fun expireIfDue(
-        state: AyuIslandsState,
+        state: SettingsBadgeState,
         nowMs: Long,
     ) {
         migrateLegacyExpiry(state)
         for ((anchorId) in registry) applyEvent(state, anchorId, BadgeEvent.EXPIRE, nowMs)
     }
 
-    private fun migrateLegacyExpiry(state: AyuIslandsState) {
+    private fun migrateLegacyExpiry(state: SettingsBadgeState) {
         val legacyDeadlineMs = state.settingsBadgesExpireAtMs
         if (legacyDeadlineMs == 0L) return
 
@@ -234,7 +280,7 @@ internal object SettingsBadges {
     }
 
     private fun applyEvent(
-        state: AyuIslandsState,
+        state: SettingsBadgeState,
         anchorId: String,
         event: BadgeEvent,
         nowMs: Long = 0L,
@@ -244,10 +290,12 @@ internal object SettingsBadges {
                 state.acknowledgedSettingsBadges.add(anchorId)
                 state.settingsBadgeDeadlines.remove(anchorId)
             }
+
             BadgeLifecycle.Unarmed -> {
                 state.acknowledgedSettingsBadges.remove(anchorId)
                 state.settingsBadgeDeadlines.remove(anchorId)
             }
+
             is BadgeLifecycle.Pending -> {
                 state.acknowledgedSettingsBadges.remove(anchorId)
                 state.settingsBadgeDeadlines[anchorId] = next.deadlineMs.toString()
@@ -256,7 +304,7 @@ internal object SettingsBadges {
     }
 
     private fun readLifecycle(
-        state: AyuIslandsState,
+        state: SettingsBadgeState,
         anchorId: String,
     ): BadgeLifecycle {
         if (anchorId in state.acknowledgedSettingsBadges) return BadgeLifecycle.Acknowledged
@@ -270,18 +318,23 @@ internal object SettingsBadges {
         nowMs: Long,
     ): BadgeLifecycle =
         when (event) {
-            BadgeEvent.ARM ->
+            BadgeEvent.ARM -> {
                 when (lifecycle) {
                     BadgeLifecycle.Acknowledged -> lifecycle
                     BadgeLifecycle.Unarmed -> BadgeLifecycle.Pending(nowMs + BADGE_LIFETIME_MS)
                     is BadgeLifecycle.Pending -> lifecycle
                 }
-            BadgeEvent.EXPIRE ->
+            }
+
+            BadgeEvent.EXPIRE -> {
                 when (lifecycle) {
                     BadgeLifecycle.Acknowledged,
                     BadgeLifecycle.Unarmed,
-                    -> lifecycle
-                    is BadgeLifecycle.Pending ->
+                    -> {
+                        lifecycle
+                    }
+
+                    is BadgeLifecycle.Pending -> {
                         if (
                             nowMs >= lifecycle.deadlineMs ||
                             lifecycle.deadlineMs > nowMs + BADGE_LIFETIME_MS
@@ -290,8 +343,13 @@ internal object SettingsBadges {
                         } else {
                             lifecycle
                         }
+                    }
                 }
-            BadgeEvent.ACKNOWLEDGE -> BadgeLifecycle.Acknowledged
+            }
+
+            BadgeEvent.ACKNOWLEDGE -> {
+                BadgeLifecycle.Acknowledged
+            }
         }
 }
 
@@ -300,7 +358,11 @@ internal class SettingsBadgeController(
     val headerText: String,
     val headerVisible: AtomicBooleanProperty,
     val jumpToFirstPending: () -> Unit,
-)
+    val refresh: () -> Unit,
+    private val cleanup: () -> Unit,
+) : Disposable {
+    override fun dispose() = cleanup()
+}
 
 /**
  * Wires badge dots onto [tabs] and collapsible group titles, and returns the
@@ -313,8 +375,10 @@ internal fun installSettingsBadges(
     tabs: JBTabbedPane,
     tabTitles: List<String>,
     accent: Color,
+    readState: () -> SettingsBadgeState? = SettingsBadgeState::current,
+    acknowledge: (List<String>, () -> Unit) -> Unit = ::acknowledgeBadges,
 ): SettingsBadgeController? {
-    val state = AyuIslandsSettings.getInstance().state
+    var state = readState() ?: return null
     val initialPending = SettingsBadges.pendingAnchors(state)
     if (initialPending.isEmpty()) return null
 
@@ -325,6 +389,7 @@ internal fun installSettingsBadges(
     val defaultTabComponents = tabTitles.indices.map { tabs.getTabComponentAt(it) }
 
     fun refresh() {
+        state = readState() ?: return
         val pendingTabs = SettingsBadges.pendingAnchors(state).map { it.tabTitle }.toSet()
         for ((index, title) in tabTitles.withIndex()) {
             val default = defaultTabComponents[index]
@@ -340,24 +405,30 @@ internal fun installSettingsBadges(
     fun acknowledgeSelected() {
         val index = tabs.selectedIndex
         if (index in tabTitles.indices) {
-            SettingsBadges.acknowledgeTab(state, tabTitles[index])
-            refresh()
+            acknowledge(SettingsBadges.visibleAnchors(tabTitles[index]), ::refresh)
         }
     }
 
-    SettingsBadges.onBadgesChanged = { refresh() }
+    val refreshOwned: () -> Unit = { refresh() }
+    SettingsBadges.onBadgesChanged = refreshOwned
     refresh()
     // The initially selected tab is on screen right now — that counts as seen.
     acknowledgeSelected()
-    tabs.addChangeListener { acknowledgeSelected() }
+    val selectionListener = ChangeListener { acknowledgeSelected() }
+    tabs.addChangeListener(selectionListener)
 
     return SettingsBadgeController(
         headerText = "New in this release: " + initialPending.joinToString(", ") { it.title },
         headerVisible = headerVisible,
         jumpToFirstPending = {
-            val target = SettingsBadges.pendingAnchors(state).firstOrNull()?.tabTitle
+            val target = SettingsBadges.pendingAnchors(state).firstNotNullOfOrNull { it.tabTitle }
             val index = target?.let(tabTitles::indexOf) ?: -1
             if (index >= 0) tabs.selectedIndex = index
+        },
+        refresh = ::refresh,
+        cleanup = {
+            tabs.removeChangeListener(selectionListener)
+            if (SettingsBadges.onBadgesChanged === refreshOwned) SettingsBadges.onBadgesChanged = null
         },
     )
 }
@@ -379,28 +450,41 @@ internal fun CollapsibleRow.bindNewSettingBadge(
     SettingsBadges.registerGroupExpanded(anchorId) { !isVisible() || expanded }
     addExpandedListener { nowExpanded ->
         if (nowExpanded) {
-            SettingsBadges.acknowledgeAnchor(AyuIslandsSettings.getInstance().state, anchorId)
+            acknowledgeBadges(listOf(anchorId)) { SettingsBadges.onBadgesChanged?.invoke() }
         }
     }
 }
 
-/**
- * Adds a small "New" pill after the row content while [anchorId] is pending.
- * [isVisible] keeps tab visits from acknowledging dynamically hidden rows.
- */
-internal fun Row.newFeatureBadge(
-    anchorId: String,
-    isVisible: () -> Boolean = { true },
+private fun acknowledgeBadges(
+    ids: List<String>,
+    completed: () -> Unit,
 ) {
-    SettingsBadges.registerAnchorVisible(anchorId, isVisible)
-    val state = AyuIslandsSettings.getInstance().state
-    if (!SettingsBadges.isPending(state, anchorId)) return
-    label("New").applyToComponent {
+    dev.ayuislands.studio.StudioService.getInstance().metadata(
+        dev.ayuislands.studio.model.StudioMetadataCommand
+            .BadgesSeen(
+                dev.ayuislands.studio.model
+                    .StudioList(ids),
+            ),
+    ) { result ->
+        if (result is dev.ayuislands.studio.model.AcceptanceResult.Accepted ||
+            result == dev.ayuislands.studio.model.AcceptanceResult.NoChanges
+        ) {
+            completed()
+        }
+    }
+}
+
+/** Paints an explicitly observed indicator without reading or acknowledging global badge state. */
+internal fun Row.newFeatureBadge(pending: Boolean): Cell<JLabel> = cell(newFeatureBadgeLabel(pending)).visible(pending)
+
+/** The same row indicator for native controls outside the UI DSL. */
+internal fun newFeatureBadgeLabel(pending: Boolean): JLabel =
+    JBLabel(if (pending) "New" else "").apply {
         font = JBUI.Fonts.smallFont()
         foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
         accessibleContext.accessibleDescription = "New in this release"
+        isVisible = pending
     }
-}
 
 /**
  * Puts an accent dot after the title of every collapsible group hiding a
@@ -414,7 +498,7 @@ private fun refreshGroupTitleDots(
     tabs: JBTabbedPane,
     tabTitles: List<String>,
     accent: Color,
-    state: AyuIslandsState,
+    state: SettingsBadgeState,
 ) {
     for (anchor in SettingsBadges.registry) {
         refreshGroupTitleDot(anchor, tabs, tabTitles, accent, state)
@@ -429,10 +513,10 @@ private fun refreshGroupTitleDot(
     tabs: JBTabbedPane,
     tabTitles: List<String>,
     accent: Color,
-    state: AyuIslandsState,
+    state: SettingsBadgeState,
 ) {
     val groupTitle = anchor.collapsibleGroupTitle ?: return
-    val tabIndex = tabTitles.indexOf(anchor.tabTitle)
+    val tabIndex = tabTitles.indexOf(anchor.tabTitle ?: return)
     if (tabIndex < 0 || tabIndex >= tabs.tabCount) return
     val root = tabs.getComponentAt(tabIndex) as? Container ?: return
     val label = findTitledSeparator(root, groupTitle)?.label ?: return

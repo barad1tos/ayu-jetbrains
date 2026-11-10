@@ -1,6 +1,8 @@
 package dev.ayuislands.accent
 
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.studio.StudioFixtures
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -18,7 +20,7 @@ import kotlin.test.assertTrue
 class AccentMappingsViewTest {
     private fun viewOf(configure: AccentMappingsState.() -> Unit = {}): PersistedAccentMappingsView {
         val state = AccentMappingsState().apply(configure)
-        return PersistedAccentMappingsView { state }
+        return PersistedAccentMappingsView { StudioFixtures.legacyView(AyuIslandsState(), mappings = state).mappings }
     }
 
     @Test
@@ -104,7 +106,7 @@ class AccentMappingsViewTest {
         val view =
             PersistedAccentMappingsView {
                 reads += 1
-                state
+                StudioFixtures.legacyView(AyuIslandsState(), mappings = state).mappings
             }
 
         assertEquals(0, reads, "Construction must not read the persisted state")

@@ -29,32 +29,50 @@ internal enum class FontSurface {
             CONSOLE -> scheme.consoleFontPreferences
         }
 
-    fun capture(scheme: EditorColorsScheme): FontSnapshot {
+    fun capture(scheme: EditorColorsScheme): FontSnapshot = capture(scheme, exact = false)
+
+    fun captureExact(scheme: EditorColorsScheme): FontSnapshot = capture(scheme, exact = true)
+
+    private fun capture(
+        scheme: EditorColorsScheme,
+        exact: Boolean,
+    ): FontSnapshot {
         val inherited =
             when (this) {
                 EDITOR -> scheme.isUseAppFontPreferencesInEditor
                 CONSOLE -> scheme.isUseEditorFontPreferencesInConsole
             }
-        return if (inherited) FontSnapshot.Inherited else FontSnapshot.Explicit(FontData.capture(preferences(scheme)))
+        if (inherited) return FontSnapshot.Inherited
+        val owner = preferences(scheme)
+        return FontSnapshot.Explicit(if (exact) FontData.captureExact(owner) else FontData.capture(owner))
     }
 
     fun write(
         scheme: EditorColorsScheme,
         snapshot: FontSnapshot,
     ) {
-        // Native preference setters do not mark the scheme for saving, even after partial writes.
-        (scheme as? AbstractColorsScheme)?.setSaveNeeded(true)
         when (snapshot) {
-            FontSnapshot.Inherited ->
+            FontSnapshot.Inherited -> {
+                (scheme as? AbstractColorsScheme)?.setSaveNeeded(true)
                 when (this) {
                     EDITOR -> scheme.setUseAppFontPreferencesInEditor()
                     CONSOLE -> scheme.setUseEditorFontPreferencesInConsole()
                 }
+            }
             is FontSnapshot.Explicit ->
-                when (this) {
-                    EDITOR -> scheme.fontPreferences = snapshot.preferences.toPreferences()
-                    CONSOLE -> scheme.consoleFontPreferences = snapshot.preferences.toPreferences()
-                }
+                writePreferences(scheme, snapshot.preferences.toPreferences())
+        }
+    }
+
+    fun writePreferences(
+        scheme: EditorColorsScheme,
+        preferences: FontPreferences,
+    ) {
+        // Native preference setters do not mark the scheme for saving, even after partial writes.
+        (scheme as? AbstractColorsScheme)?.setSaveNeeded(true)
+        when (this) {
+            EDITOR -> scheme.fontPreferences = preferences
+            CONSOLE -> scheme.consoleFontPreferences = preferences
         }
     }
 }
@@ -108,7 +126,15 @@ internal data class FontData(
         }
 
     companion object {
-        fun capture(preferences: FontPreferences): FontData {
+        fun capture(preferences: FontPreferences): FontData = capture(preferences, exact = false)
+
+        /** Raw size callbacks retain template-following zero/negative values and NaN payload bits. */
+        fun captureExact(preferences: FontPreferences): FontData = capture(preferences, exact = true)
+
+        private fun capture(
+            preferences: FontPreferences,
+            exact: Boolean,
+        ): FontData {
             val captured = CapturedFontPreferences()
             preferences.copyTo(captured)
             return FontData(
@@ -117,7 +143,13 @@ internal data class FontData(
                     captured.realFontFamilies.map {
                         FontFamily(
                             it,
-                            if (captured.hasSize(it)) captured.getSize2D(it) else null,
+                            if (exact) {
+                                captured.rawSizes[it]
+                            } else if (captured.hasSize(it)) {
+                                captured.getSize2D(it)
+                            } else {
+                                null
+                            },
                         )
                     },
                 templateSize = captured.templateSize,
@@ -132,11 +164,25 @@ internal data class FontData(
 
 /** Native copyTo supplies the template size through this public setter; no reflective field access. */
 private class CapturedFontPreferences : FontPreferencesImpl() {
+    val rawSizes = mutableMapOf<String, Float>()
     var templateSize: Float = DEFAULT_FONT_SIZE.toFloat()
         private set
 
     override fun setTemplateFontSize(size: Float) {
         templateSize = size
         super.setTemplateFontSize(size)
+    }
+
+    override fun setFontSize(
+        fontFamily: String,
+        size: Float,
+    ) {
+        rawSizes[fontFamily] = size
+        super.setFontSize(fontFamily, size)
+    }
+
+    override fun resetFontSizes() {
+        rawSizes.clear()
+        super.resetFontSizes()
     }
 }

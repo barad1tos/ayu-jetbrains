@@ -23,7 +23,9 @@ internal class RouteCoordinator(
     initialConfig: WaveformConfig,
     random: Random = Random.Default,
 ) {
-    private var config = initialConfig
+    var config = initialConfig
+        private set
+
     private val engine = WaveformEngine(initialConfig, random)
     private val planner = RoutePlanner(random)
     private val clock = RouteClock()

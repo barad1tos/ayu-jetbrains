@@ -486,6 +486,21 @@ internal object LanguageDetectionRules {
             floor = policy.dominanceFloor,
         )
 
+    /** Accepts a legacy hint only when its positive code weight reaches the configured share. */
+    fun pickLegacyTiebreak(
+        weights: Map<String, Long>,
+        hint: String?,
+        policy: ResolutionPolicy,
+    ): String? {
+        val codeWeights = weights.filterKeys { it !in MARKUP_IDS }
+        val base = codeWeights.ifEmpty { weights }
+        val total = base.values.sum()
+        val hintWeight = base[hint] ?: 0L
+        if (total <= 0L || hintWeight <= 0L) return null
+        val share = hintWeight.toDouble() / total.toDouble()
+        return if (share >= policy.tiebreakMinShare) hint else null
+    }
+
     /**
      * Human-readable top-N summary of language proportions for Settings display.
      *
@@ -522,8 +537,9 @@ internal object LanguageDetectionRules {
     fun pickTopLanguagesForDisplay(
         weights: Map<String, Long>,
         maxEntries: Int = DEFAULT_DISPLAY_MAX_ENTRIES,
+        displayName: (String) -> String = ::displayNameFor,
     ): String {
-        val entries = pickDisplayEntries(weights, maxEntries)
+        val entries = pickDisplayEntries(weights, maxEntries, displayName)
         if (entries.isEmpty()) return ""
         return entries.joinToString(DISPLAY_ENTRY_SEPARATOR) { entry ->
             "${entry.label} (${entry.percent}%)"
@@ -636,6 +652,7 @@ internal object LanguageDetectionRules {
     fun pickDisplayEntries(
         weights: Map<String, Long>,
         maxEntries: Int = DEFAULT_DISPLAY_MAX_ENTRIES,
+        displayName: (String) -> String = ::displayNameFor,
     ): List<DisplayEntry> {
         if (weights.isEmpty()) return emptyList()
         val codeWeights = weights.filterKeys { it !in MARKUP_IDS }
@@ -652,7 +669,7 @@ internal object LanguageDetectionRules {
         for ((index, entry) in sorted.withIndex()) {
             val pct = finalPcts[index]
             if (index < maxEntries && pct >= 1) {
-                named += DisplayEntry(id = entry.key, label = displayNameFor(entry.key), percent = pct)
+                named += DisplayEntry(id = entry.key, label = displayName(entry.key), percent = pct)
             } else {
                 collapsedPct += pct
             }

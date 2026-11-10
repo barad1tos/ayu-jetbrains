@@ -23,7 +23,7 @@ import javax.swing.JComponent
  *   Re-invoked on every paint.
  */
 internal class AccentStripe(
-    private val accentSupplier: () -> String,
+    private val accentSupplier: () -> String?,
 ) : JComponent() {
     init {
         isOpaque = false
@@ -52,7 +52,7 @@ internal class AccentStripe(
     }
 
     private fun paintStripe(g2: Graphics2D) {
-        val hex = accentSupplier()
+        val hex = accentSupplier() ?: return
         val color = ColorUtil.fromHex(hex)
         g2.color = color
         g2.fillRect(0, 0, width, height)

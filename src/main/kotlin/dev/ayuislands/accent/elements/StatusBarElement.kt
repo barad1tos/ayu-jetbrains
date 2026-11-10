@@ -7,7 +7,7 @@ import dev.ayuislands.accent.putAccentUiDefault
 import java.awt.Color
 
 /**
- * Tints the status bar surface. [writeForegrounds] is overridden because
+ * Tints the status bar surface. [calculateForegrounds] is overridden because
  * StatusBar uses a light-family foreground and extends that pick across the
  * 2026.1 Compact Navigation breadcrumb states.
  *
@@ -56,7 +56,7 @@ class StatusBarElement : AbstractChromeElement() {
             "StatusBar.borderColor",
         )
 
-    private val overlayBackgroundKeys =
+    override val overlayBackgroundKeys =
         listOf(
             "StatusBar.Widget.hoverBackground",
             "StatusBar.Widget.pressedBackground",
@@ -116,12 +116,10 @@ class StatusBarElement : AbstractChromeElement() {
      * standalone fills; sampling them directly would choose the dark-family fallback
      * for what is visually still a dark status-bar surface.
      */
-    override fun writeForegrounds(tintedBackgrounds: Map<String, Color>) {
-        val tintedBg = tintedBackgrounds[STATUS_BAR_BG_KEY] ?: return
+    override fun calculateForegrounds(tintedBackgrounds: Map<String, Color>): Sequence<Pair<String, Color>> {
+        val tintedBg = tintedBackgrounds[STATUS_BAR_BG_KEY] ?: return emptySequence()
         val contrast = WcagForeground.pickLightFamilyForeground(tintedBg, foregroundTextTarget)
-        for (key in foregroundKeys) {
-            putAccentUiDefault(key, contrast)
-        }
+        return foregroundKeys.asSequence().map { it to contrast }
     }
 
     override fun onBackgroundsTinted(tintedBackgrounds: Map<String, Color>) {

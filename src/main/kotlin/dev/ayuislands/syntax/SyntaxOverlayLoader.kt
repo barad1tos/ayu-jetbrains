@@ -7,13 +7,13 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.ui.ColorUtil
-import com.intellij.ui.JBColor
 import org.jdom.Element
+import java.awt.Color
 import java.util.concurrent.ConcurrentHashMap
 
 private data class ParsedColorField(
     val name: String,
-    val color: JBColor,
+    val color: Color,
 )
 
 private data class NormalizedAttributes(
@@ -200,10 +200,9 @@ class SyntaxOverlayLoader internal constructor(
         }
     }
 
-    private fun parseRgba(value: String): JBColor {
+    private fun parseRgba(value: String): Color {
         val rgb = ColorUtil.fromHex(value.take(RGB_LENGTH))
-        val rgba = ColorUtil.toAlpha(rgb, value.drop(RGB_LENGTH).toInt(HEX_RADIX))
-        return JBColor(rgba, rgba)
+        return ColorUtil.toAlpha(rgb, value.drop(RGB_LENGTH).toInt(HEX_RADIX))
     }
 
     private fun logResourceOnce(

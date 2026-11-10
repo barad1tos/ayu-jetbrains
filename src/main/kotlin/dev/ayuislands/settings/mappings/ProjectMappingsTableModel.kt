@@ -59,10 +59,6 @@ internal class ProjectMappingsTableModel(
         fireTableRowsUpdated(row, row)
     }
 
-    internal fun refreshAll() {
-        fireTableDataChanged()
-    }
-
     fun rowAt(index: Int): ProjectMapping? = rows.getOrNull(index)
 
     fun containsPath(canonicalPath: String): Boolean = rows.any { it.canonicalPath == canonicalPath }
@@ -102,6 +98,6 @@ internal class ProjectMappingsTableModel(
         const val COLUMN_COLOR = 0
         const val COLUMN_PROJECT = 1
         const val COLUMN_PATH = 2
-        private val COLUMN_NAMES = listOf("Color", "Project", "Path")
+        val COLUMN_NAMES = listOf("Color", "Project", "Path")
     }
 }

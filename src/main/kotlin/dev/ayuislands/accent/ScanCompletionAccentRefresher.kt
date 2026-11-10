@@ -4,7 +4,8 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.StudioNativeChange
 
 /**
  * Sole accent-owning subscriber of [ProjectLanguageDetectionListener.TOPIC].
@@ -24,7 +25,7 @@ import dev.ayuislands.settings.mappings.ProjectAccentSwapService
  *
  * Threading: [ProjectLanguageDetectionListener] handlers run in an IntelliJ
  * write-safe EDT context (`publishScanCompleted` uses `Application.invokeLater`),
- * so the resolver + apply chain here needs no additional dispatch. The subscription
+ * and the application coordinator owns native admission. The subscription
  * is anchored to this service's own [Disposable], so it is torn down with
  * the project (the service container disposes project services on close).
  */
@@ -66,25 +67,12 @@ internal class ScanCompletionAccentRefresher(
     private fun refreshAccent() {
         if (project.isDisposed) return
         runCatchingPreservingCancellation {
-            // Best-effort refresh: the cache already has the cacheable scan
-            // verdict (the detector publishes only after `detectAndCache`), so
-            // `dominant()` behavior is unaffected by failures here. Containing
-            // exceptions keeps a regression in any of the downstream apply
-            // paths (variant detection, UIManager writes, focus-swap
-            // notification) from surfacing as an uncaught EDT exception and
-            // risking the UI.
             if (AccentApplicator.resolveFocusedProject() !== project) {
                 LOG.debug("Post-scan accent refresh skipped because focused project changed")
                 return@runCatchingPreservingCancellation
             }
-            val variant = AyuVariant.detect() ?: return@runCatchingPreservingCancellation
-            val hex = AccentResolver.resolve(project, variant)
-            val outcome = AccentApplicator.applyFromHexString(hex)
-            if (outcome !is AccentApplyOutcome.Rejected) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
-            } else {
-                LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
-            }
+            if (AyuVariant.detect() == null) return@runCatchingPreservingCancellation
+            StudioService.getInstance().nativeChanged(StudioNativeChange.AccentContext)
         }.onFailure { exception ->
             LOG.warn("Post-scan accent refresh failed; cache is still warm", exception)
         }

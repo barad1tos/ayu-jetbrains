@@ -15,6 +15,7 @@ import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
+import dev.ayuislands.accent.AccentResolutionChainBuilder
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
@@ -47,6 +48,8 @@ import kotlin.test.assertTrue
  * the IntelliJ application.
  */
 class QuickSwitcherChipFocusSwapTest {
+    private lateinit var fixture: QuickSwitcherFixture
+
     private val mockApplication = mockk<Application>(relaxed = true)
     private val mockMessageBus = mockk<MessageBus>(relaxed = true)
     private val mockConnection = mockk<MessageBusConnection>(relaxed = true)
@@ -57,6 +60,7 @@ class QuickSwitcherChipFocusSwapTest {
 
     @BeforeTest
     fun setUp() {
+        fixture = QuickSwitcherFixture()
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
@@ -116,8 +120,14 @@ class QuickSwitcherChipFocusSwapTest {
                 every { isDefault } returns false
             }
         every { AccentApplicator.resolveFocusedProject() } returnsMany listOf(projectA, projectB)
-        every { AccentResolver.resolve(projectA, any<AccentContext>()) } returns "#FFCC66"
-        every { AccentResolver.resolve(projectB, any<AccentContext>()) } returns "#5CCFE6"
+        every { AccentResolutionChainBuilder.resolve(projectA, any(), any()) } answers {
+            fixture.hex = "#FFCC66"
+            fixture.chain()
+        }
+        every { AccentResolutionChainBuilder.resolve(projectB, any(), any()) } answers {
+            fixture.hex = "#5CCFE6"
+            fixture.chain()
+        }
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify() // refreshFromFocusedProject() runs once -> projectA -> #FFCC66
@@ -147,7 +157,10 @@ class QuickSwitcherChipFocusSwapTest {
                 every { isDefault } returns false
             }
         every { AccentApplicator.resolveFocusedProject() } returns project
-        every { AccentResolver.resolve(project, any<AccentContext>()) } returnsMany listOf("#FFCC66", "#DFBFFF")
+        val initial = fixture.chain()
+        fixture.hex = "#DFBFFF"
+        every { AccentResolutionChainBuilder.resolve(project, any(), any()) } returnsMany
+            listOf(initial, fixture.chain())
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()
@@ -176,7 +189,7 @@ class QuickSwitcherChipFocusSwapTest {
                 every { isDefault } returns false
             }
         every { AccentApplicator.resolveFocusedProject() } returns project
-        every { AccentResolver.resolve(project, any<AccentContext>()) } returns "#FFCC66"
+        fixture.hex = "#FFCC66"
 
         val chip = QuickSwitcherChipComponent()
         chip.addNotify()

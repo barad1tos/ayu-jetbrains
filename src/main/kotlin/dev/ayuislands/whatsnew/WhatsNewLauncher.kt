@@ -56,7 +56,7 @@ internal object WhatsNewLauncher {
         project: Project,
         currentVersion: String,
     ): Boolean {
-        val state = AyuIslandsSettings.getInstance().state
+        val state = AyuIslandsSettings.getInstance().state ?: return false
         val normalized = WhatsNewManifestLoader.normalizeVersion(currentVersion)
         val manifestPresent = WhatsNewManifestLoader.manifestExists(currentVersion)
         if (!isWhatsNewEligible(state.lastWhatsNewShownVersion, currentVersion, manifestPresent)) {
@@ -92,7 +92,6 @@ internal object WhatsNewLauncher {
         normalizedVersion: String,
         isManual: Boolean,
     ) {
-        val settings = AyuIslandsSettings.getInstance()
         val scope = OnboardingSchedulerService.getInstance(project).scope()
         LOG.info(
             "Ayu What's New: scheduling tab open " +
@@ -111,7 +110,11 @@ internal object WhatsNewLauncher {
                     bypassFocus = isManual,
                     bypassGate = isManual,
                     onSuccess = {
-                        settings.state.lastWhatsNewShownVersion = normalizedVersion
+                        dev.ayuislands.studio.StudioService.getInstance().updateUi(
+                            "lastWhatsNewShownVersion",
+                            dev.ayuislands.studio.model.RawValue
+                                .Text(normalizedVersion),
+                        )
                         LOG.info("Ayu What's New: marked $normalizedVersion as shown")
                     },
                 ) { target -> openWhatsNewTab(target) }

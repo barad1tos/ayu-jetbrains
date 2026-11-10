@@ -2,11 +2,15 @@ package dev.ayuislands
 
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.util.xmlb.XmlSerializer
-import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.font.FontPreset
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
+import dev.ayuislands.studio.migration.MigrationResult
+import dev.ayuislands.studio.migration.StudioLegacyMigration
+import dev.ayuislands.studio.session.StudioFontProjection
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.assertIs
 
 class StartupFontPersistenceTest {
     @Test
@@ -17,31 +21,31 @@ class StartupFontPersistenceTest {
                 "AMBIENT" to "14|1.2|true|REGULAR",
             )
         var settings =
-            AyuIslandsSettings().apply {
-                state.fontPresetEnabled = true
-                state.fontPresetName = "FUTURE_PRESET"
-                state.fontPresetCustomizations.putAll(originalCustomizations)
-                state.darkAccent = "#AABBCC"
+            AyuIslandsState().apply {
+                fontPresetEnabled = true
+                fontPresetName = "FUTURE_PRESET"
+                fontPresetCustomizations.putAll(originalCustomizations)
+                darkAccent = "#AABBCC"
             }
 
         settings = migrateTwiceAndReload(settings)
-        settings.state.fontPresetEnabled = false
+        settings.fontPresetEnabled = false
         settings = migrateTwiceAndReload(settings)
-        settings.state.fontPresetEnabled = true
+        settings.fontPresetEnabled = true
         settings = migrateTwiceAndReload(settings)
 
-        assertEquals("FUTURE_PRESET", settings.state.fontPresetName)
-        assertEquals(originalCustomizations, settings.state.fontPresetCustomizations)
-        assertEquals("#AABBCC", settings.state.darkAccent)
+        assertEquals("FUTURE_PRESET", settings.fontPresetName)
+        assertEquals(originalCustomizations, settings.fontPresetCustomizations)
+        assertEquals("#AABBCC", settings.darkAccent)
     }
 
     @Test
     fun `startup preserves a whitespace font name through reload`() {
-        val settings = AyuIslandsSettings().apply { state.fontPresetName = "  " }
+        val settings = AyuIslandsState().apply { fontPresetName = "  " }
 
-        migrateFontPresets(settings.state)
+        selection(settings)
 
-        assertEquals("  ", reload(settings.state).state.fontPresetName)
+        assertEquals("  ", reload(settings).fontPresetName)
     }
 
     @Test
@@ -49,7 +53,7 @@ class StartupFontPersistenceTest {
         val state = AyuIslandsState().apply { fontPresetName = null }
         val originalXml = encodedState(state)
 
-        migrateFontPresets(state)
+        selection(state)
 
         assertEquals(null, state.fontPresetName)
         assertEquals(originalXml, encodedState(state))
@@ -68,34 +72,42 @@ class StartupFontPersistenceTest {
         for ((legacyName, currentName) in migrations) {
             val destinationCustomization = "current|$currentName|customization"
             val settings =
-                AyuIslandsSettings().apply {
-                    state.fontPresetName = legacyName
-                    state.fontPresetCustomizations[legacyName] = "legacy|$legacyName|customization"
-                    state.fontPresetCustomizations[currentName] = destinationCustomization
+                AyuIslandsState().apply {
+                    fontPresetName = legacyName
+                    fontPresetCustomizations[legacyName] = "legacy|$legacyName|customization"
+                    fontPresetCustomizations[currentName] = destinationCustomization
                 }
 
-            migrateFontPresets(settings.state)
-            val reloaded = reload(settings.state)
+            selection(settings)
+            val reloaded = reload(settings)
 
-            assertEquals(currentName, reloaded.state.fontPresetName)
-            assertEquals(destinationCustomization, reloaded.state.fontPresetCustomizations[currentName])
-            assertFalse(reloaded.state.fontPresetCustomizations.containsKey(legacyName))
+            assertEquals(legacyName, reloaded.fontPresetName)
+            assertEquals(FontPreset.valueOf(currentName), selection(reloaded).settings?.preset)
+            assertEquals(destinationCustomization, reloaded.fontPresetCustomizations[currentName])
+            assertEquals("legacy|$legacyName|customization", reloaded.fontPresetCustomizations[legacyName])
         }
     }
 
-    private fun reload(state: AyuIslandsState): AyuIslandsSettings {
+    private fun reload(state: AyuIslandsState): AyuIslandsState {
         val xml = encodedState(state)
         val reloadedState = XmlSerializer.deserialize(JDOMUtil.load(xml), AyuIslandsState::class.java)
-        return AyuIslandsSettings().apply { loadState(reloadedState) }
+        return reloadedState
     }
 
-    private fun migrateTwiceAndReload(settings: AyuIslandsSettings): AyuIslandsSettings {
-        val expectedXml = encodedState(settings.state)
-        repeat(2) { migrateFontPresets(settings.state) }
-        val reloaded = reload(settings.state)
-        assertEquals(expectedXml, encodedState(reloaded.state))
+    private fun migrateTwiceAndReload(settings: AyuIslandsState): AyuIslandsState {
+        val expectedXml = encodedState(settings)
+        repeat(2) { selection(settings) }
+        val reloaded = reload(settings)
+        assertEquals(expectedXml, encodedState(reloaded))
         return reloaded
     }
+
+    private fun selection(state: AyuIslandsState) =
+        StudioFontProjection.selection(
+            assertIs<MigrationResult.Ready>(
+                StudioLegacyMigration.plan(StudioFixtures.capture(state)),
+            ).document.currents.global.appearance,
+        )
 
     private fun encodedState(state: AyuIslandsState): String = JDOMUtil.writeElement(XmlSerializer.serialize(state))
 }

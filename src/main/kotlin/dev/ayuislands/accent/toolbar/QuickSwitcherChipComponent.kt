@@ -7,8 +7,6 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentChangeListener
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
@@ -17,9 +15,6 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.accent.toolbar.actions.QuickSwitcherActionGroup
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.mappings.AccentMappingsSettings
-import dev.ayuislands.settings.mappings.AccentMappingsState
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.Dimension
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -116,60 +111,8 @@ internal class QuickSwitcherChipComponent : JLabel() {
         QuickSwitcherPopup.show(this, this)
     }
 
-    /**
-     * Restore the previous pin after rejection or a thrown apply.
-     * Accepted outcomes retain the user's pin choice, including torn paints.
-     * Cancellation propagates after rollback; ordinary failures are logged.
-     */
     private fun togglePin() {
-        val context = AccentContext.detectQuickSwitcher()
-        if (context !is AccentContext.Ayu) return
-        val variant = context.ayuVariant
-        val project = AccentApplicator.resolveFocusedProject() ?: return
-        val key =
-            AccentResolver.projectKey(project) ?: run {
-                LOG.warn("Pin toggle: projectKey null for ${project.name}")
-                return
-            }
-        val mappings = AccentMappingsSettings.getInstance().state
-        val previousPin: String? = mappings.projectAccents[key]
-        try {
-            val unpinPath = AccentResolver.source(project) == AccentResolver.Source.PROJECT_OVERRIDE
-            if (unpinPath) {
-                mappings.projectAccents.remove(key)
-            } else {
-                mappings.projectAccents[key] = AccentResolver.resolve(project, variant)
-            }
-            // Resolve target hex AFTER the mutation so the unpin path lands
-            // on the (now-uncovered) language pin or global accent and the
-            // pin path lands on the just-written override — `AccentResolver`
-            // reads `mappings` directly.
-            val targetHex = AccentResolver.resolve(project, variant)
-            val outcome = AccentApplicator.applyFromHexString(targetHex)
-            if (outcome !is AccentApplyOutcome.Rejected) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
-            } else {
-                LOG.warn("Pin toggle: applyFromHexString rejected hex=$targetHex; rolling back")
-                restorePin(mappings, key, previousPin)
-            }
-        } catch (exception: RuntimeException) {
-            restorePin(mappings, key, previousPin)
-            exception.rethrowIfCancelled()
-            LOG.warn("Pin toggle failed; rolling back", exception)
-        }
-    }
-
-    /** Restore only this pin, preserving current unrelated values. */
-    private fun restorePin(
-        mappings: AccentMappingsState,
-        key: String,
-        previous: String?,
-    ) {
-        if (previous == null) {
-            mappings.projectAccents.remove(key)
-        } else {
-            mappings.projectAccents[key] = previous
-        }
+        QuickSwitcherCommands.capture()?.togglePin(::refreshFromFocusedProject)
     }
 
     /**
@@ -255,23 +198,29 @@ internal class QuickSwitcherChipComponent : JLabel() {
      * so the chip stays paintable with its previous icon.
      */
     fun refreshFromFocusedProject() {
-        val context = AccentContext.detectQuickSwitcher() ?: return
-        val project = AccentApplicator.resolveFocusedProject()
-        val hex =
+        val chain =
             try {
-                AccentResolver.resolve(project, context)
-            } catch (exception: RuntimeException) {
-                exception.rethrowIfCancelled()
-                LOG.warn("QuickSwitcher chip resolve failed", exception)
+                QuickSwitcherCommands.capture()?.chain()
+            } catch (failure: RuntimeException) {
+                failure.rethrowIfCancelled()
+                LOG.warn("Quick Switcher chip could not refresh its accent", failure)
                 return
             }
-        val source = AccentResolver.source(project, context)
-        val pinned = source == AccentResolver.Source.PROJECT_OVERRIDE
-        // [AccentResolver.resolve] returns a validated `#RRGGBB` (resolver
-        // produces either a stored override or `AyuIslandsSettings.getAccentForVariant`,
-        // both of which are validated upstream), so `unsafeOf` is safe here.
-        icon = LayeredAccentIcon(JBUI.scale(CHIP_BOX_PX), AccentHex.unsafeOf(hex), pinned = pinned)
-        toolTipText = "$hex — ${AccentResolver.sourceLabel(source)}"
+        if (chain == null) {
+            icon = null
+            toolTipText = "Ayu Islands settings are unavailable"
+            repaint()
+            return
+        }
+        val winner = chain.winner
+        val accent = AccentHex.of(winner.hex) ?: return
+        icon =
+            LayeredAccentIcon(
+                JBUI.scale(CHIP_BOX_PX),
+                accent,
+                pinned = winner.source == AccentResolver.Source.PROJECT_OVERRIDE,
+            )
+        toolTipText = "${winner.hex} — ${AccentResolver.sourceLabel(winner.source)}"
         repaint()
     }
 

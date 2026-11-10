@@ -5,7 +5,9 @@ import com.intellij.openapi.editor.colors.EditorColorsListener
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.ayuislands.indent.CurrentIrPalette
 import dev.ayuislands.indent.IrPalette
+import dev.ayuislands.indent.IrPart
 import dev.ayuislands.indent.ResolvedIrState
 import javax.swing.SwingUtilities
 
@@ -19,12 +21,19 @@ class IndentRainbowRefreshTest : BasePlatformTestCase() {
         val original = IrPalette(config.type.name, config.palette, config.colorCount)
         val resolved =
             ResolvedIrState(
-                config = config,
-                paletteTypeField = PaletteConfig::class.java.getField("type"),
-                customPaletteField = PaletteConfig::class.java.getField("palette"),
-                colorCountField = PaletteConfig::class.java.getField("colorCount"),
-                updateMethod = PaletteCache::class.java.getMethod("update", PaletteConfig::class.java),
-                companion = cache,
+                paletteTypes = PaletteType.entries.associateBy { it.name },
+                read = {
+                    CurrentIrPalette(IrPalette(config.type.name, config.palette, config.colorCount), config.type)
+                },
+                write = { part, target ->
+                    when (part) {
+                        IrPart.TYPE -> config.type = requireNotNull(target.typeValue as? PaletteType)
+                        IrPart.PALETTE -> config.palette = target.palette.palette
+                        IrPart.COUNT -> config.colorCount = target.palette.colorCount
+                    }
+                },
+                update = { cache.update(config) },
+                current = { true },
             )
         val target = IrPalette("CUSTOM", "updated palette", 5)
         val observed = mutableListOf<IrPalette>()
@@ -66,11 +75,11 @@ class IndentRainbowRefreshTest : BasePlatformTestCase() {
     enum class PaletteType { DEFAULT, CUSTOM }
 
     class PaletteConfig {
-        @JvmField var type = PaletteType.DEFAULT
+        var type = PaletteType.DEFAULT
 
-        @JvmField var palette: String? = "native palette"
+        var palette: String? = "native palette"
 
-        @JvmField var colorCount = 3
+        var colorCount = 3
     }
 
     class PaletteCache {

@@ -20,8 +20,7 @@ import javax.swing.SwingConstants
 /**
  * Focused diagnostics strip for project-language accent resolution.
  *
- * The panel is deliberately state-only: [OverridesGroupBuilder] owns project
- * lookup, pending override maps, license gates, and detector reads. This class
+ * Callers supply project lookups, pending override maps, license gates, and detector results. This class
  * formats that snapshot into compact source, scan, and action rows.
  */
 internal class ProjectLanguageResolutionPanel(
@@ -34,6 +33,7 @@ internal class ProjectLanguageResolutionPanel(
     private val canRescanNow: () -> Boolean,
     private val languageIconForId: (String) -> Icon? = LanguageDetectionRules::iconForLanguageId,
 ) : JPanel() {
+    private var observedNames: Map<String, String>? = null
     private var state: State =
         State(
             verdict = ProjectLanguageVerdict.Unavailable,
@@ -50,8 +50,12 @@ internal class ProjectLanguageResolutionPanel(
         border = null
     }
 
-    fun refresh(nextState: State) {
+    fun refresh(
+        nextState: State,
+        languageNames: Map<String, String>? = null,
+    ) {
         state = nextState
+        observedNames = languageNames
         removeAll()
 
         add(
@@ -71,13 +75,23 @@ internal class ProjectLanguageResolutionPanel(
         scanDetailText(nextState)?.let { detail ->
             val weights =
                 when (val verdict = nextState.verdict) {
-                    is ProjectLanguageVerdict.Detected ->
-                        verdict.weights?.takeIf { LanguageDetectionRules.pickDisplayEntries(it).size > 1 }
-                    is ProjectLanguageVerdict.NoWinner -> verdict.weights
+                    is ProjectLanguageVerdict.Detected -> {
+                        verdict.weights?.takeIf {
+                            LanguageDetectionRules.pickDisplayEntries(it, displayName = ::displayName).size >
+                                1
+                        }
+                    }
+
+                    is ProjectLanguageVerdict.NoWinner -> {
+                        verdict.weights
+                    }
+
                     ProjectLanguageVerdict.Cold,
                     ProjectLanguageVerdict.Empty,
                     ProjectLanguageVerdict.Unavailable,
-                    -> null
+                    -> {
+                        null
+                    }
                 }
             add(buildDetailRow(detail, weights))
         }
@@ -150,7 +164,7 @@ internal class ProjectLanguageResolutionPanel(
     private fun detectedText(verdict: ProjectLanguageVerdict.Detected): String {
         val proportions =
             verdict.weights
-                ?.let(LanguageDetectionRules::pickTopLanguagesForDisplay)
+                ?.let { LanguageDetectionRules.pickTopLanguagesForDisplay(it, displayName = ::displayName) }
                 ?.takeIf { it.isNotEmpty() }
         return proportions ?: displayName(verdict.languageId)
     }
@@ -160,12 +174,12 @@ internal class ProjectLanguageResolutionPanel(
         weights: Map<String, Long>,
     ): Int? =
         LanguageDetectionRules
-            .pickDisplayEntries(weights)
+            .pickDisplayEntries(weights, displayName = ::displayName)
             .firstOrNull { it.id == languageId }
             ?.percent
 
     private fun proportionsText(weights: Map<String, Long>): String {
-        val entries = LanguageDetectionRules.pickDisplayEntries(weights)
+        val entries = LanguageDetectionRules.pickDisplayEntries(weights, displayName = ::displayName)
         if (entries.isEmpty()) return "unresolved"
         return entries.joinToString(ENTRY_SEPARATOR) { entry ->
             "${entry.label} ${entry.percent}%"
@@ -175,15 +189,28 @@ internal class ProjectLanguageResolutionPanel(
     private fun sourceText(state: State): String {
         val label = AccentResolver.sourceLabel(state.activeSource)
         return when (state.activeSource) {
-            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE ->
-                sourceWithDetail("Language override", manualLanguageDetail(state.forcedLanguageId))
-            AccentResolver.Source.LANGUAGE_OVERRIDE ->
+            AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE -> {
+                sourceWithDetail("Language override", manualLanguageDetail(state.forcedLanguageId, ::displayName))
+            }
+
+            AccentResolver.Source.LANGUAGE_OVERRIDE -> {
                 sourceWithDetail(label, detectedLanguageDetail(state))
-            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE ->
-                sourceWithDetail(label, manualLanguageDetail(state.forcedLanguageId) ?: detectedLanguageDetail(state))
-            AccentResolver.Source.PROJECT_FALLBACK ->
+            }
+
+            AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE -> {
+                sourceWithDetail(
+                    label,
+                    manualLanguageDetail(state.forcedLanguageId, ::displayName) ?: detectedLanguageDetail(state),
+                )
+            }
+
+            AccentResolver.Source.PROJECT_FALLBACK -> {
                 if (state.fallbackHex != null) "$label ${state.fallbackHex}" else label
-            else -> label
+            }
+
+            else -> {
+                label
+            }
         }
     }
 
@@ -233,14 +260,20 @@ internal class ProjectLanguageResolutionPanel(
 
     private fun verdictActionSpecs(state: State): List<ActionSpec> =
         when (val verdict = state.verdict) {
-            is ProjectLanguageVerdict.Detected ->
+            is ProjectLanguageVerdict.Detected -> {
                 listOf(forceLanguageSpec(verdict.languageId))
-            is ProjectLanguageVerdict.NoWinner ->
+            }
+
+            is ProjectLanguageVerdict.NoWinner -> {
                 noWinnerActionSpecs(verdict, state)
+            }
+
             ProjectLanguageVerdict.Cold,
             ProjectLanguageVerdict.Empty,
             ProjectLanguageVerdict.Unavailable,
-            -> emptyList()
+            -> {
+                emptyList()
+            }
         }
 
     private fun noWinnerActionSpecs(
@@ -276,7 +309,7 @@ internal class ProjectLanguageResolutionPanel(
     private fun uniqueTopLanguageId(weights: Map<String, Long>): String? {
         val entries =
             LanguageDetectionRules
-                .pickDisplayEntries(weights)
+                .pickDisplayEntries(weights, displayName = ::displayName)
                 .filter { it.id != null }
         val topId = entries.firstOrNull()?.id ?: return null
         val topWeight = weights[topId] ?: return null
@@ -310,7 +343,14 @@ internal class ProjectLanguageResolutionPanel(
         weights: Map<String, Long>?,
     ): JPanel =
         buildRow().apply {
-            val entries = weights?.let(LanguageDetectionRules::pickDisplayEntries).orEmpty()
+            val entries =
+                weights
+                    ?.let {
+                        LanguageDetectionRules.pickDisplayEntries(
+                            it,
+                            displayName = ::displayName,
+                        )
+                    }.orEmpty()
             if (entries.isEmpty()) {
                 add(
                     JBLabel(safeLabelText(detail), null, SwingConstants.LEADING).apply {
@@ -360,7 +400,9 @@ internal class ProjectLanguageResolutionPanel(
             isOpaque = false
         }
 
-    private fun displayName(languageId: String): String = LanguageDetectionRules.displayNameForLanguageId(languageId)
+    private fun displayName(languageId: String): String =
+        observedNames?.let { it[languageId] ?: languageId }
+            ?: LanguageDetectionRules.displayNameForLanguageId(languageId)
 
     internal data class State(
         val verdict: ProjectLanguageVerdict,
@@ -405,8 +447,10 @@ private fun polyglotText(state: ProjectLanguageResolutionPanel.State): String {
     return "Polyglot — no single dominant language. $applied"
 }
 
-private fun manualLanguageDetail(languageId: String?): String? =
-    languageId?.let { "${LanguageDetectionRules.displayNameForLanguageId(it)}, manual" }
+private fun manualLanguageDetail(
+    languageId: String?,
+    displayName: (String) -> String,
+): String? = languageId?.let { "${displayName(it)}, manual" }
 
 private fun sourceWithDetail(
     label: String,

@@ -12,10 +12,8 @@ import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RenderingHints
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
 import java.awt.geom.RoundRectangle2D
-import javax.swing.JComponent
+import javax.swing.JButton
 
 /**
  * Compact 36x24 accent swatch for the popup accent grid. Mirrors the paint
@@ -33,69 +31,37 @@ import javax.swing.JComponent
  * | Selected + Hover | accent + 0.55 alpha [BORDER_RGB]      | 2-px [BORDER_RGB]    |
  * | Pressed          | accent + 0.70 alpha [BORDER_RGB]      | 1-px [BORDER_RGB]    |
  *
+ * Native Swing button actions provide mouse, keyboard, focus, and accessibility
+ * behavior. Selection is accepted by the parent, never toggled by a click.
  * Pattern A — mouse events run on EDT by Swing contract. Pattern Q — every
  * `Graphics.create()` block dismisses in `finally`.
  *
  * @param hex preset accent as a validated [AccentHex] (e.g. `#FFB454`).
  * @param isSelected starting selected state (matches active accent).
- * @param onClick fires on mouse-release inside bounds with the swatch's [hex].
+ * @param onClick fires on an enabled native button activation with the swatch's [hex].
  */
 internal class PopupSwatch(
     val hex: AccentHex,
     isSelected: Boolean,
-    private val onClick: (AccentHex) -> Unit,
-) : JComponent() {
-    var selected: Boolean = isSelected
-        private set
-    private var isHovered: Boolean = false
-    private var isPressed: Boolean = false
+    onClick: (AccentHex) -> Unit,
+) : JButton() {
+    val selected: Boolean get() = model.isSelected
 
     init {
         isOpaque = false
+        isContentAreaFilled = false
+        isBorderPainted = false
+        isFocusPainted = false
+        isRolloverEnabled = true
+        setSelected(isSelected)
         preferredSize = Dimension(JBUI.scale(WIDTH_PX), JBUI.scale(HEIGHT_PX))
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         toolTipText = hex.value
-        addMouseListener(
-            object : MouseAdapter() {
-                override fun mouseEntered(event: MouseEvent) {
-                    isHovered = true
-                    repaint()
-                }
-
-                override fun mouseExited(event: MouseEvent) {
-                    isHovered = false
-                    isPressed = false
-                    repaint()
-                }
-
-                override fun mousePressed(event: MouseEvent) {
-                    if (!isEnabled) return
-                    isPressed = true
-                    repaint()
-                }
-
-                override fun mouseReleased(event: MouseEvent) {
-                    val wasPressed = isPressed
-                    isPressed = false
-                    repaint()
-                    if (wasPressed && contains(event.x, event.y)) onClick(hex)
-                }
-            },
-        )
-    }
-
-    /**
-     * Programmatic selection toggle — called by the parent grid when the active
-     * accent changes (one swatch becomes selected; the prior one clears).
-     */
-    fun setSelected(value: Boolean) {
-        if (selected == value) return
-        selected = value
-        repaint()
+        getAccessibleContext().accessibleName = hex.value
+        addActionListener { if (isEnabled) onClick(hex) }
     }
 
     override fun paintComponent(g: Graphics) {
-        super.paintComponent(g)
         val g2 = g.create() as Graphics2D
         try {
             paintSwatch(g2)
@@ -113,10 +79,12 @@ internal class PopupSwatch(
         paintSwatch(g)
     }
 
-    /** Test seam — flip the pressed flag without dispatching a real `MousePressed`. */
+    /** Test seam — set a native pressed appearance without emitting a button action. */
     @TestOnly
     internal fun setPressedForTest(pressed: Boolean) {
-        isPressed = pressed
+        model.isArmed = false
+        model.isPressed = pressed
+        model.isArmed = pressed
     }
 
     private fun paintSwatch(g2: Graphics2D) {
@@ -144,7 +112,7 @@ internal class PopupSwatch(
 
         val overlayAlpha: Float? =
             when {
-                isPressed -> PRESSED_OVERLAY_ALPHA
+                model.isPressed && model.isArmed -> PRESSED_OVERLAY_ALPHA
                 selected -> SELECTED_OVERLAY_ALPHA
                 else -> null
             }
@@ -157,7 +125,7 @@ internal class PopupSwatch(
         }
 
         g2.color = borderColor
-        g2.stroke = BasicStroke(if (isHovered) HOVER_STROKE_PX else IDLE_STROKE_PX)
+        g2.stroke = BasicStroke(if (model.isRollover || hasFocus()) HOVER_STROKE_PX else IDLE_STROKE_PX)
         g2.draw(shape)
     }
 

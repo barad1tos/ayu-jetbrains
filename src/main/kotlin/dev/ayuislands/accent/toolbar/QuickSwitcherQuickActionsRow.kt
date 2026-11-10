@@ -30,18 +30,19 @@ internal class QuickSwitcherQuickActionsRow(
     private val anchor: JComponent,
     private val context: AccentContext,
     private val showPremiumActions: Boolean = true,
+    private val commands: QuickSwitcherCommands? = null,
 ) {
     val component: JPanel =
         JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(Density.ACTION_GAP), 0)).apply {
             isOpaque = false
             if (showPremiumActions) {
                 if (context is AccentContext.Ayu) {
-                    add(IconPillButton(PinAccentAction(), anchor, AllIcons.Actions.PinTab))
+                    add(IconPillButton(PinAccentAction(commands), anchor, AllIcons.Actions.PinTab))
                 }
-                add(IconPillButton(RandomAccentAction(), anchor, AllIcons.Actions.Refresh))
-                add(IconPillButton(LighterAccentAction(), anchor, AllIcons.General.ChevronUp))
-                add(IconPillButton(DarkerAccentAction(), anchor, AllIcons.General.ChevronDown))
+                add(IconPillButton(RandomAccentAction(commands), anchor, AllIcons.Actions.Refresh))
+                add(IconPillButton(LighterAccentAction(commands), anchor, AllIcons.General.ChevronUp))
+                add(IconPillButton(DarkerAccentAction(commands), anchor, AllIcons.General.ChevronDown))
             }
-            add(IconPillButton(CopyHexAction(), anchor, AllIcons.Actions.Copy))
+            add(IconPillButton(CopyHexAction(commands), anchor, AllIcons.Actions.Copy))
         }
 }

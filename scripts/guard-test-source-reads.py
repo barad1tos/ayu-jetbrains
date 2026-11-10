@@ -31,29 +31,9 @@ class Allowance:
 
 ALLOWLIST: dict[tuple[str, str], Allowance] = {
     (
-        "src/test/kotlin/dev/ayuislands/settings/mappings/ProjectAccentSwapServiceHexGateShapeTest.kt",
-        "src/main/kotlin/dev/ayuislands/settings/mappings/ProjectAccentSwapService.kt",
-    ): Allowance(1, "documented hex-gate shape compromise"),
-    (
-        "src/test/kotlin/dev/ayuislands/settings/AyuIslandsChromePanelTest.kt",
-        "src/main/kotlin/dev/ayuislands/settings/AyuIslandsChromePanel.kt",
-    ): Allowance(2, "documented chrome panel static regression compromise"),
-    (
-        "src/test/kotlin/dev/ayuislands/settings/AyuIslandsChromePanelTest.kt",
-        "dev/ayuislands/settings/AyuIslandsChromePanel.kt",
-    ): Allowance(1, "documented chrome panel classpath-source fallback"),
-    (
         "src/test/kotlin/dev/ayuislands/accent/LanguageDetectionRulesTest.kt",
         "/repo/src/main/kotlin/Foo.kt",
     ): Allowance(1, "path-classification fixture, not a file read"),
-    (
-        "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
-    ): Allowance(1, "documented RequiresEdt annotation compromise"),
-    (
-        "src/test/kotlin/dev/ayuislands/AyuIslandsStartupActivityTest.kt",
-        "src/main/kotlin/dev/ayuislands/AyuIslandsStartupActivity.kt",
-    ): Allowance(1, "documented startup wiring compromise"),
     (
         "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt",
         "src/main/kotlin/dev/ayuislands/ui/FocusWinningTabOpener.kt",
@@ -66,14 +46,6 @@ ALLOWLIST: dict[tuple[str, str], Allowance] = {
         "src/test/kotlin/dev/ayuislands/ui/FocusWinningTabOpenerTest.kt",
         "src/main/kotlin/dev/ayuislands/StartupLicenseHandler.kt",
     ): Allowance(1, "documented opener wiring compromise"),
-    (
-        "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorBannedApiGuardTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent/AccentApplicator.kt",
-    ): Allowance(1, "banned platform API guard"),
-    (
-        "src/test/kotlin/dev/ayuislands/accent/AccentApplicatorBannedApiGuardTest.kt",
-        "src/main/kotlin/dev/ayuislands/accent/AccentApplyPlanRunner.kt",
-    ): Allowance(1, "banned platform API guard"),
     (
         "src/test/kotlin/dev/ayuislands/accent/AccentResolutionChainBuilderGuardTest.kt",
         "src/main/kotlin/dev/ayuislands/accent/AccentResolutionChainBuilder.kt",

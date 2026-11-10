@@ -7,10 +7,17 @@ enum class AyuVariant(
     val neutralGray: String,
     val parentSchemeName: String,
     val themeNames: Set<String>,
+    val editorSchemeResource: String,
 ) {
-    MIRAGE("#FFCC66", "#445066", "Darcula", setOf("Ayu Mirage", "Ayu Mirage (Islands UI)")),
-    DARK("#E6B450", "#2C3342", "Darcula", setOf("Ayu Dark", "Ayu Dark (Islands UI)")),
-    LIGHT("#F29718", "#CCC8B8", "Default", setOf("Ayu Light", "Ayu Light (Islands UI)")),
+    MIRAGE(
+        "#FFCC66",
+        "#445066",
+        "Darcula",
+        setOf("Ayu Mirage", "Ayu Mirage (Islands UI)"),
+        "/themes/AyuIslandsMirage.xml",
+    ),
+    DARK("#E6B450", "#2C3342", "Darcula", setOf("Ayu Dark", "Ayu Dark (Islands UI)"), "/themes/AyuIslandsDark.xml"),
+    LIGHT("#F29718", "#CCC8B8", "Default", setOf("Ayu Light", "Ayu Light (Islands UI)"), "/themes/AyuIslandsLight.xml"),
     ;
 
     companion object {

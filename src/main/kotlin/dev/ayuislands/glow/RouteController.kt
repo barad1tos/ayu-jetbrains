@@ -21,15 +21,10 @@ import dev.ayuislands.glow.waveform.RouteSurface
 import dev.ayuislands.glow.waveform.RouteUpdate
 import dev.ayuislands.glow.waveform.RouteWindowKind
 import dev.ayuislands.glow.waveform.TimerDirective
-import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
-import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.WaveformRouteLayer
 import dev.ayuislands.glow.waveform.WindowBridgeCapability
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.effectiveLoopSeconds
-import dev.ayuislands.settings.effectiveTraceDensity
-import dev.ayuislands.settings.effectiveTraceLength
+import dev.ayuislands.settings.GlowSettings
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Window
@@ -62,8 +57,10 @@ internal class RouteController(
     private val project: Project,
     private val overlays: () -> List<RouteOverlay>,
     private val focusedSurfaceId: () -> String?,
-    private val state: () -> AyuIslandsState,
+    private val settings: () -> GlowSettings,
     private val onFailure: (RuntimeException) -> Unit,
+    private val asyncUpdatesAllowed: () -> Boolean = { true },
+    private val createTimer: (Int, () -> Unit) -> Timer = { delay, update -> Timer(delay) { update() } },
 ) {
     private var coordinator: RouteCoordinator? = null
     private var timer: Timer? = null
@@ -79,26 +76,80 @@ internal class RouteController(
     private var nextRootId = 1
     private var graph: RouteGraph? = null
     private var lastFrame: RouteFrame? = null
-    private var isFailureLogged = false
+    private var lastFailure: RuntimeException? = null
     private var bridgeRenderVersion = 0L
+    private var playback: RoutePlayback? = null
+    private var fadeRecorder: ((RouteOverlay, Timer) -> Unit)? = null
 
     val isActive: Boolean
         get() = coordinator != null
 
-    fun configure(config: WaveformConfig) {
+    val currentConfig: WaveformConfig?
+        get() = coordinator?.config
+
+    val currentPlayback: RoutePlayback?
+        get() = playback
+
+    fun configure(
+        config: WaveformConfig,
+        requireCompletion: Boolean = false,
+    ) = configureRoute(config, requireCompletion, null)
+
+    fun configure(
+        selection: RoutePlayback,
+        checkPrepared: ((RouteOverlay) -> Unit)? = null,
+        onFadeCreated: ((RouteOverlay, Timer) -> Unit)? = null,
+    ) = configureRoute(selection.config, true, selection, checkPrepared, onFadeCreated)
+
+    private fun configureRoute(
+        config: WaveformConfig,
+        requireCompletion: Boolean,
+        selected: RoutePlayback?,
+        checkPrepared: ((RouteOverlay) -> Unit)? = null,
+        onFadeCreated: ((RouteOverlay, Timer) -> Unit)? = null,
+    ) {
+        selected?.let { captureRouteAppearance(it, overlays()) }
+        playback = selected
+        fadeRecorder = onFadeCreated
         if (coordinator == null) {
             coordinator = RouteCoordinator(config)
-            isFailureLogged = false
+            lastFailure = null
         } else {
-            dispatch(RouteEvent.Configure(config))
+            handle(RouteEvent.Configure(config))
+        }
+        if (requireCompletion) lastFailure?.let { throw it }
+        val expected = coordinator
+        selected?.targets?.forEach { target ->
+            checkPrepared?.invoke(target)
+            check(expected != null && coordinator === expected && playback === selected) {
+                "Glow route owner changed before pane activation"
+            }
+            target.pane.configureRouteMode(enabled = true)
+            check(coordinator === expected && playback === selected) {
+                "Glow route owner changed during pane activation"
+            }
         }
         rebuildGraph()
+        if (requireCompletion) {
+            lastFailure?.let { throw it }
+            check(expected != null && coordinator === expected) { "Glow route owner changed during configuration" }
+            check(failedConnectorIds.isEmpty() && bridges.values.none { it.hasPendingCleanup }) {
+                "Glow route contains unresolved native resources"
+            }
+        }
     }
 
-    fun handle(event: RouteEvent): Boolean = dispatch(event)
-
-    private fun dispatch(event: RouteEvent): Boolean {
-        val current = coordinator ?: return false
+    fun handle(
+        event: RouteEvent,
+        requireCompletion: Boolean = false,
+    ): Boolean {
+        val current = coordinator
+        val selected = playback
+        val isCurrent = { coordinator === current && playback === selected }
+        if (current == null) {
+            check(!requireCompletion) { "Glow route is inactive" }
+            return false
+        }
         val handledEvent =
             if (event is RouteEvent.Tick) {
                 event.copy(isWindowActive = roots.values.any { root -> root.window.isActive })
@@ -107,18 +158,28 @@ internal class RouteController(
             }
         try {
             val update = current.handle(handledEvent)
+            check(isCurrent()) { "Glow route owner changed during reconciliation" }
             if (handledEvent !is RouteEvent.Tick || handledEvent.isWindowActive) applyUpdate(update)
         } catch (exception: RuntimeException) {
-            fail(exception)
+            val isOwnerCurrent = isCurrent()
+            if (isOwnerCurrent) fail(exception)
+            if (requireCompletion || !isOwnerCurrent) throw exception
+        }
+        if (requireCompletion) {
+            lastFailure?.let { throw it }
+            check(isCurrent()) { "Glow route owner changed during reconciliation" }
+            check(failedConnectorIds.isEmpty() && bridges.values.none { it.hasPendingCleanup }) {
+                "Glow route contains unresolved native resources"
+            }
         }
         return true
     }
 
     fun scheduleGraphRefresh() {
-        if (!isActive) return
+        if (!isActive || !asyncUpdatesAllowed()) return
         val current =
             layoutTimer
-                ?: Timer(LAYOUT_DEBOUNCE_MS) {
+                ?: createRouteTimer(LAYOUT_DEBOUNCE_MS) {
                     rebuildGraph()
                 }.also {
                     it.isRepeats = false
@@ -127,23 +188,65 @@ internal class RouteController(
         current.restart()
     }
 
-    fun dispose() {
+    /** Durable acceptance returns discovery to the canonical runtime without replaying native effects. */
+    fun release(selection: RoutePlayback) {
+        check(SwingUtilities.isEventDispatchThread()) { "Glow route handoff must run on EDT" }
+        check(playback === selection && coordinator != null) { "Glow route handoff lost its owner" }
+        playback = null
+        fadeRecorder = null
+    }
+
+    private fun createRouteTimer(
+        delay: Int,
+        update: () -> Unit,
+    ): Timer {
+        val owner = coordinator
+        return createTimer(delay) {
+            if (coordinator === owner && asyncUpdatesAllowed()) update()
+        }
+    }
+
+    fun dispose(requireCompletion: Boolean = false) {
+        val owner = coordinator
+        val selected = playback
+        val checkCurrent = {
+            check(coordinator === owner && playback === selected) { "Glow route owner changed during native cleanup" }
+        }
         layoutTimer?.stop()
+        checkCurrent()
         timer?.stop()
-        resetRouteResources()
-        overlays().forEach { overlay -> overlay.pane.configureRouteMode(enabled = false) }
+        checkCurrent()
+        resetRouteResources(checkCurrent)
+        val targets = playback?.targets ?: overlays()
+        checkCurrent()
+        targets.forEach { overlay ->
+            overlay.pane.configureRouteMode(enabled = false)
+            checkCurrent()
+        }
         routeOverlays = emptyList()
         layoutTimer = null
         timer = null
         coordinator = null
         graph = null
         lastFrame = null
-        isFailureLogged = false
+        lastFailure = null
+        if (requireCompletion) {
+            check(bridges.isEmpty() && layers.isEmpty()) { "Glow route cleanup is incomplete" }
+        }
+        playback = null
+        fadeRecorder = null
     }
 
     private fun rebuildGraph() {
         if (!isActive) return
+        val owner = coordinator
+        val selected = playback
+        val recorder = fadeRecorder
+        val checkCurrent = {
+            check(coordinator === owner && playback === selected) { "Glow route owner changed during graph refresh" }
+        }
         layoutTimer?.stop()
+        checkCurrent()
         val previousGraph = graph
         val newGraph =
             try {
@@ -152,6 +255,7 @@ internal class RouteController(
                 fail(exception)
                 return
             }
+        checkCurrent()
         val event =
             if (previousGraph == null) {
                 RouteEvent.Activate(
@@ -164,22 +268,18 @@ internal class RouteController(
             }
         graph = newGraph
         routeOverlays.forEach { overlay ->
-            if (overlay.id in newGraph.surfaces) {
-                overlay.pane.startFadeIn()
-            } else {
-                overlay.pane.startFadeOut()
-            }
+            fadeRouteOverlay(overlay, overlay.id in newGraph.surfaces, recorder, checkCurrent)
         }
-        dispatch(event)
+        handle(event)
     }
 
     private fun buildGraph(): RouteGraph {
-        val currentState = state()
-        val currentOverlays = overlays()
+        val currentSettings = if (playback == null) settings() else null
+        val currentOverlays = observeOverlays()
         routeOverlays = currentOverlays
         val surfaces =
             currentOverlays.mapNotNull { overlay ->
-                if (!currentState.isIslandEnabled(overlay.id)) return@mapNotNull null
+                if (currentSettings?.isIslandEnabled(overlay.id) == false) return@mapNotNull null
                 if (!overlay.host.isShowing || !overlay.host.isDisplayable) return@mapNotNull null
                 if (overlay.pane.width <= 0 || overlay.pane.height <= 0) return@mapNotNull null
                 val window = SwingUtilities.getWindowAncestor(overlay.host) ?: return@mapNotNull null
@@ -250,13 +350,13 @@ internal class RouteController(
             TimerDirective.KEEP -> Unit
             TimerDirective.START -> {
                 if (timer == null) {
-                    timer =
-                        Timer(FRAME_INTERVAL_MS) {
-                            dispatch(RouteEvent.Tick(System.currentTimeMillis()))
-                        }.also { routeTimer ->
-                            routeTimer.isCoalesce = true
-                            routeTimer.start()
+                    val createdTimer =
+                        createRouteTimer(FRAME_INTERVAL_MS) {
+                            handle(RouteEvent.Tick(System.currentTimeMillis()))
                         }
+                    timer = createdTimer
+                    createdTimer.isCoalesce = true
+                    createdTimer.start()
                 }
             }
 
@@ -268,7 +368,7 @@ internal class RouteController(
         val frame = update.frame ?: lastFrame?.takeIf { update.timerDirective == TimerDirective.KEEP }
         if (frame != null) {
             lastFrame = frame
-            val style = currentStyle(currentOverlays)
+            val style = captureRouteStyle(playback, currentOverlays, overlays, frame.signal.config)
             if (style == null) {
                 clearRendering()
             } else {
@@ -292,7 +392,7 @@ internal class RouteController(
             val root = roots[rootId] ?: continue
             val layer =
                 layers[rootId]
-                    ?: WaveformRouteLayer(rootId, ::fail).also { created ->
+                    ?: createLayer(rootId).also { created ->
                         root.layeredPane.add(created)
                         root.layeredPane.setLayer(created, JLayeredPane.PALETTE_LAYER + 1)
                         layers[rootId] = created
@@ -318,6 +418,20 @@ internal class RouteController(
         renderBridge(frame, style)
         if (!isActive) return
         pruneRendering(frame)
+    }
+
+    private fun createLayer(rootId: RouteRootId): WaveformRouteLayer {
+        val owner = coordinator
+        lateinit var layer: WaveformRouteLayer
+        layer =
+            WaveformRouteLayer(rootId) { exception ->
+                if (coordinator === owner && layers[rootId] === layer) {
+                    fail(exception)
+                } else {
+                    onFailure(exception)
+                }
+            }
+        return layer
     }
 
     private fun renderBridge(
@@ -348,12 +462,8 @@ internal class RouteController(
             }
         val visibleConnectors = batches.keys.map { target -> target.connector }.toSet()
         batches.forEach { (target, slices) ->
-            val currentBridge =
-                bridges.getOrPut(target.connector) {
-                    CrossWindowBridge(onFailure = { failedConnectorId ->
-                        recordBridgeFailure(failedConnectorId)
-                    })
-                }
+            val currentBridge = bridgeFor(target.connector) ?: return@forEach
+            if (renderVersion != bridgeRenderVersion) return
             currentBridge.show(target.owner, target.connector, frame, slices, style)
             if (renderVersion != bridgeRenderVersion) return
         }
@@ -363,55 +473,81 @@ internal class RouteController(
                 .map { target -> target.connector }
                 .toSet()
         bridges
-            .keys
-            .filter { connector -> connector !in visibleConnectors }
-            .forEach { connector ->
+            .filterKeys { connector -> connector !in visibleConnectors }
+            .forEach { (connector, bridge) ->
                 if (connector in cachedConnectors) {
-                    bridges[connector]?.hide()
+                    bridge.hide()
                 } else {
-                    bridges.remove(connector)?.dispose()
+                    disposeBridge(connector, bridge)
                 }
                 if (renderVersion != bridgeRenderVersion) return
             }
     }
 
-    private fun currentStyle(currentOverlays: List<RouteOverlay>): RouteLayerStyle? {
-        val pane = currentOverlays.firstOrNull()?.pane ?: return null
-        return RouteLayerStyle(
-            accent = pane.glowColor,
-            glowStyle = pane.glowStyle,
-            intensity = pane.glowIntensity,
-            width = pane.glowWidth,
-            arcWidth =
-                UIManager
-                    .getInt(ISLAND_ARC_KEY)
-                    .let { if (it > 0) it else DEFAULT_ARC_FALLBACK },
-            config = resolveWaveformConfig(state()),
-        )
+    private fun bridgeFor(connector: RouteConnector): CrossWindowBridge? {
+        bridges
+            .filter { (candidate, bridge) -> candidate.id == connector.id && bridge.hasPendingCleanup }
+            .forEach(::disposeBridge)
+        if (connector.id in failedConnectorIds) return null
+        if (bridges.any { (candidate, bridge) -> candidate.id == connector.id && bridge.hasPendingCleanup }) return null
+        return bridges.getOrPut(connector) {
+            val owner = coordinator
+            lateinit var bridge: CrossWindowBridge
+            bridge =
+                CrossWindowBridge(onFailure = { failedConnectorId ->
+                    if (coordinator === owner && bridges[connector] === bridge) recordBridgeFailure(failedConnectorId)
+                })
+            bridge
+        }
+    }
+
+    private fun disposeBridge(
+        connector: RouteConnector,
+        bridge: CrossWindowBridge,
+    ) {
+        bridge.dispose()
+        if (!bridge.hasPendingCleanup && bridges[connector] === bridge) bridges.remove(connector)
+    }
+
+    private fun observeOverlays(): List<RouteOverlay> {
+        val available = overlays()
+        val selected = playback ?: return available
+        captureRouteAppearance(selected, available)
+        return selected.targets
     }
 
     private fun fail(exception: RuntimeException) {
+        val owner = coordinator
+        val selected = playback
+        val recorder = fadeRecorder
+        val targets = selected?.targets ?: overlays()
+        check(coordinator === owner && playback === selected) { "Glow route owner changed before failure cleanup" }
+        val shouldReport = lastFailure == null
+        lastFailure = exception
         layoutTimer?.stop()
+        check(coordinator === owner && playback === selected) { "Glow route owner changed during failure cleanup" }
         timer?.stop()
+        check(coordinator === owner && playback === selected) { "Glow route owner changed during failure cleanup" }
         coordinator = null
         layoutTimer = null
         timer = null
         graph = null
         lastFrame = null
-        resetRouteResources()
+        val checkRetired = {
+            check(coordinator == null && playback === selected) { "Glow route owner changed during failure cleanup" }
+        }
+        resetRouteResources(checkRetired)
         val focusedId = focusedSurfaceId()
-        overlays().forEach { overlay ->
-            overlay.pane.failRouteWaveform(exception)
+        checkRetired()
+        targets.forEach { overlay ->
+            overlay.pane.failRouteWaveform(exception, selected)
+            checkRetired()
             overlay.pane.configureRouteMode(enabled = false)
-            if (overlay.id == focusedId) {
-                overlay.pane.startFadeIn()
-            } else {
-                overlay.pane.startFadeOut()
-            }
+            checkRetired()
+            fadeRouteOverlay(overlay, overlay.id == focusedId, recorder, checkRetired)
         }
         routeOverlays = emptyList()
-        if (!isFailureLogged) {
-            isFailureLogged = true
+        if (shouldReport) {
             onFailure(exception)
         }
     }
@@ -454,25 +590,33 @@ internal class RouteController(
     }
 
     private fun recordBridgeFailure(connectorId: RouteConnectorId) {
+        val owner = coordinator
         failedConnectorIds += connectorId
         graph = graph?.without(connectorId)
         bridgeTargets.remove(connectorId)
         currentBridgeTargets = currentBridgeTargets - connectorId
-        bridges.keys
-            .filter { connector -> connector.id == connectorId }
-            .forEach { connector -> bridges.remove(connector)?.dispose() }
-        handle(RouteEvent.BridgeFailed(connectorId))
+        bridges
+            .filterKeys { connector -> connector.id == connectorId }
+            .forEach(::disposeBridge)
+        if (coordinator === owner && asyncUpdatesAllowed()) handle(RouteEvent.BridgeFailed(connectorId))
     }
 
-    private fun resetRouteResources() {
+    private fun resetRouteResources(checkCurrent: () -> Unit = {}) {
+        checkCurrent()
         bridgeRenderVersion++
-        layers.values.forEach { layer ->
+        layers.toMap().forEach { (rootId, layer) ->
+            checkCurrent()
             layer.clearFrame()
+            checkCurrent()
             (layer.parent as? JLayeredPane)?.remove(layer)
+            checkCurrent()
+            if (layers[rootId] === layer) layers.remove(rootId)
         }
-        layers.clear()
-        bridges.values.forEach(CrossWindowBridge::dispose)
-        bridges.clear()
+        bridges.toMap().forEach { (connector, bridge) ->
+            checkCurrent()
+            disposeBridge(connector, bridge)
+            checkCurrent()
+        }
         roots.clear()
         rootIds.clear()
         bridgeTargets.clear()
@@ -530,9 +674,9 @@ internal class RouteController(
             }
         bridgeTargets.keys.retainAll(retainedConnectors)
         currentBridgeTargets = currentBridgeTargets.filterKeys(retainedConnectors::contains)
-        bridges.keys
-            .filter { connector -> connector.id !in retainedConnectors }
-            .forEach { connector -> bridges.remove(connector)?.dispose() }
+        bridges
+            .filterKeys { connector -> connector.id !in retainedConnectors }
+            .forEach(::disposeBridge)
     }
 
     private companion object {
@@ -543,16 +687,45 @@ internal class RouteController(
     }
 }
 
-internal fun resolveWaveformConfig(state: AyuIslandsState): WaveformConfig =
-    WaveformConfig(
-        movement = WaveformMovement.fromName(state.waveformDirection),
-        baseline = WaveformBaseline.fromName(state.waveformBaseline),
-        traceDensity = state.effectiveTraceDensity(),
-        traceLength = state.effectiveTraceLength(),
-        amplitude = state.effectiveWaveformAmplitude(),
-        intensity = state.effectiveWaveformIntensity(),
-        loopSeconds = state.effectiveLoopSeconds(),
+/** Platform style observation stays separate from route lifecycle and native resource ownership. */
+internal fun captureRouteStyle(
+    selected: RoutePlayback?,
+    currentOverlays: List<RouteOverlay>,
+    available: () -> List<RouteOverlay>,
+    config: WaveformConfig,
+): RouteLayerStyle? {
+    val appearance =
+        if (selected == null) {
+            currentOverlays.firstOrNull()?.pane?.captureAppearance()
+        } else {
+            captureRouteAppearance(selected, available())
+        } ?: return null
+    return RouteLayerStyle(
+        accent = appearance.color,
+        glowStyle = appearance.style,
+        intensity = appearance.intensity,
+        width = appearance.width,
+        arcWidth = UIManager.getInt(ISLAND_ARC_KEY).let { if (it > 0) it else DEFAULT_ARC_FALLBACK },
+        config = config,
     )
+}
+
+/** Both graph reconciliation and failure fallback retain the timer before native scheduling. */
+private fun fadeRouteOverlay(
+    overlay: RouteOverlay,
+    isVisible: Boolean,
+    recorder: ((RouteOverlay, Timer) -> Unit)?,
+    checkCurrent: () -> Unit,
+) {
+    checkCurrent()
+    val record: (Timer) -> Unit = { created ->
+        checkCurrent()
+        recorder?.invoke(overlay, created)
+        checkCurrent()
+    }
+    if (isVisible) overlay.pane.startFadeIn(record) else overlay.pane.startFadeOut(record)
+    checkCurrent()
+}
 
 private fun RouteSlice.relativeTo(origin: Point): RouteSlice =
     copy(

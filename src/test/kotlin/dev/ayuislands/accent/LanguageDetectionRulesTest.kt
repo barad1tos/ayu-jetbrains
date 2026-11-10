@@ -22,6 +22,24 @@ import kotlin.test.assertTrue
  * or the markup blacklist fails loudly.
  */
 class LanguageDetectionRulesTest {
+    @Test
+    fun `legacy tiebreak uses the inclusive code share and ignores markup when code exists`() {
+        val weights = mapOf("kotlin" to 20L, "java" to 80L, "xml" to 900L)
+        val policy = LanguageDetectionRules.ResolutionPolicy.DEFAULT
+        assertEquals("kotlin", LanguageDetectionRules.pickLegacyTiebreak(weights, "kotlin", policy))
+        assertNull(LanguageDetectionRules.pickLegacyTiebreak(weights, "xml", policy))
+        assertNull(LanguageDetectionRules.pickLegacyTiebreak(weights + ("java" to 81L), "kotlin", policy))
+    }
+
+    @Test
+    fun `legacy tiebreak keeps markup-only projects and never invents a zero-weight hint`() {
+        val policy = LanguageDetectionRules.ResolutionPolicy(tiebreakMinShare = 0.0)
+        assertEquals("yaml", LanguageDetectionRules.pickLegacyTiebreak(mapOf("yaml" to 1L), "yaml", policy))
+        assertNull(LanguageDetectionRules.pickLegacyTiebreak(mapOf("yaml" to 1L), "kotlin", policy))
+        assertNull(LanguageDetectionRules.pickLegacyTiebreak(mapOf("kotlin" to 0L), "kotlin", policy))
+        assertNull(LanguageDetectionRules.pickLegacyTiebreak(emptyMap(), null, policy))
+    }
+
     // ── pickDominantFromWeights — threshold boundaries ───────────────────────────────
 
     @Test

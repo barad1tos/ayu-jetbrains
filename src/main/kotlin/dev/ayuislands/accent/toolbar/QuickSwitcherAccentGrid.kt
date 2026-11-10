@@ -9,16 +9,9 @@ import com.intellij.ui.ColorUtil
 import com.intellij.ui.components.ActionLink
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
-import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.persistExternalManualAccentIfNeeded
-import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.PopupSwatch
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.FlowLayout
@@ -28,21 +21,10 @@ import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
 
-/**
- * Accent grid inside the quick-switcher popup: a 2-row × 6-column grid of
- * 36×24 [PopupSwatch] cells, plus a "Custom… / More…" link row underneath
- * driven by the bundled `pipette.svg` icon.
- *
- * Each swatch click flows through [AccentApplicator.applyFromHexString] and —
- * gated on the Boolean return per Pattern D — publishes via
- * [ProjectAccentSwapService]. Pattern B catches transient [RuntimeException]
- * so a one-off resolver hiccup does not crash the popup.
- *
- * Selection state mirrors the currently-resolved accent at construction;
- * later applies re-stamp every swatch's `selected` flag so the visual matches
- * reality.
- */
-internal class QuickSwitcherAccentGrid {
+/** Existing native swatches and color picker dispatch one captured Studio command. */
+internal class QuickSwitcherAccentGrid(
+    private val commands: QuickSwitcherCommands? = QuickSwitcherCommands.capture(),
+) {
     private val swatches: List<PopupSwatch>
     val component: JComponent
 
@@ -103,32 +85,12 @@ internal class QuickSwitcherAccentGrid {
         return wrapper
     }
 
-    private fun resolveCurrentAccent(): String {
-        val context = AccentContext.detectQuickSwitcher() ?: return AYU_ACCENT_PRESETS.first().hex
-        val project = AccentApplicator.resolveFocusedProject()
-        return try {
-            AccentResolver.resolve(project, context)
-        } catch (exception: RuntimeException) {
-            exception.rethrowIfCancelled()
-            LOG.warn("Accent resolve failed for grid construction", exception)
-            AYU_ACCENT_PRESETS.first().hex
-        }
-    }
+    private fun resolveCurrentAccent(): String? = commands?.accent()
 
     private fun applyPreset(hex: AccentHex) {
-        val raw = hex.value
-        try {
-            val outcome = AccentApplicator.applyFromHexString(raw)
-            if (outcome !is AccentApplyOutcome.Rejected) {
-                AccentContext.detectQuickSwitcher()?.persistExternalManualAccentIfNeeded(raw)
-                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
-                swatches.forEach { swatch -> swatch.setSelected(swatch.hex.value.equals(raw, ignoreCase = true)) }
-            } else {
-                LOG.warn("Accent preset apply rejected hex=$raw")
-            }
-        } catch (exception: RuntimeException) {
-            exception.rethrowIfCancelled()
-            LOG.warn("Accent preset apply failed hex=$raw", exception)
+        commands?.color(hex.value) {
+            val accepted = resolveCurrentAccent()
+            swatches.forEach { swatch -> swatch.setSelected(swatch.hex.value.equals(accepted, ignoreCase = true)) }
         }
     }
 
@@ -139,7 +101,7 @@ internal class QuickSwitcherAccentGrid {
         val seedHex = resolveCurrentAccent()
         val seedColor =
             try {
-                ColorUtil.fromHex(seedHex)
+                seedHex?.let(ColorUtil::fromHex)
             } catch (exception: IllegalArgumentException) {
                 // Resolver should never produce an invalid hex, but the API
                 // throws on malformed input — fall through to a `null` seed
@@ -195,7 +157,7 @@ internal class QuickSwitcherAccentGrid {
     private fun colorToHex(color: Color): String = "#%02X%02X%02X".format(color.red, color.green, color.blue)
 
     private fun openAyuSettings() {
-        val project = AccentApplicator.resolveFocusedProject()
+        val project = commands?.project
         // Pattern B — [ShowSettingsUtil.showSettingsDialog] throws
         // [IllegalArgumentException] when the configurable id cannot be resolved
         // (plugin reload mid-flight, malformed plugin.xml) and the platform's

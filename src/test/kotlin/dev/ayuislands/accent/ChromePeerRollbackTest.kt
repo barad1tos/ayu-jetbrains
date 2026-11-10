@@ -1,12 +1,17 @@
 package dev.ayuislands.accent
 
 import com.intellij.openapi.progress.ProcessCanceledException
+import dev.ayuislands.studio.model.StudioProcess
+import dev.ayuislands.studio.persistence.RestoreStatus
+import dev.ayuislands.studio.session.StudioAccentCell
+import dev.ayuislands.studio.session.StudioAccentReferences
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import java.awt.Color
 import java.awt.Window
+import java.time.Instant
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
@@ -15,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -341,6 +347,186 @@ class ChromePeerRollbackTest {
             } finally {
                 UIManager.setLookAndFeel(original)
             }
+        }
+
+    @Test
+    fun `prepared peer background stays inherited until apply and rollback preserves a changed parent color`() =
+        SwingUtilities.invokeAndWait {
+            val peer = ChromePanel().apply { background = null }
+            val root =
+                JPanel().apply {
+                    background = Color.BLUE
+                    add(peer)
+                }
+            val prepared = ChromePeerOverrides.prepare(peer, Color.ORANGE)
+            assertNull(prepared.before)
+            assertSame(Color.ORANGE, prepared.planned)
+            assertEquals(AccentWriteState.PREPARED, prepared.state)
+            assertFalse(prepared.hasPending)
+            assertFalse(peer.isBackgroundSet)
+            root.background = Color.GREEN
+            assertTrue(prepared.apply())
+            assertEquals(AccentWriteState.OWNED, prepared.state)
+            assertTrue(prepared.hasPending)
+            assertFalse(prepared.apply())
+            assertSame(Color.ORANGE, peer.background)
+            prepared.restore()
+            assertEquals(AccentWriteState.RESTORED, prepared.state)
+            assertFalse(peer.isBackgroundSet)
+            assertSame(Color.GREEN, peer.background)
+            assertNull(prepared.before)
+            assertSame(Color.ORANGE, prepared.planned)
+        }
+
+    @Test
+    fun `foreign raw identity and changed attachment reject a prepared peer without a setter`() =
+        withScope { _ ->
+            for (move in listOf(false, true)) {
+                val original = Color(0x112233)
+                val peer = ChromePanel().apply { background = original }
+                JPanel().add(peer)
+                val prepared = ChromePeerOverrides.prepare(peer, Color.ORANGE)
+                val foreign = Color(0x112233)
+                if (move) JPanel().add(peer) else peer.background = foreign
+                val unchanged = peer.background
+                var events = 0
+                peer.addPropertyChangeListener("background") { events++ }
+                assertFalse(prepared.apply())
+                prepared.restore()
+                assertEquals(AccentWriteState.RELINQUISHED, prepared.state)
+                assertFalse(prepared.hasPending)
+                assertSame(unchanged, peer.background)
+                assertEquals(0, events)
+            }
+        }
+
+    @Test
+    fun `commit and cancel invalidate an unused peer preparation without touching the component`() =
+        withScope { _ ->
+            for (commit in listOf(false, true)) {
+                val peer = ChromePanel().apply { background = Color.BLUE }
+                val prepared = ChromePeerOverrides.prepare(peer, Color.ORANGE)
+                var events = 0
+                peer.addPropertyChangeListener("background") { events++ }
+                if (commit) prepared.commit() else prepared.restore()
+                assertFalse(prepared.apply())
+                assertFalse(prepared.hasPending)
+                assertSame(Color.BLUE, peer.background)
+                assertEquals(0, events)
+            }
+        }
+
+    @Test
+    fun `prepared peer keeps rollback ownership after a setter mutates then throws`() =
+        withScope { _ ->
+            val peer = CallbackPanel().apply { background = Color.BLUE }
+            val prepared = ChromePeerOverrides.prepare(peer, Color.ORANGE)
+            val failure = IllegalStateException("peer setter failed after mutation")
+            peer.afterWrite = {
+                peer.afterWrite = null
+                throw failure
+            }
+            assertSame(failure, assertFailsWith<IllegalStateException> { prepared.apply() })
+            assertSame(Color.ORANGE, peer.background)
+            assertTrue(prepared.hasPending)
+            prepared.restore()
+            assertSame(Color.BLUE, peer.background)
+            assertFalse(prepared.hasPending)
+            assertSame(Color.BLUE, prepared.before)
+            assertSame(Color.ORANGE, prepared.planned)
+        }
+
+    @Test
+    fun `prepared peer restoration waits for a failing newer write and retries the same baseline`() =
+        withScope { _ ->
+            val peer = FailingPanel().apply { background = Color.BLUE }
+            val older = ChromePeerOverrides.prepare(peer, Color.ORANGE)
+            assertTrue(older.apply())
+            val newer = ChromePeerOverrides.prepare(peer, Color.PINK)
+            assertTrue(newer.apply())
+            peer.failOn = Color.ORANGE
+            assertFailsWith<IllegalStateException> { newer.restore() }
+            assertFailsWith<IllegalStateException> { older.restore(listOf(newer)) }
+            assertSame(Color.PINK, peer.background)
+            peer.failOn = null
+            newer.restore()
+            older.restore()
+            assertSame(Color.BLUE, peer.background)
+        }
+
+    @Test
+    fun `preparing a peer cannot execute its unresolved recovery before acknowledgement`() {
+        val peer = interruptedPeer()
+        peer.failOn = null
+        try {
+            SwingUtilities.invokeAndWait {
+                assertFailsWith<IllegalStateException> { ChromePeerOverrides.prepare(peer, Color.GREEN) }
+                assertSame(Color.ORANGE, peer.background)
+            }
+        } finally {
+            settlePeer(peer)
+        }
+    }
+
+    @Test
+    fun `a replaced look and feel rejects a prepared peer before its setter`() {
+        SwingUtilities.invokeAndWait {
+            val peer = ChromePanel().apply { background = Color.BLUE }
+            val prepared = ChromePeerOverrides.prepare(peer, Color.ORANGE)
+            val original = UIManager.getLookAndFeel()
+            try {
+                UIManager.setLookAndFeel(MetalLookAndFeel())
+                assertFalse(prepared.apply())
+                prepared.restore()
+                assertSame(Color.BLUE, peer.background)
+                assertFalse(prepared.hasPending)
+            } finally {
+                UIManager.setLookAndFeel(original)
+            }
+        }
+    }
+
+    @Test
+    fun `Studio peer binding retains failed writes and immutable evidence through retry`() =
+        withScope { _ ->
+            val references = StudioAccentReferences("peer", StudioProcess(42, Instant.EPOCH))
+            val peer = CallbackPanel().apply { background = Color.BLUE }
+            val change = StudioAccentCell.peer(references, ChromePeerOverrides.prepare(peer, Color.ORANGE))
+            val original = change.receipts.single()
+            assertSame(Color.BLUE, peer.background)
+            peer.afterWrite = {
+                peer.afterWrite = null
+                error("after peer mutation")
+            }
+            assertFailsWith<IllegalStateException> { change.apply() }
+            assertSame(Color.ORANGE, peer.background)
+            assertEquals(RestoreStatus.PENDING, change.receipts.single().status)
+            val newer = original.copy(id = "newer", identity = original.identity.copy(ownerToken = "newer"))
+            assertFailsWith<IllegalStateException> { change.restore(listOf(newer)) }
+            assertSame(Color.ORANGE, peer.background)
+            change.restore(emptyList())
+            assertSame(Color.BLUE, peer.background)
+            assertEquals(RestoreStatus.RESTORED, change.receipts.single().status)
+            assertEquals(original, change.receipts.single().copy(status = original.status))
+        }
+
+    @Test
+    fun `Studio peer acceptance keeps inherited baseline and current applied background`() =
+        withScope { _ ->
+            val references = StudioAccentReferences("accepted-peer", StudioProcess(42, Instant.EPOCH))
+            val parent = JPanel().apply { background = Color.BLUE }
+            val peer = JPanel().apply { background = null }
+            parent.add(peer)
+            val change = StudioAccentCell.peer(references, ChromePeerOverrides.prepare(peer, Color.ORANGE))
+            assertFalse(peer.isBackgroundSet)
+            change.apply()
+            val applied = change.receipts
+            assertEquals(RestoreStatus.OWNED, applied.single().status)
+            change.accept()
+            assertSame(Color.ORANGE, peer.background)
+            assertEquals(applied, change.receipts)
+            assertFailsWith<IllegalStateException> { change.restore(emptyList()) }
+            change.accept()
         }
 
     private fun refresh(

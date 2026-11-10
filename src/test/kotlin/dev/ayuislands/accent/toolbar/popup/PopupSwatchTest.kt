@@ -156,6 +156,34 @@ class PopupSwatchTest {
         assertEquals(listOf(hex), captured)
     }
 
+    @Test
+    fun `disabling between press and release cancels the pending gesture`() {
+        val hex = AccentHex.unsafeOf("#73D0FF")
+        for (reenableBeforeRelease in listOf(false, true)) {
+            val chosen = mutableListOf<AccentHex>()
+            val swatch = PopupSwatch(hex, isSelected = false, onClick = chosen::add)
+            swatch.size = swatch.preferredSize
+
+            fun mouse(id: Int) =
+                java.awt.event.MouseEvent(
+                    swatch,
+                    id,
+                    0L,
+                    0,
+                    5,
+                    5,
+                    1,
+                    false,
+                    java.awt.event.MouseEvent.BUTTON1,
+                )
+            swatch.dispatchEvent(mouse(java.awt.event.MouseEvent.MOUSE_PRESSED))
+            swatch.isEnabled = false
+            if (reenableBeforeRelease) swatch.isEnabled = true
+            swatch.dispatchEvent(mouse(java.awt.event.MouseEvent.MOUSE_RELEASED))
+            assertTrue(chosen.isEmpty(), "Disabled gestures cannot apply an accent after release")
+        }
+    }
+
     private fun blend(
         accent: Int,
         border: Int,

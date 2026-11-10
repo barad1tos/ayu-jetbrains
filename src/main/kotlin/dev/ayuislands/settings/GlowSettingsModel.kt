@@ -2,6 +2,7 @@ package dev.ayuislands.settings
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowIslandIds
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
@@ -16,6 +17,7 @@ import dev.ayuislands.glow.waveform.WaveformMovement
 
 internal data class GlowSettings(
     val enabled: Boolean = false,
+    val focusRing: Boolean = true,
     val shape: GlowShape = GlowShape.SOLID,
     val preset: GlowPreset = GlowPreset.WHISPER,
     val style: GlowStyle = GlowStyle.SOFT,
@@ -33,6 +35,8 @@ internal data class GlowSettings(
     val waveformIntensity: Int = DEFAULT_WAVEFORM_INTENSITY,
     val waveformLoopSeconds: Float = DEFAULT_LOOP_SECONDS,
 ) {
+    fun isIslandEnabled(id: String): Boolean = islandToggles[GlowIslandIds.canonical(id)] ?: false
+
     fun withPresetValues(preset: GlowPreset): GlowSettings {
         val presetStyle = preset.style ?: return this
         val presetIntensity = preset.intensity ?: return this
@@ -74,17 +78,23 @@ internal data class GlowSettings(
 
 internal fun loadGlowSettings(
     state: AyuIslandsState,
-    presetName: String,
-    islandIds: List<String>,
-): GlowSettings =
-    GlowSettings(
+    presetName: String? = state.glowPreset,
+    islandIds: List<String> = GlowIslandIds.all,
+): GlowSettings {
+    val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+    val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
+    val preset =
+        presetName?.let(GlowPreset::fromName)
+            ?: GlowPreset.detect(style, state.getIntensityForStyle(style), state.getWidthForStyle(style), animation)
+    return GlowSettings(
         enabled = state.glowEnabled,
+        focusRing = state.glowFocusRing,
         shape = GlowShape.fromName(state.glowShape),
-        preset = GlowPreset.fromName(presetName),
-        style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name),
+        preset = preset,
+        style = style,
         intensity = GlowStyle.entries.associateWith { state.getIntensityForStyle(it) },
         width = GlowStyle.entries.associateWith { state.getWidthForStyle(it) },
-        animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name),
+        animation = animation,
         islandToggles = islandIds.associateWith { state.isIslandEnabled(it) },
         editorPlacement = GlowPlacement.fromName(state.glowEditorPlacement),
         toolWindowPlacement = GlowPlacement.fromName(state.glowToolWindowPlacement),
@@ -96,6 +106,7 @@ internal fun loadGlowSettings(
         waveformIntensity = state.waveformIntensity,
         waveformLoopSeconds = state.waveformLoopSeconds,
     )
+}
 
 internal class GlowVisibility {
     val solidShape = AtomicBooleanProperty(true)

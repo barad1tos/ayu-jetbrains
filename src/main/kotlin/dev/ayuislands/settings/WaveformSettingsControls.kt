@@ -4,6 +4,7 @@ import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.Align
+import com.intellij.ui.dsl.builder.Cell
 import com.intellij.ui.dsl.builder.DslComponentProperty
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
@@ -58,9 +59,9 @@ internal data class WaveformControlVisibility(
 
 internal class WaveformSettingsControls(
     initial: WaveformSettingsValue,
-    private val gate: PremiumFeatureGate,
+    private var gate: PremiumFeatureGate,
     private val visibility: WaveformControlVisibility,
-    private val onChange: (WaveformSettingsValue) -> Unit,
+    private val onChange: (GlowPanelEvent) -> Unit,
 ) {
     internal var shapeCombo: ComboBox<String>? = null
     internal var movementCombo: ComboBox<String>? = null
@@ -78,6 +79,12 @@ internal class WaveformSettingsControls(
     private var loopLabel: JLabel? = null
     private var value = initial
     private var refreshing = false
+    private val movementVisible = AtomicBooleanProperty(visibility.waveform.get() || !gate.isUnlocked)
+    private val badges = mutableMapOf<String, Cell<JLabel>>()
+
+    init {
+        visibility.waveform.afterChange { movementVisible.set(it || !gate.isUnlocked) }
+    }
 
     fun build(group: Panel) {
         buildShapeRow(group)
@@ -95,7 +102,7 @@ internal class WaveformSettingsControls(
                 snapValues = DENSITY_TICKS,
                 formatValue = { "$it×" },
                 visibleWhen = visibility.waveform,
-                onChange = { update(value.copy(traceDensity = it)) },
+                onChange = { update(GlowPanelEvent.TraceDensity(it)) },
                 onCreated = { slider, label ->
                     densitySlider = slider
                     densityLabel = label
@@ -111,7 +118,7 @@ internal class WaveformSettingsControls(
                 tickValues = (MIN_TRACE_LENGTH..MAX_TRACE_LENGTH step 40).toList(),
                 majorTickValues = (200..MAX_TRACE_LENGTH step 200).toSet(),
                 visibleWhen = visibility.waveform,
-                onChange = { update(value.copy(traceLength = it)) },
+                onChange = { update(GlowPanelEvent.TraceLength(it)) },
                 onCreated = { slider, label ->
                     traceLengthSlider = slider
                     traceLengthLabel = label
@@ -128,7 +135,7 @@ internal class WaveformSettingsControls(
                 majorTickValues = AMPLITUDE_MAJOR_TICKS,
                 snapValues = AMPLITUDE_TICKS,
                 visibleWhen = visibility.waveform,
-                onChange = { update(value.copy(amplitude = it)) },
+                onChange = { update(GlowPanelEvent.Amplitude(it)) },
                 onCreated = { slider, label ->
                     amplitudeSlider = slider
                     amplitudeLabel = label
@@ -144,7 +151,7 @@ internal class WaveformSettingsControls(
                 tickValues = (MIN_WAVEFORM_INTENSITY..MAX_WAVEFORM_INTENSITY step 10).toList(),
                 majorTickValues = (MIN_WAVEFORM_INTENSITY..MAX_WAVEFORM_INTENSITY step 50).toSet(),
                 visibleWhen = visibility.waveform,
-                onChange = { update(value.copy(intensity = it)) },
+                onChange = { update(GlowPanelEvent.WaveformIntensity(it)) },
                 onCreated = { slider, label ->
                     intensitySlider = slider
                     intensityLabel = label
@@ -153,7 +160,18 @@ internal class WaveformSettingsControls(
         )
     }
 
-    fun refresh(newValue: WaveformSettingsValue) {
+    fun refresh(
+        newValue: WaveformSettingsValue,
+        licensed: Boolean,
+        pendingBadges: Set<String>,
+    ) {
+        gate = gate.copy(isUnlocked = licensed)
+        movementVisible.set(visibility.waveform.get() || !licensed)
+        badges.forEach { (id, cell) ->
+            val pending = id in pendingBadges
+            cell.component.text = if (pending) "New" else ""
+            cell.visible(pending)
+        }
         refreshing = true
         value = newValue
         shapeCombo?.selectedItem = value.shape.displayName
@@ -178,14 +196,16 @@ internal class WaveformSettingsControls(
     }
 
     fun setEnabled(enabled: Boolean) {
-        shapeCombo?.isEnabled = enabled
-        movementCombo?.isEnabled = enabled
-        baselineCombo?.isEnabled = enabled
-        densitySlider?.isEnabled = enabled
-        traceLengthSlider?.isEnabled = enabled
-        amplitudeSlider?.isEnabled = enabled
-        intensitySlider?.isEnabled = enabled
-        loopSlider?.isEnabled = enabled
+        listOf(
+            shapeCombo,
+            movementCombo,
+            baselineCombo,
+            densitySlider,
+            traceLengthSlider,
+            amplitudeSlider,
+            intensitySlider,
+            loopSlider,
+        ).forEach { it?.applyPremiumLock(gate, enabled) }
     }
 
     private fun buildShapeRow(group: Panel) {
@@ -196,18 +216,15 @@ internal class WaveformSettingsControls(
                 guardedAction {
                     val selected = combo.selectedItem as? String ?: return@guardedAction
                     val shape = GlowShape.entries.first { it.displayName == selected }
-                    update(value.copy(shape = shape))
+                    update(GlowPanelEvent.Shape(shape))
                     if (shape == GlowShape.WAVEFORM) {
-                        SettingsBadges.acknowledgeAnchor(
-                            AyuIslandsSettings.getInstance().state,
-                            ROUTING_BADGE_ID,
-                        )
+                        onChange(GlowPanelEvent.BadgeSeen(ROUTING_BADGE_ID))
                     }
                 },
             )
             shapeCombo = combo
             cell(combo).widthGroup(WAVEFORM_COMBO_GROUP)
-            newFeatureBadge("glow-waveform")
+            badges["glow-waveform"] = newFeatureBadge(false)
         }
     }
 
@@ -220,16 +237,14 @@ internal class WaveformSettingsControls(
                     guardedAction {
                         val selected = combo.selectedItem as? String ?: return@guardedAction
                         update(
-                            value.copy(
-                                movement = WaveformMovement.entries.first { it.displayName == selected },
-                            ),
+                            GlowPanelEvent.Movement(WaveformMovement.entries.first { it.displayName == selected }),
                         )
                     },
                 )
                 movementCombo = combo
                 cell(combo).widthGroup(WAVEFORM_COMBO_GROUP)
-                newFeatureBadge(ROUTING_BADGE_ID) { visibility.waveform.get() || !gate.isUnlocked }
-            }.visibleIfUnlockedOrPreview(visibility.waveform, gate)
+                badges[ROUTING_BADGE_ID] = newFeatureBadge(false)
+            }.visibleIf(movementVisible)
     }
 
     private fun buildBaselineRow(group: Panel) {
@@ -240,7 +255,7 @@ internal class WaveformSettingsControls(
                 combo.addActionListener(
                     guardedAction {
                         val selected = combo.selectedItem as? String ?: return@guardedAction
-                        update(value.copy(baseline = WaveformBaseline.entries.first { it.displayName == selected }))
+                        update(GlowPanelEvent.Baseline(WaveformBaseline.entries.first { it.displayName == selected }))
                     },
                 )
                 baselineCombo = combo
@@ -267,7 +282,7 @@ internal class WaveformSettingsControls(
                     }
                 slider.addChangeListener {
                     val seconds = slider.value / TENTHS_PER_SECOND
-                    if (!refreshing && gate.isUnlocked) update(value.copy(loopSeconds = seconds))
+                    if (!refreshing && gate.isUnlocked) update(GlowPanelEvent.LoopSeconds(seconds))
                     label.text = formatSeconds(seconds)
                 }
                 loopSlider = slider
@@ -377,10 +392,9 @@ internal class WaveformSettingsControls(
             add(SliderTickStrip(slider, tickValues, majorTickValues), BorderLayout.SOUTH)
         }
 
-    private fun update(newValue: WaveformSettingsValue) {
+    private fun update(event: WaveformPanelEvent) {
         if (refreshing || !gate.isUnlocked) return
-        value = newValue
-        onChange(value)
+        onChange(event)
     }
 
     private fun enumCombo(items: List<String>): ComboBox<String> =

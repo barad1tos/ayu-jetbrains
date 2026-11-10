@@ -6,6 +6,7 @@ import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
+import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AyuVariant
@@ -60,6 +61,8 @@ class QuickSwitcherWidgetLifecycleTest {
 
     @BeforeEach
     fun setUp() {
+        mockkObject(AccentApplicator)
+        every { AccentApplicator.resolveFocusedProject() } returns null
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns application
         every { application.messageBus } returns messageBus

@@ -11,6 +11,7 @@ import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -47,7 +48,7 @@ class ChromeLiveRefreshMultiSurfaceTest {
         every { UIManager.put(any<String>(), any()) } returns Unit
 
         mockkObject(ChromeBaseColors)
-        every { ChromeBaseColors.get(any()) } returns stockBase
+        every { ChromeBaseColors[any()] } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
@@ -64,7 +65,7 @@ class ChromeLiveRefreshMultiSurfaceTest {
 
         mockState = AyuIslandsState().apply { chromeTintIntensity = 40 }
         mockSettings = mockk(relaxed = true)
-        every { mockSettings.state } returns mockState
+        every { mockSettings.state } answers { StudioFixtures.legacyView(mockState).settings }
 
         mockApplication = mockk(relaxed = true)
         every { mockApplication.getService(AyuIslandsSettings::class.java) } returns mockSettings

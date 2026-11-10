@@ -27,7 +27,7 @@
 #      last published Marketplace version unless the plugin version changes.
 #
 #   7. Semantic release policy: a latest release with `features.yml` entries
-#      introduced in that version must be a minor bump; updates to existing
+#      introduced in that version must be a minor or major bump; updates to existing
 #      features and fix-only releases use a patch bump. `pluginVersion` and
 #      plugin.xml change-notes must point at the same latest version.
 #
@@ -56,6 +56,32 @@ release_sync:
   last_published_description_sha256: "974f88c095fa34f5bcddebb0df7194768c8755495a49145bee933b5b3352d7ab"
 
 categories:
+  profiles:
+    title: "Work Profiles"
+    features:
+      - id: work-profiles
+        title: "Manual Work Profiles"
+        keyword: "Work Profiles"
+        introduced: "3.0.0"
+        tier: free
+        description: >
+          Four starter profiles — Whisper, Ambient, Neon, Cyberpunk — group
+          Accent, Font, Glow, Syntax, and VCS choices. Create, update, rename,
+          and delete user profiles. Existing 2.x appearance becomes Custom;
+          saved settings, mappings, and preferences are preserved. Workspace,
+          plugin settings, and project/language mappings stay shared. Included
+          features retain their own Free or Pro requirements.
+
+      - id: settings-draft-preview
+        title: "Local Current and Draft comparison"
+        keyword: "Current and Draft"
+        introduced: "3.0.0"
+        tier: free
+        description: >
+          Changes preview immediately inside Settings. Compare the accepted
+          Current appearance with the selected Draft; Apply commits the
+          choices and Cancel leaves the accepted appearance unchanged.
+
   accent:
     title: "Accent control"
     features:
@@ -78,6 +104,20 @@ categories:
           caret line, search highlights, progress bars, bracket matches,
           inlay hints, tag matches. Eight independent switches.
 
+        screenshot:
+          path: assets/feature-accent-elements.png
+          caption: "Accent Elements in Ayu Islands settings"
+          sources:
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioSettingsPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioAccentSection.kt
+            - src/main/kotlin/dev/ayuislands/settings/AccentControls.kt
+            - src/main/kotlin/dev/ayuislands/settings/AccentElementControls.kt
+            - src/main/kotlin/dev/ayuislands/accent/elements
+          last_verified_sha: "6e0a0757"
+          last_verified_date: "2026-11-09"
+          content_sha256: f0221a25e43ba6753899c8893389b7b46a0ecfd65b7c8cfa221b2188fe393506
+          sources_sha256: "ef7c40d1dc62cd9bcd36909677d661a79911b3891b7ac636ced18dc4e5635b9b"
+
       - id: accent-rotation
         title: "Accent rotation"
         keyword: "Accent rotation"
@@ -98,18 +138,21 @@ categories:
           Settings → Ayu Islands → Accent → Overrides.
 
         screenshot:
-          path: src/main/resources/whatsnew/v2.5.0/slide-project-overrides.png
-          caption: "Per-project accent overrides table"
+          path: assets/feature-project-overrides.png
+          caption: "Per-project accent overrides in Ayu Islands settings"
           sources:
-            - src/main/kotlin/dev/ayuislands/settings/AyuIslandsAccentPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioSettingsPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioAccentSection.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioMappingsSection.kt
+            - src/main/kotlin/dev/ayuislands/settings/AccentControls.kt
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "85ab574f"
-          last_verified_date: "2026-08-09"
-          content_sha256: "4c86c5d855c6dcefd703f647451bac4117397e435b05dd9cae6b9cbc7f479616"
+          last_verified_sha: "6e0a0757"
+          last_verified_date: "2026-11-09"
+          content_sha256: 7092cda071a4ed290893a403a5b5ff34817d85b877e9dc66272fdb58b6a9d59c
+          sources_sha256: "e9e6f26e7f4e56fff738315ff0fe4485b3ddbf8c7c20bc0579e4dffacd45b7ec"
 
-          sources_sha256: "f6ded72f98bb6bd465fd0341ea8838e475ab91d9e6f8a5b289318805c394da03"
       - id: accent-scoped-language
         title: "Per-language accent pin"
         keyword: "per-language"
@@ -121,18 +164,21 @@ categories:
           matches and no project override exists.
 
         screenshot:
-          path: src/main/resources/whatsnew/v2.5.0/slide-language-overrides.png
-          caption: "Per-language accent overrides table"
+          path: assets/feature-language-overrides.png
+          caption: "Per-language accent overrides in Ayu Islands settings"
           sources:
-            - src/main/kotlin/dev/ayuislands/settings/AyuIslandsAccentPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioSettingsPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioAccentSection.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioMappingsSection.kt
+            - src/main/kotlin/dev/ayuislands/settings/AccentControls.kt
             - src/main/kotlin/dev/ayuislands/settings/AccentColorPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/mappings
             - src/main/kotlin/dev/ayuislands/accent
-          last_verified_sha: "85ab574f"
-          last_verified_date: "2026-08-09"
-          content_sha256: "ea83498db84a5cd122dd1d09132d74774c6e24295188b93464fddb0d784bf4e1"
+          last_verified_sha: "6e0a0757"
+          last_verified_date: "2026-11-09"
+          content_sha256: 5d823bca90acd1a68536d0bbb1ca201d03d5a76368fb4c9ca5eced17932a4043
+          sources_sha256: "e9e6f26e7f4e56fff738315ff0fe4485b3ddbf8c7c20bc0579e4dffacd45b7ec"
 
-          sources_sha256: "f6ded72f98bb6bd465fd0341ea8838e475ab91d9e6f8a5b289318805c394da03"
       - id: accent-language-breakdown
         title: "Live language-proportions breakdown"
         keyword: "language-proportions"
@@ -327,16 +373,18 @@ categories:
 
         screenshot:
           path: assets/feature-glow.png
-          caption: "Glow settings panel"
+          caption: "Glow controls and local preview in Ayu Islands settings"
           sources:
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioSettingsPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioGlowSection.kt
+            - src/main/kotlin/dev/ayuislands/settings/GlowControls.kt
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
-            - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "b687a856"
-          last_verified_date: "2026-08-28"
-          content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
+          last_verified_sha: "6e0a0757"
+          last_verified_date: "2026-11-09"
+          content_sha256: 14f3750974f019d0bea4a9737c45b28827c8490a1899926d9cb4dc40fa57b2dd
+          sources_sha256: "89676ea69b2087823a33b27defd018077d93a22bda6150b68bae7fff7a2ed018"
 
-          sources_sha256: "7390d905e8c83f25ce5aca7b3c30621c8a7e5b47614a893d4987eec443724251"
       - id: glow-waveform
         title: "ECG waveform glow"
         keyword: "Glow"
@@ -371,7 +419,7 @@ categories:
         description: >
           Choose where glow renders per surface: the full island frame or
           its side edges only, for the editor and for tool windows.
-          Selection previews on live windows before Apply.
+          Selection previews locally inside Settings before Apply.
           Existing setups keep the full-island default.
 
   fonts:
@@ -397,16 +445,18 @@ categories:
 
         screenshot:
           path: assets/feature-font.png
-          caption: "Font presets panel"
+          caption: "Font controls and local preview in Ayu Islands settings"
           sources:
-            - src/main/kotlin/dev/ayuislands/settings/FontPresetPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioSettingsPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioFontSection.kt
+            - src/main/kotlin/dev/ayuislands/settings/FontControls.kt
             - src/main/kotlin/dev/ayuislands/settings/FontPreviewComponent.kt
             - src/main/kotlin/dev/ayuislands/font
-          last_verified_sha: "c8281139"
-          last_verified_date: "2026-08-09"
-          content_sha256: "2303011928e4246c32edfcc3c4caa923d536aa73f848e225708da4374ce17b41"
+          last_verified_sha: "6e0a0757"
+          last_verified_date: "2026-11-09"
+          content_sha256: 03e509928a958c6875e25d965d81ec5463334be0c2be62edf08554d8bcabf549
+          sources_sha256: "6975274e374ab52c5d7a30f7151c74aa88291bfa39bb5f7439dac403a2e75a74"
 
-          sources_sha256: "d068ee91254ffb13784482585ed7dd9ff09a505cfd9e692571962d6523540b0e"
   workspace:
     title: "Workspace"
     features:
@@ -448,18 +498,20 @@ categories:
 
         screenshot:
           path: assets/feature-workspace.png
-          caption: "Workspace panel settings"
+          caption: "Shared Workspace controls in Ayu Islands settings"
           sources:
-            - src/main/kotlin/dev/ayuislands/settings/WorkspacePanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioSettingsPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioWorkspaceSection.kt
+            - src/main/kotlin/dev/ayuislands/settings/WorkspaceControls.kt
             - src/main/kotlin/dev/ayuislands/commitpanel
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "fa07ff5a"
-          last_verified_date: "2026-08-09"
-          content_sha256: ad849b17308901bc2dac85f895978be656f578c9c31f857b9e9578e5cf4289f2
+          last_verified_sha: "6e0a0757"
+          last_verified_date: "2026-11-09"
+          content_sha256: e9ca127e44d81110531f0c56cfc9c9dbc3b3c9515f217190d624f11406916481
+          sources_sha256: "72b69e2e51a7341f6f2a4f88f9ec25ba44d799d1c3550eca36cf35c10e878e2f"
 
-          sources_sha256: "866f00c50e59e52c0f849b0b76ffa333b29f2ace18e0e5728a7e7d9625e691d1"
   tabs:
     title: "Tab styling"
     features:
@@ -483,6 +535,21 @@ categories:
         description: >
           Accent color propagates into the CodeGlance Pro minimap
           viewport border automatically.
+
+        screenshot:
+          path: assets/feature-integrations.png
+          caption: "Shared plugin integration controls in Ayu Islands settings"
+          sources:
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioSettingsPanel.kt
+            - src/main/kotlin/dev/ayuislands/studio/ui/StudioPluginsSection.kt
+            - src/main/kotlin/dev/ayuislands/settings/PluginsControls.kt
+            - src/main/kotlin/dev/ayuislands/settings/PluginsPreview.kt
+            - src/main/kotlin/dev/ayuislands/integration/codeglance
+            - src/main/kotlin/dev/ayuislands/indent
+          last_verified_sha: "6e0a0757"
+          last_verified_date: "2026-11-09"
+          content_sha256: 830cc0298313315db000c7cd6890629ec2dd75cb9d417ad65ef5f5c466c1f821
+          sources_sha256: "d0311883063e3ee509b4fd3fd3d15204350534dabdd2dbaf510c21348394d44a"
 
       - id: plugin-sync-indent-rainbow
         title: "Accent sync with Indent Rainbow"
@@ -511,18 +578,6 @@ categories:
           A colored gutter stripe showing the full scope when your
           cursor lands on a bracket.
 
-        screenshot:
-          path: assets/feature-integrations.png
-          caption: "Plugin integrations panel"
-          sources:
-            - src/main/kotlin/dev/ayuislands/settings/PluginsPanel.kt
-            - src/main/kotlin/dev/ayuislands/indent
-            - src/main/kotlin/dev/ayuislands/accent/elements/BracketScopeRenderer.kt
-          last_verified_sha: "3364881e"
-          last_verified_date: "2026-10-28"
-          content_sha256: "2a0c02b3ed22b7805119676ce17006b30c1aaaf60721c5b937ee4c84419ea18b"
-
-          sources_sha256: "34bb78c5085cc61c31adfce5925b18f50749c2bca80bd4e540875e23f56d0afc"
   onboarding:
     title: "Onboarding wizard"
     features:
@@ -645,7 +700,13 @@ asset_inventory:
   - path: assets/preview-light-islands.png
     referenced_by: [README.md]
 
-  # Premium feature grid
+  # Current Settings feature captures
+  - path: assets/feature-project-overrides.png
+    referenced_by: [README.md]
+  - path: assets/feature-language-overrides.png
+    referenced_by: [README.md]
+  - path: assets/feature-accent-elements.png
+    referenced_by: [README.md]
   - path: assets/feature-glow.png
     referenced_by: [README.md]
   - path: assets/feature-font.png
@@ -665,11 +726,11 @@ asset_inventory:
       src/main/resources/whatsnew/v2.5.0/. Left on disk as a visual
       reference for the pre-v2.5.0 settings-panel layout.
 
-  # What's New slides — used both in the in-IDE showcase tab and the README
+  # Historical What's New slides — preserve the original in-IDE showcase assets
   - path: src/main/resources/whatsnew/v2.5.0/slide-project-overrides.png
-    referenced_by: [README.md, src/main/resources/whatsnew/v2.5.0/manifest.json]
+    referenced_by: [src/main/resources/whatsnew/v2.5.0/manifest.json]
   - path: src/main/resources/whatsnew/v2.5.0/slide-language-overrides.png
-    referenced_by: [README.md, src/main/resources/whatsnew/v2.5.0/manifest.json]
+    referenced_by: [src/main/resources/whatsnew/v2.5.0/manifest.json]
   - path: src/main/resources/whatsnew/v2.5.0/slide-project-collage.png
     referenced_by: [src/main/resources/whatsnew/v2.5.0/manifest.json]
     justification: >

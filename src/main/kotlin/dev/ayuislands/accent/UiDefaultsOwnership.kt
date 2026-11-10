@@ -74,17 +74,30 @@ internal fun recoverUiOverride(
         else -> UiOverrideState.Relinquished
     }
 
+/** Immutable native and claim evidence captured before an acknowledged ownership change. */
+internal class UiOverridePreparation(
+    val owner: UiDefaultsOwnership,
+    val checkpoint: UiDefaultsCheckpoint,
+    val native: UiDefaultObservation,
+    val capturedClaim: UiOverrideState?,
+    val transition: UiOverrideTransition,
+)
+
 /** Owns only proven developer overrides across successful applies; all effects run on EDT. */
 internal class UiDefaultsOwnership {
     private var defaults: UIDefaults? = null
     private val claims = linkedMapOf<String, UiOverrideState>()
 
-    fun record(checkpoint: UiDefaultsCheckpoint) {
+    fun record(
+        checkpoint: UiDefaultsCheckpoint,
+        keys: Set<String>? = null,
+    ) {
         val table = currentDefaults()
-        val saved = claims.toMap()
+        val selected = keys?.toSet()
+        val saved = if (selected == null) claims.toMap() else claims.filterKeys { it in selected }
         checkpoint.onRestore {
             if (currentDefaults() === table) {
-                for (key in (saved.keys + claims.keys)) {
+                for (key in (selected ?: (saved.keys + claims.keys))) {
                     val observed = readRawUiDefault(table, key)
                     val previous = saved[key] ?: UiOverrideState.Unowned
                     val current = claims[key]
@@ -94,12 +107,68 @@ internal class UiDefaultsOwnership {
         }
     }
 
+    /** Captures the existing claim and requested transition without changing either surface. */
+    fun prepare(
+        key: String,
+        requested: UiOverrideValue?,
+        checkpoint: UiDefaultsCheckpoint,
+    ): UiOverridePreparation? {
+        val table = currentDefaults()
+        val capturedClaim = claims[key]
+        val observed = UiOverrideValue(readRawUiDefault(table, key))
+        val transition = planUiOverride(capturedClaim ?: UiOverrideState.Unowned, observed, requested)
+        val native =
+            if (transition.write == null) {
+                checkpoint.observe(key)
+            } else {
+                checkpoint.prepare(key, transition.write.raw) ?: return null
+            }
+        return UiOverridePreparation(this, checkpoint, native, capturedClaim, transition)
+    }
+
+    /** Applies only this captured claim; a stale preparation never re-plans against newer state. */
+    fun apply(preparation: UiOverridePreparation): Boolean {
+        val table = currentDefaults()
+        if (preparation.owner !== this) return false
+        val native = preparation.native
+        if (claims[native.key] !== preparation.capturedClaim) {
+            preparation.checkpoint.discard(native)
+            return false
+        }
+        var published = false
+        try {
+            if (native is UiDefaultWrite) {
+                return preparation.checkpoint.apply(native) {
+                    claims[native.key] = preparation.transition.next
+                    published = true
+                }
+            }
+            if (!preparation.checkpoint.confirm(native)) return false
+            claims[native.key] = preparation.transition.next
+            published = true
+            return true
+        } finally {
+            val actual = UiOverrideValue(readRawUiDefault(table, native.key))
+            if (published && claims[native.key] === preparation.transition.next) {
+                claims[native.key] =
+                    settleUiOverride(
+                        preparation.capturedClaim ?: UiOverrideState.Unowned,
+                        UiOverrideValue(native.before),
+                        preparation.transition,
+                        actual,
+                    )
+            } else if (!published && claims[native.key] === preparation.capturedClaim && actual.raw !== native.before) {
+                claims[native.key] = UiOverrideState.Relinquished
+            }
+        }
+    }
+
     fun put(
         key: String,
         value: Any?,
         checkpoint: UiDefaultsCheckpoint,
     ) {
-        change(key, UiOverrideValue(value), checkpoint)
+        prepare(key, UiOverrideValue(value), checkpoint)?.let(::apply)
     }
 
     /** Restores only surviving claims, reobserving each key after earlier listeners have run. */
@@ -110,11 +179,20 @@ internal class UiDefaultsOwnership {
         currentDefaults()
         var failure: Throwable? = null
         for (key in (keys ?: claims.keys.toSet())) {
-            val error = runCatching { change(key, null, checkpoint) }.exceptionOrNull()
+            val error =
+                runCatching {
+                    if (checkpoint == null) restoreClaim(key) else prepare(key, null, checkpoint)?.let(::apply)
+                }.exceptionOrNull()
             if (error is VirtualMachineError) throw error
             if (error != null) failure = combineUiFailures(failure, error)
         }
         failure?.let { throw it }
+    }
+
+    /** Observes provenance without clearing claims when another defaults table has become active. */
+    fun observeClaim(key: String): UiOverrideState? {
+        check(SwingUtilities.isEventDispatchThread()) { "UI defaults ownership observation must run on EDT" }
+        return if (defaults === UIManager.getDefaults()) claims[key] else null
     }
 
     fun ownsAny(keys: Set<String>): Boolean {
@@ -125,19 +203,15 @@ internal class UiDefaultsOwnership {
         }
     }
 
-    private fun change(
-        key: String,
-        requested: UiOverrideValue?,
-        checkpoint: UiDefaultsCheckpoint?,
-    ) {
+    private fun restoreClaim(key: String) {
         val table = currentDefaults()
         val before = claims[key] ?: UiOverrideState.Unowned
         val observed = UiOverrideValue(readRawUiDefault(table, key))
-        val transition = planUiOverride(before, observed, requested)
+        val transition = planUiOverride(before, observed, null)
         claims[key] = transition.next
         val write = transition.write ?: return
         try {
-            if (checkpoint == null) UIManager.put(key, write.raw) else checkpoint.put(key, write.raw)
+            UIManager.put(key, write.raw)
         } finally {
             // A nested apply may have installed a newer claim while a property listener ran.
             if (claims[key] === transition.next) {
@@ -189,7 +263,15 @@ internal object AccentUiKeys {
         listOf("Button.default.focusedBorderColor", "Button.default.startBorderColor", "Button.default.endBorderColor")
     const val TAB_UNDERLINE = "EditorTabs.underlinedBorderColor"
     const val TAB_BACKGROUND = "EditorTabs.underlinedTabBackground"
-    val colors = (accent + foregrounds + borders + TAB_BACKGROUND).toSet()
+    const val TAB_HEIGHT = "EditorTabs.underlineHeight"
+    const val TAB_ARC = "EditorTabs.underlineArc"
+    val colors =
+        buildSet {
+            addAll(accent)
+            addAll(foregrounds)
+            addAll(borders)
+            add(TAB_BACKGROUND)
+        }
     const val TAB_ALPHA = 50
     const val DARK_FOREGROUND_RGBA = 0xFF1F2430.toInt()
 }

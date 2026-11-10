@@ -1,318 +1,61 @@
 package dev.ayuislands.accent.toolbar.actions
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
-import com.intellij.openapi.actionSystem.ex.ActionManagerEx
-import com.intellij.openapi.actionSystem.ex.ActionUtil
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.project.Project
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.mappings.AccentMappingsSettings
-import dev.ayuislands.settings.mappings.AccentMappingsState
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.accent.toolbar.QuickSwitcherFixture
+import dev.ayuislands.studio.session.StudioQuickCommand
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.unmockkAll
-import io.mockk.verify
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * Locks [PinAccentAction]'s Pattern J two-level gate (`isAyuActive && licensed`),
- * `AccentMappingsState.projectAccents` writer path (shared / personal pin-lane
- * split deferred), and Pattern D rejection gate on `notifyExternalApply`.
- */
 class PinAccentActionTest {
-    private val mockApp = mockk<Application>(relaxed = true)
-    private val mockSettings = mockk<AccentMappingsSettings>(relaxed = true)
-    private val state = AccentMappingsState()
-    private val mockSwap = mockk<ProjectAccentSwapService>(relaxed = true)
-    private val mockProject =
-        mockk<Project> {
-            every { name } returns "test-project"
-            every { isDefault } returns false
-            every { isDisposed } returns false
+    @Test fun `pin submits the captured project color without mutating accepted mappings`() {
+        QuickSwitcherFixture().use { fixture ->
+            fixture.mappings.projectAccents["/other"] = "#123456"
+            PinAccentAction().actionPerformed(event())
+            assertEquals(
+                listOf<Pair<dev.ayuislands.studio.model.TargetObservation, StudioQuickCommand>>(
+                    fixture.target to StudioQuickCommand.Pin(fixture.hex),
+                ),
+                fixture.requests,
+            )
+            assertEquals(mapOf("/other" to "#123456"), fixture.mappings.projectAccents)
         }
+    }
 
-    @BeforeTest
-    fun setUp() {
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.isAyuActive() } returns true
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        mockkObject(AccentContext.Companion)
-        every { AccentContext.isAccentActive() } returns true
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
-
-        mockkObject(LicenseChecker)
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.resolveFocusedProject() } returns mockProject
-        every { AccentApplicator.applyFromHexString(any()) } answers
-            {
-                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
-                    ?: AccentApplyOutcome.Rejected(firstArg())
+    @Test fun `pin retains Ayu and premium gates on BGT and at invocation`() {
+        QuickSwitcherFixture().use { fixture ->
+            val action = PinAccentAction()
+            assertEquals(ActionUpdateThread.BGT, action.getActionUpdateThread())
+            for (native in listOf(false, true)) {
+                for (licensed in listOf(false, true)) {
+                    fixture.context = if (native) AccentContext.Ayu(AyuVariant.MIRAGE) else AccentContext.External
+                    fixture.licensed = licensed
+                    val event = event()
+                    action.update(event)
+                    assertEquals(native && licensed, event.presentation.isEnabledAndVisible)
+                    if (!native || !licensed) action.actionPerformed(event)
+                }
             }
-
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#7F52FF"
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#7F52FF"
-        every { AccentResolver.projectKey(any()) } returns "/path/to/project"
-
-        mockkObject(AccentMappingsSettings.Companion)
-        every { AccentMappingsSettings.getInstance() } returns mockSettings
-        every { mockSettings.state } returns state
-
-        // ProjectAccentSwapService.getInstance() delegates to
-        // ApplicationManager.getApplication().getService(...) — mock the chain like
-        // QuickSwitcherAccentGridTest does.
-        io.mockk.mockkStatic(ApplicationManager::class)
-        every { ApplicationManager.getApplication() } returns mockApp
-        every { mockApp.getService(ProjectAccentSwapService::class.java) } returns mockSwap
-    }
-
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
-    }
-
-    private fun newEvent(): AnActionEvent {
-        val event = mockk<AnActionEvent>(relaxed = true)
-        every { event.presentation } returns Presentation()
-        return event
-    }
-
-    @Test
-    fun `getActionUpdateThread is BGT`() {
-        assertEquals(ActionUpdateThread.BGT, PinAccentAction().getActionUpdateThread())
-    }
-
-    @Test
-    fun `update enables and shows action only when BOTH AyuActive AND licensed (Pattern J)`() {
-        // Exhaustive two-conjunct gate verification.
-        val action = PinAccentAction()
-        val event = newEvent()
-
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        action.update(event)
-        assertTrue(event.presentation.isEnabledAndVisible, "Active + licensed must enable")
-
-        every { AccentContext.detect() } returns AccentContext.External
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible, "External context must disable Ayu-only pinning")
-
-        every { AccentContext.detect() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible, "Unlicensed must disable")
-
-        every { AccentContext.detect() } returns null
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible, "Both off must disable")
-    }
-
-    @Test
-    fun `actionPerformed writes the resolved hex to projectAccents under the projectKey`() {
-        PinAccentAction().actionPerformed(newEvent())
-        assertEquals("#7F52FF", state.projectAccents["/path/to/project"])
-    }
-
-    @Test
-    fun `actionPerformed after license loss does not write or apply`() {
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-
-        PinAccentAction().actionPerformed(newEvent())
-
-        assertTrue(state.projectAccents.isEmpty())
-        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `actionPerformed calls notifyExternalApply only when applyFromHexString accepts the hex (Pattern D)`() {
-        // Pattern D rejection gate.
-        every { AccentApplicator.applyFromHexString("#7F52FF") } answers
-            {
-                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
-                    ?: AccentApplyOutcome.Rejected(firstArg())
-            }
-        PinAccentAction().actionPerformed(newEvent())
-        verify(exactly = 1) {
-            mockSwap.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#7F52FF"))))
+            assertTrue(fixture.requests.isEmpty())
         }
-
-        // When apply rejects, swap must NOT be published.
-        io.mockk.clearMocks(mockSwap)
-        every { AccentApplicator.applyFromHexString("#7F52FF") } answers { AccentApplyOutcome.Rejected(firstArg()) }
-        PinAccentAction().actionPerformed(newEvent())
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
     }
 
-    @Test
-    fun `actionPerformed is a no-op when resolveFocusedProject returns null`() {
-        every { AccentApplicator.resolveFocusedProject() } returns null
-        PinAccentAction().actionPerformed(newEvent())
-        assertTrue(state.projectAccents.isEmpty(), "Must not write state when no focused project")
-        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
-    }
-
-    @Test
-    fun `actionPerformed is a no-op when projectKey returns null (defensive)`() {
-        every { AccentResolver.projectKey(any()) } returns null
-        PinAccentAction().actionPerformed(newEvent())
-        assertTrue(state.projectAccents.isEmpty(), "Must not write state when projectKey null")
-        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
-    }
-
-    @Test
-    fun `action propagates platform cancellation from resolve`() {
-        val cancelled = ProcessCanceledException()
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `action propagates platform cancellation from apply`() {
-        val cancelled = ProcessCanceledException()
-        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `action propagates platform cancellation from cache sync`() {
-        val cancelled = ProcessCanceledException()
-        every { mockSwap.notifyExternalApply(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-    }
-
-    @Test
-    fun `action propagates coroutine cancellation from resolve`() {
-        val cancelled = CancellationException("cancelled accent")
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `action propagates coroutine cancellation from apply`() {
-        val cancelled = CancellationException("cancelled accent")
-        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `action propagates coroutine cancellation from cache sync`() {
-        val cancelled = CancellationException("cancelled accent")
-        every { mockSwap.notifyExternalApply(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-    }
-
-    @Test
-    fun `pin action restores absent pin before propagating platform cancellation`() {
-        val cancelled = ProcessCanceledException()
-        state.projectAccents["/first"] = "#123456"
-        state.projectAccents["/last"] = "#654321"
-        val previousPins = state.projectAccents.toMap()
-        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        assertEquals(previousPins, state.projectAccents)
-    }
-
-    @Test
-    fun `pin action restores existing pin before propagating platform cancellation`() {
-        val cancelled = ProcessCanceledException()
-        state.projectAccents["/first"] = "#123456"
-        state.projectAccents["/path/to/project"] = "#abcdef"
-        state.projectAccents["/last"] = "#654321"
-        val previousPins = state.projectAccents.toMap()
-        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        assertEquals(previousPins, state.projectAccents)
-    }
-
-    @Test
-    fun `pin action restores absent pin before propagating coroutine cancellation`() {
-        val cancelled = CancellationException("cancelled pin")
-        state.projectAccents["/first"] = "#123456"
-        state.projectAccents["/last"] = "#654321"
-        val previousPins = state.projectAccents.toMap()
-        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        assertEquals(previousPins, state.projectAccents)
-    }
-
-    @Test
-    fun `pin action restores existing pin before propagating coroutine cancellation`() {
-        val cancelled = CancellationException("cancelled pin")
-        state.projectAccents["/first"] = "#123456"
-        state.projectAccents["/path/to/project"] = "#abcdef"
-        state.projectAccents["/last"] = "#654321"
-        val previousPins = state.projectAccents.toMap()
-        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { PinAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        assertEquals(previousPins, state.projectAccents)
-    }
-
-    private fun AnAction.performInTest(event: AnActionEvent) {
-        val actionManager = mockk<ActionManagerEx>(relaxed = true)
-        every { event.actionManager } returns actionManager
-        every { actionManager.performWithActionCallbacks(any(), any(), any()) } answers {
-            thirdArg<Runnable>().run()
+    @Test fun `missing authority never becomes a global pin`() {
+        QuickSwitcherFixture().use { fixture ->
+            fixture.available = false
+            PinAccentAction().actionPerformed(event())
+            assertTrue(fixture.requests.isEmpty())
         }
-        ActionUtil.performActionDumbAwareWithCallbacks(this, event)
     }
+
+    private fun event(): AnActionEvent =
+        mockk<AnActionEvent>(relaxed = true).also {
+            every { it.presentation } returns Presentation()
+        }
 }

@@ -35,26 +35,42 @@ class SearchResultsElement : AccentElement {
         private const val GREEN_SHIFT = 8
     }
 
+    internal val uiKeys: List<String>
+        get() = selectionKeys.map { it.key }
+
+    /** Each output samples independently, retaining active/inactive provider behavior. */
+    internal fun observeBackgrounds(accent: Color): Map<String, Color> =
+        selectionKeys.associate { it.key to observeBackground(it.key, accent) }
+
+    internal fun uiColors(
+        accent: Color,
+        backgrounds: Map<String, Color>,
+    ): Map<String, Color> =
+        selectionKeys.associate { (key, alpha) -> key to blend(accent, alpha, backgrounds.getValue(key)) }
+
     override fun apply(color: Color) {
         for ((key, alpha) in selectionKeys) {
-            val backgroundKey = key.substringBefore(".selection") + ".background"
-            putAccentUiDefault(key, blendWithBackground(color, alpha, backgroundKey))
+            putAccentUiDefault(key, blend(color, alpha, observeBackground(key, color)))
         }
     }
 
-    private fun blendWithBackground(
+    private fun observeBackground(
+        key: String,
+        accent: Color,
+    ): Color =
+        UIManager.getColor(key.substringBefore(".selection") + ".background")
+            ?: UIManager.getColor("Panel.background")
+            ?: accent
+
+    private fun blend(
         accent: Color,
         alpha: Int,
-        backgroundKey: String,
+        background: Color,
     ): Color {
-        val bg =
-            UIManager.getColor(backgroundKey)
-                ?: UIManager.getColor("Panel.background")
-                ?: accent
         val ratio = alpha.toFloat() / MAX_CHANNEL_VALUE
-        val red = blendChannel(bg.red, accent.red, ratio)
-        val green = blendChannel(bg.green, accent.green, ratio)
-        val blue = blendChannel(bg.blue, accent.blue, ratio)
+        val red = blendChannel(background.red, accent.red, ratio)
+        val green = blendChannel(background.green, accent.green, ratio)
+        val blue = blendChannel(background.blue, accent.blue, ratio)
         val rgb = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
         return JBColor(rgb, rgb)
     }

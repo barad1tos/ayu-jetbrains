@@ -1,5 +1,6 @@
 package dev.ayuislands.accent.elements
 
+import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.ui.ColorUtil
@@ -20,13 +21,23 @@ class InlayHintsElement : AccentElement {
     private val schemeOwner = EditorSchemeOwner.Element(id)
 
     override fun apply(color: Color) {
-        val mutedAccent = ColorUtil.toAlpha(color, MUTED_ALPHA)
-        val muted = JBColor(mutedAccent, mutedAccent)
         val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        for ((key, attributes) in editorAttributes(scheme, color)) {
+            val muted = attributes.foregroundColor
+            attributes.foregroundColor = JBColor(muted, muted)
+            AyuEditorSchemeScope.writeAttributes(scheme, schemeOwner, key, attributes)
+        }
+    }
+
+    internal fun editorAttributes(
+        scheme: EditorColorsScheme,
+        color: Color,
+    ): Map<TextAttributesKey, TextAttributes> {
+        val muted = ColorUtil.toAlpha(color, MUTED_ALPHA)
         val existing = scheme.getAttributes(INLAY_KEY)
         val updated = existing?.clone() ?: TextAttributes()
         updated.foregroundColor = muted
-        AyuEditorSchemeScope.writeAttributes(scheme, schemeOwner, INLAY_KEY, updated)
+        return mapOf(INLAY_KEY to updated)
     }
 
     override fun applyNeutral(variant: AyuVariant) {

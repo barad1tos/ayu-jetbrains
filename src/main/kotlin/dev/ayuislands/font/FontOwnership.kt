@@ -64,17 +64,12 @@ internal class FontOwnership(
         if (surface == FontSurface.CONSOLE && scheme.isUseEditorFontPreferencesInConsole) {
             return FontSnapshot.Inherited
         }
-        val current = FontData.capture(surface.preferences(scheme))
-        return FontSnapshot.Explicit(
-            current.copy(
-                effectiveFamilies = listOf(family),
-                families = listOf(FontFamily(family, settings.fontSize)),
-                templateSize = settings.fontSize,
-                lineSpacing = settings.lineSpacing,
-                ligatures =
-                    if (surface == FontSurface.EDITOR) settings.enableLigatures else current.ligatures,
-                regularSubFamily = settings.weight.subFamily.takeIf(String::isNotEmpty),
-            ),
+        return FontOwnershipPolicy.target(
+            surface,
+            inherited = false,
+            FontData.capture(surface.preferences(scheme)),
+            settings,
+            family,
         )
     }
 
@@ -107,67 +102,12 @@ internal class FontOwnership(
             identities.hasUnconfirmedIdentity = true
             return false
         }
-        val current = surface.capture(scheme)
-        val record =
-            when (existing?.status) {
-                FontOwnershipStatus.SUSPENDED -> {
-                    return false
-                }
-
-                FontOwnershipStatus.OWNED -> {
-                    if (current != existing.applied) {
-                        retainBackup(key, existing, FontOwnershipStatus.SUSPENDED)
-                        return false
-                    }
-                    if (origin == FontApplyOrigin.ONE_SHOT) {
-                        existing.copy(status = FontOwnershipStatus.ONE_SHOT)
-                    } else {
-                        existing
-                    }
-                }
-
-                FontOwnershipStatus.ONE_SHOT -> {
-                    resolveOneShot(existing, current, origin) ?: return false
-                }
-
-                null,
-                FontOwnershipStatus.RELEASED,
-                -> {
-                    if (existing != null && origin == FontApplyOrigin.AUTOMATIC) return false
-                    val status =
-                        if (origin == FontApplyOrigin.ONE_SHOT) {
-                            FontOwnershipStatus.ONE_SHOT
-                        } else {
-                            FontOwnershipStatus.OWNED
-                        }
-                    FontOwnershipRecord(status, current, current)
-                }
-            }
-        return writeOwned(surface, key, target, record)
+        return execute(
+            surface,
+            key,
+            FontOwnershipPolicy.apply(existing, surface.capture(scheme), target, origin),
+        )
     }
-
-    private fun resolveOneShot(
-        existing: FontOwnershipRecord,
-        current: FontSnapshot,
-        origin: FontApplyOrigin,
-    ): FontOwnershipRecord? =
-        when (origin) {
-            FontApplyOrigin.AUTOMATIC -> {
-                null
-            }
-
-            FontApplyOrigin.EXPLICIT -> {
-                FontOwnershipRecord(FontOwnershipStatus.OWNED, current, current)
-            }
-
-            FontApplyOrigin.ONE_SHOT -> {
-                if (current == existing.applied) {
-                    existing
-                } else {
-                    FontOwnershipRecord(FontOwnershipStatus.ONE_SHOT, current, current)
-                }
-            }
-        }
 
     private fun restoreSurface(
         surface: FontSurface,
@@ -181,34 +121,27 @@ internal class FontOwnership(
                     identities.hasUnconfirmedIdentity = true
                     return false
                 }
-        if (record.status == FontOwnershipStatus.RELEASED) return false
-        if (record.status == FontOwnershipStatus.ONE_SHOT && family == null) return false
-        val appliedFamily =
-            (record.applied as? FontSnapshot.Explicit)
-                ?.preferences
-                ?.families
-                ?.firstOrNull()
-                ?.name
-        if (family != null && !family.equals(appliedFamily, ignoreCase = true)) return false
-        val canRestore =
-            record.status == FontOwnershipStatus.OWNED || record.status == FontOwnershipStatus.ONE_SHOT
-        if (!canRestore || surface.capture(scheme) != record.applied) {
-            retainBackup(key, record, FontOwnershipStatus.RELEASED)
-            return false
-        }
-        val changed = writeOwned(surface, key, record.baseline, record)
-        state.fontOwnershipSnapshots.remove(key)
-        return changed
+        return execute(surface, key, FontOwnershipPolicy.restore(record, surface.capture(scheme), family))
     }
 
-    private fun retainBackup(
+    private fun execute(
+        surface: FontSurface,
         key: String,
-        record: FontOwnershipRecord,
-        status: FontOwnershipStatus,
-    ) {
-        state.fontOwnershipSnapshots[key] = FontOwnershipCodec.encode(record.copy(status = status))
-        if (record.status == FontOwnershipStatus.OWNED) identities.hasChangedPreferences = true
-    }
+        transition: FontOwnershipTransition,
+    ): Boolean =
+        when (transition) {
+            FontOwnershipTransition.Unchanged -> false
+            is FontOwnershipTransition.Retain -> {
+                state.fontOwnershipSnapshots[key] = FontOwnershipCodec.encode(transition.record)
+                if (transition.changedPreferences) identities.hasChangedPreferences = true
+                false
+            }
+            is FontOwnershipTransition.Write -> {
+                val changed = writeOwned(surface, key, transition.target, transition.record)
+                if (transition.releaseAfterWrite) state.fontOwnershipSnapshots.remove(key)
+                changed
+            }
+        }
 
     private fun writeOwned(
         surface: FontSurface,

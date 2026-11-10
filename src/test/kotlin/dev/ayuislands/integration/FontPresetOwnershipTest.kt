@@ -1,482 +1,172 @@
 package dev.ayuislands.integration
 
-import com.intellij.notification.Notification
-import com.intellij.notification.Notifications
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.colors.EditorColorsListener
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.FontPreferences
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.colors.impl.EditorColorsSchemeImpl
 import com.intellij.openapi.editor.colors.impl.FontPreferencesImpl
-import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.JDOMUtil
 import com.intellij.testFramework.ApplicationRule
-import com.intellij.util.xmlb.XmlSerializer
-import dev.ayuislands.font.FontDetector
+import dev.ayuislands.font.FontData
 import dev.ayuislands.font.FontPreset
-import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
-import dev.ayuislands.font.FontWeight
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.FontPresetPanel
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
-import org.junit.After
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import javax.swing.SwingUtilities
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
-import kotlin.test.assertNull
-import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
+/** Native userspace contracts retained after removal of the legacy global font writer. */
 class FontPresetOwnershipTest {
-    @get:Rule
-    val applicationRule = ApplicationRule()
+    @get:Rule val applicationRule = ApplicationRule()
 
-    private lateinit var scheme: EditorColorsScheme
-    private lateinit var settings: AyuIslandsSettings
-    private val schemes = mutableListOf<EditorColorsScheme>()
-    private val notifications = mutableListOf<Notification>()
-
-    @Before
-    fun setup() {
-        val parent = EditorColorsManager.getInstance().globalScheme
-        scheme = EditorColorsSchemeImpl(parent).apply { name = "Personal font scheme" }
-        scheme.fontPreferences = preferences("Dialog", 17.5f)
-        scheme.consoleFontPreferences = preferences("Monospaced", 15.5f)
-        settings = AyuIslandsSettings()
-        schemes.clear()
-        schemes.add(scheme)
-        val manager = mockk<EditorColorsManager>()
-        every { manager.globalScheme } answers { scheme }
-        every { manager.allSchemes } answers { schemes.toTypedArray() }
-        mockkStatic(EditorColorsManager::class)
-        every { EditorColorsManager.getInstance() } returns manager
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } answers { settings }
-        mockkObject(FontDetector)
-        every { FontDetector.resolveFamily(any()) } answers { firstArg<FontPreset>().fontFamily }
-        notifications.clear()
-        mockkStatic(Notifications.Bus::class)
-        every { Notifications.Bus.notify(any<Notification>(), isNull<Project>()) } answers {
-            notifications.add(firstArg())
+    @Test fun `disable without ownership preserves personal fonts`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            fixture.disable()
+            sameFonts(original, fixture.scheme)
         }
-    }
 
-    @After
-    fun cleanup() {
-        unmockkAll()
-    }
-
-    @Test
-    fun restoreWithoutSnapshotPreservesPersonalFonts() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun disablingPresetsRestoresExactEditorPreferences() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            assertApplied(FontPreset.AMBIENT)
-            assertPreferencesEqual(original.consoleFontPreferences, scheme.consoleFontPreferences)
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun disablingPresetsPreservesManualEditorChanges() {
-        SwingUtilities.invokeAndWait {
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            scheme.setEditorFontSize(23.5f)
-            val manuallyEdited = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.revert()
-            assertFontsEqual(manuallyEdited, scheme)
-        }
-    }
-
-    @Test
-    fun consoleOptInRestoresBothOriginalBundles() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT).copy(applyToConsole = true))
-            assertApplied(FontPreset.AMBIENT)
-            assertEquals(FontPreset.AMBIENT.fontSize, scheme.consoleFontSize2D)
-            assertEquals(FontPreset.AMBIENT.lineSpacing, scheme.consoleLineSpacing)
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun repeatedApplyKeepsOriginalBaselineAfterSettingsReload() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            reloadSettings()
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER))
-            reloadSettings()
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun automaticReapplyPreservesManualChangesAfterReload() {
-        SwingUtilities.invokeAndWait {
-            settings.state.fontPresetEnabled = true
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            scheme.setEditorFontSize(23.5f)
-            val manuallyEdited = scheme.clone() as EditorColorsScheme
-            reloadSettings()
-            FontPresetApplicator.applyFromState()
-            assertFontsEqual(manuallyEdited, scheme)
-            assertEquals(1, notifications.size)
-            reloadSettings()
-            FontPresetApplicator.revert()
-            assertFontsEqual(manuallyEdited, scheme)
-            assertEquals(1, notifications.size)
-        }
-    }
-
-    @Test
-    fun unavailablePresetDoesNotApplyFallbackAfterReload() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER).copy(applyToConsole = true))
-            val owned = scheme.clone() as EditorColorsScheme
-            settings.state.fontPresetEnabled = true
-            settings.state.fontApplyToConsole = true
-            settings.state.fontPresetName = "FUTURE_PRESET"
-            val customizations = mapOf("FUTURE_PRESET" to "opaque|future|customization")
-            settings.state.fontPresetCustomizations.putAll(customizations)
-            val snapshots = settings.state.fontOwnershipSnapshots.toMap()
-            reloadSettings()
-
-            FontPresetApplicator.applyFromState()
-
-            assertFontsEqual(owned, scheme)
-            assertEquals(snapshots, settings.state.fontOwnershipSnapshots)
-            assertEquals("FUTURE_PRESET", settings.state.fontPresetName)
-            assertEquals(customizations, settings.state.fontPresetCustomizations)
-            settings.state.fontPresetEnabled = false
-            FontPresetApplicator.applyFromState()
-            assertFontsEqual(original, scheme)
-            reloadSettings()
-            settings.state.fontPresetEnabled = true
-            FontPresetApplicator.applyFromState()
-            assertFontsEqual(original, scheme)
-            assertEquals("FUTURE_PRESET", settings.state.fontPresetName)
-            assertEquals(customizations, settings.state.fontPresetCustomizations)
-            assertEquals(emptyMap(), settings.state.fontOwnershipSnapshots)
-
-            settings.state.fontPresetName = "AMBIENT"
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            assertApplied(FontPreset.AMBIENT)
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun legacyAutomaticApplyDoesNotGuessMissingBaseline() {
-        SwingUtilities.invokeAndWait {
-            settings.state.fontPresetEnabled = true
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.applyFromState()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun disablingConsoleRestoresOnlyItsOwnedPreferences() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT).copy(applyToConsole = true))
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER))
-            assertPreferencesEqual(original.consoleFontPreferences, scheme.consoleFontPreferences)
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun manualConsoleChangeSurvivesEditorRestoration() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT).copy(applyToConsole = true))
-            scheme.consoleFontPreferences = preferences("Serif", 21.75f)
-            val manualConsole = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.revert()
-            assertPreferencesEqual(original.fontPreferences, scheme.fontPreferences)
-            assertPreferencesEqual(manualConsole.consoleFontPreferences, scheme.consoleFontPreferences)
-        }
-    }
-
-    @Test
-    fun restoresEditorAndConsoleInheritanceChoices() {
-        SwingUtilities.invokeAndWait {
-            scheme.setUseAppFontPreferencesInEditor()
-            scheme.setUseEditorFontPreferencesInConsole()
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT).copy(applyToConsole = true))
-            assertEquals(true, scheme.isUseEditorFontPreferencesInConsole)
-            reloadSettings()
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun applyingAlreadyDisabledPanelLeavesSchemeUntouched() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            val panel = FontPresetPanel()
-            panel.loadState()
-            panel.apply()
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun globalConsoleChoicePreservesHiddenSchemePreferences() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            val global = preferences("Serif", 22.5f)
-            val globalBaseline = FontPreferencesImpl().also { global.copyTo(it) }
-            var useGlobal = true
-            // SDK 2025.1 exposes global preferences through this getter while the native setter stays local.
-            val native =
-                object : EditorColorsSchemeImpl(scheme) {
-                    override fun getConsoleFontPreferences(): FontPreferences =
-                        if (useGlobal) global else super.getConsoleFontPreferences()
+    @Test fun `managed disable restores exact editor and optional console preferences`() =
+        withFonts { fixture ->
+            for (console in listOf(false, true)) {
+                val original = clone(fixture.scheme)
+                fixture.apply(font(FontPreset.AMBIENT, console))
+                assertEquals(FontPreset.AMBIENT.fontFamily, fixture.scheme.editorFontName)
+                if (!console) {
+                    FontNativeFixture.samePreferences(
+                        original.consoleFontPreferences,
+                        fixture.scheme.consoleFontPreferences,
+                    )
                 }
-            replaceScheme(native)
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT).copy(applyToConsole = true))
-            assertApplied(FontPreset.AMBIENT)
-            useGlobal = false
-            assertPreferencesEqual(original.consoleFontPreferences, scheme.consoleFontPreferences)
-            useGlobal = true
-            FontPresetApplicator.revert()
-            assertPreferencesEqual(globalBaseline, global)
-            useGlobal = false
-            assertFontsEqual(original, scheme)
-        }
-    }
-
-    @Test
-    fun corruptBaselineCannotOverwriteCurrentPreferences() {
-        SwingUtilities.invokeAndWait {
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            val original = scheme.clone() as EditorColorsScheme
-            val key =
-                settings.state.fontOwnershipSnapshots.keys
-                    .single()
-            val raw = settings.state.fontOwnershipSnapshots.getValue(key)
-            val corrupt = raw.replaceFirst("spacing=\"1.45\"", "spacing=\"NaN\"")
-            assertNotEquals(raw, corrupt, "Fixture must corrupt the baseline spacing")
-            settings.state.fontOwnershipSnapshots[key] = corrupt
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-            assertEquals(corrupt, settings.state.fontOwnershipSnapshots[key])
-        }
-    }
-
-    @Test
-    fun familyRestoreLeavesUnrelatedSchemeOwned() {
-        SwingUtilities.invokeAndWait {
-            val first = scheme
-            val original = first.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            scheme =
-                EditorColorsSchemeImpl(first).apply {
-                    name = "Second font scheme"
-                    fontPreferences = preferences("Serif", 21f)
-                    consoleFontPreferences = preferences("Dialog", 16f)
-                }
-            schemes.add(scheme)
-            val secondBaseline = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER))
-            assertApplied(FontPreset.WHISPER)
-            val secondApplied = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.revert(FontPreset.AMBIENT.fontFamily)
-            assertFontsEqual(original, first)
-            assertFontsEqual(secondApplied, scheme)
-            FontPresetApplicator.revert()
-            assertFontsEqual(secondBaseline, scheme)
-        }
-    }
-
-    @Test
-    fun repeatedApplyDoesNotPublishAnotherSchemeChange() {
-        SwingUtilities.invokeAndWait {
-            val lifetime = Disposer.newDisposable()
-            var changes = 0
-            try {
-                ApplicationManager.getApplication().messageBus.connect(lifetime).subscribe(
-                    EditorColorsManager.TOPIC,
-                    EditorColorsListener { changes++ },
-                )
-                FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-                assertEquals(1, changes)
-                FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-                assertEquals(1, changes)
-            } finally {
-                Disposer.dispose(lifetime)
+                fixture.disable()
+                sameFonts(original, fixture.scheme)
             }
         }
-    }
 
-    @Test
-    fun failedWriteRetainsBaselineForDisableAfterReload() {
-        SwingUtilities.invokeAndWait {
-            val failure = IllegalStateException("Font cache update failed")
-            var failWrites = false
-            val native =
-                object : EditorColorsSchemeImpl(scheme) {
-                    override fun setFontPreferences(preferences: FontPreferences) {
-                        super.setFontPreferences(preferences)
-                        if (failWrites) throw failure
-                    }
+    @Test fun `manual editor changes survive managed disable and release ownership`() =
+        withFonts { fixture ->
+            fixture.apply(font())
+            fixture.scheme.setEditorFontSize(23.5f)
+            val edited = clone(fixture.scheme)
+            fixture.disable()
+            sameFonts(edited, fixture.scheme)
+        }
+
+    @Test fun `repeated apply and raw settings reload retain the original baseline`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            fixture.apply(font())
+            fixture.reload()
+            fixture.apply(font(FontPreset.WHISPER))
+            fixture.reload()
+            fixture.disable()
+            sameFonts(original, fixture.scheme)
+        }
+
+    @Test fun `foreign edit needs fresh review before another apply and remains untouched`() =
+        withFonts { fixture ->
+            fixture.apply(font())
+            fixture.scheme.setEditorFontSize(23.5f)
+            val edited = clone(fixture.scheme)
+            val records = fixture.state.fontOwnershipSnapshots.toMap()
+            fixture.reload()
+            assertFailsWith<IllegalStateException> { fixture.apply(font(FontPreset.WHISPER)) }
+            sameFonts(edited, fixture.scheme)
+            assertEquals(records, fixture.state.fontOwnershipSnapshots)
+            fixture.disable()
+            sameFonts(edited, fixture.scheme)
+        }
+
+    @Test fun `unknown preset is unavailable while disabled cleanup still restores known ownership`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            fixture.apply(font(FontPreset.WHISPER, true))
+            val applied = clone(fixture.scheme)
+            val unknown =
+                fixture.copyState().apply {
+                    fontPresetEnabled = true
+                    fontPresetName = "FUTURE_PRESET"
+                    fontPresetCustomizations["FUTURE_PRESET"] = "opaque|future|customization"
                 }
-            replaceScheme(native)
-            val original = native.clone() as EditorColorsScheme
-            failWrites = true
-            assertSame(
-                failure,
-                assertFailsWith<IllegalStateException> {
-                    FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-                },
-            )
-            failWrites = false
-            reloadSettings()
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
+            val raw = unknown.fontPresetCustomizations.toMap()
+            assertFailsWith<IllegalStateException> { fixture.accept(unknown) }
+            sameFonts(applied, fixture.scheme)
+            assertEquals(raw, unknown.fontPresetCustomizations)
+            unknown.fontPresetEnabled = false
+            fixture.accept(unknown)
+            sameFonts(original, fixture.scheme)
+            assertEquals(raw, unknown.fontPresetCustomizations)
         }
-    }
 
-    @Test
-    fun disableReenableCapturesNewManualBaselineWithoutChangingPresets() {
-        SwingUtilities.invokeAndWait {
-            val presets = mapOf("FUTURE" to "unknown|opaque|data", "WHISPER" to "16|1.15|false|FUTURE_WEIGHT")
-            settings.state.fontPresetCustomizations.putAll(presets)
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            scheme.setEditorFontSize(23.5f)
-            FontPresetApplicator.revert()
-            val manualBaseline = scheme.clone() as EditorColorsScheme
-            reloadSettings()
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER))
-            assertApplied(FontPreset.WHISPER)
-            reloadSettings()
-            FontPresetApplicator.revert()
-            assertFontsEqual(manualBaseline, scheme)
-            assertEquals(presets, settings.state.fontPresetCustomizations)
+    @Test fun `disabling console restores only console while a new editor preset remains owned`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            fixture.apply(font(console = true))
+            fixture.apply(font(FontPreset.WHISPER))
+            FontNativeFixture.samePreferences(original.consoleFontPreferences, fixture.scheme.consoleFontPreferences)
+            assertEquals(FontPreset.WHISPER.fontFamily, fixture.scheme.editorFontName)
+            fixture.disable()
+            sameFonts(original, fixture.scheme)
         }
-    }
 
-    @Test
-    fun unavailableActiveSchemeIsNotModified() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            schemes.clear()
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            assertFontsEqual(original, scheme)
-            assertEquals(emptyMap(), settings.state.fontOwnershipSnapshots)
+    @Test fun `manual console edits survive editor restoration`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            fixture.apply(font(console = true))
+            fixture.scheme.consoleFontPreferences = FontNativeFixture.preferences("Serif", 21.75f)
+            val manual = FontData.captureExact(fixture.scheme.consoleFontPreferences)
+            fixture.disable()
+            FontNativeFixture.samePreferences(original.fontPreferences, fixture.scheme.fontPreferences)
+            assertEquals(manual, FontData.captureExact(fixture.scheme.consoleFontPreferences))
         }
-    }
 
-    @Test
-    fun nativeReloadPreservesFontsAndRecoverySnapshot() {
-        SwingUtilities.invokeAndWait {
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT).copy(applyToConsole = true))
-            val backup = recoveryBaselines()
-            val native = scheme as AbstractColorsScheme
-            val xml = JDOMUtil.writeElement(native.writeScheme())
-            val reloaded = EditorColorsSchemeImpl(native.parentScheme)
-            reloaded.readExternal(JDOMUtil.load(xml))
-            schemes[schemes.indexOf(scheme)] = reloaded
-            scheme = reloaded
-            reloadSettings()
-            val afterReload = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.revert()
-            assertFontsEqual(afterReload, scheme)
-            assertEquals(backup, recoveryBaselines())
-            assertEquals(1, notifications.size)
-            val released = settings.state.fontOwnershipSnapshots.toMap()
-            reloadSettings()
-            settings.state.fontPresetEnabled = true
-            settings.state.fontPresetName = FontPreset.WHISPER.name
-            FontPresetApplicator.applyFromState()
-            FontPresetApplicator.revert()
-            assertFontsEqual(afterReload, scheme)
-            assertEquals(backup, recoveryBaselines())
-            assertEquals(released, settings.state.fontOwnershipSnapshots)
-            assertEquals(1, notifications.size)
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER))
-            assertApplied(FontPreset.WHISPER)
-            FontPresetApplicator.revert()
-            assertFontsEqual(afterReload, scheme)
+    @Test fun `editor and console inheritance survive apply reload and disable`() =
+        withFonts { fixture ->
+            fixture.scheme.setUseAppFontPreferencesInEditor()
+            fixture.scheme.setUseEditorFontPreferencesInConsole()
+            val original = clone(fixture.scheme)
+            fixture.apply(font(console = true))
+            assertTrue(fixture.scheme.isUseEditorFontPreferencesInConsole)
+            fixture.reload()
+            fixture.disable()
+            sameFonts(original, fixture.scheme)
         }
-    }
 
-    @Test
-    fun disabledStartupRestoresSchemeThatWasUnavailableAtDisable() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            schemes.clear()
-            FontPresetApplicator.revert()
-            assertApplied(FontPreset.AMBIENT)
-            reloadSettings()
-            schemes.add(scheme)
-            FontPresetApplicator.applyFromState()
-            assertFontsEqual(original, scheme)
+    @Test fun `global console preferences and hidden local preferences are never overwritten`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            val global = FontNativeFixture.preferences("Serif", 22.5f)
+            val before = FontData.captureExact(global)
+            var globalVisible = true
+            val native =
+                object : EditorColorsSchemeImpl(fixture.scheme) {
+                    override fun getConsoleFontPreferences(): FontPreferences =
+                        if (globalVisible) global else super.getConsoleFontPreferences()
+                }
+            (fixture.scheme as AbstractColorsScheme).copyTo(native)
+            fixture.replace(native)
+            fixture.apply(font(console = true))
+            globalVisible = false
+            FontNativeFixture.samePreferences(original.consoleFontPreferences, native.consoleFontPreferences)
+            globalVisible = true
+            fixture.disable()
+            assertEquals(before, FontData.captureExact(global))
+            globalVisible = false
+            sameFonts(original, native)
         }
-    }
 
-    @Test
-    fun manualConsoleInheritanceReleasesOldOwnership() {
-        SwingUtilities.invokeAndWait {
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT).copy(applyToConsole = true))
-            val applied = FontPreferencesImpl().also { scheme.consoleFontPreferences.copyTo(it) }
-            val backup = recoveryBaselines().filterKeys { it.startsWith("v2:CONSOLE:") }
-            scheme.setUseEditorFontPreferencesInConsole()
-            FontPresetApplicator.revert()
-            assertEquals(backup, recoveryBaselines())
-            reloadSettings()
-            scheme.consoleFontPreferences = applied
-            FontPresetApplicator.revert(FontPreset.AMBIENT.fontFamily)
-            FontPresetApplicator.revert()
-            assertPreferencesEqual(applied, scheme.consoleFontPreferences)
-        }
-    }
-
-    @Test
-    fun unrecognizedSnapshotsPreserveFontsAndRawData() {
-        SwingUtilities.invokeAndWait {
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            val applied = scheme.clone() as EditorColorsScheme
+    @Test fun `corrupt and future ownership records retain exact raw bytes and native preferences`() =
+        withFonts { fixture ->
+            fixture.apply(font())
+            val applied = clone(fixture.scheme)
             val key =
-                settings.state.fontOwnershipSnapshots.keys
+                fixture.state.fontOwnershipSnapshots.keys
                     .single()
-            val raw = settings.state.fontOwnershipSnapshots.getValue(key)
-            val unrecognized =
+            val raw = fixture.state.fontOwnershipSnapshots.getValue(key)
+            val unknown =
                 listOf(
                     raw.replaceFirst("<font-ownership ", "<font-ownership xmlns:x=\"urn:future\" x:status=\"future\" "),
                     raw.replaceFirst("<font-ownership ", "<font-ownership xmlns=\"urn:future\" "),
@@ -485,108 +175,191 @@ class FontPresetOwnershipTest {
                     raw.replaceFirst("status=\"OWNED\"", "status=\"FUTURE\""),
                     raw.replaceFirst("mode=\"explicit\"", "mode=\"future\""),
                     raw.replaceFirst("ligatures=\"true\"", "ligatures=\"future\""),
+                    raw.replaceFirst("spacing=\"1.45\"", "spacing=\"NaN\""),
                     raw.replaceFirst("spacing=\"1.45\"", "spacing=\"Infinity\""),
                     raw.replaceFirst("<baseline ", "opaque text<baseline "),
                     "<broken",
                 )
-            for (snapshot in unrecognized) {
-                assertNotEquals(raw, snapshot)
-                settings.state.fontOwnershipSnapshots[key] = snapshot
-                FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.WHISPER))
-                FontPresetApplicator.revert()
-                assertFontsEqual(applied, scheme)
-                assertEquals(snapshot, settings.state.fontOwnershipSnapshots[key])
+            for (record in unknown) {
+                assertNotEquals(raw, record)
+                fixture.state.fontOwnershipSnapshots[key] = record
+                assertFailsWith<IllegalStateException> { fixture.apply(font(FontPreset.WHISPER)) }
+                fixture.disable()
+                sameFonts(applied, fixture.scheme)
+                assertEquals(record, fixture.state.fontOwnershipSnapshots[key])
             }
         }
-    }
 
-    @Test
-    fun futureOwnershipVersionPreservesAllPreferences() {
-        SwingUtilities.invokeAndWait {
-            val original = scheme.clone() as EditorColorsScheme
-            val snapshots = mapOf("FUTURE:scheme" to "opaque snapshot")
-            settings.state.fontOwnershipVersion = 99
-            settings.state.fontOwnershipSnapshots.putAll(snapshots)
-            settings.state.fontPresetEnabled = true
-            FontPresetApplicator.apply(FontSettings.fromPreset(FontPreset.AMBIENT))
-            FontPresetApplicator.applyFromState()
-            FontPresetApplicator.revert()
-            assertFontsEqual(original, scheme)
-            assertEquals(99, settings.state.fontOwnershipVersion)
-            assertEquals(snapshots, settings.state.fontOwnershipSnapshots)
+    @Test fun `managed disable restores every available owned scheme independently`() =
+        withFonts { fixture ->
+            val first = fixture.scheme
+            val firstBefore = clone(first)
+            fixture.apply(font())
+            val second =
+                EditorColorsSchemeImpl(first).apply {
+                    name = "Second font scheme"
+                    fontPreferences = FontNativeFixture.preferences("Serif", 21f)
+                    consoleFontPreferences = FontNativeFixture.preferences("Dialog", 16f)
+                }
+            fixture.schemes.add(second)
+            fixture.scheme = second
+            val secondBefore = clone(second)
+            fixture.apply(font(FontPreset.WHISPER))
+            fixture.disable()
+            sameFonts(firstBefore, first)
+            sameFonts(secondBefore, second)
         }
-    }
 
-    private fun recoveryBaselines(): Map<String, String> =
-        settings.state.fontOwnershipSnapshots.mapValues { (_, raw) ->
+    @Test fun `repeated accepted settings do not rewrite native preferences`() =
+        withFonts { fixture ->
+            var writes = 0
+            val native =
+                object : EditorColorsSchemeImpl(fixture.scheme) {
+                    override fun setFontPreferences(preferences: FontPreferences) {
+                        writes++
+                        super.setFontPreferences(preferences)
+                    }
+                }
+            (fixture.scheme as AbstractColorsScheme).copyTo(native)
+            fixture.replace(native)
+            fixture.apply(font())
+            val acceptedWrites = writes
+            fixture.apply(font())
+            assertEquals(acceptedWrites, writes)
+        }
+
+    @Test fun `mutation then throw retains attempt receipts for exact rollback without accepting ownership`() =
+        withFonts { fixture ->
+            val failure = IllegalStateException("Font cache update failed")
+            var failWrites = false
+            val native =
+                object : EditorColorsSchemeImpl(fixture.scheme) {
+                    override fun setFontPreferences(preferences: FontPreferences) {
+                        super.setFontPreferences(preferences)
+                        if (failWrites) throw failure
+                    }
+                }
+            (fixture.scheme as AbstractColorsScheme).copyTo(native)
+            native.name = fixture.scheme.name
+            fixture.replace(native)
+            val original = clone(native)
+            failWrites = true
+            val thrown = assertFailsWith<IllegalStateException> { fixture.apply(font()) }
+            assertEquals(failure.message, thrown.message)
+            assertTrue(generateSequence<Throwable>(thrown) { it.cause }.any { it === failure })
+            assertTrue(fixture.state.fontOwnershipSnapshots.isEmpty())
+            failWrites = false
+            fixture.restoreAttempt()
+            sameFonts(original, native)
+            fixture.reload()
+            fixture.disable()
+            sameFonts(original, native)
+        }
+
+    @Test fun `disable reenable captures a new manual baseline without rewriting dormant customizations`() =
+        withFonts { fixture ->
+            val presets = linkedMapOf("FUTURE" to "unknown|opaque|data", "WHISPER" to "16|1.15|false|FUTURE_WEIGHT")
+            fixture.state.fontPresetCustomizations.putAll(presets)
+            fixture.apply(font())
+            fixture.scheme.setEditorFontSize(23.5f)
+            fixture.disable()
+            val manual = clone(fixture.scheme)
+            fixture.reload()
+            fixture.apply(font(FontPreset.WHISPER))
+            fixture.reload()
+            fixture.disable()
+            sameFonts(manual, fixture.scheme)
+            assertEquals(presets, fixture.state.fontPresetCustomizations)
+        }
+
+    @Test fun `missing active scheme cannot acquire native ownership`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            fixture.schemes.clear()
+            assertFailsWith<IllegalStateException> { fixture.apply(font()) }
+            sameFonts(original, fixture.scheme)
+            assertTrue(fixture.state.fontOwnershipSnapshots.isEmpty())
+        }
+
+    @Test fun `native reload preserves exact visible fonts and released recovery baselines`() =
+        withFonts { fixture ->
+            fixture.apply(font(console = true))
+            val baselines = baselines(fixture)
+            val native = fixture.scheme as AbstractColorsScheme
+            val reloaded = EditorColorsSchemeImpl(native.parentScheme)
+            reloaded.readExternal(JDOMUtil.load(JDOMUtil.writeElement(native.writeScheme())))
+            fixture.replace(reloaded)
+            fixture.reload()
+            val visible = clone(reloaded)
+            fixture.disable()
+            sameFonts(visible, reloaded)
+            assertEquals(baselines, baselines(fixture))
+            fixture.reload()
+            fixture.apply(font(FontPreset.WHISPER))
+            fixture.disable()
+            sameFonts(visible, reloaded)
+        }
+
+    @Test fun `a scheme unavailable at disable is restored when it returns`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            fixture.apply(font())
+            fixture.schemes.clear()
+            fixture.disable()
+            assertEquals(FontPreset.AMBIENT.fontFamily, fixture.scheme.editorFontName)
+            fixture.reload()
+            fixture.schemes.add(fixture.scheme)
+            fixture.disable()
+            sameFonts(original, fixture.scheme)
+        }
+
+    @Test fun `manual console inheritance releases old ownership and later explicit preferences survive`() =
+        withFonts { fixture ->
+            fixture.apply(font(console = true))
+            val applied = FontPreferencesImpl().also { fixture.scheme.consoleFontPreferences.copyTo(it) }
+            fixture.scheme.setUseEditorFontPreferencesInConsole()
+            fixture.disable()
+            fixture.reload()
+            fixture.scheme.consoleFontPreferences = applied
+            fixture.disable()
+            FontNativeFixture.samePreferences(applied, fixture.scheme.consoleFontPreferences)
+        }
+
+    @Test fun `future ownership schema preserves all preferences and opaque records`() =
+        withFonts { fixture ->
+            val original = clone(fixture.scheme)
+            val raw = linkedMapOf("FUTURE:scheme" to "opaque snapshot")
+            fixture.state.fontOwnershipVersion = 99
+            fixture.state.fontOwnershipSnapshots.putAll(raw)
+            assertFailsWith<IllegalStateException> { fixture.apply(font()) }
+            fixture.disable()
+            sameFonts(original, fixture.scheme)
+            assertEquals(99, fixture.state.fontOwnershipVersion)
+            assertEquals(raw, fixture.state.fontOwnershipSnapshots)
+        }
+
+    private fun baselines(fixture: FontNativeFixture): Map<String, String> =
+        fixture.state.fontOwnershipSnapshots.mapValues { (_, raw) ->
             JDOMUtil.writeElement(requireNotNull(JDOMUtil.load(raw).getChild("baseline")))
         }
 
-    private fun assertApplied(preset: FontPreset) {
-        assertEquals(preset.fontFamily, scheme.fontPreferences.realFontFamilies.first())
-        assertEquals(preset.fontSize, scheme.editorFontSize2D)
-        assertEquals(preset.lineSpacing, scheme.lineSpacing)
-        assertEquals(preset.enableLigatures, scheme.isUseLigatures)
-        if (preset.defaultWeight == FontWeight.REGULAR) {
-            assertNull(scheme.fontPreferences.regularSubFamily)
-        } else {
-            assertEquals(preset.defaultWeight.subFamily, scheme.fontPreferences.regularSubFamily)
-        }
-        assertFalse(scheme.isUseAppFontPreferencesInEditor)
-    }
+    private fun font(
+        preset: FontPreset = FontPreset.AMBIENT,
+        console: Boolean = false,
+    ) = FontSettings.fromPreset(preset).copy(applyToConsole = console)
 
-    private fun replaceScheme(replacement: EditorColorsSchemeImpl) {
-        (scheme as AbstractColorsScheme).copyTo(replacement)
-        replacement.name = scheme.name
-        schemes[schemes.indexOf(scheme)] = replacement
-        scheme = replacement
-    }
+    private fun clone(scheme: EditorColorsScheme): EditorColorsScheme = scheme.clone() as EditorColorsScheme
 
-    private fun reloadSettings() {
-        val xml = JDOMUtil.writeElement(XmlSerializer.serialize(settings.state))
-        settings =
-            AyuIslandsSettings().apply {
-                loadState(XmlSerializer.deserialize(JDOMUtil.load(xml), AyuIslandsState::class.java))
-            }
-    }
-
-    private fun preferences(
-        family: String,
-        size: Float,
-    ): FontPreferencesImpl =
-        FontPreferencesImpl().apply {
-            register(family, size)
-            addFontFamily("Unavailable Personal Font")
-            setFontSize("Unavailable Personal Font", 19.25f)
-            regularSubFamily = "Medium"
-            boldSubFamily = "ExtraBold"
-            setUseLigatures(true)
-            lineSpacing = 1.45f
-        }
-
-    private fun assertFontsEqual(
+    private fun sameFonts(
         expected: EditorColorsScheme,
         actual: EditorColorsScheme,
     ) {
         assertEquals(expected.isUseAppFontPreferencesInEditor, actual.isUseAppFontPreferencesInEditor)
         assertEquals(expected.isUseEditorFontPreferencesInConsole, actual.isUseEditorFontPreferencesInConsole)
-        assertPreferencesEqual(expected.fontPreferences, actual.fontPreferences)
-        assertPreferencesEqual(expected.consoleFontPreferences, actual.consoleFontPreferences)
+        FontNativeFixture.samePreferences(expected.fontPreferences, actual.fontPreferences)
+        FontNativeFixture.samePreferences(expected.consoleFontPreferences, actual.consoleFontPreferences)
     }
 
-    private fun assertPreferencesEqual(
-        expected: FontPreferences,
-        actual: FontPreferences,
-    ) {
-        assertEquals(expected.realFontFamilies, actual.realFontFamilies)
-        assertEquals(expected.effectiveFontFamilies, actual.effectiveFontFamilies)
-        for (family in expected.realFontFamilies) {
-            assertEquals(expected.hasSize(family), actual.hasSize(family))
-            assertEquals(expected.getSize2D(family), actual.getSize2D(family))
-        }
-        assertEquals(expected.regularSubFamily, actual.regularSubFamily)
-        assertEquals(expected.boldSubFamily, actual.boldSubFamily)
-        assertEquals(expected.lineSpacing, actual.lineSpacing)
-        assertEquals(expected.useLigatures(), actual.useLigatures())
-    }
+    private fun withFonts(test: (FontNativeFixture) -> Unit) =
+        SwingUtilities.invokeAndWait { test(FontNativeFixture()) }
 }

@@ -1,5 +1,17 @@
 package dev.ayuislands.font
 
+/** Declaration order is the persisted customization order; unknown later slots remain opaque. */
+internal enum class FontSettingSlot {
+    SIZE,
+    SPACING,
+    LIGATURES,
+    WEIGHT,
+    FAMILY,
+    ;
+
+    val index: Int get() = ordinal
+}
+
 /** Resolved font settings ready for application. */
 data class FontSettings(
     val preset: FontPreset,
@@ -18,12 +30,6 @@ data class FontSettings(
     }
 
     companion object {
-        private const val IDX_SIZE = 0
-        private const val IDX_SPACING = 1
-        private const val IDX_LIGATURES = 2
-        private const val IDX_WEIGHT = 3
-        private const val IDX_FONT_FAMILY = 4
-
         /** Decode per-preset custom settings, falling back to preset defaults. */
         fun decode(
             encoded: String?,
@@ -34,12 +40,16 @@ data class FontSettings(
             return FontSettings(
                 preset = preset,
                 fontFamily =
-                    parts.getOrNull(IDX_FONT_FAMILY)?.takeIf { it.isNotBlank() }
+                    parts.getOrNull(FontSettingSlot.FAMILY.index)?.takeIf { it.isNotBlank() }
                         ?: preset.fontFamily,
-                fontSize = parts.getOrNull(IDX_SIZE)?.toFloatOrNull() ?: preset.fontSize,
-                lineSpacing = parts.getOrNull(IDX_SPACING)?.toFloatOrNull() ?: preset.lineSpacing,
-                enableLigatures = parts.getOrNull(IDX_LIGATURES)?.toBooleanStrictOrNull() ?: preset.enableLigatures,
-                weight = parts.getOrNull(IDX_WEIGHT)?.let { FontWeight.fromName(it) } ?: preset.defaultWeight,
+                fontSize = parts.getOrNull(FontSettingSlot.SIZE.index)?.toFloatOrNull() ?: preset.fontSize,
+                lineSpacing = parts.getOrNull(FontSettingSlot.SPACING.index)?.toFloatOrNull() ?: preset.lineSpacing,
+                enableLigatures =
+                    parts.getOrNull(FontSettingSlot.LIGATURES.index)?.toBooleanStrictOrNull()
+                        ?: preset.enableLigatures,
+                weight =
+                    parts.getOrNull(FontSettingSlot.WEIGHT.index)?.let { FontWeight.fromName(it) }
+                        ?: preset.defaultWeight,
                 applyToConsole = false,
             )
         }

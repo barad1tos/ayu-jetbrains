@@ -364,7 +364,7 @@ class CrossWindowBridgeTest {
     }
 
     @Test
-    fun `failure isolates connector and contains cleanup errors`() {
+    fun `failed cleanup retains the original window and blocks another native peer`() {
         val failures = mutableListOf<RouteConnectorId>()
         val firstWindow = mockk<JWindow>(relaxed = true)
         val secondWindow = mockk<JWindow>(relaxed = true)
@@ -411,9 +411,86 @@ class CrossWindowBridgeTest {
         )
 
         assertEquals(listOf(failedConnector.id), failures)
-        assertTrue(bridge.isVisible)
-        verify(exactly = 1) { firstWindow.dispose() }
-        verify { secondWindow.isVisible = true }
+        assertTrue(bridge.hasPendingCleanup)
+        assertFalse(bridge.isVisible)
+        assertEquals(listOf(secondWindow), windows.toList())
+        verify(exactly = 0) { secondWindow.isVisible = true }
+
+        justRun { firstWindow.isVisible = false }
+        justRun { firstWindow.dispose() }
+        bridge.dispose()
+        assertFalse(bridge.hasPendingCleanup)
+        verify(exactly = 2) { firstWindow.dispose() }
+        bridge.dispose()
+        verify(exactly = 2) { firstWindow.dispose() }
+    }
+
+    @Test
+    fun `dispose retries the same window after a native failure`() {
+        val nativeWindow = mockk<JWindow>(relaxed = true)
+        var attempts = 0
+        var canDispose = false
+        every { nativeWindow.dispose() } answers {
+            attempts++
+            check(canDispose) { "Native window disposal failed" }
+        }
+        val bridge = bridge(onFailure = {}, createWindow = { nativeWindow })
+        val connector = connector()
+        val slice = bridgeSlice(connector)
+        bridge.show(owner(), connector, bridgeFrame(slice), slice, bridgeStyle())
+
+        bridge.dispose()
+
+        assertTrue(bridge.hasPendingCleanup)
+        val failedAttempts = attempts
+        canDispose = true
+        bridge.dispose()
+        assertEquals(failedAttempts + 1, attempts)
+        assertFalse(bridge.hasPendingCleanup)
+        bridge.dispose()
+        assertEquals(failedAttempts + 1, attempts)
+    }
+
+    @Test
+    fun `disposal during show cannot mark the retired bridge visible`() {
+        val nativeWindow = mockk<JWindow>(relaxed = true)
+        val bridge = bridge(onFailure = {}, createWindow = { nativeWindow })
+        every { nativeWindow.isVisible = true } answers { bridge.dispose() }
+        val connector = connector()
+        val slice = bridgeSlice(connector)
+
+        bridge.show(owner(), connector, bridgeFrame(slice), slice, bridgeStyle())
+
+        assertFalse(bridge.isVisible)
+        assertFalse(bridge.hasPendingCleanup)
+    }
+
+    @Test
+    fun `late layer failure leaves the replacement native window intact`() {
+        val firstWindow = mockk<JWindow>(relaxed = true)
+        val secondWindow = mockk<JWindow>(relaxed = true)
+        val windows = ArrayDeque(listOf(firstWindow, secondWindow))
+        val oldLayer = slot<Container>()
+        justRun { firstWindow.contentPane = capture(oldLayer) }
+        val failures = mutableListOf<RouteConnectorId>()
+        val bridge = bridge(onFailure = { failures += it }, createWindow = { windows.removeFirst() })
+        val connector = connector()
+        val slice = bridgeSlice(connector)
+        bridge.show(owner(), connector, bridgeFrame(slice), slice, bridgeStyle())
+        bridge.show(owner(), connector, bridgeFrame(slice), slice, bridgeStyle())
+        val layer = oldLayer.captured
+        val fail = layer.javaClass.getDeclaredMethod("reportFailure", RuntimeException::class.java)
+        fail.isAccessible = true
+        try {
+            fail.invoke(layer, IllegalStateException("Retired native layer failed"))
+
+            assertTrue(bridge.isVisible)
+            assertFalse(bridge.hasPendingCleanup)
+            assertTrue(failures.isEmpty())
+            verify(exactly = 0) { secondWindow.dispose() }
+        } finally {
+            bridge.dispose()
+        }
     }
 
     private fun bridge(

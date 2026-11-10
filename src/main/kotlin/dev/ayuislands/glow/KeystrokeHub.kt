@@ -21,7 +21,7 @@ class KeystrokeHub internal constructor(
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) : Disposable {
     private val log = logger<KeystrokeHub>()
-    private var initialized = false
+    private val subscription = GlowSubscription()
     private var isLicenseAllowed: Boolean? = null
     private var licenseCheckedAtMs = Long.MIN_VALUE
     private var routeFailureLogged = false
@@ -49,23 +49,21 @@ class KeystrokeHub internal constructor(
         }
 
     fun initialize() {
-        if (initialized) return
-        val application = ApplicationManager.getApplication()
-        val connection = application.messageBus.connect(this)
-        connection.subscribe(
-            PowerSaveMode.TOPIC,
-            PowerSaveMode.Listener {
-                GlowOverlayManager.broadcastPowerSave(PowerSaveMode.isEnabled())
-            },
-        )
-        connection.subscribe(AnActionListener.TOPIC, actionListener)
-        initialized = true
+        subscription.register(ApplicationManager.getApplication().messageBus, this) { connection ->
+            connection.subscribe(
+                PowerSaveMode.TOPIC,
+                PowerSaveMode.Listener {
+                    GlowOverlayManager.broadcastPowerSave(PowerSaveMode.isEnabled())
+                },
+            )
+            connection.subscribe(AnActionListener.TOPIC, actionListener)
+        }
     }
 
     private fun route(project: Project?) {
         if (project == null) return
         if (!licenseAllowsInput()) return
-        if (!AyuIslandsSettings.getInstance().state.glowEnabled) return
+        if (AyuIslandsSettings.getInstance().state?.glowEnabled != true) return
         GlowOverlayManager.getInstance(project).input.onKeystroke()
     }
 

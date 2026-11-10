@@ -5,13 +5,18 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.SdkTypeId
 import com.intellij.openapi.roots.ProjectRootManager
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.studio.StudioFixtures
+import dev.ayuislands.studio.StudioService
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import io.mockk.verify
+import kotlinx.coroutines.Job
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -26,14 +31,21 @@ import kotlin.test.assertNull
  * codebase.
  */
 class ProjectLanguageCacheInvalidatorTest {
+    private val studio = mockk<StudioService>(relaxed = true)
+
     @BeforeTest
     fun setUp() {
+        mockkObject(StudioService.Companion)
+        every { StudioService.getInstance() } returns studio
+        every { studio.projectClosed() } returns Job().apply { complete() }
         mockkStatic(ProjectRootManager::class)
         mockkStatic(ModuleManager::class)
         mockkObject(ProjectLanguageScanner)
         every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
         val mappingsSettings = mockk<AccentMappingsSettings>()
-        every { mappingsSettings.state } returns AccentMappingsState()
+        every { mappingsSettings.state } answers {
+            StudioFixtures.legacyView(AyuIslandsState(), mappings = AccentMappingsState()).mappings
+        }
         mockkObject(AccentMappingsSettings.Companion)
         every { AccentMappingsSettings.getInstance() } returns mappingsSettings
         ProjectLanguageDetector.clear()
@@ -43,6 +55,30 @@ class ProjectLanguageCacheInvalidatorTest {
     fun tearDown() {
         unmockkAll()
         ProjectLanguageDetector.clear()
+    }
+
+    @Test
+    fun `projectClosing captures the outgoing context synchronously before disposal`() {
+        val project = stubProject("/tmp/closing-context")
+
+        ProjectLanguageCacheInvalidator().projectClosing(project)
+
+        verify(exactly = 1) { studio.projectClosing(project) }
+        verify(exactly = 0) { studio.projectClosed() }
+    }
+
+    @Test
+    fun `projectClosed refreshes shared native ownership after removing the project cache`() {
+        val project = stubProject("/tmp/closed-context")
+        mockkObject(ProjectLanguageDetector)
+        every { ProjectLanguageDetector.invalidate(project) } returns Unit
+
+        ProjectLanguageCacheInvalidator().projectClosed(project)
+
+        io.mockk.verifyOrder {
+            ProjectLanguageDetector.invalidate(project)
+            studio.projectClosed()
+        }
     }
 
     @Test

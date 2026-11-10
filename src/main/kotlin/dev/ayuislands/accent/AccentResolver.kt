@@ -3,7 +3,6 @@ package dev.ayuislands.accent
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
 import java.awt.Color
 import java.io.File
@@ -81,12 +80,12 @@ object AccentResolver {
     fun resolve(
         project: Project?,
         variant: AyuVariant,
-    ): String = resolveAyu(project, variant).hex
+    ): String? = resolveAyu(project, variant)?.hex
 
     fun resolve(
         project: Project?,
         context: AccentContext,
-    ): String = resolveContext(project, context).hex
+    ): String? = resolveContext(project, context)?.hex
 
     /**
      * Returns which layer of the resolution chain produced the accent for [project].
@@ -105,7 +104,7 @@ object AccentResolver {
     fun source(
         project: Project?,
         context: AccentContext,
-    ): Source = resolveContext(project, context).source
+    ): Source? = resolveContext(project, context)?.source
 
     /**
      * Returns the full resolution decision trace for [project] in the given
@@ -124,12 +123,12 @@ object AccentResolver {
     fun resolveChain(
         project: Project?,
         variant: AyuVariant,
-    ): AccentResolutionChain = AccentResolutionChainBuilder.resolveAyu(project, variant)
+    ): AccentResolutionChain? = AccentResolutionChainBuilder.resolveAyu(project, variant)
 
     fun resolveChain(
         project: Project?,
         context: AccentContext,
-    ): AccentResolutionChain =
+    ): AccentResolutionChain? =
         when (context) {
             is AccentContext.Ayu -> AccentResolutionChainBuilder.resolveAyu(project, context.ayuVariant)
             AccentContext.External -> AccentResolutionChainBuilder.resolveExternal(project)
@@ -163,19 +162,36 @@ object AccentResolver {
 
     // UI-color-dependent helpers stay in this object for uiColorProviderOverride access.
 
-    private fun resolveExternal(project: Project?): ResolvedAccent {
-        val state = AyuIslandsSettings.getInstance().state
-        if (ExternalAccentSource.fromName(state.externalThemeAccentSource) == ExternalAccentSource.MANUAL) {
-            return storedExternalAccent(state)
-        }
+    private fun resolveExternal(project: Project?): ResolvedAccent? {
+        val state = AyuIslandsSettings.getInstance().state ?: return null
+        return resolve(
+            project,
+            AccentResolutionRequest.liveResolve(AccentHexPolicy.STRICT),
+            AccentFallback.External(
+                ExternalAccentSource.fromName(state.externalThemeAccentSource),
+                state.externalThemeAccent,
+            ),
+        )
+    }
 
-        AccentResolutionChainBuilder
-            .overrideWinner(project, AccentResolutionRequest.liveResolve(AccentHexPolicy.STRICT))
-            ?.let { return it }
-        uiColorAccent(MATERIAL_ACCENT_KEY, Source.MATERIAL_THEME)?.let { return it }
-        uiColorAccent(COMPONENT_ACCENT_KEY, Source.IDE_ACCENT)?.let { return it }
-        uiColorAccent(ACTIONS_BLUE_KEY, Source.IDE_ACCENT)?.let { return it }
-        return storedExternalAccent(state)
+    /** Resolves explicit choices through the same ladder without reading persisted appearance or mappings. */
+    internal fun resolve(
+        project: Project?,
+        request: AccentResolutionRequest,
+        fallback: AccentFallback,
+    ): ResolvedAccent {
+        if (fallback is AccentFallback.External && fallback.source == ExternalAccentSource.MANUAL) {
+            return storedExternalAccent(fallback.hex)
+        }
+        return AccentResolutionChainBuilder.overrideWinner(project, request)
+            ?: when (fallback) {
+                is AccentFallback.Global -> ResolvedAccent(Source.GLOBAL, fallback.hex)
+                is AccentFallback.External ->
+                    uiColorAccent(MATERIAL_ACCENT_KEY, Source.MATERIAL_THEME)
+                        ?: uiColorAccent(COMPONENT_ACCENT_KEY, Source.IDE_ACCENT)
+                        ?: uiColorAccent(ACTIONS_BLUE_KEY, Source.IDE_ACCENT)
+                        ?: storedExternalAccent(fallback.hex)
+            }
     }
 
     private fun uiColorAccent(
@@ -186,17 +202,19 @@ object AccentResolver {
     private fun resolveAyu(
         project: Project?,
         variant: AyuVariant,
-    ): ResolvedAccent {
-        val globalAccent = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-        return AccentResolutionChainBuilder
-            .overrideWinner(project, AccentResolutionRequest.liveResolve(AccentHexPolicy.LENIENT))
-            ?: ResolvedAccent(Source.GLOBAL, globalAccent)
+    ): ResolvedAccent? {
+        val globalAccent = AyuIslandsSettings.getInstance().getAccentForVariant(variant) ?: return null
+        return resolve(
+            project,
+            AccentResolutionRequest.liveResolve(AccentHexPolicy.LENIENT),
+            AccentFallback.Global(globalAccent),
+        )
     }
 
     private fun resolveContext(
         project: Project?,
         context: AccentContext,
-    ): ResolvedAccent =
+    ): ResolvedAccent? =
         when (context) {
             is AccentContext.Ayu -> resolveAyu(project, context.ayuVariant)
             AccentContext.External -> resolveExternal(project)
@@ -335,7 +353,7 @@ internal data class ResolvedAccent(
     val hex: String,
 )
 
-private fun storedExternalAccent(state: AyuIslandsState): ResolvedAccent {
-    val hex = AccentHex.of(state.externalThemeAccent)?.value ?: AyuVariant.MIRAGE.defaultAccent
+private fun storedExternalAccent(raw: String?): ResolvedAccent {
+    val hex = AccentHex.of(raw)?.value ?: AyuVariant.MIRAGE.defaultAccent
     return ResolvedAccent(AccentResolver.Source.EXTERNAL_ACCENT, hex)
 }

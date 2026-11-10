@@ -7,18 +7,8 @@ import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.WindowManager
-import com.intellij.util.concurrency.annotations.RequiresEdt
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
-import dev.ayuislands.accent.AccentChangedTopic
-import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.rethrowIfCancelled
-import dev.ayuislands.indent.IndentRainbowSync
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.ui.ComponentTreeRefresher
+import dev.ayuislands.studio.StudioService
 import org.jetbrains.annotations.TestOnly
 import java.awt.AWTEvent
 import java.awt.Toolkit
@@ -27,24 +17,9 @@ import java.awt.event.AWTEventListener
 import java.awt.event.WindowEvent
 import javax.swing.SwingUtilities
 
-/**
- * Focus-swap bridge between [AccentResolver] (per-project override store) and
- * [AccentApplicator] (global UIManager). UIManager is a single JVM-wide table,
- * so the "current accent" is whatever was applied last. Without this service,
- * switching between two project windows would leave the accent stuck on
- * whichever project happened to trigger the most recent apply — meaning the
- * per-project override feature would not visibly isolate between windows.
- *
- * Listens for [WindowEvent.WINDOW_ACTIVATED] via [AWTEventListener] and, when
- * the activated window maps to a project, re-applies the resolved accent hex
- * if it differs from the last applied value. Idempotent and safe to install
- * from every [com.intellij.openapi.startup.ProjectActivity] call.
- */
+/** Retains the installed AWT lifecycle while the shared runtime owns focus transitions and native refresh. */
 @Service(Service.Level.APP)
 class ProjectAccentSwapService : Disposable {
-    @Volatile
-    private var lastAppliedHex: String? = null
-
     private var listener: AWTEventListener? = null
 
     /**
@@ -58,18 +33,12 @@ class ProjectAccentSwapService : Disposable {
 
     /**
      * Paired gate for [WindowManager.getInstance] returning null on shutdown
-     * race. Mirrors the [AccentApplicator.windowManagerUnavailableLogged]
-     * convention — first failure WARN, subsequent DEBUG, so a user-submitted
+     * race. First failure is WARN, subsequent failures are DEBUG, so a user-submitted
      * idea.log captures the pathology while every alt-tab during shutdown does
      * not flood the log. Pattern A — log-once gate.
      */
     @Volatile
     private var windowManagerUnavailableLogged: Boolean = false
-
-    private data class EffectiveAccent(
-        val context: AccentContext,
-        val hex: String,
-    )
 
     fun install() {
         if (listener != null) return
@@ -116,138 +85,7 @@ class ProjectAccentSwapService : Disposable {
         val project = findProjectForWindow(window) ?: return
         if (project.isDisposed || project.isDefault) return
 
-        val effectiveAccent = resolveEffectiveAccent(project) ?: return
-
-        val hexChanged = effectiveAccent.hex != lastAppliedHex
-        if (hexChanged) {
-            if (!applyChangedHex(effectiveAccent.hex)) return
-        } else {
-            refreshSameHexIntegrations(effectiveAccent)
-            publishSameHexAccentChanged(project, effectiveAccent.hex)
-        }
-
-        // Always refresh the component tree on focus swap — preserves the
-        // "WINDOW_ACTIVATED always refreshes subscribers" invariant. AccentApplicator
-        // updates UIManager + editor scheme but UIManager-only components (toolbar, tab
-        // underlines, scrollbar chrome, focus rings) hold cached JBColor resolutions
-        // captured at construction time. ComponentTreeRefresher does the component-tree
-        // LAF refresh AND fires ComponentTreeRefreshedTopic so managers whose
-        // customizations got reset by the walk (scrollbar hiders etc.) reapply themselves.
-        ComponentTreeRefresher.walkAndNotify(project, window)
-        LOG.info(
-            "Project accent refreshed for ${project.name} (hex=${effectiveAccent.hex}, changed=$hexChanged)",
-        )
-    }
-
-    private fun resolveEffectiveAccent(project: Project): EffectiveAccent? {
-        // Re-resolve on every activation. Alt-tab away to a non-IDE app and back reports the
-        // same project, but any external apply (rotation tick, Settings panel Apply, LAF
-        // change — anything that reaches `notifyExternalApply`) may have pushed a different
-        // color into the JVM-wide UIManager/globalScheme since the last activation. The
-        // resolver call is cheap (canonicalPath + HashMap lookup); the hex gate still
-        // skips the expensive apply when the resolver output matches.
-        val context = AccentContext.detect() ?: return null
-        val hex =
-            when (context) {
-                is AccentContext.Ayu -> AccentResolver.resolve(project, context.ayuVariant)
-                AccentContext.External -> AccentResolver.resolve(project, context)
-            }
-        return EffectiveAccent(context, hex)
-    }
-
-    private fun applyChangedHex(hex: String): Boolean {
-        val outcome = AccentApplicator.applyFromHexString(hex)
-        if (outcome is AccentApplyOutcome.Rejected) {
-            LOG.warn("Skipping swap publish: applyFromHexString rejected '$hex'")
-            return false
-        }
-        notifyExternalApply(outcome)
-        return true
-    }
-
-    private fun refreshSameHexIntegrations(effectiveAccent: EffectiveAccent) {
-        // Same hex but a different project just gained focus (or alt-tab back to the
-        // same project). The app-scoped CGP `CodeGlanceConfigService` and IR `IrConfig`
-        // caches still hold whoever wrote last; force-refresh them so the newly-focused
-        // minimap + indent panels paint the correct per-project accent.
-        //
-        // walkAndNotify alone CANNOT close this gap because CGP and IR do not subscribe
-        // to ComponentTreeRefreshedTopic — they read from the app-scoped cache directly.
-        val state = AyuIslandsSettings.getInstance().state
-        when (val context = effectiveAccent.context) {
-            is AccentContext.Ayu -> refreshAyuIntegrations(context, effectiveAccent.hex, state)
-            AccentContext.External -> refreshExternalIntegrations(effectiveAccent.hex, state)
-        }
-    }
-
-    private fun refreshAyuIntegrations(
-        context: AccentContext.Ayu,
-        hex: String,
-        state: AyuIslandsState,
-    ) {
-        AccentApplicator.syncCodeGlanceProViewportForSwap(hex)
-        if (state.irIntegrationEnabled) {
-            IndentRainbowSync.apply(context.ayuVariant, hex)
-        }
-    }
-
-    private fun refreshExternalIntegrations(
-        hex: String,
-        state: AyuIslandsState,
-    ) {
-        AccentApplicator.syncCodeGlanceProViewportForSwap(hex, AccentContext.External)
-        if (state.irIntegrationEnabled && state.isExternalIndentRainbowAllowed()) {
-            IndentRainbowSync.apply(AccentContext.External, hex)
-        }
-    }
-
-    private fun publishSameHexAccentChanged(
-        project: Project,
-        hex: String,
-    ) {
-        // Same-hex focus swap does NOT re-enter AccentApplicator.apply (whose
-        // publish would fire), so we publish AccentChangedTopic here. Without
-        // this, focus swap between two projects sharing a hex leaves chip /
-        // stripe stuck on the prior project's resolution source label (e.g.
-        // "Global" vs "Project override"). Pattern B isolates a throwing
-        // subscriber.
-        try {
-            val source = AccentResolver.source(project)
-            // Pattern K — `hex` comes from `AccentResolver.resolve`
-            // whose contract guarantees a validated `#RRGGBB` string;
-            // wrap via `unsafeOf` to surface the contract in the type.
-            ApplicationManager
-                .getApplication()
-                .messageBus
-                .syncPublisher(AccentChangedTopic.TOPIC)
-                .accentChanged(project, AccentHex.unsafeOf(hex), source)
-        } catch (exception: RuntimeException) {
-            LOG.warn(
-                "AccentChangedTopic publish failed in same-hex swap for ${project.name}",
-                exception,
-            )
-        }
-    }
-
-    @RequiresEdt
-    internal fun invalidateAppliedAccent() {
-        lastAppliedHex = null
-    }
-
-    /** Cache completed visuals; a partial visual apply invalidates the previously cached accent. */
-    @RequiresEdt
-    internal fun notifyExternalApply(outcome: AccentApplyOutcome) {
-        if (!outcome.visualsApplied) {
-            if (outcome is AccentApplyOutcome.Torn) lastAppliedHex = null
-            LOG.warn("Accent visuals did not complete; swap cache is '$lastAppliedHex' ($outcome)")
-            return
-        }
-        lastAppliedHex =
-            when (outcome) {
-                is AccentApplyOutcome.Applied -> outcome.accentHex.value
-                is AccentApplyOutcome.Torn -> outcome.accentHex.value
-                is AccentApplyOutcome.Rejected -> return
-            }
+        StudioService.getInstance().focusChanged()
     }
 
     private fun findProjectForWindow(window: Window): Project? {
@@ -259,7 +97,7 @@ class ProjectAccentSwapService : Disposable {
         // Pattern A — log-once gate. WindowManager.getInstance() can return null
         // during application shutdown after services have started disposing but
         // before AWT stops dispatching. Mirror the
-        // [AccentApplicator.osActiveProjectFrame] convention: WARN on the first
+        // AccentApplicator OS-active frame convention: WARN on the first
         // race so user-submitted logs surface it, DEBUG thereafter.
         val windowManager =
             WindowManager.getInstance() ?: run {
@@ -305,7 +143,6 @@ class ProjectAccentSwapService : Disposable {
             Toolkit.getDefaultToolkit().removeAWTEventListener(it)
             listener = null
         }
-        lastAppliedHex = null
         LOG.info("ProjectAccentSwapService disposed")
     }
 

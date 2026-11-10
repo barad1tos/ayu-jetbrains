@@ -2,8 +2,6 @@ package dev.ayuislands.indent
 
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.theme.EditorSchemeChange
-import java.lang.reflect.Field
-import java.lang.reflect.Method
 
 internal data class IrPalette(
     val type: String,
@@ -13,37 +11,26 @@ internal data class IrPalette(
 
 internal data class CurrentIrPalette(
     val palette: IrPalette,
+    // Preserve the optional plugin's enum identity without linking its classes into the core.
     val typeValue: Any,
 )
 
+/** Supplied only when the optional Indent Rainbow dependency is enabled. */
+internal fun interface IrAccessProvider {
+    fun resolve(): ResolvedIrState?
+}
+
+/** One native configuration identity remains bound throughout its checkpoint's lifetime. */
 internal class ResolvedIrState(
-    private val config: Any,
-    private val paletteTypeField: Field,
-    private val customPaletteField: Field,
-    private val colorCountField: Field,
-    private val updateMethod: Method,
-    private val companion: Any,
+    val paletteTypes: Map<String, Any>,
+    private val read: () -> CurrentIrPalette,
+    private val write: (IrPart, CurrentIrPalette) -> Unit,
+    private val update: () -> Unit,
+    private val current: () -> Boolean,
 ) {
     var checkpoint: IrCheckpoint? = null
 
-    fun readPalette(): CurrentIrPalette {
-        val typeValue = paletteTypeField[config] ?: error("paletteType field returned null")
-        val palette =
-            when (val paletteValue = customPaletteField[config]) {
-                null -> null
-                is String -> paletteValue
-                else -> error("customPalette field returned non-string")
-            }
-        return CurrentIrPalette(
-            palette =
-                IrPalette(
-                    type = enumName(typeValue),
-                    palette = palette,
-                    colorCount = colorCountField.getInt(config),
-                ),
-            typeValue = typeValue,
-        )
-    }
+    fun readPalette(): CurrentIrPalette = read()
 
     fun writePalette(
         palette: IrPalette,
@@ -57,31 +44,22 @@ internal class ResolvedIrState(
         refresh()
     }
 
-    fun isTarget(candidate: Any?): Boolean = config === candidate
+    fun isCurrent(): Boolean = current()
 
     fun writePart(
         part: IrPart,
         target: CurrentIrPalette,
-    ) {
-        when (part) {
-            IrPart.TYPE -> paletteTypeField[config] = target.typeValue
-            IrPart.PALETTE -> customPaletteField[config] = target.palette.palette
-            IrPart.COUNT -> colorCountField.setInt(config, target.palette.colorCount)
-        }
-    }
+    ) = write(part, target)
 
     fun refresh() {
-        updateMethod.invoke(companion, config)
-        // IR's refresh helper invalidates PSI through an internal IDE API.
-        // Notify editor listeners through the same public path as our scheme overrides.
+        update()
+        // Publish through the supported editor-scheme path after the native cache is current.
         EditorSchemeChange.publish()
         checkpoint?.refreshed()
     }
 }
 
 internal enum class IrPart { TYPE, PALETTE, COUNT }
-
-internal fun enumName(value: Any): String = (value as? Enum<*>)?.name ?: value.toString()
 
 internal fun AyuIslandsState.storeIrBase(palette: IrPalette) {
     irBaseType = palette.type

@@ -31,9 +31,7 @@ private typealias Source = AccentResolver.Source
 internal object AccentResolutionChainBuilder {
     private val LOG = logger<AccentResolutionChainBuilder>()
 
-    private const val PROPORTIONS_TOP_N = 3
     private const val NO_WINNER_TOP_N = 2
-    private const val PERCENTAGE_SCALE = 100
     private const val DETAIL_LICENSE_BLOCKED = "Premium feature — license required"
     private const val DETAIL_NO_PROJECT = "No project open"
     private const val DETAIL_NO_PROJECT_KEY = "Project path unavailable"
@@ -45,17 +43,54 @@ internal object AccentResolutionChainBuilder {
     fun resolveAyu(
         project: Project?,
         variant: AyuVariant,
+    ): AccentResolutionChain? {
+        val accent = AyuIslandsSettings.getInstance().getAccentForVariant(variant) ?: return null
+        return resolveGlobal(
+            project,
+            AccentResolutionRequest.diagnostics(),
+            accent,
+            "Default accent for ${variant.name.lowercase()}",
+        )
+    }
+
+    fun resolveExternal(project: Project?): AccentResolutionChain? {
+        val state = AyuIslandsSettings.getInstance().state ?: return null
+        return resolve(
+            project,
+            AccentResolutionRequest.diagnostics(),
+            AccentFallback.External(
+                ExternalAccentSource.fromName(state.externalThemeAccentSource),
+                state.externalThemeAccent,
+            ),
+        )
+    }
+
+    /** Walks the same diagnostics ladder for an explicitly captured settings target. */
+    fun resolve(
+        project: Project?,
+        request: AccentResolutionRequest,
+        fallback: AccentFallback,
+    ): AccentResolutionChain =
+        when (fallback) {
+            is AccentFallback.Global -> resolveGlobal(project, request, fallback.hex, "Global accent")
+            is AccentFallback.External -> resolveExternal(project, request, fallback)
+        }
+
+    private fun resolveGlobal(
+        project: Project?,
+        request: AccentResolutionRequest,
+        globalAccent: String,
+        detail: String,
     ): AccentResolutionChain {
-        val globalAccent = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
         val steps = mutableListOf<AccentResolutionStep>()
-        val verdict = collectOverrideChainSteps(project, steps, AccentResolutionRequest.diagnostics())
+        val verdict = collectOverrideChainSteps(project, steps, request)
         val winner =
             steps.firstOrNull { it.outcome == StepOutcome.WON }
                 ?: AccentResolutionStep(
                     Source.GLOBAL,
                     globalAccent,
                     StepOutcome.WON,
-                    "Default accent for ${variant.name.lowercase()}",
+                    detail,
                 )
         if (winner.source == Source.GLOBAL) {
             steps.add(winner)
@@ -63,14 +98,16 @@ internal object AccentResolutionChainBuilder {
         return AccentResolutionChain(steps, winner, verdict)
     }
 
-    fun resolveExternal(project: Project?): AccentResolutionChain {
-        val state = AyuIslandsSettings.getInstance().state
+    private fun resolveExternal(
+        project: Project?,
+        request: AccentResolutionRequest,
+        fallback: AccentFallback.External,
+    ): AccentResolutionChain {
         val steps = mutableListOf<AccentResolutionStep>()
         val isManual =
-            ExternalAccentSource.fromName(state.externalThemeAccentSource) ==
-                ExternalAccentSource.MANUAL
+            fallback.source == ExternalAccentSource.MANUAL
         if (isManual) {
-            val hex = AccentHex.of(state.externalThemeAccent)?.value ?: AyuVariant.MIRAGE.defaultAccent
+            val hex = AccentHex.of(fallback.hex)?.value ?: AyuVariant.MIRAGE.defaultAccent
             val step =
                 AccentResolutionStep(
                     Source.EXTERNAL_ACCENT,
@@ -81,7 +118,7 @@ internal object AccentResolutionChainBuilder {
             return AccentResolutionChain(listOf(step), step, null)
         }
 
-        val verdict = collectOverrideChainSteps(project, steps, AccentResolutionRequest.diagnostics())
+        val verdict = collectOverrideChainSteps(project, steps, request)
         collectUiColorStep(
             steps,
             Source.MATERIAL_THEME,
@@ -94,7 +131,7 @@ internal object AccentResolutionChainBuilder {
         collectUiColorStep(steps, Source.IDE_ACCENT, ideHex, "IDE accent found", "No IDE accent")
             ?.let { return AccentResolutionChain(steps, it, verdict) }
 
-        val storedHex = AccentHex.of(state.externalThemeAccent)?.value ?: AyuVariant.MIRAGE.defaultAccent
+        val storedHex = AccentHex.of(fallback.hex)?.value ?: AyuVariant.MIRAGE.defaultAccent
         val winner =
             steps.firstOrNull { it.outcome == StepOutcome.WON }
                 ?: AccentResolutionStep(
@@ -526,43 +563,46 @@ internal object AccentResolutionChainBuilder {
 
     private fun uiColorHex(key: String): String? = AccentResolver.uiColorForDiagnostics(key)?.toHex()
 
-    private fun displayNameFor(languageId: String): String =
-        Language
-            .getRegisteredLanguages()
-            .firstOrNull { it.id.equals(languageId, ignoreCase = true) }
-            ?.displayName
-            ?.takeIf { it.isNotBlank() }
-            ?: languageId
-
-    private fun detectedLanguageDetail(verdict: ProjectLanguageVerdict.Detected): String {
-        val languageDisplayName = displayNameFor(verdict.languageId)
-        val weights = verdict.weights ?: return "Detected $languageDisplayName"
-        val total = weights.values.sum()
-        val detectedEntry = weights.entries.firstOrNull { it.key.equals(verdict.languageId, ignoreCase = true) }
-        val otherEntries =
-            weights.entries
-                .filterNot { it.key.equals(verdict.languageId, ignoreCase = true) }
-                .sortedByDescending { it.value }
-                .take(PROPORTIONS_TOP_N - 1)
-        val detailSegments =
-            buildList {
-                detectedEntry?.let { add(proportionPct(it.value, total)) }
-                otherEntries.mapTo(this) { (lang, weight) ->
-                    "${displayNameFor(lang)} ${proportionPct(weight, total)}"
-                }
-            }
-        if (detailSegments.isEmpty()) return "Detected $languageDisplayName"
-        return "Detected $languageDisplayName ${detailSegments.joinToString(", ")}"
-    }
-
-    private fun proportionPct(
-        weight: Long,
-        total: Long,
-    ): String {
-        if (total == 0L) return "0%"
-        val percentage = weight * PERCENTAGE_SCALE / total
-        return "$percentage%"
-    }
-
     private fun Color.toHex(): String = "#%02X%02X%02X".format(Locale.ROOT, red, green, blue)
+}
+
+private const val PROPORTIONS_TOP_N = 3
+private const val PERCENTAGE_SCALE = 100
+
+private fun displayNameFor(languageId: String): String =
+    Language
+        .getRegisteredLanguages()
+        .firstOrNull { it.id.equals(languageId, ignoreCase = true) }
+        ?.displayName
+        ?.takeIf { it.isNotBlank() }
+        ?: languageId
+
+private fun detectedLanguageDetail(verdict: ProjectLanguageVerdict.Detected): String {
+    val languageDisplayName = displayNameFor(verdict.languageId)
+    val weights = verdict.weights ?: return "Detected $languageDisplayName"
+    val total = weights.values.sum()
+    val detectedEntry = weights.entries.firstOrNull { it.key.equals(verdict.languageId, ignoreCase = true) }
+    val otherEntries =
+        weights.entries
+            .filterNot { it.key.equals(verdict.languageId, ignoreCase = true) }
+            .sortedByDescending { it.value }
+            .take(PROPORTIONS_TOP_N - 1)
+    val detailSegments =
+        buildList {
+            detectedEntry?.let { add(proportionPct(it.value, total)) }
+            otherEntries.mapTo(this) { (lang, weight) ->
+                "${displayNameFor(lang)} ${proportionPct(weight, total)}"
+            }
+        }
+    if (detailSegments.isEmpty()) return "Detected $languageDisplayName"
+    return "Detected $languageDisplayName ${detailSegments.joinToString(", ")}"
+}
+
+private fun proportionPct(
+    weight: Long,
+    total: Long,
+): String {
+    if (total == 0L) return "0%"
+    val percentage = weight * PERCENTAGE_SCALE / total
+    return "$percentage%"
 }

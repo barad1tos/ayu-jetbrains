@@ -6,6 +6,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -287,7 +288,7 @@ class AccentResolverExternalTest {
         try {
             val settings = mockk<AyuIslandsSettings>()
             val state = AyuIslandsState()
-            every { settings.state } returns state
+            every { settings.state } answers { StudioFixtures.legacyView(state).settings }
             every { settings.getAccentForVariant(AyuVariant.MIRAGE) } returns AyuVariant.MIRAGE.defaultAccent
             every { settings.getAccentForVariant(AyuVariant.DARK) } returns AyuVariant.DARK.defaultAccent
             every { settings.getAccentForVariant(AyuVariant.LIGHT) } returns AyuVariant.LIGHT.defaultAccent
@@ -295,7 +296,8 @@ class AccentResolverExternalTest {
 
             val mappingsState = AccentMappingsState()
             val mappingsSettings = mockk<AccentMappingsSettings>()
-            every { mappingsSettings.state } returns mappingsState
+            every { mappingsSettings.state } answers
+                { StudioFixtures.legacyView(AyuIslandsState(), mappings = mappingsState).mappings }
             every { AccentMappingsSettings.getInstance() } returns mappingsSettings
 
             every { ProjectLanguageDetector.dominant(any()) } returns null

@@ -21,6 +21,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -434,14 +435,17 @@ class GlowGlassPanePixelTest {
         pane.activateWaveform(powerSaveEnabled = false)
         assertTrue(readWaveformFailed(pane))
 
+        val failure = pane.waveformFailure
         installWaveformPainter(pane, WaveformPainter())
         pane.configureWaveform(GlowShape.WAVEFORM, config)
         assertFalse(pane.isWaveform, "an unchanged refresh must not spin on a deterministic renderer failure")
+        assertSame(failure, pane.waveformFailure)
 
         pane.configureWaveform(GlowShape.WAVEFORM, config.copy(amplitude = 9))
         pane.activateWaveform(powerSaveEnabled = true)
         assertTrue(pane.isWaveform, "an explicit configuration change must recover the waveform renderer")
         assertFalse(readWaveformFailed(pane))
+        assertNull(pane.waveformFailure)
         assertTrue(alphaSum(paint(pane)) > 0L)
         pane.deactivateWaveform()
     }
@@ -530,11 +534,7 @@ class GlowGlassPanePixelTest {
         )
     }
 
-    private fun readWaveformFailed(pane: GlowGlassPane): Boolean =
-        GlowGlassPane::class.java.getDeclaredField("waveformFailed").let { field ->
-            field.isAccessible = true
-            field.getBoolean(pane)
-        }
+    private fun readWaveformFailed(pane: GlowGlassPane): Boolean = pane.waveformFailure != null
 
     private fun readTopSpansFailureLogged(pane: GlowGlassPane): Boolean =
         GlowGlassPane::class.java.getDeclaredField("topSpansFailureLogged").let { field ->

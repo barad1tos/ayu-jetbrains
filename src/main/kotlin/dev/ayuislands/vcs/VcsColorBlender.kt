@@ -1,7 +1,6 @@
 package dev.ayuislands.vcs
 
 import com.intellij.ui.ColorUtil
-import com.intellij.ui.JBColor
 import java.awt.Color
 
 /**
@@ -16,7 +15,7 @@ import java.awt.Color
  * That keeps the user's intensity slider purely a saturation/brightness dial,
  * not a hue-shift dial.
  *
- * Invariants enforced by [VcsColorBlenderTest]:
+ * Invariants enforced by `VcsColorBlenderTest`:
  *  - intensity=0 → base per-channel, alpha from base
  *  - intensity=100 → target per-channel, alpha from base
  *  - intensity=50 → midpoint via HSB lerp, alpha from base
@@ -123,6 +122,6 @@ object VcsColorBlender {
         alpha: Int,
     ): Color {
         val rgb = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
-        return ColorUtil.toAlpha(JBColor(rgb, rgb), alpha)
+        return ColorUtil.toAlpha(Color(rgb), alpha)
     }
 }

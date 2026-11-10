@@ -21,11 +21,22 @@ class MatchingTagElement : AccentElement {
 
     override fun apply(color: Color) {
         val scheme = AyuEditorSchemeScope.activeScheme() ?: return
+        for ((key, value) in editorAttributes(scheme, color)) {
+            val background = value.backgroundColor
+            value.backgroundColor = JBColor(background, background)
+            AyuEditorSchemeScope.writeAttributes(scheme, schemeOwner, key, value)
+        }
+    }
+
+    internal fun editorAttributes(
+        scheme: EditorColorsScheme,
+        color: Color,
+    ): Map<TextAttributesKey, TextAttributes> {
         val existing = scheme.getAttributes(tagAttrKey)
         val updated = existing?.clone() ?: TextAttributes()
         updated.backgroundColor = blendWithEditorBackground(color, editorBackgroundFor(scheme))
         updated.foregroundColor = null
-        AyuEditorSchemeScope.writeAttributes(scheme, schemeOwner, tagAttrKey, updated)
+        return mapOf(tagAttrKey to updated)
     }
 
     private fun editorBackgroundFor(scheme: EditorColorsScheme): Color {
@@ -54,7 +65,7 @@ class MatchingTagElement : AccentElement {
         val green = blendChannel(editorBackground.green, accent.green)
         val blue = blendChannel(editorBackground.blue, accent.blue)
         val rgb = (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
-        return JBColor(rgb, rgb)
+        return Color(rgb)
     }
 
     private fun blendChannel(

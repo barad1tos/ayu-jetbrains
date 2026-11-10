@@ -1,194 +1,67 @@
 package dev.ayuislands
 
 import com.intellij.ide.ui.LafManager
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.project.ProjectManager
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
-import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.font.FontPresetApplicator
-import dev.ayuislands.glow.GlowOverlayManager
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.syntax.SyntaxIntensityService
-import dev.ayuislands.theme.AyuEditorSchemeBinder
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.StudioNativeChange
+import dev.ayuislands.studio.model.StudioThemeChange
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
-import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import io.mockk.verifyOrder
+import kotlinx.coroutines.Job
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 
-/**
- * Locks the three load-bearing invariants of the modified `AyuIslandsLafListener`:
- *   1. The `syncEditorScheme` settings flag gates `AyuEditorSchemeBinder.bindForVariant`.
- *   2. When the gate is open and a variant is active, `bindForVariant` runs
- *      BEFORE `AccentApplicator.applyForFocusedProject` — required because
- *      `AccentApplicator.applyAlwaysOnEditorKeys` mutates `globalScheme`
- *      in-place and a swap-after-mutate would strand the prior scheme with
- *      accent overrides forever.
- *   3. The null-context path (theme switched AWAY from Ayu — `ThemeReapplication.planFor`
- *      omits `BindScheme` from its plan) does NOT call `bindForVariant` — the binder has
- *      no revert path.
- *
- * Pattern G — symmetry between the bind/apply order and the revert path.
- */
-@Suppress("UnstableApiUsage")
 class AyuIslandsLafListenerTest {
-    private lateinit var state: AyuIslandsState
-    private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
-    private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
-    private val mockSyntaxService = mockk<SyntaxIntensityService>(relaxed = true)
-    private val mockApplication = mockk<Application>(relaxed = true)
+    private val studio = mockk<StudioService>()
+    private val manager = mockk<LafManager>()
+    private val listener = AyuIslandsLafListener()
 
     @BeforeTest
     fun setUp() {
-        state = AyuIslandsState()
-        // Stubbed applies report success, so the persisted clean flag must read
-        // clean too — ThemeReapplication's tear-escalation check consults it.
-        state.lastApplyOk = true
-        every { mockSettings.state } returns state
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns mockSettings
-
-        // `lookAndFeelChanged` now delegates to `ThemeReapplication.reapply`, which reads
-        // `ApplicationManager.getApplication().isDispatchThread` to decide whether to run
-        // its plan inline or hop through `invokeLater`. Stub it to run inline so the plan's
-        // effects (and this file's `verify` assertions) happen synchronously.
-        mockkStatic(ApplicationManager::class)
-        every { ApplicationManager.getApplication() } returns mockApplication
-        every { mockApplication.isDispatchThread } returns true
-
-        mockkStatic(ProjectManager::class)
-        every { ProjectManager.getInstance() } returns mockProjectManager
-        every { mockProjectManager.openProjects } returns emptyArray()
-
-        mockkObject(AyuVariant.Companion)
-        mockkObject(AyuEditorSchemeBinder)
-        mockkObject(AccentApplicator)
-        mockkObject(FontPresetApplicator)
-        mockkObject(GlowOverlayManager)
-        mockkObject(AppearanceSyncService.Companion)
-        // Listener invokes `SyntaxIntensityService.getInstance().reapplyForActiveLaf`
-        // after the glow sync (Pattern J anchor). Stub the companion so the call site
-        // resolves without reaching into `ApplicationManager.getApplication().getService(...)`.
-        mockkObject(SyntaxIntensityService.Companion)
-
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>()) } returns
-            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
-        every { AccentApplicator.applyForFocusedProject(any<AyuVariant>()) } returns
-            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66")))
-        every { AccentApplicator.revertNow() } returns Unit
-        every { FontPresetApplicator.applyFromState() } returns Unit
-        every { FontPresetApplicator.revert() } returns Unit
-        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
-        every { AyuEditorSchemeBinder.bindForVariant(any()) } returns true
-        every { SyntaxIntensityService.getInstance() } returns mockSyntaxService
-
-        val mockSyncService = mockk<AppearanceSyncService>(relaxed = true)
-        every { AppearanceSyncService.getInstance() } returns mockSyncService
-        every { mockSyncService.programmaticSwitch } returns false
+        mockkObject(StudioService.Companion)
+        every { StudioService.getInstance() } returns studio
+        every { studio.nativeChanged(any()) } returns Job().apply { complete() }
+        mockkObject(AyuLaf)
+        every { AyuLaf.ownsThemeChange(manager) } returns false
     }
 
     @AfterTest
-    fun tearDown() {
-        unmockkAll()
-    }
+    fun tearDown() = unmockkAll()
 
     @Test
-    fun `lookAndFeelChanged calls binder when syncEditorScheme is true and variant is active`() {
-        state.syncEditorScheme = true
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        val mockLafManager = mockk<LafManager>(relaxed = true)
-        every { mockLafManager.currentUIThemeLookAndFeel.name } returns "Ayu Mirage (Islands UI)"
-
-        AyuIslandsLafListener().lookAndFeelChanged(mockLafManager)
-
-        verify(exactly = 1) { AyuEditorSchemeBinder.bindForVariant(AyuVariant.MIRAGE) }
-    }
-
-    @Test
-    fun `lookAndFeelChanged skips binder when syncEditorScheme is false`() {
-        state.syncEditorScheme = false
-        every { AyuVariant.detect() } returns AyuVariant.DARK
-        val mockLafManager = mockk<LafManager>(relaxed = true)
-        every { mockLafManager.currentUIThemeLookAndFeel.name } returns "Ayu Dark (Islands UI)"
-
-        AyuIslandsLafListener().lookAndFeelChanged(mockLafManager)
-
-        verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
-        // Pattern G regression lock: AccentApplicator still runs even when binder is gated off.
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK)) }
-    }
-
-    @Test
-    fun `lookAndFeelChanged invokes binder BEFORE AccentApplicator on Ayu variant`() {
-        // Pattern G ordering lock — the load-bearing invariant the listener KDoc
-        // claims to defend. `AccentApplicator` mutates `globalScheme` in-place
-        // via `applyAlwaysOnEditorKeys`; the binder MUST swap `globalScheme`
-        // first so the mutation lands on the freshly-swapped Ayu scheme, not
-        // the prior (`Default` / `Darcula` / another-Ayu) scheme that would
-        // otherwise be left polluted with accent overrides forever.
-        state.syncEditorScheme = true
-        every { AyuVariant.detect() } returns AyuVariant.LIGHT
-        val mockLafManager = mockk<LafManager>(relaxed = true)
-        every { mockLafManager.currentUIThemeLookAndFeel.name } returns "Ayu Light (Islands UI)"
-
-        AyuIslandsLafListener().lookAndFeelChanged(mockLafManager)
-
-        verifyOrder {
-            AyuEditorSchemeBinder.bindForVariant(AyuVariant.LIGHT)
-            AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.LIGHT))
+    fun `manual Ayu choices retain the exact selected variant and Islands flavor in shared admission`() {
+        for (name in AyuVariant.entries.flatMap { it.themeNames }) {
+            every { AyuLaf.currentThemeName(manager) } returns name
+            listener.lookAndFeelChanged(manager)
+            verify(exactly = 1) { studio.nativeChanged(StudioNativeChange.Theme(StudioThemeChange.Explicit(name))) }
         }
     }
 
     @Test
-    fun `lookAndFeelChanged on non-Ayu LAF reverts and does NOT bind`() {
-        // Pattern J — a null context (theme switched AWAY from Ayu) must NOT
-        // call the binder: `ThemeReapplication.planFor` omits `BindScheme` from
-        // its plan for a null context. The binder has no revert path (Ayu→non-Ayu
-        // would require persisting the user's prior scheme — separate feature).
-        state.syncEditorScheme = true
-        state.externalThemeEnhancementsEnabled = false
-        every { AyuVariant.detect() } returns null
-        val mockLafManager = mockk<LafManager>(relaxed = true)
-
-        AyuIslandsLafListener().lookAndFeelChanged(mockLafManager)
-
-        verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
-        verify(exactly = 1) { AccentApplicator.revertNow() }
-        verify(exactly = 0) { FontPresetApplicator.revert() }
-        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
+    fun `external theme events refresh accepted effects without manufacturing an explicit Ayu choice`() {
+        every { AyuLaf.currentThemeName(manager) } returns "User theme"
+        listener.lookAndFeelChanged(manager)
+        verify(exactly = 1) { studio.nativeChanged(StudioNativeChange.Appearance) }
     }
 
     @Test
-    fun `lookAndFeelChanged on non-Ayu LAF with external mode cleans Ayu state then applies external context`() {
-        state.syncEditorScheme = true
-        state.externalThemeEnhancementsEnabled = true
-        every { AyuVariant.detect() } returns null
-        every { AyuVariant.isAyuActive() } returns false
-        every { AccentApplicator.applyForFocusedProject(AccentContext.External) } returns
-            AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC")))
-        val mockLafManager = mockk<LafManager>(relaxed = true)
-        every { mockLafManager.currentUIThemeLookAndFeel.name } returns "Darcula"
+    fun `owned theme application and rollback do not recursively submit another operation`() {
+        every { AyuLaf.ownsThemeChange(manager) } returns true
+        listener.lookAndFeelChanged(manager)
+        verify(exactly = 0) { studio.nativeChanged(any()) }
+        verify(exactly = 0) { AyuLaf.currentThemeName(manager) }
+    }
 
-        AyuIslandsLafListener().lookAndFeelChanged(mockLafManager)
-
-        verify(exactly = 0) { AyuEditorSchemeBinder.bindForVariant(any()) }
-        verifyOrder {
-            AccentApplicator.revertNow()
-            AccentApplicator.applyForFocusedProject(AccentContext.External)
-        }
-        verify(exactly = 0) { FontPresetApplicator.revert() }
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.External) }
-        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
-        verify(exactly = 0) { mockSyntaxService.reapplyForActiveLaf() }
+    @Test
+    fun `plugin registers the shared LAF producer only once`() {
+        val xml = Files.readString(Path.of("src/main/resources/META-INF/plugin.xml"))
+        assertEquals(1, Regex("class=\"dev\\.ayuislands\\.AyuIslandsLafListener\"").findAll(xml).count())
     }
 }

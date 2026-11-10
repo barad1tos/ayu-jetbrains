@@ -2,692 +2,129 @@ package dev.ayuislands
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.EDT
-import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.startup.ProjectActivity
-import com.intellij.openapi.wm.WindowManager
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
-import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ProjectLanguageDetector
 import dev.ayuislands.accent.ProjectLanguageRootChangeListener
 import dev.ayuislands.accent.ScanCompletionAccentRefresher
 import dev.ayuislands.accent.conflict.ConflictRegistry
-import dev.ayuislands.accent.runCatchingPreservingCancellation
+import dev.ayuislands.accent.rethrowIfCancelled
+import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
 import dev.ayuislands.editor.EditorScrollbarManager
-import dev.ayuislands.font.FontPreset
-import dev.ayuislands.font.FontPresetApplicator
-import dev.ayuislands.glow.GlowOverlayManager
-import dev.ayuislands.licensing.EntitlementReconciler
-import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.licensing.LicenseEntitlement
-import dev.ayuislands.licensing.LicenseRecheckScheduler
-import dev.ayuislands.licensing.LicenseRecheckSlot
-import dev.ayuislands.licensing.ReconciliationResult
-import dev.ayuislands.licensing.requestEntitlement
-import dev.ayuislands.onboarding.WizardAction
+import dev.ayuislands.gitpanel.GitPanelAutoFitManager
 import dev.ayuislands.projectview.ProjectViewScrollbarManager
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.FocusedEditorContext
-import dev.ayuislands.settings.mappings.AccentMappingsSettings
-import dev.ayuislands.settings.mappings.AccentMappingsState
 import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import dev.ayuislands.settings.mappings.ProjectIconAccentAssigner
+import dev.ayuislands.studio.StudioApplicationGraph
+import dev.ayuislands.studio.StudioApplicationState
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.AcceptanceResult
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioMetadataCommand
+import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.persistence.AccentMappingsView
+import dev.ayuislands.studio.persistence.StudioLegacyProjection
+import dev.ayuislands.studio.session.StudioFonts
 import dev.ayuislands.syntax.SyntaxIntensityMigrationNotifier
-import dev.ayuislands.syntax.SyntaxIntensityService
-import dev.ayuislands.ui.ComponentTreeRefresher
-import dev.ayuislands.vcs.VcsColorApplier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import javax.swing.SwingUtilities
 
+/** Registers project lifetime owners, then submits startup through the single accepted Studio authority. */
 internal class AyuIslandsStartupActivity(
-    private val entitlementProvider: () -> LicenseEntitlement = LicenseChecker::currentEntitlement,
-    private val reconcile: (LicenseEntitlement, Iterable<Project>) -> ReconciliationResult =
-        EntitlementReconciler::reconcile,
-    private val scheduleRecheck: (Long, () -> Unit) -> Unit = { delayMs, action ->
-        LicenseRecheckScheduler.getInstance().schedule(LicenseRecheckSlot.STARTUP, delayMs, action)
-    },
-    private val recheckDelayProvider: () -> Long? = LicenseChecker::nextRecheckDelayMs,
-    private val projectsProvider: () -> Iterable<Project> = {
-        ProjectManager.getInstance().openProjects.asList()
-    },
-    private val initializeFocusedEditorContext: suspend () -> Unit = {
-        FocusedEditorContext.getInstance()
-    },
+    private val initializeFocusedEditorContext: suspend () -> Unit = { FocusedEditorContext.getInstance() },
+    private val openStudio: suspend () -> StudioApplicationGraph = { StudioService.getInstance().open() },
 ) : ProjectActivity {
     override suspend fun execute(project: Project) {
         initializeFocusedEditorContext()
+        if (project.isDisposed) return
+        withContext(Dispatchers.EDT) { registerProjectOwners(project) }
+        val graph = openStudio()
+        if (graph.application.start() !is StudioApplicationState.Ready) return
+        val initialized = graph.initializeProject(project)
+        if (initialized !is AcceptanceResult.Accepted && initialized != AcceptanceResult.NoChanges) return
+        if (project.isDisposed) return
+        runStep("project-icon-accent") { ProjectIconAccentAssigner.assignIfAbsent(project) }
+        seedFonts(graph)
+        val view =
+            withContext(Dispatchers.EDT) {
+                val target = graph.projects.capture(project)?.target ?: return@withContext null
+                StudioLegacyProjection.project(requireNotNull(graph.sessions).document, target)
+            } ?: return
+        val isReturningUser = view.settings.lastSeenVersion != null
         val themeName = AyuVariant.currentThemeName()
         LOG.info("Ayu Islands loaded — active theme: $themeName, project: ${project.name}")
-
-        val settings = AyuIslandsSettings.getInstance()
-
-        // Icon-derived per-project accent must land in the mappings BEFORE the
-        // first resolve below — both the native path (runStartupAccentOnEdt)
-        // and the external path (initializeExternalThemeIfEnabled) read the
-        // project-override rung.
-        runCatchingPreservingCancellation { ProjectIconAccentAssigner.assignIfAbsent(project) }
-            .onFailure { LOG.warn("Project icon accent auto-assign failed for '${project.name}'", it) }
-
-        // Language detection is a one-way event: the detector only publishes
-        // scanCompleted, and this project service is the single subscriber that
-        // owns the post-scan re-resolve + accent apply. Instantiate it BEFORE
-        // the first accent resolve below — runStartupAccentOnEdt can schedule
-        // the first background scan (EDT resolve on a cold cache), and the
-        // scan's completion must not fire into an empty subscriber list.
-        // Installed before the external-theme early return on purpose: the
-        // refresher self-gates on AyuVariant.detect(), mirroring the reaction
-        // that previously lived unconditionally inside the detector.
-        ScanCompletionAccentRefresher.getInstance(project)
-
-        val variant =
-            AyuVariant.fromThemeName(themeName) ?: return initializeExternalThemeIfEnabled(project, settings)
-
-        // Belt-and-suspenders: accent is pre-applied in appFrameCreated() (no gold flash),
-        // but project-dependent features (BracketFadeManager, editor TextAttributesKey overrides)
-        // need this second idempotent call once a project context exists.
-        // Project/language overrides win over the global accent; AccentResolver centralizes the chain.
-        //
-        // Resolve for the FOCUSED project rather than THIS project — with multiple projects booting
-        // together, each StartupActivity writes to the single JVM-wide UIManager, so last-writer-wins.
-        // If core-terraform (Lavender override) and ayu-jetbrains (Cyan override) open simultaneously
-        // and core-terraform's activity finishes last, chrome ends up Lavender even when the user's
-        // focused window is ayu-jetbrains. Reading the focused project here aligns the write with
-        // what the user actually sees. Falls back to THIS project when focus cascade hasn't settled
-        // yet (single-project launch or pre-focus-manager startup).
-        //
-        // Dispatch to the EDT: every step in this triplet has an EDT precondition.
-        //  - AccentApplicator.resolveFocusedProject and applyForFocusedProject are
-        //    @RequiresEdt — they traverse WindowManager, IdeFocusManager,
-        //    ProjectManager, all EDT-only APIs.
-        //  - AccentApplicator.apply self-dispatches only the step plan (see the
-        //    "Threading contract" section of its KDoc): the inner
-        //    AccentApplyPlanRunner hop batches the UIManager/editor writes and
-        //    does not rescue anything that runs before it.
-        //  - ProjectAccentSwapService.install registers an AWT listener whose
-        //    WINDOW_ACTIVATED handler expects to fire after the initial apply's
-        //    UIManager state is visible; calling it off the EDT would let the first
-        //    real activation race an in-flight apply.
-        //  - ProjectAccentSwapService.notifyExternalApply is a clean-flag-gated
-        //    volatile write with no dispatch; per applyForFocusedProject's EDT-only
-        //    KDoc paragraph callers must already be on the EDT so the lastAppliedHex
-        //    cache publishes in the same ordering as the apply — otherwise the first
-        //    WINDOW_ACTIVATED after startup would re-apply the same color it just
-        //    painted.
-        // ProjectActivity.execute runs on a background coroutine, so the full
-        // compute-apply-publish triplet must be wrapped in a single EDT block.
-        // Isolate the triplet so a throw in resolveFocusedProject / apply /
-        // install / notifyExternalApply doesn't abort the rest of startup
-        // (font preset apply, language-detector warmup, ModuleRootListener
-        // subscribe, scrollbar manager init, ComponentTreeRefresher,
-        // ConflictRegistry, license checks, onboarding). Extracted into
-        // `runStartupAccentOnEdt` to keep `execute` within detekt's cyclomatic
-        // complexity budget.
-        runStartupAccentOnEdt(project, variant)
-
-        // Warm the language-detector cache so Settings → Accent → Overrides
-        // shows real per-language proportions on first open. Gated on language
-        // resolution work the resolver may actually do: exact language overrides
-        // or language fallback. Users with no language pins/fallback never paid
-        // for the scan before this feature landed, and still shouldn't pay for
-        // it just because the Settings panel has a new informational row. Both
-        // the `AccentMappingsSettings` state read and the detector call run
-        // under the same runCatching so a transient failure in either (corrupt
-        // persistent-state XML, plugin unload race, disposed scanner, etc.)
-        // can't short-circuit the rest of startup — ModuleRootListener
-        // subscription, font-preset apply, license checks, and onboarding all
-        // live below this block.
-        runCatchingPreservingCancellation {
-            val mappings = AccentMappingsSettings.getInstance().state
-            if (shouldWarmLanguageDetector(mappings)) {
-                ProjectLanguageDetector.dominant(project)
-            }
-        }.onFailure { exception ->
-            LOG.warn("Language detector warmup failed; will retry on next resolve", exception)
-        }
-
-        // Drop the language-detector cache when the project's module / content-root
-        // structure changes (gradle sync adds a module, user edits sourceSets, etc.)
-        // so the next language-override resolution re-scans instead of serving a stale
-        // dominant language from a scan taken before the change. The subscription is
-        // owned by a project service disposable, not the Project itself.
-        ProjectLanguageRootChangeListener.getInstance(project)
-
-        // Focus-swap listener install() + cache sync via notifyExternalApply(hex)
-        // are now inside the withContext(Dispatchers.EDT) block above so they share an
-        // atomic EDT turn with the initial apply — see that block's KDoc for the
-        // ordering rationale.
-
-        // Eager-instantiate per-project scrollbar managers BEFORE firing the first refresh event.
-        // Their init{} blocks subscribe to ComponentTreeRefreshedTopic; without this, the
-        // walkAndNotify below publishes into an empty subscriber list and the managers — lazily
-        // created later by StartupLicenseHandler.initWorkspaceServices on a subsequent EDT turn —
-        // miss the initial refresh (plus any editors already opened before they subscribed to
-        // EditorFactoryListener). Services are no-op when their toggles are off and are cheap to
-        // instantiate, so gating on settings would only add complexity.
-        EditorScrollbarManager.getInstance(project)
-        ProjectViewScrollbarManager.getInstance(project)
-
-        // Force a component-tree LAF refresh on the project frame so already-rendered toolbar,
-        // tab underlines, scrollbar chrome, and focus rings pick up the resolved accent.
-        // AccentApplicator only updates UIManager + editor scheme; cached JBColor instances on
-        // already-painted components otherwise keep the global-accent values they captured when
-        // the frame first rendered.
-        scheduleFrameRefresh(project)
-
-        // Apply persisted font preset (FontPresetApplicator ensures EDT internally)
-        // Migrate legacy preset names (GLOW_WRITER→WHISPER, CLEAN→AMBIENT, etc.)
-        migrateFontPresets(settings.state)
-
-        // Seed installedFonts from the JVM font registry on first run so returning
-        // users who pre-installed via the Settings panel aren't re-prompted by the wizard.
-        settings.seedInstalledFontsFromDiskIfNeeded()
-
-        FontPresetApplicator.applyFromState()
-
-        // Log detected third-party plugin conflicts
+        if (shouldWarmLanguageDetector(view.mappings)) ProjectLanguageDetector.dominant(project)
+        val delayMs = StartupLicenseHandler.computeAdaptiveDelay()
+        StartupLicenseHandler.start(project, graph, isReturningUser, delayMs)
+        if (AyuVariant.fromThemeName(themeName) == null) return
         val conflicts = ConflictRegistry.detectConflicts()
         if (conflicts.isNotEmpty()) {
             LOG.info("Ayu Islands detected third-party plugins: ${conflicts.joinToString { it.pluginDisplayName }}")
         }
-
-        // Snapshot BEFORE UpdateNotifier can mutate it (prevents fresh-install false positive)
-        val isReturningUser = settings.state.lastSeenVersion != null
-
-        // Check license state and initialize workspace services (inside EDT callback)
-        checkLicenseState(project, settings, isReturningUser)
-
-        // Auto-switch theme to match macOS Light/Dark mode
-        if (settings.state.followSystemAppearance) {
-            AppearanceSyncService.getInstance().syncIfNeeded()
-        }
-
-        // Show a one-time update notification if the plugin version changed
-        SwingUtilities.invokeLater { UpdateNotifier.showIfUpdated(project) }
-
-        // Reapply persisted syntax intensity once the IDE has registered schemes,
-        // then show the one-shot migration notification for the preset row.
-        // The notification fires exactly once per install via a distinct
-        // PropertiesComponent flag (`ayu.syntax.intensity.notified`) so users
-        // who saw the prior syntax notification still receive this message.
-        dispatchWriteSafe { SyntaxIntensityService.getInstance().reapplyForActiveLaf() }
-        dispatchWriteSafe { SyntaxIntensityMigrationNotifier.maybeFire(project) }
-
-        // Initialize the glow overlay system if the glow is enabled
-        // Uses ApplicationManager.invokeLater with project.disposed condition to skip
-        // if the project closes before the EDT processes this (execute() runs on a background coroutine)
-        if (settings.state.glowEnabled) {
-            ApplicationManager.getApplication().invokeLater(
-                { GlowOverlayManager.getInstance(project).initialize() },
-                project.disposed,
-            )
-        }
-
-        runStep("apply-persisted-vcs-colors") { applyPersistedVcsColors(settings) }
-    }
-
-    private suspend fun initializeExternalThemeIfEnabled(
-        project: Project,
-        settings: AyuIslandsSettings,
-    ) {
-        if (settings.state.externalThemeEnhancementsEnabled) {
-            runStartupAccentOnEdt(project, AccentContext.External)
-        }
-        initializeExternalGlowIfEnabled(project, settings)
-    }
-
-    private fun initializeExternalGlowIfEnabled(
-        project: Project,
-        settings: AyuIslandsSettings,
-    ) {
-        if (!settings.state.isExternalGlowAllowed()) return
-
-        ApplicationManager.getApplication().invokeLater(
-            { GlowOverlayManager.getInstance(project).initialize() },
-            project.disposed,
-        )
-    }
-
-    /**
-     * Re-apply persisted VCS color customization. Extracted from [execute] so the
-     * cyclomatic complexity stays under detekt's threshold — mirrors
-     * [runStartupAccentOnEdt]'s extraction rationale.
-     *
-     * Two gates here:
-     *  1. Master toggle — when off, [com.intellij.openapi.editor.colors.EditorColorsScheme]
-     *     has no plugin-owned VCS color writes to restore, so we skip the apply entirely.
-     *  2. License — a Pro user whose license expired between sessions sees their
-     *     VCS tinting revert to stock on the first post-expiry startup. Without
-     *     this gate we'd silently keep painting premium colors after a downgrade.
-     */
-    private fun applyPersistedVcsColors(settings: AyuIslandsSettings) {
-        if (settings.state.vcsColorEnabled && LicenseChecker.isLicensedOrGrace()) {
-            VcsColorApplier.applyAll()
-        }
-    }
-
-    /**
-     * EDT triplet that must run atomically to avoid startup races: resolve the
-     * focused project, apply the accent, then install the focus-swap listener
-     * and publish the swap cache. Split from [execute] to keep cyclomatic
-     * complexity under detekt's threshold and to let the tests exercise this
-     * sequence in isolation.
-     *
-     * Design invariants:
-     *  - Capture projectName BEFORE the EDT hop so a mid-hop `project.isDisposed`
-     *    race cannot NPE inside the error logger and swallow the original
-     *    exception.
-     *  - Split apply-vs-install into two [runCatchingPreservingCancellation]
-     *    blocks so the ERROR message pins which half failed — apply fail is a
-     *    visual regression the user sees; install fail silently disables
-     *    focus-swap cycling for the session.
-     *  - Bail early if project/application already disposed to avoid hitting
-     *    platform APIs that rewrap PCE as AlreadyDisposedException, which the
-     *    coroutine cancellation helper can't unwrap.
-     */
-    private suspend fun runStartupAccentOnEdt(
-        project: Project,
-        variant: AyuVariant,
-    ) {
-        runStartupAccentOnEdt(project, AccentContext.Ayu(variant))
-    }
-
-    private suspend fun runStartupAccentOnEdt(
-        project: Project,
-        context: AccentContext,
-    ) {
-        // Narrow the projectName capture catch to RuntimeException so
-        // CancellationException propagates instead of being swallowed into
-        // the "<disposed>" fallback. `project.name` access is non-suspend;
-        // catching Throwable here would be asymmetric with every other catch
-        // in this file.
-        val projectName =
-            try {
-                project.name
-            } catch (exception: RuntimeException) {
-                LOG.debug(
-                    "Startup projectName capture failed; using <disposed> fallback",
-                    exception,
-                )
-                "<disposed>"
-            }
         withContext(Dispatchers.EDT) {
-            if (project.isDisposed || ApplicationManager.getApplication().isDisposed) {
-                return@withContext
-            }
-            val applyOutcome =
-                runCatchingPreservingCancellation {
-                    val focusedProject = AccentApplicator.resolveFocusedProject() ?: project
-                    val resolved = AccentResolver.resolve(focusedProject, context)
-                    AccentApplicator.applyFromHexString(resolved).takeUnless { it is AccentApplyOutcome.Rejected }
-                }
-            applyOutcome.onFailure { exception ->
-                LOG.error(
-                    "Startup accent apply failed for project '$projectName'; " +
-                        "chrome may look un-themed until the next user-triggered apply",
-                    exception,
-                )
-            }
-            val outcome = applyOutcome.getOrNull()
-            if (outcome == null) {
-                // Rejection and thrown failure both skip listener installation.
-                if (applyOutcome.isSuccess) {
-                    LOG.warn(
-                        "Startup accent apply was rejected by applyFromHexString " +
-                            "for project '$projectName'; skipping swap install/notify",
-                    )
-                }
-                return@withContext
-            }
-            // Split install from notifyExternalApply so the ERROR message honestly
-            // describes what's broken. Bundling them under one catch meant an
-            // install-success + notify-failure combination logged "focus-swap
-            // cycling will be inert" — factually wrong, because the listener IS
-            // live; only the swap-cache publish step failed, so the first
-            // activation will redundantly re-apply but the cycling itself works.
-            val swapService = ProjectAccentSwapService.getInstance()
-            val installed =
-                runCatchingPreservingCancellation {
-                    swapService.install()
-                }.onFailure { exception ->
-                    LOG.error(
-                        "Startup accent-swap install failed for project '$projectName' " +
-                            "AFTER an accepted accent request; multi-project focus-swap cycling " +
-                            "will be inert this session until the user re-triggers apply",
-                        exception,
-                    )
-                }.isSuccess
-            if (!installed) return@withContext
-            runCatchingPreservingCancellation {
-                swapService.notifyExternalApply(outcome)
-            }.onFailure { exception ->
-                LOG.error(
-                    "Startup accent-swap cache publish (notifyExternalApply) failed for " +
-                        "project '$projectName' AFTER a successful install; the listener " +
-                        "is live but the first WINDOW_ACTIVATED will redundantly re-apply",
-                    exception,
-                )
-            }
+            if (project.isDisposed) return@withContext
+            if (view.settings.followSystemAppearance) graph.runtimeBinding.systemAppearanceChanged().join()
+            runStep("update-notification") { UpdateNotifier.showIfUpdated(project) }
+            runStep("syntax-migration-notification") { SyntaxIntensityMigrationNotifier.maybeFire(project) }
         }
     }
 
-    private fun checkLicenseState(
-        project: Project,
-        settings: AyuIslandsSettings,
-        isReturningUser: Boolean,
-    ) {
-        val observedEntitlement = entitlementProvider()
-        LOG.info("Ayu Islands license check: ${observedEntitlement.name.lowercase()}")
+    private fun registerProjectOwners(project: Project) {
+        if (project.isDisposed || ApplicationManager.getApplication().isDisposed) return
+        ScanCompletionAccentRefresher.getInstance(project)
+        ProjectLanguageRootChangeListener.getInstance(project)
+        ProjectAccentSwapService.getInstance().install()
+        EditorScrollbarManager.getInstance(project)
+        ProjectViewScrollbarManager.getInstance(project)
+        CommitPanelAutoFitManager.getInstance(project)
+        GitPanelAutoFitManager.getInstance(project)
+    }
 
-        val trialDays = LicenseChecker.getTrialDaysRemaining()
-        if (trialDays != null) {
-            LOG.info("Ayu Islands trial: $trialDays days remaining")
-        }
-
-        // Compute adaptive delay on background thread (execute() coroutine)
-        val adaptiveDelayMs = StartupLicenseHandler.computeAdaptiveDelay()
-
-        // Each step runs under its own named try/catch so an exception in one stage doesn't
-        // mask the others and the log line identifies which step actually broke. A single
-        // catch used to produce a generic "License defaults failed" with no way to tell
-        // whether migration, orchestrator routing, defaults, workspace init, wizard
-        // scheduling, or trial warning blew up.
-        dispatchWriteSafe {
-            requestEntitlement(
-                observedEntitlement,
-                entitlementProvider,
-                onFailure = { failure ->
-                    LOG.warn("Deferred startup entitlement workflow failed; retrying", failure)
-                    scheduleStartupCheck(RECONCILIATION_RETRY_MS)
-                },
-            ) { confirmedEntitlement ->
-                if (project.isDisposed) return@requestEntitlement
-                var wizardAction: WizardAction? = null
-
-                runStep("onboarding-migration") { StartupLicenseHandler.runOnboardingMigration(settings) }
-                if (confirmedEntitlement != LicenseEntitlement.UNKNOWN) {
-                    wizardAction =
-                        applyDefinitiveEntitlement(
-                            entitlement = confirmedEntitlement,
-                            project = project,
-                            settings = settings,
-                            isReturningUser = isReturningUser,
-                        )
-                }
-                runStep("migrate-width-modes") { settings.state.migrateWidthModes() }
-                runStep("init-workspace-services") { StartupLicenseHandler.initWorkspaceServices(project, settings) }
-                runStep("reconcile-entitlement") {
-                    val deferredEntitlement =
-                        if (confirmedEntitlement == LicenseEntitlement.UNKNOWN) {
-                            deferredWorkflow(settings, isReturningUser, adaptiveDelayMs)
-                        } else {
-                            null
-                        }
-                    reconcileAtStartup(confirmedEntitlement, listOf(project), deferredEntitlement)
-                }
-                runStep("handle-wizard-action") {
-                    wizardAction?.let {
-                        StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
-                    }
-                }
-                if (confirmedEntitlement == LicenseEntitlement.LICENSED) {
-                    runStep("check-trial-expiry") { LicenseChecker.checkTrialExpiryWarning(project) }
-                }
+    private suspend fun seedFonts(graph: StudioApplicationGraph) {
+        val document = graph.sessions?.document ?: return
+        val settings = requireNotNull(StudioLegacyProjection.project(document, StudioTarget.Global)).settings
+        if (settings.installedFontsSeeded) return
+        val families =
+            try {
+                StudioFonts.availableFamilies()
+            } catch (failure: RuntimeException) {
+                failure.rethrowIfCancelled()
+                LOG.warn("Unable to seed installed fonts from the native registry", failure)
+                null
             }
-        }
+        graph.submitMetadata(StudioMetadataCommand.SeedFonts(families?.let(::StudioList)))
     }
 
-    private fun dispatchWriteSafe(action: Runnable) {
-        val application = ApplicationManager.getApplication()
-        if (application == null) {
-            SwingUtilities.invokeLater(action)
-            return
-        }
-        application.invokeLater(action, ModalityState.nonModal())
-    }
-
-    private fun scheduleFrameRefresh(project: Project) {
-        dispatchWriteSafe {
-            val frame = WindowManager.getInstance().getFrame(project) ?: return@dispatchWriteSafe
-            ComponentTreeRefresher.walkAndNotify(project, frame)
-        }
-    }
-
-    private fun applyDefinitiveEntitlement(
-        entitlement: LicenseEntitlement,
-        project: Project,
-        settings: AyuIslandsSettings,
-        isReturningUser: Boolean,
-    ): WizardAction? {
-        var wizardAction: WizardAction? = null
-        runStep("resolve-onboarding") {
-            wizardAction =
-                StartupLicenseHandler.resolveOnboarding(
-                    entitlement == LicenseEntitlement.LICENSED,
-                    settings,
-                    isReturningUser,
-                )
-        }
-        runStep("apply-entitlement") {
-            StartupLicenseHandler.applyEntitlement(entitlement, project, settings)
-        }
-        return wizardAction
-    }
-
-    private fun deferredWorkflow(
-        settings: AyuIslandsSettings,
-        isReturningUser: Boolean,
-        adaptiveDelayMs: Int,
-    ): (LicenseEntitlement, List<Project>) -> Boolean {
-        var resolvedEntitlement: LicenseEntitlement? = null
-        var appliedEntitlement: LicenseEntitlement? = null
-        var wizardAction: WizardAction? = null
-        var isWizardHandled = false
-        var isTrialChecked = false
-
-        return workflow@{ entitlement, projects ->
-            val project = projects.firstOrNull { !it.isDisposed } ?: return@workflow false
-            if (resolvedEntitlement != entitlement) {
-                runStep("resolve-onboarding") {
-                    wizardAction =
-                        StartupLicenseHandler.resolveOnboarding(
-                            entitlement == LicenseEntitlement.LICENSED,
-                            settings,
-                            isReturningUser,
-                        )
-                    resolvedEntitlement = entitlement
-                    isWizardHandled = false
-                }
-            }
-            if (appliedEntitlement != entitlement) {
-                runStep("apply-entitlement") {
-                    StartupLicenseHandler.applyEntitlement(entitlement, project, settings)
-                    appliedEntitlement = entitlement
-                    isTrialChecked = entitlement != LicenseEntitlement.LICENSED
-                }
-            }
-            if (resolvedEntitlement != entitlement || appliedEntitlement != entitlement) return@workflow false
-            if (!isWizardHandled) {
-                isWizardHandled =
-                    runStep("handle-wizard-action") {
-                        wizardAction?.let {
-                            StartupLicenseHandler.handleWizardAction(it, project, adaptiveDelayMs)
-                        }
-                    }
-            }
-            if (!isTrialChecked) {
-                isTrialChecked =
-                    runStep("check-trial-expiry") {
-                        LicenseChecker.checkTrialExpiryWarning(project)
-                    }
-            }
-            isWizardHandled && isTrialChecked
-        }
-    }
-
-    private fun reconcileAtStartup(
-        entitlement: LicenseEntitlement,
-        projects: List<Project>,
-        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
-    ) {
-        if (entitlement == LicenseEntitlement.UNKNOWN) {
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
-            return
-        }
-        val result = reconcileWithRetry(entitlement, projects) ?: return
-        scheduleNextStartupCheck(entitlement, result)
-    }
-
-    private fun scheduleStartupCheck(
-        delayMs: Long,
-        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
-    ) {
-        scheduleRecheck(delayMs) {
-            runScheduledStartupCheck(onDefinitiveEntitlement)
-        }
-    }
-
-    private fun runScheduledStartupCheck(
-        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
-    ) {
-        val observed = entitlementProvider()
-        requestEntitlement(
-            observed,
-            entitlementProvider,
-            onFailure = { failure ->
-                LOG.warn("Deferred startup reconciliation failed; retrying", failure)
-                scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
-            },
-        ) { entitlement ->
-            if (entitlement == LicenseEntitlement.UNKNOWN) {
-                scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
-                return@requestEntitlement
-            }
-            val projects =
-                try {
-                    projectsProvider().filterNot(Project::isDisposed)
-                } catch (exception: RuntimeException) {
-                    LOG.warn(
-                        "Scheduled license reconciliation could not discover current projects; retrying",
-                        exception,
-                    )
-                    scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
-                    return@requestEntitlement
-                }
-            val isWorkflowComplete = onDefinitiveEntitlement?.invoke(entitlement, projects) ?: true
-            val pendingWorkflow = onDefinitiveEntitlement?.takeUnless { isWorkflowComplete }
-            val result = reconcileWithRetry(entitlement, projects, pendingWorkflow) ?: return@requestEntitlement
-            if (pendingWorkflow != null) {
-                scheduleStartupCheck(RECONCILIATION_RETRY_MS, pendingWorkflow)
-                return@requestEntitlement
-            }
-            scheduleNextStartupCheck(entitlement, result)
-        }
-    }
-
-    private fun scheduleNextStartupCheck(
-        entitlement: LicenseEntitlement,
-        result: ReconciliationResult,
-    ) {
-        when {
-            !result.isSuccess -> scheduleStartupCheck(RECONCILIATION_RETRY_MS)
-            entitlement == LicenseEntitlement.LICENSED ->
-                recheckDelayProvider()?.let(::scheduleStartupCheck)
-        }
-    }
-
-    private fun reconcileWithRetry(
-        entitlement: LicenseEntitlement,
-        projects: Iterable<Project>,
-        onDefinitiveEntitlement: ((LicenseEntitlement, List<Project>) -> Boolean)? = null,
-    ): ReconciliationResult? =
-        try {
-            reconcile(entitlement, projects)
-        } catch (exception: RuntimeException) {
-            LOG.warn("License reconciliation threw before returning a result; retrying", exception)
-            scheduleStartupCheck(RECONCILIATION_RETRY_MS, onDefinitiveEntitlement)
-            null
-        }
-
-    @org.jetbrains.annotations.TestOnly
-    internal fun reconcileForTest(
-        entitlement: LicenseEntitlement,
-        projects: List<Project>,
-    ) = reconcileAtStartup(entitlement, projects)
-
-    /**
-     * Invokes [block] with fine-grained error handling so each startup step gets its own
-     * log line, and the JVM's error-escalation path stays intact for genuinely fatal errors.
-     *
-     * Most production call sites (the license-handling block in [checkLicenseState]
-     * and friends) run inside `Application.invokeLater`, so the surrounding
-     * [Runnable] is dispatched by `IdeEventQueue`. The `apply-persisted-vcs-colors` step
-     * runs from the coroutine body of [execute] instead — RuntimeException semantics
-     * are identical regardless of thread context:
-     *
-     *  - [RuntimeException] — logged, swallowed; the next step runs.
-     *  - [VirtualMachineError] (OutOfMemoryError, StackOverflowError, InternalError,
-     *    UnknownError) — logged and rethrown. These indicate the JVM is in an unrecoverable
-     *    state; any further work is undefined behavior. Rethrowing surfaces the error back
-     *    to `IdeEventQueue.dispatchException`, which logs at ERROR and may surface a
-     *    fatal-error dialog — the one place a VM-level failure should still be visible.
-     *  - Other [Error] (NoClassDefFoundError, LinkageError, ExceptionInInitializerError,
-     *    AssertionError) — logged, swallowed; the next step runs. These usually indicate
-     *    a class-loading or static-initializer problem in an individual step's transitive
-     *    closure (e.g. a lazily-loaded service whose class body references a renamed
-     *    platform API, surfacing as `NoClassDefFoundError` only once that service is first
-     *    touched); the plugin's other startup steps should continue independently.
-     */
     @Suppress("TooGenericExceptionCaught") // VM error rethrown; generic Error logged-and-continue
-    private inline fun runStep(
-        name: String,
-        block: () -> Unit,
-    ): Boolean =
+    private inline fun runStep(name: String, block: () -> Unit): Boolean =
         try {
             block()
             true
-        } catch (exception: RuntimeException) {
-            LOG.error("License startup step '$name' failed", exception)
+        } catch (failure: RuntimeException) {
+            failure.rethrowIfCancelled()
+            LOG.error("Ayu startup step '$name' failed", failure)
             false
-        } catch (error: VirtualMachineError) {
-            LOG.error("License startup step '$name' failed with VM error", error)
-            throw error
-        } catch (error: Error) {
-            LOG.error("License startup step '$name' failed with Error", error)
+        } catch (failure: VirtualMachineError) {
+            LOG.error("Ayu startup step '$name' failed with VM error", failure)
+            throw failure
+        } catch (failure: Error) {
+            LOG.error("Ayu startup step '$name' failed with Error", failure)
             false
         }
 
-    /**
-     * Test-only hook around [runStep]. Private functions are unreachable from test classes
-     * in other packages; this thin wrapper exposes the catch semantics without widening
-     * [runStep] itself.
-     */
     @org.jetbrains.annotations.TestOnly
     internal fun runStepForTest(
         name: String,
         block: () -> Unit,
-    ) = runStep(name, block)
+    ): Boolean = runStep(name, block)
 
-    private fun shouldWarmLanguageDetector(state: AccentMappingsState): Boolean =
+    internal fun shouldWarmLanguageDetector(state: AccentMappingsView): Boolean =
         state.languageAccents.isNotEmpty() || !state.languageFallbackAccent.isNullOrBlank()
 
-    @org.jetbrains.annotations.TestOnly
-    internal fun shouldWarmLanguageDetectorForTest(state: AccentMappingsState): Boolean =
-        shouldWarmLanguageDetector(state)
-
-    companion object {
-        private const val RECONCILIATION_RETRY_MS = 5_000L
-        private val LOG = logger<AyuIslandsStartupActivity>()
+    private companion object {
+        val LOG = logger<AyuIslandsStartupActivity>()
     }
-}
-
-internal fun migrateFontPresets(state: AyuIslandsState) {
-    state.fontPresetName = FontPreset.migrateName(state.fontPresetName)
-    FontPreset.migrateCustomizations(state.fontPresetCustomizations)
 }

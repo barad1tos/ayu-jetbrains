@@ -11,6 +11,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 
 /**
  * Locks the exact [ProjectLanguageDetector] call pattern per lookup strategy.
@@ -36,6 +37,26 @@ class AccentDetectorLookupTest {
     }
 
     // CacheOnlyLookup
+
+    @Test
+    fun `snapshot lookup consults its explicit reader once and shares it across both rungs`() {
+        var reads = 0
+        val expected = ProjectLanguageVerdict.NoWinner(mapOf("kotlin" to 500L, "java" to 500L))
+        val lookup =
+            AccentDetectorLookup.SnapshotLookup(shouldReadFallbackEarly = true) { observed ->
+                assertSame(project, observed)
+                reads++
+                expected
+            }
+        assertNull(lookup.languageRungVerdict(project, hasLanguageCandidate = false, hasFallbackCandidate = false))
+        assertEquals(0, reads)
+        val language = lookup.languageRungVerdict(project, hasLanguageCandidate = false, hasFallbackCandidate = true)
+        assertSame(expected, language)
+        assertSame(expected, lookup.fallbackRungVerdict(project, languageRungVerdict = null))
+        assertSame(expected, lookup.snapshotVerdict(project))
+        assertEquals(1, reads)
+        verify(exactly = 0) { ProjectLanguageDetector.verdict(project, any<Boolean>()) }
+    }
 
     @Test
     fun `cache-only language rung reads the cached verdict when language candidates exist`() {

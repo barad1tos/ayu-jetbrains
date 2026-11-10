@@ -89,7 +89,7 @@ def check_changelog_cross_ref(data: dict[str, Any], report: Report) -> None:
 
 
 def check_semantic_release_policy(data: dict[str, Any], report: Report) -> None:
-    """Invariant 7: features.yml drives semantic patch/minor release bumps."""
+    """Invariant 7: new features require one minor or major step; fix-only releases require one patch."""
     latest, previous = extract_latest_and_previous_changelog_sections()
     plugin_version = read_plugin_version()
     if plugin_version is None:
@@ -131,8 +131,8 @@ def check_semantic_release_policy(data: dict[str, Any], report: Report) -> None:
         for feature in iter_features(data)
         if feature.get("introduced") == latest.version
     ]
-    expected_bump = "minor" if latest_features else "patch"
-    if actual_bump == expected_bump:
+    allowed_bumps = {"minor", "major"} if latest_features else {"patch"}
+    if actual_bump in allowed_bumps:
         return
 
     if latest_features:
@@ -142,7 +142,7 @@ def check_semantic_release_policy(data: dict[str, Any], report: Report) -> None:
         report.error(
             "_release_semantics_",
             f"features.yml has feature(s) introduced in {latest.version} "
-            f"({feature_ids}), so semantic policy expects a minor bump from "
+            f"({feature_ids}), so semantic policy expects a minor or major bump from "
             f"{previous.version}; actual bump is {actual_bump}.",
         )
         return

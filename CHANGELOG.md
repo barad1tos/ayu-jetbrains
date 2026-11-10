@@ -1,5 +1,27 @@
 # Changelog
 
+## [3.0.0] - 2026-11-09
+
+- [Free] **Work Profiles** — start with Whisper, Ambient, Neon, or Cyberpunk,
+  or save your own named appearance. Choose a profile in Settings or the
+  Quick-Switcher. Profile management is free; included features keep their
+  existing Free or Pro requirements.
+- [Free] **Redesigned Settings** — the familiar Accent, Font, Glow, Syntax,
+  VCS, Workspace, and Plugins sections share a compact layout. Changes appear
+  immediately in local previews, with Current and Draft comparison. Apply
+  commits your choices; Cancel leaves the accepted appearance unchanged.
+- [Fix] **Keep your 2.x setup** — existing appearance migrates to Custom,
+  preserving rotation, Glow shapes and intensities, fonts, syntax tuning,
+  project and language mappings, and shared settings. Opening the new panel
+  does not replace your choices with a starter profile.
+- [Fix] **Preserve choices when toggling effects** — Quick-Switcher and
+  Settings toggles enable or disable effects without resetting their saved
+  styles, per-surface selections, or intensities.
+- [Fix] **Consistent appearance changes** — failed or interrupted changes
+  recover across editor colors, fonts, Glow, accents, and workspace effects
+  while retaining settings changed elsewhere. A recovery that needs attention
+  stays visible and can be retried.
+
 ## [2.8.9] - 2026-10-29
 
 - [Free] **Keep native accents on external themes** — fixes the inability to

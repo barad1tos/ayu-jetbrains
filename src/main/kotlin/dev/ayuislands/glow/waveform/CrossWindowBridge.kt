@@ -73,12 +73,17 @@ internal class CrossWindowBridge(
     private var routeLayer: WaveformRouteLayer? = null
     private var windowOwner: Window? = null
     private var connectorId: RouteConnectorId? = null
-    private var visible = false
-    private var disposed = false
+    private var state = State.HIDDEN
     private val failedConnectors = mutableSetOf<RouteConnectorId>()
 
     val isVisible: Boolean
-        get() = visible
+        get() = state == State.VISIBLE
+
+    val hasPendingCleanup: Boolean
+        get() = state == State.CLEANUP_PENDING
+
+    private val isRetired: Boolean
+        get() = state == State.CLEANUP_PENDING || state == State.CLOSED
 
     @RequiresEdt
     fun show(
@@ -97,11 +102,7 @@ internal class CrossWindowBridge(
         slices: List<RouteSlice>,
         style: RouteLayerStyle,
     ) {
-        if (disposed) return
-        if (connector.id in failedConnectors) {
-            hide()
-            return
-        }
+        if (isRetired) return
         if (!owner.isDisplayable) {
             hide()
             return
@@ -133,15 +134,7 @@ internal class CrossWindowBridge(
                 slices = visibleSlices.map { slice -> localSlice(slice, bounds) },
                 surfaceBounds = emptyMap(),
             )
-            if (disposed) return
-            if (!visible) {
-                window.isVisible = true
-                if (!makeClickThrough(window)) {
-                    fail(connector.id, IllegalStateException("Native bridge input transparency is unavailable"))
-                    return
-                }
-            }
-            visible = true
+            revealWindow(window, connector.id)
         } catch (exception: RuntimeException) {
             fail(connector.id, exception)
         } catch (error: AWTError) {
@@ -151,13 +144,29 @@ internal class CrossWindowBridge(
         }
     }
 
+    private fun revealWindow(
+        window: JWindow,
+        targetId: RouteConnectorId,
+    ) {
+        if (isRetired) return
+        if (!isVisible) {
+            window.isVisible = true
+            if (isRetired) return
+            if (!makeClickThrough(window)) {
+                fail(targetId, IllegalStateException("Native bridge input transparency is unavailable"))
+                return
+            }
+        }
+        if (!isRetired) state = State.VISIBLE
+    }
+
     @RequiresEdt
     fun hide() {
-        if (disposed || !visible) return
+        if (!isVisible) return
         try {
             routeLayer?.clearFrame()
             nativeWindow?.isVisible = false
-            visible = false
+            if (!isRetired) state = State.HIDDEN
         } catch (exception: RuntimeException) {
             fail(connectorId, exception)
         } catch (error: AWTError) {
@@ -169,25 +178,31 @@ internal class CrossWindowBridge(
 
     @RequiresEdt
     override fun dispose() {
-        if (disposed) return
-        disposed = true
+        if (state == State.CLOSED) return
+        state = State.CLEANUP_PENDING
         try {
             closeWindow()
         } catch (exception: RuntimeException) {
-            containDisposeFailure(exception)
+            LOG.warn(DISPOSE_FAILURE, exception)
         } catch (error: AWTError) {
-            containDisposeFailure(error)
+            LOG.warn(DISPOSE_FAILURE, error)
         } catch (error: LinkageError) {
-            containDisposeFailure(error)
+            LOG.warn(DISPOSE_FAILURE, error)
         }
     }
 
     private fun windowFor(owner: Window): JWindow? {
         if (windowOwner === owner) return requireNotNull(nativeWindow)
         closeWindow()
-        val layer =
+        if (isRetired) return null
+        lateinit var layer: WaveformRouteLayer
+        layer =
             WaveformRouteLayer(BRIDGE_ROOT_ID) { exception ->
-                fail(connectorId, exception)
+                if (routeLayer === layer) {
+                    fail(connectorId, exception)
+                } else {
+                    LOG.warn("Retired cross-window waveform layer failed", exception)
+                }
             }
         val window = createWindow(owner)
         nativeWindow = window
@@ -208,10 +223,25 @@ internal class CrossWindowBridge(
     }
 
     private fun closeWindow() {
-        routeLayer?.clearFrame()
-        nativeWindow?.let { window ->
-            window.isVisible = false
-            window.dispose()
+        val layer = routeLayer
+        val window = nativeWindow
+        val steps = listOf<() -> Unit>({ layer?.clearFrame() }, { window?.isVisible = false }, { window?.dispose() })
+        val failures =
+            steps.mapNotNull { cleanup ->
+                try {
+                    cleanup()
+                    null
+                } catch (exception: RuntimeException) {
+                    exception
+                } catch (error: AWTError) {
+                    error
+                } catch (error: LinkageError) {
+                    error
+                }
+            }
+        failures.firstOrNull()?.let { first ->
+            failures.drop(1).filterNot { it === first }.forEach(first::addSuppressed)
+            throw first
         }
         clearWindowState()
     }
@@ -220,24 +250,9 @@ internal class CrossWindowBridge(
         failedConnectorId: RouteConnectorId?,
         failure: Throwable,
     ) {
-        disposeFailedWindow(failure)
-        if (failedConnectorId == null) {
-            LOG.warn("Cross-window waveform bridge failed before connector binding", failure)
-            return
-        }
-        if (!failedConnectors.add(failedConnectorId)) return
-        LOG.warn("Cross-window waveform bridge failed for connector=$failedConnectorId", failure)
-        onFailure(failedConnectorId)
-    }
-
-    private fun containDisposeFailure(failure: Throwable) {
-        disposeFailedWindow(failure)
-        LOG.warn("Failed to dispose cross-window waveform bridge", failure)
-    }
-
-    private fun disposeFailedWindow(failure: Throwable) {
+        state = State.CLEANUP_PENDING
         try {
-            routeLayer?.clearFrame()
+            closeWindow()
         } catch (exception: RuntimeException) {
             addCleanupFailure(failure, exception)
         } catch (error: AWTError) {
@@ -245,27 +260,13 @@ internal class CrossWindowBridge(
         } catch (error: LinkageError) {
             addCleanupFailure(failure, error)
         }
-        nativeWindow?.let { window ->
-            try {
-                window.isVisible = false
-            } catch (exception: RuntimeException) {
-                addCleanupFailure(failure, exception)
-            } catch (error: AWTError) {
-                addCleanupFailure(failure, error)
-            } catch (error: LinkageError) {
-                addCleanupFailure(failure, error)
-            }
-            try {
-                window.dispose()
-            } catch (exception: RuntimeException) {
-                addCleanupFailure(failure, exception)
-            } catch (error: AWTError) {
-                addCleanupFailure(failure, error)
-            } catch (error: LinkageError) {
-                addCleanupFailure(failure, error)
-            }
+        if (failedConnectorId == null) {
+            LOG.warn("Cross-window waveform bridge failed before connector binding", failure)
+            return
         }
-        clearWindowState()
+        if (!failedConnectors.add(failedConnectorId)) return
+        LOG.warn("Cross-window waveform bridge failed for connector=$failedConnectorId", failure)
+        onFailure(failedConnectorId)
     }
 
     private fun addCleanupFailure(
@@ -281,7 +282,14 @@ internal class CrossWindowBridge(
         nativeWindow = null
         routeLayer = null
         windowOwner = null
-        visible = false
+        state = if (isRetired) State.CLOSED else State.HIDDEN
+    }
+
+    private enum class State {
+        HIDDEN,
+        VISIBLE,
+        CLEANUP_PENDING,
+        CLOSED,
     }
 
     private fun bridgeBounds(
@@ -319,6 +327,7 @@ internal class CrossWindowBridge(
         )
 
     private companion object {
+        const val DISPOSE_FAILURE = "Failed to dispose cross-window waveform bridge"
         val TRANSPARENT = JBColor(Color(0, 0, 0, 0), Color(0, 0, 0, 0))
         val BRIDGE_ROOT_ID = RouteRootId(0)
         val LOG = logger<CrossWindowBridge>()

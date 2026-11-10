@@ -1,31 +1,85 @@
 package dev.ayuislands.commitpanel
 
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.diagnostic.logger
-import com.intellij.ui.SimpleColoredComponent
-import com.intellij.ui.SimpleTextAttributes
+import com.intellij.openapi.vcs.changes.ui.ChangesTree
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.CommitPathDisplayMode
-import dev.ayuislands.settings.PanelWidthMode
 import java.awt.Component
-import java.awt.Container
 import java.awt.Font
-import java.lang.reflect.Method
-import java.util.concurrent.atomic.AtomicBoolean
-import javax.swing.JComponent
+import java.awt.GraphicsConfiguration
+import java.awt.Rectangle
+import java.util.IdentityHashMap
+import javax.accessibility.AccessibleContext
 import javax.swing.JTree
-import javax.swing.ToolTipManager
+import javax.swing.SwingUtilities
+import javax.swing.UIManager
 import javax.swing.tree.TreeCellRenderer
+import javax.swing.tree.TreeModel
+import javax.swing.tree.TreeNode
 
+/** Native presentation is prepared on the owner's permitted EDT turn, never inside rendering callbacks. */
 internal class CommitPathShorteningRenderer(
     internal val delegate: TreeCellRenderer,
-    private val stateProvider: () -> AyuIslandsState = { AyuIslandsSettings.getInstance().state },
-    private val isLockProhibited: () -> Boolean = Companion::isLockProhibited,
+    private val styleProvider: () -> CommitPathStyle? = {
+        AyuIslandsSettings.getInstance().state?.let(CommitPathStyle::capture)
+    },
     private val canApply: () -> Boolean = { LicenseChecker.isLicensedOrGrace() },
-) : TreeCellRenderer {
+    private val onInvalidated: () -> Unit = {},
+) : TreeCellRenderer,
+    AutoCloseable {
+    private val rows = IdentityHashMap<Any, MutableMap<CommitRowState, CommitPreparedRow>>()
+    private val pending = IdentityHashMap<Any, MutableSet<CommitRowState>>()
+    private var owner: JTree? = null
+    private var cell: TreeCellRenderer? = null
+    private var context: CommitRenderContext? = null
+    private var isPreparing = false
+    private var isRequested = false
+    private var isClosed = false
+    var isStale = true
+        private set
+
+    /** Prepares against the exact installed renderer, without changing renderer or model ownership. */
+    fun prepare(
+        tree: JTree,
+        expectedRenderer: TreeCellRenderer? = delegate,
+    ): Boolean {
+        check(SwingUtilities.isEventDispatchThread()) { "Commit presentation preparation must run on EDT" }
+        val expected = if (expectedRenderer === delegate && tree.cellRenderer === this) this else expectedRenderer
+        if (!owns(tree, expected)) return false
+        val captured = CommitRenderContext(tree, style())
+        bind(tree)
+        isPreparing = true
+        try {
+            val requests: Map<Any, Set<CommitRowState>> = requests(tree)
+            val prepared = IdentityHashMap<Any, MutableMap<CommitRowState, CommitPreparedRow>>()
+            for ((node, states) in requests) {
+                for (state in states) {
+                    val presentation = CommitPreparedRow.capture(tree, delegate, node, state, captured.style)
+                    prepared.getOrPut(node) { mutableMapOf() }[state] = presentation
+                }
+            }
+            if (!owns(tree, expected) || !captured.matches(tree, style())) return false
+            rows.clear()
+            rows.putAll(prepared)
+            pending.clear()
+            context = captured
+            isStale = false
+            isRequested = false
+            tree.repaint()
+            tree.accessibleContext.firePropertyChange(AccessibleContext.ACCESSIBLE_VISIBLE_DATA_PROPERTY, false, true)
+            return true
+        } finally {
+            isPreparing = false
+            if (isStale) requestPreparation()
+        }
+    }
+
+    /** Only matching-node text can remain while the owner prepares an invalidated presentation again. */
+    fun invalidate() {
+        if (isClosed) return
+        isStale = true
+        requestPreparation()
+    }
+
     override fun getTreeCellRendererComponent(
         tree: JTree,
         value: Any?,
@@ -35,355 +89,137 @@ internal class CommitPathShorteningRenderer(
         row: Int,
         hasFocus: Boolean,
     ): Component {
-        if (!canApply()) {
-            return delegate.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
-        }
-        // The macOS accessibility bridge walks tree nodes from EDT dispatches
-        // that prohibit taking the platform RW lock (`Dispatchers.UI` /
-        // `prohibitTakingLocksInsideAndRun`), but the platform changes-tree
-        // renderers this delegates to still take read actions while rendering
-        // (`ChangesBrowserChangeNode.render`, Git hover icons). Some delegates
-        // log and swallow `LockAccessDisallowed` internally, so preflight the
-        // lock context instead of relying only on the exception guard. The
-        // accessibility walk only needs a component for role/state/bounds.
-        if (isLockProhibited()) return fallbackComponent(value)
+        bind(tree)
+        if (context?.matches(tree, style()) != true) invalidate()
+        return checkNotNull(cell).getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus)
+    }
 
-        val component =
-            try {
-                delegate.getTreeCellRendererComponent(
-                    tree,
-                    value,
-                    selected,
-                    expanded,
-                    leaf,
-                    row,
-                    hasFocus,
-                )
-            } catch (exception: RuntimeException) {
-                if (!exception.isLockAccessDisallowed()) throw exception
-                if (lockDisallowedLogged.compareAndSet(false, true)) {
-                    log.warn(
-                        "Commit path renderer: platform delegate required a read action in a " +
-                            "lock-prohibited context (accessibility walk); serving fallback text",
-                        exception,
-                    )
+    override fun close() {
+        isClosed = true
+        isStale = true
+        rows.clear()
+        pending.clear()
+        context = null
+    }
+
+    private fun bind(tree: JTree) {
+        if (owner === tree) return
+        check(owner == null) { "A prepared Commit renderer belongs to one tree" }
+        owner = tree
+        cell = commitPreparedCell(tree, ::presentation)
+    }
+
+    private fun presentation(
+        value: Any?,
+        state: CommitRowState,
+    ): CommitRowView {
+        val sameNode = value?.let(rows::get)
+        val exact = sameNode?.get(state)
+        if (exact == null && value != null && !isClosed) {
+            pending.getOrPut(value) { mutableSetOf() }.add(state)
+            invalidate()
+        }
+        return CommitRowView(exact ?: sameNode?.values?.firstOrNull(), isStale || exact == null)
+    }
+
+    private fun owns(
+        tree: JTree,
+        expectedRenderer: TreeCellRenderer?,
+    ): Boolean =
+        !isClosed &&
+            (owner == null || owner === tree) &&
+            tree.cellRenderer === expectedRenderer
+
+    private fun style(): CommitPathStyle? = if (canApply()) styleProvider() else null
+
+    private fun requestPreparation() {
+        if (isClosed || isPreparing || isRequested) return
+        isRequested = true
+        onInvalidated()
+    }
+
+    private fun requests(tree: JTree): IdentityHashMap<Any, MutableSet<CommitRowState>> {
+        val result = IdentityHashMap<Any, MutableSet<CommitRowState>>()
+        pending.forEach { (node, states) ->
+            if (containsNode(tree, node, states)) result[node] = states.toMutableSet()
+        }
+        if (tree.rowCount == 0) return result
+        val visible = tree.visibleRect
+        val first = tree.getClosestRowForLocation(visible.x, visible.y).coerceAtLeast(0)
+        val last = tree.getClosestRowForLocation(visible.x, visible.y + visible.height).coerceAtLeast(first)
+        for (row in first..last) {
+            val path = tree.getPathForRow(row) ?: continue
+            val node = path.lastPathComponent
+            val states = result.getOrPut(node) { mutableSetOf() }
+            for (index in setOf(row, -1)) {
+                for (selected in listOf(false, true)) {
+                    for (focused in listOf(false, true)) {
+                        states +=
+                            CommitRowState(selected, tree.isExpanded(path), tree.model.isLeaf(node), index, focused)
+                    }
                 }
-                return fallbackComponent(value)
             }
-        component.clearRendererTooltips()
-        val textComponent = component.findPathTextComponent() ?: return component
-        shortenPathFragment(
-            tree = tree,
-            component = textComponent,
-            fullRowWidth = component.preferredSize.width,
-        )
-        if (component is JComponent && component !== textComponent) {
-            component.toolTipText = textComponent.toolTipText
-        }
-        return component
-    }
-
-    private fun shortenPathFragment(
-        tree: JTree,
-        component: SimpleColoredComponent,
-        fullRowWidth: Int,
-    ) {
-        val state = stateProvider()
-        if (PanelWidthMode.fromString(state.commitPanelWidthMode) == PanelWidthMode.DEFAULT) return
-
-        val fragments = component.fragments()
-        val pathIndex = fragments.pathFragmentIndex()
-        if (pathIndex < 0) return
-
-        val originalPath = PathFragment(text = fragments[pathIndex].text, index = pathIndex)
-        if (CommitPathDisplayMode.fromString(state.commitPanelPathDisplayMode) == CommitPathDisplayMode.TOOLTIP) {
-            applyTooltipOnlyPath(tree, component, fragments, originalPath)
-            return
-        }
-
-        component.toolTipText = null
-        val font =
-            component.font
-                ?: tree.font
-                ?: Font(Font.DIALOG, Font.PLAIN, DEFAULT_FONT_SIZE)
-        val metrics = component.getFontMetrics(font)
-        val availableRowWidth =
-            availableRowWidth(
-                tree = tree,
-                fullRowWidth = fullRowWidth,
-                path = originalPath,
-                fragments = fragments,
-                measureTextWidth = metrics::stringWidth,
-            ) ?: return
-        val shortened =
-            CommitPathShortener.shorten(
-                CommitPathShorteningRequest(
-                    pathText = originalPath.text,
-                    fullRowWidth = fullRowWidth,
-                    availableRowWidth = availableRowWidth,
-                    minHiddenLevels = state.commitPanelPathMinHiddenLevels,
-                    maxHiddenLevels = state.commitPanelPathMaxHiddenLevels,
-                ),
-            )
-        if (shortened == originalPath.text) return
-
-        val icon = component.icon
-        component.clear()
-        component.icon = icon
-        for ((index, fragment) in fragments.withIndex()) {
-            component.append(
-                if (index == pathIndex) shortened else fragment.text,
-                fragment.attributes,
-            )
-        }
-    }
-
-    private fun applyTooltipOnlyPath(
-        tree: JTree,
-        component: SimpleColoredComponent,
-        fragments: List<Fragment>,
-        path: PathFragment,
-    ) {
-        val tooltip = path.text.trim().takeIf { it.isNotEmpty() } ?: return
-        ToolTipManager.sharedInstance().registerComponent(tree)
-
-        val icon = component.icon
-        component.clear()
-        component.icon = icon
-        if (fragments.hasPathAnchorBefore(path)) {
-            for ((index, fragment) in fragments.withIndex()) {
-                if (index != path.index) component.append(fragment.text, fragment.attributes)
-            }
-        } else {
-            val pathLeaf = path.text.lastPathSegment() ?: tooltip
-            component.append(pathLeaf, fragments[path.index].attributes)
-        }
-        component.toolTipText = tooltip
-    }
-
-    private fun List<Fragment>.hasPathAnchorBefore(path: PathFragment): Boolean =
-        take(path.index).any { fragment -> fragment.text.isNotBlank() && !fragment.text.isPathText() }
-
-    private fun availableRowWidth(
-        tree: JTree,
-        fullRowWidth: Int,
-        path: PathFragment,
-        fragments: List<Fragment>,
-        measureTextWidth: (String) -> Int,
-    ): Int? {
-        val targetRowWidth =
-            targetRowWidth(
-                fullRowWidth = fullRowWidth,
-                path = path,
-                fragments = fragments,
-                measureTextWidth = measureTextWidth,
-            )
-        val treeWidth = treeAvailableWidth(tree)
-        return when {
-            targetRowWidth == null -> treeWidth
-            treeWidth == null -> targetRowWidth
-            else -> minOf(targetRowWidth, treeWidth)
-        }
-    }
-
-    private fun targetRowWidth(
-        fullRowWidth: Int,
-        path: PathFragment,
-        fragments: List<Fragment>,
-        measureTextWidth: (String) -> Int,
-    ): Int? {
-        val anchorText = pathAnchorText(fragments, path) ?: return null
-        val pathPrefix = path.text.takeWhile { it.isWhitespace() }
-        val targetPathWidth = measureTextWidth(pathPrefix) + measureTextWidth(anchorText)
-        val originalPathWidth = measureTextWidth(path.text)
-        return (fullRowWidth - originalPathWidth + targetPathWidth).coerceAtLeast(0)
-    }
-
-    private fun pathAnchorText(
-        fragments: List<Fragment>,
-        path: PathFragment,
-    ): String? =
-        fragments
-            .take(path.index)
-            .lastOrNull { fragment -> fragment.text.isNotBlank() && !fragment.text.isPathText() }
-            ?.text
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?: path.text.lastPathSegment()
-
-    private fun treeAvailableWidth(tree: JTree): Int? {
-        val visibleWidth = tree.visibleRect.width.takeIf { it > 0 } ?: tree.width
-        if (visibleWidth <= 0) return null
-
-        val insets = tree.insets
-        return (visibleWidth - insets.left - insets.right).coerceAtLeast(0)
-    }
-
-    private fun Component.findPathTextComponent(): SimpleColoredComponent? {
-        if (this is SimpleColoredComponent && hasPathFragment()) return this
-        if (this !is Container) return null
-
-        for (child in components) {
-            val found = child.findPathTextComponent()
-            if (found != null) return found
-        }
-        return null
-    }
-
-    private fun Component.clearRendererTooltips() {
-        if (this is JComponent) toolTipText = null
-        if (this !is Container) return
-
-        for (child in components) {
-            child.clearRendererTooltips()
-        }
-    }
-
-    private fun SimpleColoredComponent.hasPathFragment(): Boolean = fragments().pathFragmentIndex() >= 0
-
-    private fun List<Fragment>.pathFragmentIndex(): Int {
-        val pathIndex = indexOfLast { fragment -> fragment.text.isPathText() }
-        if (pathIndex >= 0) return pathIndex
-
-        val lastContentIndex = indexOfLast { fragment -> fragment.text.isNotBlank() }
-        if (lastContentIndex <= 0) return -1
-
-        val location = this[lastContentIndex].text.trim()
-        val hasFileAnchor =
-            take(lastContentIndex).any { fragment ->
-                val text = fragment.text.trim()
-                text.isNotEmpty() && !text.isPathText()
-            }
-        return if (hasFileAnchor && location.none { it.isWhitespace() }) lastContentIndex else -1
-    }
-
-    private fun String.isPathText(): Boolean {
-        val text = trim()
-        return text.contains('/') || text.contains('\\')
-    }
-
-    private fun String.lastPathSegment(): String? {
-        val path = trim()
-        if (path.isEmpty()) return null
-
-        val separator = pathSeparatorFor(path)
-        return path
-            .split(separator)
-            .lastOrNull { segment -> segment.isNotEmpty() }
-    }
-
-    private fun pathSeparatorFor(path: String): String {
-        val windowsSeparators = path.count { it == '\\' }
-        val unixSeparators = path.count { it == '/' }
-        return if (windowsSeparators > unixSeparators) WINDOWS_SEPARATOR else UNIX_SEPARATOR
-    }
-
-    private data class Fragment(
-        val text: String,
-        val attributes: SimpleTextAttributes,
-    )
-
-    private data class PathFragment(
-        val text: String,
-        val index: Int,
-    )
-
-    private fun SimpleColoredComponent.fragments(): List<Fragment> {
-        val result = mutableListOf<Fragment>()
-        val iterator = iterator()
-        while (iterator.hasNext()) {
-            iterator.next()
-            result.add(Fragment(iterator.fragment, iterator.textAttributes))
         }
         return result
     }
 
-    private fun Throwable.isLockAccessDisallowed(): Boolean {
-        var current: Throwable? = this
-        while (current != null) {
-            if (current.javaClass.name.endsWith(LOCK_DISALLOWED_CLASS_SUFFIX)) return true
-            current = current.cause.takeIf { it !== current }
+    private fun containsNode(
+        tree: JTree,
+        node: Any,
+        states: Set<CommitRowState>,
+    ): Boolean =
+        if (node is TreeNode) {
+            generateSequence(node) { it.parent }.last() === tree.model.root
+        } else {
+            states.any { tree.getPathForRow(it.row)?.lastPathComponent === node }
         }
-        return false
-    }
+}
 
-    private fun fallbackComponent(value: Any?): Component =
-        SimpleColoredComponent().apply {
-            append(value?.toString().orEmpty(), SimpleTextAttributes.REGULAR_ATTRIBUTES)
-        }
-
-    companion object {
-        private val log = logger<CommitPathShorteningRenderer>()
-
-        /**
-         * One WARN per IDE session, not per walked node — the accessibility
-         * bridge re-renders every visible row on each walk, so an unlatched
-         * warning floods idea.log within seconds.
-         */
-        private val lockDisallowedLogged = AtomicBoolean(false)
-
-        private val probeFailureLogged = AtomicBoolean(false)
-
-        private val lockAdviceMethod by lazy { resolveLockAdvice(Application::class.java) }
-
-        internal fun resolveLockAdvice(type: Class<*>): Method? =
-            try {
-                LOCK_ADVICE_METHODS.firstNotNullOfOrNull { methodName ->
-                    type.methods.firstOrNull { method ->
-                        // Both supported platform names return nullable advice text;
-                        // keep Boolean lookalikes out of the non-null advice contract.
-                        method.name == methodName &&
-                            method.parameterCount == 0 &&
-                            method.returnType == String::class.java
-                    }
-                }
-            } catch (exception: SecurityException) {
-                reportProbeFailure(exception)
-                null
-            }
-
-        internal fun reportsLockProhibited(
-            application: Any?,
-            method: Method?,
-        ): Boolean {
-            if (application == null || method == null) return false
-            return try {
-                method.invoke(application) != null
-            } catch (exception: ReflectiveOperationException) {
-                reportProbeFailure(exception)
-            } catch (exception: RuntimeException) {
-                reportProbeFailure(exception)
-            }
+/** Public Swing facts and native inclusion identities; comparison never renders a model node. */
+private class CommitRenderContext(
+    tree: JTree,
+    val style: CommitPathStyle?,
+) {
+    private val model: TreeModel = tree.model
+    private val font: Font? = tree.font
+    private val visible = Rectangle(tree.visibleRect)
+    private val width = tree.width
+    private val configuration: GraphicsConfiguration? = tree.graphicsConfiguration
+    private val transform = configuration?.defaultTransform
+    private val lookAndFeel = UIManager.getLookAndFeel()
+    private val ui = tree.ui
+    private val lead = tree.leadSelectionRow
+    private val changes = tree as? ChangesTree
+    private val inclusionModel = changes?.inclusionModel
+    private val included =
+        IdentityHashMap<Any, Boolean>().apply {
+            changes?.includedSet?.forEach { put(it, true) }
         }
 
-        private fun isLockProhibited(): Boolean =
-            reportsLockProhibited(ApplicationManager.getApplication(), lockAdviceMethod)
+    fun matches(
+        tree: JTree,
+        currentStyle: CommitPathStyle?,
+    ): Boolean =
+        style == currentStyle &&
+            geometryMatches(tree) &&
+            model === tree.model &&
+            lookAndFeel === UIManager.getLookAndFeel() &&
+            ui === tree.ui &&
+            inclusionMatches()
 
-        private fun reportProbeFailure(exception: Exception): Boolean {
-            if (probeFailureLogged.compareAndSet(false, true)) {
-                log.warn("Commit path renderer could not inspect the platform lock context", exception)
-            }
-            return false
-        }
+    private fun geometryMatches(tree: JTree): Boolean =
+        font == tree.font &&
+            visible == tree.visibleRect &&
+            width == tree.width &&
+            configuration === tree.graphicsConfiguration &&
+            transform == tree.graphicsConfiguration?.defaultTransform &&
+            lead == tree.leadSelectionRow
 
-        /**
-         * Matched by name: `ThreadingSupport.LockAccessDisallowed` is not part
-         * of the 2025.1 compile-time API surface this plugin builds against.
-         */
-        private const val LOCK_DISALLOWED_CLASS_SUFFIX = "LockAccessDisallowed"
-
-        private val LOCK_ADVICE_METHODS =
-            listOf(
-                "getLockProhibitedAdvice",
-                "isLockingProhibited",
-            )
-
-        // The platform exception is absent from the 2025.1 compile classpath,
-        // so the fallback catches its `RuntimeException` hierarchy and matches
-        // the inaccessible type by name throughout the cause chain.
-
-        private const val DEFAULT_FONT_SIZE = 12
-        private const val UNIX_SEPARATOR = "/"
-        private const val WINDOWS_SEPARATOR = "\\"
+    private fun inclusionMatches(): Boolean {
+        if (changes == null) return true
+        val current: Set<Any> = changes.includedSet
+        return changes.inclusionModel === inclusionModel &&
+            current.size == included.size &&
+            current.all(included::containsKey)
     }
 }

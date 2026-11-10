@@ -18,8 +18,18 @@ enum class IndentPreset(
 
     companion object {
         const val DEFAULT_ALPHA = AMBIENT_ALPHA
+        private const val MAX_ALPHA = 255
 
         fun fromName(name: String): IndentPreset = entries.firstOrNull { it.name == name } ?: CUSTOM
+
+        /** Resolve the runtime opacity without changing the raw preset or dormant Custom value. */
+        internal fun resolveAlpha(
+            rawName: String?,
+            customAlpha: Int,
+        ): Int {
+            val preset = fromName(rawName ?: AMBIENT.name)
+            return (preset.alpha ?: customAlpha).coerceIn(1, MAX_ALPHA)
+        }
 
         fun detect(alpha: Int): IndentPreset =
             entries.firstOrNull { preset ->

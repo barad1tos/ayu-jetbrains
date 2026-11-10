@@ -20,9 +20,6 @@ import kotlin.coroutines.cancellation.CancellationException
  * cancellation signal is lost. No current caller sits behind such a rewrap, but if a
  * future call site does, walk the `cause` chain before returning the Result.
  *
- * Internal (module-wide) rather than private: callers include both `dev.ayuislands.accent`
- * and `dev.ayuislands.reapply.ThemeReapplication.runPlan`. Lift to `public` only if a caller
- * outside this module ever needs the same contract.
  */
 internal inline fun <T> runCatchingPreservingCancellation(block: () -> T): Result<T> {
     val result = runCatching(block)
@@ -38,3 +35,10 @@ internal inline fun <T> runCatchingPreservingCancellation(block: () -> T): Resul
     }
     return result
 }
+
+internal fun RuntimeException.rethrowIfCancelled() {
+    if (isAccentCancellation()) throw this
+}
+
+internal fun RuntimeException.isAccentCancellation(): Boolean =
+    this is ProcessCanceledException || this is CancellationException

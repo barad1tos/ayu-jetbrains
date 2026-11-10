@@ -6,12 +6,17 @@ import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
+import dev.ayuislands.studio.model.StudioProcess
+import dev.ayuislands.studio.persistence.RestoreStatus
+import dev.ayuislands.studio.session.StudioAccentCell
+import dev.ayuislands.studio.session.StudioAccentReferences
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import java.awt.Color
+import java.time.Instant
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import kotlin.concurrent.thread
@@ -19,9 +24,12 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /**
  * Unit tests for [ChromeBaseColors] - the stock-color snapshot that blend callers
@@ -142,6 +150,185 @@ class ChromeBaseColorsTest {
         ChromeBaseColors.refresh()
 
         assertSame(expected = Color.BLUE, actual = ChromeBaseColors[key])
+    }
+
+    @Test
+    fun `prepared snapshot changes are invisible until apply and restore the same baseline`() {
+        val key = "TEST_CACHE_PREPARED_SNAPSHOT"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        SwingUtilities.invokeAndWait {
+            assertSame(Color.BLUE, ChromeBaseColors[key])
+            val prepared = ChromeBaseColors.prepare(ChromeCacheSlot.CURRENT, key, Color.GREEN)
+            assertSame(Color.BLUE, prepared.before)
+            assertSame(Color.GREEN, prepared.planned)
+            assertEquals(AccentWriteState.PREPARED, prepared.state)
+            assertFalse(prepared.hasPending)
+            assertSame(Color.BLUE, ChromeBaseColors[key])
+            assertTrue(prepared.apply())
+            assertEquals(AccentWriteState.OWNED, prepared.state)
+            assertFalse(prepared.apply())
+            assertSame(Color.GREEN, ChromeBaseColors[key])
+            prepared.restore()
+            assertEquals(AccentWriteState.RESTORED, prepared.state)
+            assertSame(Color.BLUE, ChromeBaseColors[key])
+            assertSame(Color.BLUE, prepared.before)
+            assertSame(Color.GREEN, prepared.planned)
+        }
+    }
+
+    @Test
+    fun `stock and tint receipts for the same key do not block each other`() {
+        val key = "TEST_CACHE_PREPARED_SLOTS"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        assertSame(Color.BLUE, ChromeBaseColors[key])
+        ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+        SwingUtilities.invokeAndWait {
+            val tint = ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, Color.PINK)
+            val stock = ChromeBaseColors.prepare(ChromeCacheSlot.STOCK, key, Color.GREEN)
+            assertTrue(tint.apply())
+            assertTrue(stock.apply())
+            tint.restore(listOf(stock))
+            stock.restore()
+        }
+        every { UIManager.getColor(key) } returns Color.ORANGE
+        ChromeBaseColors.refresh()
+        assertSame(Color.BLUE, ChromeBaseColors[key])
+    }
+
+    @Test
+    fun `foreign equal raw value and refreshed generation reject prepared tint changes`() {
+        for (refresh in listOf(false, true)) {
+            val key = "TEST_CACHE_PREPARED_STALE_$refresh"
+            every { UIManager.getColor(key) } returns Color.BLUE
+            assertSame(Color.BLUE, ChromeBaseColors[key])
+            ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+            SwingUtilities.invokeAndWait {
+                val prepared = ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, Color.PINK)
+                if (refresh) {
+                    ChromeBaseColors.refresh()
+                } else {
+                    thread { ChromeBaseColors.rememberPluginTint(key, Color(Color.ORANGE.rgb)) }.join()
+                }
+                assertFalse(prepared.apply())
+                prepared.restore()
+                assertEquals(AccentWriteState.RELINQUISHED, prepared.state)
+                assertFalse(prepared.hasPending)
+            }
+            every { UIManager.getColor(key) } returns Color.ORANGE
+            ChromeBaseColors.refresh()
+            assertSame(Color.BLUE, ChromeBaseColors[key])
+        }
+    }
+
+    @Test
+    fun `commit and cancel expire unused cache preparations`() {
+        val key = "TEST_CACHE_PREPARED_EXPIRED"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        SwingUtilities.invokeAndWait {
+            assertSame(Color.BLUE, ChromeBaseColors[key])
+            for (commit in listOf(false, true)) {
+                val prepared = ChromeBaseColors.prepare(ChromeCacheSlot.CURRENT, key, Color.GREEN)
+                if (commit) prepared.commit() else prepared.restore()
+                assertFalse(prepared.apply())
+                assertFalse(prepared.hasPending)
+                assertSame(Color.BLUE, ChromeBaseColors[key])
+            }
+        }
+    }
+
+    @Test
+    fun `newer cache receipt blocks only its exact slot and restores in reverse order`() {
+        val key = "TEST_CACHE_PREPARED_BLOCKER"
+        every { UIManager.getColor(key) } returns Color.BLUE
+        assertSame(Color.BLUE, ChromeBaseColors[key])
+        ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+        SwingUtilities.invokeAndWait {
+            val older = ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, Color.PINK)
+            assertTrue(older.apply())
+            val newer = ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, Color.GREEN)
+            assertTrue(newer.apply())
+            assertFailsWith<IllegalStateException> { older.restore(listOf(newer)) }
+            assertTrue(older.hasPending)
+            newer.restore()
+            older.restore()
+        }
+        every { UIManager.getColor(key) } returns Color.ORANGE
+        ChromeBaseColors.refresh()
+        assertSame(Color.BLUE, ChromeBaseColors[key])
+    }
+
+    @Test
+    fun `preparation cannot execute pending cache recovery before acknowledgement`() {
+        val key = "TEST_CACHE_PREPARED_RECOVERY"
+        ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+        withAccentScope { ChromeBaseColors.rememberPluginTint(key, Color.PINK) }
+        try {
+            SwingUtilities.invokeAndWait {
+                assertFailsWith<IllegalStateException> {
+                    ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, Color.GREEN)
+                }
+            }
+        } finally {
+            withAccentScope { scope ->
+                ChromeBaseColors.rememberPluginTint(key, Color.ORANGE)
+                scope.commit()
+            }
+        }
+    }
+
+    @Test
+    fun `Studio cache bindings share resource identity and wait for newer field ownership`() {
+        val key = "TEST_CACHE_STUDIO_BINDING"
+        SwingUtilities.invokeAndWait {
+            val references = StudioAccentReferences("cache", StudioProcess(42, Instant.EPOCH))
+            val first = ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, Color.ORANGE)
+            val older = StudioAccentCell.cache(references, first)
+            val original = older.receipts.single()
+            older.apply()
+            val second = ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, Color.PINK)
+            val newer = StudioAccentCell.cache(references, second)
+            newer.apply()
+            assertEquals(
+                original.identity.resource,
+                newer.receipts
+                    .single()
+                    .identity.resource,
+            )
+            assertTrue(original.id != newer.receipts.single().id)
+            assertFailsWith<IllegalStateException> { older.restore(newer.receipts) }
+            assertSame(Color.PINK, ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, null).before)
+            newer.restore(emptyList())
+            older.restore(emptyList())
+            assertSame(first.before, ChromeBaseColors.prepare(ChromeCacheSlot.TINT, key, null).before)
+            assertEquals(RestoreStatus.RESTORED, older.receipts.single().status)
+            assertEquals(original, older.receipts.single().copy(status = original.status))
+        }
+    }
+
+    @Test
+    fun `Studio cache acceptance preserves value and a stale preparation never commits`() {
+        val key = "TEST_CACHE_STUDIO_ACCEPT"
+        SwingUtilities.invokeAndWait {
+            val references = StudioAccentReferences("accepted-cache", StudioProcess(42, Instant.EPOCH))
+            val native = ChromeBaseColors.prepare(ChromeCacheSlot.CURRENT, key, Color.GREEN)
+            val change = StudioAccentCell.cache(references, native)
+            change.apply()
+            val applied = change.receipts
+            change.accept()
+            assertSame(Color.GREEN, ChromeBaseColors.prepare(ChromeCacheSlot.CURRENT, key, null).before)
+            assertEquals(applied, change.receipts)
+            val stale =
+                StudioAccentCell.cache(
+                    references,
+                    ChromeBaseColors.prepare(ChromeCacheSlot.CURRENT, key, Color.RED),
+                )
+            ChromeBaseColors.refresh()
+            assertFailsWith<IllegalStateException> { stale.apply() }
+            assertFailsWith<IllegalStateException> { stale.accept() }
+            stale.restore(emptyList())
+            assertEquals(RestoreStatus.FOREIGN, stale.receipts.single().status)
+            assertNull(ChromeBaseColors.prepare(ChromeCacheSlot.CURRENT, key, null).before)
+        }
     }
 
     private fun withAccentScope(action: (AccentApplyScope) -> Unit) {

@@ -1,226 +1,163 @@
 package dev.ayuislands.font
 
-import com.intellij.notification.Notification
-import com.intellij.notification.Notifications
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.progress.ProgressIndicator
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import io.mockk.Runs
+import dev.ayuislands.studio.StudioApplyFixture
+import dev.ayuislands.studio.model.AcceptanceResult
+import dev.ayuislands.studio.model.FontAction
+import dev.ayuislands.studio.model.FontAvailability
+import dev.ayuislands.studio.model.FontJob
+import dev.ayuislands.studio.model.OperationStamp
+import dev.ayuislands.studio.model.RawValue
+import dev.ayuislands.studio.model.StudioApplyUpdate
+import dev.ayuislands.studio.model.StudioFontRequest
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioMetadataCommand
+import dev.ayuislands.studio.persistence.StudioMetadataStore
+import dev.ayuislands.studio.session.StudioFonts
+import dev.ayuislands.studio.session.StudioSessionIo
+import io.mockk.coEvery
 import io.mockk.every
-import io.mockk.just
 import io.mockk.mockk
-import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import kotlinx.coroutines.runBlocking
+import org.junit.jupiter.api.io.TempDir
 import java.awt.GraphicsEnvironment
-import java.io.File
-import kotlin.io.path.createTempDirectory
+import java.nio.file.Path
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-/**
- * Exercise install/delete bookkeeping against temporary files and controlled host font discovery.
- * Native scheme restoration is covered by the application-backed FontUninstallOwnershipTest.
- */
+/** Actual metadata persistence replaces the removed legacy inventory mutation helper. */
 class FontLifecycleIntegrationTest {
-    @AfterTest
-    fun cleanup() {
-        unmockkAll()
-        FontDetector.invalidateCache()
-    }
+    @TempDir lateinit var directory: Path
 
-    private fun stubPlatform(
-        state: AyuIslandsState,
-        platformDir: File,
-        jvmFonts: Array<String> = arrayOf("JetBrains Mono"),
-    ) {
-        mockkObject(FontInstaller)
-        every { FontInstaller.platformFontDir() } returns platformDir
+    @AfterTest fun cleanup() = unmockkAll()
 
-        mockkObject(AyuIslandsSettings.Companion)
-        val settings = AyuIslandsSettings().apply { loadState(state) }
-        every { AyuIslandsSettings.getInstance() } returns settings
-
-        mockkObject(FontPresetApplicator)
-        every { FontPresetApplicator.revert(any()) } just Runs
-
-        mockkStatic(ApplicationManager::class)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.invokeLater(any<Runnable>()) } answers { firstArg<Runnable>().run() }
-
-        mockkStatic(Notifications.Bus::class)
-        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
-
-        mockkStatic(GraphicsEnvironment::class)
-        val ge = mockk<GraphicsEnvironment>()
-        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns ge
-        every { ge.availableFontFamilyNames } returns jvmFonts
-
-        FontDetector.invalidateCache()
-    }
-
-    /**
-     * User installs Maple Mono from Settings → verifies it shows as installed →
-     * deletes it → verifies it's gone → reinstalls → verifies it's back.
-     * This is the golden path: install → delete → reinstall round-trip.
-     */
-    @Test
-    fun `full install-delete-reinstall lifecycle round-trip`() {
-        val platformDir = createTempDirectory("lifecycle-roundtrip").toFile()
-        try {
-            val state = AyuIslandsState()
-            stubPlatform(state, platformDir)
-
-            // Step 1: Simulate install — user clicked Install, font downloaded + copied.
-            val fontFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("font data") }
-            FontInstaller.persistFontState("Maple Mono", listOf(fontFile))
-
-            assertTrue(state.installedFonts.contains("Maple Mono"), "Font must be in installedFonts after install")
-            assertEquals(fontFile.absolutePath, state.installedFontFiles["Maple Mono"], "File path must be tracked")
-
-            // Step 2: Simulate delete via Settings panel.
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            var result: FontUninstaller.UninstallResult? = null
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { result = it }
-
-            assertTrue(result is FontUninstaller.UninstallResult.Success, "Uninstall must succeed")
-            assertFalse(fontFile.exists(), "Font file must be deleted from disk")
-            assertFalse(state.installedFonts.contains("Maple Mono"), "Family must be removed from installedFonts")
-            assertTrue(state.explicitlyUninstalledFonts.contains("Maple Mono"), "Family must be in uninstall guard")
-
-            // Step 3: Reinstall — user clicked Install again.
-            val newFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("reinstalled") }
-            FontInstaller.persistFontState("Maple Mono", listOf(newFile))
-
-            assertTrue(state.installedFonts.contains("Maple Mono"), "Font must be back in installedFonts")
-            assertFalse(
-                state.explicitlyUninstalledFonts.contains("Maple Mono"),
-                "Reinstall must clear the explicit-uninstall guard",
-            )
-        } finally {
-            platformDir.deleteRecursively()
+    @Test fun `install delete and reinstall round trip preserves appearance and clears only its uninstall marker`() =
+        runBlocking {
+            StudioApplyFixture(directory).use { fixture ->
+                val writer = writer(fixture)
+                val path =
+                    directory
+                        .resolve("Maple.ttf")
+                        .toFile()
+                        .apply { writeText("font") }
+                        .absolutePath
+                assertIs<AcceptanceResult.Accepted>(writer.submit(installed("Maple Mono", path), "install"))
+                assertEquals(RawValue.Text(path), files(fixture).entries.single { it.key == "Maple Mono" }.value)
+                assertIs<AcceptanceResult.Accepted>(writer.submit(removed(), "remove"))
+                assertFalse("Maple Mono" in families(fixture, "installedFonts"))
+                assertTrue("Maple Mono" in families(fixture, "explicitlyUninstalledFonts"))
+                assertIs<AcceptanceResult.Accepted>(writer.submit(installed("Maple Mono", path), "reinstall"))
+                assertTrue("Maple Mono" in families(fixture, "installedFonts"))
+                assertFalse("Maple Mono" in families(fixture, "explicitlyUninstalledFonts"))
+                assertEquals(fixture.initial.currents, fixture.document().currents)
+                assertTrue(fixture.effects.all { it.inputs.isEmpty() })
+            }
         }
-    }
 
-    /**
-     * User has two fonts installed (Maple Mono + Victor Mono). They delete
-     * Maple Mono. Victor Mono must remain completely unaffected — its
-     * installedFonts entry, file paths, and files on disk must survive.
-     */
-    @Test
-    fun `deleting one font does not affect another installed font`() {
-        val platformDir = createTempDirectory("lifecycle-multi").toFile()
-        try {
-            val state = AyuIslandsState()
-            stubPlatform(state, platformDir)
-
-            // Install both fonts.
-            val mapleFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("maple") }
-            val victorFile = File(platformDir, "VictorMono-Light.ttf").apply { writeText("victor") }
-            FontInstaller.persistFontState("Maple Mono", listOf(mapleFile))
-            FontInstaller.persistFontState("Victor Mono", listOf(victorFile))
-
-            assertTrue(state.installedFonts.contains("Maple Mono"))
-            assertTrue(state.installedFonts.contains("Victor Mono"))
-
-            // Delete Maple Mono only.
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT) // Maple Mono
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
-
-            // Maple Mono gone.
-            assertFalse(state.installedFonts.contains("Maple Mono"))
-            assertFalse(mapleFile.exists())
-
-            // Victor Mono untouched.
-            assertTrue(state.installedFonts.contains("Victor Mono"), "Victor Mono must remain installed")
-            assertTrue(victorFile.exists(), "Victor Mono file must survive")
-            assertEquals(
-                victorFile.absolutePath,
-                state.installedFontFiles["Victor Mono"],
-                "Victor Mono file paths must be intact",
-            )
-        } finally {
-            platformDir.deleteRecursively()
+    @Test fun `removing one family preserves other family paths and insertion order`() =
+        runBlocking {
+            StudioApplyFixture(directory).use { fixture ->
+                val writer = writer(fixture)
+                writer.submit(installed("Maple Mono", "/fonts/maple.ttf"), "maple")
+                writer.submit(installed("Victor Mono", "/fonts/victor.ttf"), "victor")
+                val before = files(fixture)
+                assertIs<AcceptanceResult.Accepted>(writer.submit(removed(), "remove"))
+                assertEquals(before.entries.filterNot { it.key == "Maple Mono" }, files(fixture).entries)
+                assertTrue("Victor Mono" in families(fixture, "installedFonts"))
+            }
         }
-    }
 
-    /**
-     * User installs a font, then externally deletes the font file via Finder
-     * or Terminal (not through the plugin). On next Settings open,
-     * FontDetector.status() should detect the discrepancy.
-     */
-    @Test
-    fun `external file deletion detected as corrupted when JVM forgets the family`() {
-        val platformDir = createTempDirectory("lifecycle-external-del").toFile()
-        try {
-            val state = AyuIslandsState()
-            stubPlatform(state, platformDir, jvmFonts = arrayOf("JetBrains Mono"))
-
-            // Install via plugin.
-            val fontFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("font") }
-            FontInstaller.persistFontState("Maple Mono", listOf(fontFile))
-
-            // User deletes file externally.
-            fontFile.delete()
-
-            // Settings panel opens and calls FontDetector.status().
-            FontDetector.invalidateCache()
-            val status = FontDetector.status(FontPreset.AMBIENT)
-
-            assertEquals(
-                FontStatus.CORRUPTED,
-                status,
-                "Status must be CORRUPTED when file is gone and JVM does not see the family",
-            )
-        } finally {
-            platformDir.deleteRecursively()
+    @Test fun `external file deletion is observed as corrupted against exact accepted inventory`() =
+        runBlocking {
+            StudioApplyFixture(directory).use { fixture ->
+                val file = directory.resolve("Maple.ttf").toFile().apply { writeText("font") }
+                writer(fixture).submit(installed("Maple Mono", file.absolutePath), "installed")
+                assertTrue(file.delete())
+                mockkStatic(GraphicsEnvironment::class)
+                val environment = mockk<GraphicsEnvironment>()
+                every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns environment
+                every { environment.availableFontFamilyNames } returns arrayOf("JetBrains Mono")
+                val resources = fixture.document().auxiliary.resources
+                val facts = StudioFonts.capture(resources, EmptyCoroutineContext)
+                assertEquals(
+                    FontAvailability.CORRUPTED,
+                    StudioFonts.availability(
+                        StudioFontRequest.Enabled(FontSettings.fromPreset(FontPreset.AMBIENT)),
+                        resources,
+                        facts,
+                    ),
+                )
+            }
         }
-    }
 
-    /**
-     * User deletes a font, then restarts the IDE. The seeder runs on startup.
-     * Even if the JVM still sees the font (cached registration), the seeder
-     * must NOT re-add it because of the explicit-uninstall guard.
-     */
-    @Test
-    fun `deleted font survives IDE restart seeder`() {
-        val platformDir = createTempDirectory("lifecycle-restart").toFile()
-        try {
-            val state = AyuIslandsState()
-            stubPlatform(
-                state,
-                platformDir,
-                jvmFonts = arrayOf("Maple Mono", "JetBrains Mono"),
-            )
-
-            // Install + delete via plugin.
-            val fontFile = File(platformDir, "MapleMono-Regular.ttf").apply { writeText("font") }
-            FontInstaller.persistFontState("Maple Mono", listOf(fontFile))
-            val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
-            val indicator = mockk<ProgressIndicator>(relaxed = true)
-            FontUninstaller.runUninstallPipeline(entry, null, indicator) { }
-
-            // Simulate IDE restart: seeder runs with JVM still seeing "Maple Mono".
-            state.installedFontsSeeded = false
-            val settings = AyuIslandsSettings().apply { loadState(state) }
-            every { AyuIslandsSettings.getInstance() } returns settings
-            settings.seedInstalledFontsFromDiskIfNeeded()
-
-            assertFalse(
-                state.installedFonts.contains("Maple Mono"),
-                "Seeder must NOT re-add a font the user explicitly deleted",
-            )
-            assertTrue(state.installedFontsSeeded, "Seeded flag must be set regardless")
-        } finally {
-            platformDir.deleteRecursively()
+    @Test fun `startup seeding preserves an explicit uninstall even when the JVM still sees that family`() =
+        runBlocking {
+            StudioApplyFixture(directory).use { fixture ->
+                val writer = writer(fixture)
+                writer.submit(installed("Maple Mono", "/fonts/maple.ttf"), "install")
+                writer.submit(removed(), "remove")
+                assertIs<AcceptanceResult.Accepted>(
+                    writer.submit(
+                        StudioMetadataCommand.SeedFonts(StudioList(listOf("Maple Mono", "Victor Mono"))),
+                        "seed",
+                    ),
+                )
+                assertFalse("Maple Mono" in families(fixture, "installedFonts"))
+                assertTrue("Maple Mono" in families(fixture, "explicitlyUninstalledFonts"))
+                assertEquals(fixture.initial.currents, fixture.document().currents)
+            }
         }
+
+    private fun writer(fixture: StudioApplyFixture): StudioMetadataStore {
+        val io = mockk<StudioSessionIo>()
+        coEvery { io.publish(any()) } answers {
+            val published = firstArg<StudioApplyUpdate.Committed>().document
+            val durable = fixture.document()
+            assertEquals(durable.header, published.header)
+            assertEquals(durable.auxiliary.resources, published.auxiliary.resources)
+        }
+        return StudioMetadataStore(fixture.store, io, fixture.mutex, EmptyCoroutineContext)
     }
+
+    private fun installed(
+        family: String,
+        paths: String,
+    ) = StudioMetadataCommand.FontInstalled(job(family, FontAction.INSTALL), family, paths)
+
+    private fun removed() = StudioMetadataCommand.FontRemoved(job("Maple Mono", FontAction.UNINSTALL), "Maple Mono")
+
+    private fun job(
+        family: String,
+        action: FontAction,
+    ) = FontJob(OperationStamp("closed-onboarding", 1, family), family, action)
+
+    private fun families(
+        fixture: StudioApplyFixture,
+        name: String,
+    ) = assertIs<RawValue.OrderedSet>(
+        fixture
+            .document()
+            .auxiliary.resources.records
+            .single {
+                it.key.name ==
+                    name
+            }.value,
+    ).values
+
+    private fun files(fixture: StudioApplyFixture) =
+        assertIs<RawValue.OrderedMap>(
+            fixture
+                .document()
+                .auxiliary.resources.records
+                .single {
+                    it.key.name ==
+                        "installedFontFiles"
+                }.value,
+        )
 }

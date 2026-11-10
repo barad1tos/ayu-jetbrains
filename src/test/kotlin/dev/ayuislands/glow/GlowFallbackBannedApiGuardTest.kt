@@ -83,11 +83,11 @@ class GlowFallbackBannedApiGuardTest {
     }
 
     @Test
-    fun `attachOverlay body does not reference DEFAULT_ACCENT_HEX`() {
-        val body = extractFunctionBody(source, "fun attachOverlay(")
+    fun `prepareOverlay body does not reference DEFAULT_ACCENT_HEX`() {
+        val body = extractFunctionBody(source, "fun prepareOverlay(")
         assertFalse(
             body.contains("DEFAULT_ACCENT_HEX"),
-            "attachOverlay MUST NOT use DEFAULT_ACCENT_HEX as a fallback (lifecycle-gate regression).",
+            "prepareOverlay MUST NOT use DEFAULT_ACCENT_HEX as a fallback (lifecycle-gate regression).",
         )
     }
 

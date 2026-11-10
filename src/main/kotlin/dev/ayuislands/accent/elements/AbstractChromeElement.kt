@@ -2,11 +2,14 @@ package dev.ayuislands.accent.elements
 
 import dev.ayuislands.accent.AccentElement
 import dev.ayuislands.accent.ChromeBaseColors
+import dev.ayuislands.accent.ChromeClearPlan
+import dev.ayuislands.accent.ChromePeerTint
 import dev.ayuislands.accent.ChromeTarget
 import dev.ayuislands.accent.ChromeTintBlender
-import dev.ayuislands.accent.ChromeTintContext
+import dev.ayuislands.accent.ChromeTintPlan
 import dev.ayuislands.accent.ClassFqn
 import dev.ayuislands.accent.LiveChromeRefresher
+import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.accent.putAccentUiDefault
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -36,7 +39,7 @@ import java.awt.Color
  *    ignores it so keys written before the gate flipped are still cleaned up.
  *
  * Elements with split-fg pick requirements (StatusBar's normal vs hover fg,
- * ToolWindowStripe's stripe vs selected fg) override [writeForegrounds] to pick
+ * ToolWindowStripe's stripe vs selected fg) override [calculateForegrounds] to pick
  * the contrast per sampling-bg; the default implementation picks one contrast
  * color against the first tinted background key and writes it to every entry in
  * [foregroundKeys].
@@ -61,6 +64,36 @@ abstract class AbstractChromeElement : AccentElement {
 
     /** Typed peer descriptor for [LiveChromeRefresher]. `null` skips the live peer walk. */
     protected abstract val peerTarget: ChromeTarget?
+
+    /** Translucent overlays are released, never blended as opaque surface colors. */
+    protected open val overlayBackgroundKeys: List<String> = emptyList()
+
+    internal val stockKeys: List<String>
+        get() = backgroundKeys
+
+    internal val isAvailable: Boolean
+        get() = isEnabled
+
+    internal fun planClear(): ChromeClearPlan =
+        ChromeClearPlan(backgroundKeys, foregroundKeys, overlayBackgroundKeys, peerTarget)
+
+    /** Pure candidate planning; callers observe capabilities and stock before invoking it. */
+    internal fun planTint(
+        color: Color,
+        intensity: TintIntensity,
+        stock: Map<String, Color>,
+        canHandleEmpty: Boolean,
+    ): ChromeTintPlan {
+        val backgrounds =
+            buildMap {
+                for (key in backgroundKeys) {
+                    stock[key]?.let { put(key, ChromeTintBlender.blend(color, it, intensity)) }
+                }
+            }
+        if (backgrounds.isEmpty() && !canHandleEmpty) return ChromeTintPlan()
+        val peer = backgrounds.values.firstOrNull()?.let { tinted -> peerTarget?.let { ChromePeerTint(it, tinted) } }
+        return ChromeTintPlan(backgrounds, overlayBackgroundKeys, calculateForegrounds(backgrounds).toMap(), peer)
+    }
 
     /** Gate for `apply` (MainToolbar uses this for the probe). Always `true` by default. `revert` ignores it. */
     protected open val isEnabled: Boolean
@@ -91,8 +124,8 @@ abstract class AbstractChromeElement : AccentElement {
         claimOwnership: () -> Unit,
     ) {
         if (!isEnabled) return
-        val state = AyuIslandsSettings.getInstance().state
-        val intensity = ChromeTintContext.currentIntensity(state)
+        val state = AyuIslandsSettings.getInstance().state ?: return
+        val intensity = state.effectiveChromeTintIntensity()
         val tintedBackgrounds = LinkedHashMap<String, Color>()
         var hasClaimedOwnership = false
         for (key in backgroundKeys) {
@@ -138,19 +171,24 @@ abstract class AbstractChromeElement : AccentElement {
     }
 
     /**
-     * Default single-contrast fg write: samples [WcagForeground.pickForeground]
-     * against the first tinted background and writes that color to every entry
-     * in [foregroundKeys]. Subclasses with non-default fg-pick semantics override
+     * Default single-contrast calculation samples [WcagForeground.pickForeground]
+     * against the first tinted background for every entry in [foregroundKeys].
+     * Subclasses with non-default fg-pick semantics override
      * this — currently `StatusBarElement` (single light-family pick against the
      * opaque root bg, fan-out to every Breadcrumbs state) and
      * `ToolWindowStripeElement` (per-stripe vs selected sample).
      */
-    protected open fun writeForegrounds(tintedBackgrounds: Map<String, Color>) {
-        if (foregroundKeys.isEmpty()) return
-        val samplingBg = tintedBackgrounds.values.firstOrNull() ?: return
+    protected open fun calculateForegrounds(tintedBackgrounds: Map<String, Color>): Sequence<Pair<String, Color>> {
+        if (foregroundKeys.isEmpty()) return emptySequence()
+        val samplingBg = tintedBackgrounds.values.firstOrNull() ?: return emptySequence()
         val contrast = WcagForeground.pickForeground(samplingBg, foregroundTextTarget)
-        for (key in foregroundKeys) {
-            putAccentUiDefault(key, contrast)
+        return foregroundKeys.asSequence().map { it to contrast }
+    }
+
+    /** Lazy calculations preserve the legacy order of sampling, writes and property callbacks. */
+    protected open fun writeForegrounds(tintedBackgrounds: Map<String, Color>) {
+        for ((key, color) in calculateForegrounds(tintedBackgrounds)) {
+            putAccentUiDefault(key, color)
         }
     }
 

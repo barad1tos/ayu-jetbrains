@@ -1,13 +1,41 @@
 package dev.ayuislands.glow
 
+import io.mockk.Runs
+import io.mockk.every
+import io.mockk.just
+import io.mockk.mockkConstructor
+import io.mockk.unmockkConstructor
+import io.mockk.verify
 import javax.swing.SwingUtilities
+import javax.swing.Timer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class GlowAnimatorTest {
+    @Test
+    fun `failed timer startup remains owned until stop`() {
+        mockkConstructor(Timer::class)
+        every { anyConstructed<Timer>().start() } throws IllegalStateException("After timer startup")
+        every { anyConstructed<Timer>().stop() } just Runs
+        val animator = GlowAnimator()
+        try {
+            assertFailsWith<IllegalStateException> { animator.start(GlowAnimation.PULSE) {} }
+            assertEquals(GlowAnimation.PULSE, animator.currentAnimation)
+            animator.stop()
+
+            assertEquals(GlowAnimation.NONE, animator.currentAnimation)
+            verify(exactly = 1) { anyConstructed<Timer>().stop() }
+            assertNull(animator.getPrivateField("timer"))
+        } finally {
+            animator.dispose()
+            unmockkConstructor(Timer::class)
+        }
+    }
+
     /** Helper: set the current private animation on the animator. */
     private fun GlowAnimator.setCurrentAnimation(value: GlowAnimation) {
         val field = GlowAnimator::class.java.getDeclaredField("currentAnimation")
@@ -209,7 +237,7 @@ class GlowAnimatorTest {
 
         animator.stop()
 
-        assertEquals(GlowAnimation.NONE, animator.getPrivateField("currentAnimation"))
+        assertEquals(GlowAnimation.NONE, animator.currentAnimation)
         assertEquals(0.0f, animator.reactiveBoost)
         assertNull(animator.getPrivateField("onFrame"))
         assertNull(animator.getPrivateField("timer"))
@@ -233,7 +261,7 @@ class GlowAnimatorTest {
 
         animator.dispose()
 
-        assertEquals(GlowAnimation.NONE, animator.getPrivateField("currentAnimation"))
+        assertEquals(GlowAnimation.NONE, animator.currentAnimation)
         assertEquals(0.0f, animator.reactiveBoost)
         assertNull(animator.getPrivateField("timer"))
     }
@@ -248,7 +276,7 @@ class GlowAnimatorTest {
         animator.start(GlowAnimation.NONE) { callbackInvoked = true }
 
         assertNull(animator.getPrivateField("timer"), "Timer should not be created for NONE")
-        assertEquals(GlowAnimation.NONE, animator.getPrivateField("currentAnimation"))
+        assertEquals(GlowAnimation.NONE, animator.currentAnimation)
         assertFalse(callbackInvoked, "Callback should not be invoked for NONE animation")
     }
 
@@ -272,7 +300,7 @@ class GlowAnimatorTest {
 
         animator.start(GlowAnimation.BREATHE) {}
 
-        assertEquals(GlowAnimation.BREATHE, animator.getPrivateField("currentAnimation"))
+        assertEquals(GlowAnimation.BREATHE, animator.currentAnimation)
         // Clean up timer
         animator.stop()
     }
@@ -289,7 +317,7 @@ class GlowAnimatorTest {
 
         // The timers should be different instances (first was stopped, new one created)
         assertTrue(firstTimer !== secondTimer, "New start should create a new timer")
-        assertEquals(GlowAnimation.BREATHE, animator.getPrivateField("currentAnimation"))
+        assertEquals(GlowAnimation.BREATHE, animator.currentAnimation)
         animator.stop()
     }
 
@@ -299,7 +327,7 @@ class GlowAnimatorTest {
 
         animator.start(GlowAnimation.PULSE) {}
 
-        val timer = animator.getPrivateField("timer") as javax.swing.Timer
+        val timer = animator.getPrivateField("timer") as Timer
         assertTrue(timer.isRepeats, "Timer should be set to repeat")
         assertTrue(timer.isRunning, "Timer should be running")
         assertEquals(16, timer.delay, "Timer interval should be 16ms")

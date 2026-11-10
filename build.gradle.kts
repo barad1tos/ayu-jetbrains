@@ -1,23 +1,65 @@
+import io.gitlab.arturbosch.detekt.Detekt
+import io.gitlab.arturbosch.detekt.DetektCreateBaselineTask
+import io.gitlab.arturbosch.detekt.DetektGenerateConfigTask
+import kotlinx.kover.features.jvm.AggregationType
+import kotlinx.kover.features.jvm.Bound
+import kotlinx.kover.features.jvm.ClassFilters
+import kotlinx.kover.features.jvm.CoverageUnit
+import kotlinx.kover.features.jvm.GroupingBy
+import kotlinx.kover.features.jvm.KoverLegacyFeatures
+import kotlinx.kover.features.jvm.Rule
+import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.JavaVersion
+import org.gradle.api.Named
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFile
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.plugins.ReportingBasePlugin
+import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
+import org.gradle.api.provider.SetProperty
+import org.gradle.api.reporting.ReportingExtension
+import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.testing.Test
+import org.gradle.jvm.toolchain.JavaToolchainService
+import org.gradle.process.CommandLineArgumentProvider
+import org.gradle.work.DisableCachingByDefault
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.models.ProductRelease
 import org.jetbrains.intellij.platform.gradle.tasks.PrepareSandboxTask
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import java.io.File
+import java.math.BigDecimal
+import java.nio.file.Files
 
 buildscript {
     repositories { mavenCentral() }
     dependencies {
         classpath("com.guardsquare:proguard-gradle:7.10.0")
+        classpath("org.jetbrains.kotlinx:kover-features-jvm:${providers.gradleProperty("koverVersion").get()}")
     }
 }
 
 plugins {
     // 2.18.1 breaks the verifyPlugin compatibility matrix; keep in sync with Dependabot.
-    id("org.jetbrains.intellij.platform") version "2.19.0"
+    id("org.jetbrains.intellij.platform") version "2.20.1"
     kotlin("jvm") version "2.4.21"
-    id("org.jetbrains.kotlinx.kover") version "0.9.11"
     id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
-    id("io.gitlab.arturbosch.detekt") version "1.23.8"
+    id("io.gitlab.arturbosch.detekt") version providers.gradleProperty("detektVersion").get() apply false
 }
 
 group = providers.gradleProperty("pluginGroup").get()
@@ -258,6 +300,7 @@ dependencies {
         }
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
+        testFramework(TestFrameworkType.JUnit5)
         testBundledPlugin("org.intellij.groovy")
         syntaxPreviewTestPlugins.forEach(::testBundledPlugin)
     }
@@ -265,7 +308,7 @@ dependencies {
     testImplementation("io.mockk:mockk:${providers.gradleProperty("mockkVersion").get()}")
     testImplementation("io.kotest:kotest-property-jvm:$kotestVersion")
     testImplementation("junit:junit:${providers.gradleProperty("junitVersion").get()}")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
 }
 
@@ -280,6 +323,24 @@ tasks.register<Test>("integrationTest") {
 
     useJUnitPlatform()
     include("**/integration/**")
+    exclude("**/integration/RegisteredSchemeTest*")
+    exclude("**/integration/NativeSchemePersistenceTest*")
+    exclude("**/integration/StudioMappingsSectionTest*")
+    exclude("**/integration/StudioSettingsHostTest*")
+    exclude("**/integration/StudioReviewDialogTest*")
+    exclude("**/integration/StudioSyntaxParticipantTest*")
+    exclude("**/integration/StudioVcsParticipantTest*")
+    exclude("**/integration/StudioAccentElementsTest*")
+    exclude("**/integration/StudioAccentParticipantTest*")
+    exclude("**/integration/StudioAccentRuntimeTest*")
+    exclude("**/integration/StudioCapabilityCleanupTest*")
+    exclude("**/integration/StudioAccentCoordinatorTest*")
+    exclude("**/integration/StudioNativeEnvironmentTest*")
+    exclude("**/integration/StudioSystemParticipantTest*")
+    exclude("**/integration/StudioSystemSchemeTest*")
+    exclude("**/integration/StudioEntitlementGraphTest*")
+    exclude("**/integration/CommitPathRendererNativeTest*")
+    exclude("**/integration/ToolWindowWidthNativeTest*")
     testClassesDirs = unitTest.testClassesDirs
     classpath =
         unitTest.classpath.filter {
@@ -288,10 +349,11 @@ tasks.register<Test>("integrationTest") {
     jvmArgs(unitTest.jvmArgs)
     jvmArgumentProviders.addAll(
         unitTest.jvmArgumentProviders.filterNot {
-            it.javaClass.name.contains("kover", ignoreCase = true)
+            it is AyuCoverageArguments
         },
     )
     systemProperties(unitTest.systemProperties)
+    systemProperty("ayu.native.cleanup", true)
     systemProperty("syntaxRuntimeId", syntaxRuntimeId.get())
     group = "verification"
     description = "Run integration tests with IDE fixtures"
@@ -314,6 +376,56 @@ tasks {
 
 intellijPlatformTesting {
     testIde {
+        register("nativeSchemeTest") {
+            type = communityIde.first
+            version = communityIde.second
+            testFramework(
+                TestFrameworkType.Platform,
+                task.map { testTask -> testFrameworkVersionRange(testTask.productInfo.buildNumber) },
+            )
+            plugins {
+                bundledPlugins(communityBundledPlugins)
+                disablePlugins(integrationPlugins.map { (pluginId, _) -> pluginId })
+            }
+            task {
+                group = "verification"
+                description = "Verify actual registered Ayu schemes in an isolated graphical fixture"
+                useJUnitPlatform()
+                include("**/integration/RegisteredSchemeTest*")
+                include("**/integration/NativeSchemePersistenceTest*")
+                include("**/integration/StudioMappingsSectionTest*")
+                include("**/integration/StudioSettingsHostTest*")
+                include("**/integration/StudioReviewDialogTest*")
+                include("**/integration/StudioSyntaxParticipantTest*")
+                include("**/integration/StudioVcsParticipantTest*")
+                include("**/integration/StudioAccentElementsTest*")
+                include("**/integration/StudioAccentParticipantTest*")
+                include("**/integration/StudioAccentRuntimeTest*")
+                include("**/integration/StudioCapabilityCleanupTest*")
+                include("**/integration/StudioAccentCoordinatorTest*")
+                include("**/integration/StudioNativeEnvironmentTest*")
+                include("**/integration/StudioSystemParticipantTest*")
+                include("**/integration/StudioSystemSchemeTest*")
+                include("**/integration/StudioEntitlementGraphTest*")
+                include("**/integration/CommitPathRendererNativeTest*")
+                include("**/integration/ToolWindowWidthNativeTest*")
+                jvmArgumentProviders +=
+                    CommandLineArgumentProvider {
+                        listOf("-Dayu.scheme.probe.classpath=${classpath.asPath}")
+                    }
+                systemProperty("java.awt.headless", false)
+                systemProperty("ayu.native.cleanup", true)
+                systemProperty(
+                    "ayu.scheme.probe.reports",
+                    layout.buildDirectory
+                        .dir("reports/nativeSchemeProbe")
+                        .get()
+                        .asFile,
+                )
+                maxParallelForks = 1
+                shouldRunAfter(tasks.named("integrationTest"))
+            }
+        }
         syntaxRuntimeTargets.forEach { runtime ->
             register(runtime.taskName) {
                 val (targetType, targetVersion) = runtime.ide
@@ -343,6 +455,10 @@ intellijPlatformTesting {
                 testFramework(TestFrameworkType.Platform, frameworkVersion)
                 plugins {
                     bundledPlugins(runtime.bundledPlugins)
+                    if (runtime.id == "pycharm") {
+                        // Pro helpers cannot resolve their module JAR on the flat test classpath.
+                        disablePlugin("Pythonid")
+                    }
                     disablePlugins(
                         integrationPlugins
                             .map { (pluginId, _) -> pluginId }
@@ -374,6 +490,10 @@ intellijPlatformTesting {
             }
         }
     }
+}
+
+tasks.named("check") {
+    dependsOn("nativeSchemeTest")
 }
 
 val syntaxContractGroups: List<List<SyntaxRuntimeTarget>> = syntaxRuntimeTargets.chunked(3)
@@ -445,20 +565,35 @@ intellijPlatform {
             // (InvalidIdeException: missing Core plugin).
             val wanted =
                 when (val group = providers.systemProperty("verifyGroup").orNull) {
-                    null -> verifiedIdeGroups.keys + "C"
-                    "A" -> setOf("A1", "A2")
-                    "C" -> setOf("C")
-                    in verifiedIdeGroups.keys -> setOf(group)
-                    else ->
+                    null -> {
+                        verifiedIdeGroups.keys + "C"
+                    }
+
+                    "A" -> {
+                        setOf("A1", "A2")
+                    }
+
+                    "C" -> {
+                        setOf("C")
+                    }
+
+                    in verifiedIdeGroups.keys -> {
+                        setOf(group)
+                    }
+
+                    else -> {
                         error(
                             "Unknown verifyGroup '$group' — expected A1, A2, A, B, C, or unset",
                         )
+                    }
                 }
             wanted
                 .filter { it in verifiedIdeGroups }
                 .flatMap { verifiedIdeGroups.getValue(it) }
-                .forEach { (type, version) ->
-                    create(type, version)
+                .forEach { (ideType, version) ->
+                    create(ideType, version) {
+                        if (ideType == IntelliJPlatformType.Rider) useInstaller = false
+                    }
                 }
             if ("C" in wanted) {
                 select {
@@ -472,136 +607,527 @@ intellijPlatform {
     }
 }
 
-detekt {
-    config.setFrom(files("detekt.yml"))
+// The Detekt plugin declaration uses apply false; its public task classes retain CLI behavior.
+pluginManager.apply(ReportingBasePlugin::class.java)
+
+val detektVersion = providers.gradleProperty("detektVersion")
+val detektRuntime =
+    configurations.register("detekt") {
+        description = "The detekt dependencies to be used for this project."
+        isCanBeResolved = true
+        isCanBeConsumed = false
+        isTransitive = true
+        defaultDependencies {
+            add(project.dependencies.create("io.gitlab.arturbosch.detekt:detekt-cli:${detektVersion.get()}"))
+        }
+    }
+val detektPlugins =
+    configurations.register("detektPlugins") {
+        description = "The detektPlugins libraries to be used for this project."
+        isCanBeResolved = true
+        isCanBeConsumed = false
+        isTransitive = true
+    }
+val detektConfig = layout.projectDirectory.file("detekt.yml")
+val detektBaselineFile = layout.projectDirectory.file("detekt-baseline.xml")
+val detektReports = extensions.getByType<ReportingExtension>().baseDirectory.dir("detekt")
+val detektLauncher =
+    extensions.getByType<JavaToolchainService>().launcherFor(
+        extensions.getByType<JavaPluginExtension>().toolchain,
+    )
+val detektSources =
+    files(
+        "src/main/java",
+        "src/test/java",
+        "src/main/kotlin",
+        "src/test/kotlin",
+    ).filter { it.exists() }
+
+tasks.withType<Detekt>().configureEach {
+    detektClasspath.setFrom(detektRuntime)
+    pluginClasspath.setFrom(detektPlugins)
+    config.setFrom(detektConfig)
     buildUponDefaultConfig = true
+    allRules = false
+    debug = false
+    parallel = false
+    disableDefaultRuleSets = false
+    autoCorrect = false
+    ignoreFailures = false
+    jdkHome.convention(detektLauncher.map { it.metadata.installationPath })
+    jvmTarget =
+        JavaVersion
+            .toVersion(
+                detektLauncher
+                    .get()
+                    .metadata.languageVersion
+                    .asInt(),
+            ).toString()
+}
+tasks.withType<DetektCreateBaselineTask>().configureEach {
+    detektClasspath.setFrom(detektRuntime)
+    pluginClasspath.setFrom(detektPlugins)
+    config.setFrom(detektConfig)
+    buildUponDefaultConfig.convention(true)
+    allRules.convention(false)
+    debug.convention(false)
+    parallel.convention(false)
+    disableDefaultRuleSets.convention(false)
+    autoCorrect.convention(false)
+    jdkHome.convention(detektLauncher.map { it.metadata.installationPath })
+    jvmTarget =
+        JavaVersion
+            .toVersion(
+                detektLauncher
+                    .get()
+                    .metadata.languageVersion
+                    .asInt(),
+            ).toString()
+}
+tasks.withType<DetektGenerateConfigTask>().configureEach {
+    detektClasspath.setFrom(detektRuntime)
+    pluginClasspath.setFrom(detektPlugins)
 }
 
-tasks.named("detekt") {
-    dependsOn("detektTest")
+val detekt =
+    tasks.register<Detekt>("detekt") {
+        setSource(detektSources)
+        include("**/*.kt", "**/*.kts")
+        exclude("build/")
+        reportsDir.convention(detektReports.map { it.asFile })
+        detektBaselineFile.takeIf { it.asFile.exists() }?.let { baseline.convention(it) }
+        dependsOn("detektTest")
+    }
+tasks.register<DetektCreateBaselineTask>("detektBaseline") {
+    setSource(detektSources)
+    baseline.convention(detektBaselineFile)
 }
 
-kover {
-    currentProject {
-        instrumentation {
-            disabledForTestTasks.addAll(syntaxRuntimeTargets.map(SyntaxRuntimeTarget::taskName))
+kotlin.target.compilations.configureEach {
+    val compilation = this
+    val taskSuffix = name.replaceFirstChar(Char::uppercaseChar)
+    val compilationSources = files(kotlinSourceSets.map { it.kotlin.sourceDirectories })
+    val variantBaseline = layout.projectDirectory.file("detekt-baseline-$name.xml")
+    tasks.register<Detekt>("detekt$taskSuffix") {
+        description = "EXPERIMENTAL: Run detekt analysis for ${compilation.name} classes with type resolution"
+        setSource(compilationSources)
+        classpath.setFrom(compilation.output.classesDirs, compilation.compileDependencyFiles)
+        listOf(variantBaseline, detektBaselineFile).firstOrNull { it.asFile.exists() }?.let {
+            baseline.convention(it)
+        }
+        listOf(reports.xml, reports.html, reports.txt, reports.sarif, reports.md).forEach { report ->
+            report.outputLocation.convention(
+                detektReports.map { it.file("${compilation.name}.${report.type.extension}") },
+            )
         }
     }
+    tasks.register<DetektCreateBaselineTask>("detektBaseline$taskSuffix") {
+        description = "EXPERIMENTAL: Creates detekt baseline for ${compilation.name} classes with type resolution"
+        setSource(compilationSources)
+        classpath.setFrom(compilation.output.classesDirs, compilation.compileDependencyFiles)
+        baseline.convention(variantBaseline)
+    }
+}
 
-    reports {
-        filters {
-            excludes {
-                // Pure-rendering UI panels (no extractable logic, visual-only)
-                classes(
-                    "dev.ayuislands.settings.AyuIslandsPreviewPanel*",
-                    "dev.ayuislands.settings.AyuIslandsEffectsPanel*",
-                    "dev.ayuislands.settings.AyuIslandsElementsPanel*",
-                    "dev.ayuislands.settings.AyuIslandsAccentPanel*",
-                    "dev.ayuislands.settings.AyuIslandsAppearancePanel*",
-                    "dev.ayuislands.settings.AyuIslandsSettingsPanel*",
-                    "dev.ayuislands.settings.AyuIslandsConfigurable*",
-                    "dev.ayuislands.settings.PresetButtonBar*",
-                    // Data class in EffectsPanel file, pure UI config
-                    "dev.ayuislands.settings.SliderConfig*",
-                    // Pure-rendering UI panel (Integrations settings)
-                    "dev.ayuislands.settings.IntegrationsPanel*",
-                    // LicenseChecker: thin IDE wrapper; crypto logic tested via LicenseVerifier
-                    "dev.ayuislands.licensing.LicenseChecker*",
-                    // IDE glue: Swing UI DSL panel (pure rendering, no extractable logic)
-                    "dev.ayuislands.settings.WorkspacePanel*",
-                    "dev.ayuislands.settings.PluginsPanel*",
-                    // IDE glue: thin ToolWindowManagerListener wrappers delegating to ToolWindowAutoFitter
-                    "dev.ayuislands.commitpanel.CommitPanelAutoFitManager*",
-                    "dev.ayuislands.gitpanel.GitPanelAutoFitManager*",
-                    // IDE glue: Project service (ToolWindowManager, Registry, ProjectView singletons)
-                    "dev.ayuislands.projectview.ProjectViewScrollbarManager*",
-                    // IDE glue: JTree traversal, ToolWindowManager, Timer, expansion listeners
-                    "dev.ayuislands.toolwindow.ToolWindowAutoFitter*",
-                    // Swing animation panel (Timer, Graphics2D, Swing lifecycle, editor font lookup)
-                    "dev.ayuislands.settings.AccentColorPanel",
-                    // Pure Swing rendering: Graphics2D paint, mouse handlers, animation timers
-                    $$"dev.ayuislands.settings.AccentColorPanel$ThirteenthSwatch*",
-                    $$"dev.ayuislands.settings.AccentColorPanel$ShuffleLink*",
-                    $$"dev.ayuislands.settings.AccentColorPanel$ShadeNameLabel*",
-                    $$"dev.ayuislands.settings.AccentColorPanel$LinkLabel*",
-                    $$"dev.ayuislands.settings.AccentColorPanel$PresetComponent*",
-                    $$"dev.ayuislands.settings.AccentColorPanel$CustomLink*",
-                    $$"dev.ayuislands.settings.AccentColorPanel$ResetLabel*",
-                    // Onboarding Swing panels (Graphics2D paint, mouse handlers, SVG rendering)
-                    "dev.ayuislands.onboarding.PremiumOnboardingPanel*",
-                    "dev.ayuislands.onboarding.FreeOnboardingPanel*",
-                    // Onboarding Swing factories and rendering helpers (createStyledButton, createRailCard, paintScrim etc.)
-                    "dev.ayuislands.onboarding.OnboardingComponentsKt*",
-                    "dev.ayuislands.onboarding.OnboardingSharedRenderingKt*",
-                    // Onboarding IDE glue (thin editor providers, virtual files, coroutine scheduler)
-                    "dev.ayuislands.onboarding.*EditorProvider*",
-                    "dev.ayuislands.onboarding.*Editor",
-                    "dev.ayuislands.onboarding.*VirtualFile*",
-                    "dev.ayuislands.onboarding.OnboardingSchedulerService*",
-                    // What's New tab — pure Swing UI builders + IDE glue. Pure logic
-                    // (computeScale, computeMaxLogicalImageWidth, computeButtonWidth,
-                    // isEligible, normalizeVersion, centerInRow, gaussianBlur, toBufferedImage,
-                    // readImageScale, readString, half-CTA WARN, per-slide try/catch contract)
-                    // lives in companion objects / top-level helpers with dedicated red/green
-                    // tests. These excludes only cover the Swing lifecycle scaffolding:
-                    //   - WhatsNewPanel: JBScrollPane assembly, AncestorListener/ComponentListener
-                    //     wiring, FileEditorManager.closeFile invocation, Swing paint
-                    //   - WhatsNewSlideCard: JBLabel/HTML body construction, BoxLayout wiring,
-                    //     paintCardChrome forward to onboarding helper
-                    //   - WhatsNewImagePanel: Graphics2D paintComponent, shadow BufferedImage
-                    //     caching, removeNotify/invalidate Swing lifecycle
-                    //   - ShowWhatsNewButton: MouseAdapter event dispatch, hover/pressed
-                    //     paint, JBLabel layout
-                    //   - WhatsNewEditor: thin FileEditor contract wrapper
-                    //   - WhatsNewLauncher: OnboardingSchedulerService coroutine launch,
-                    //     FileEditorManager open (the pure isEligible + version
-                    //     normalization paths ARE tested; the focus-race protocol lives
-                    //     in the fully tested dev.ayuislands.ui.FocusWinningTabOpener)
-                    "dev.ayuislands.whatsnew.WhatsNewPanel",
-                    $$"dev.ayuislands.whatsnew.WhatsNewPanel$1",
-                    $$"dev.ayuislands.whatsnew.WhatsNewPanel$2",
-                    "dev.ayuislands.whatsnew.WhatsNewSlideCard",
-                    "dev.ayuislands.whatsnew.WhatsNewSlideCard$*",
-                    "dev.ayuislands.whatsnew.WhatsNewImagePanel",
-                    "dev.ayuislands.whatsnew.ShowWhatsNewButton",
-                    $$"dev.ayuislands.whatsnew.ShowWhatsNewButton$1",
-                    "dev.ayuislands.whatsnew.WhatsNewEditor",
-                    "dev.ayuislands.whatsnew.WhatsNewLauncher",
-                    "dev.ayuislands.whatsnew.WhatsNewLauncher$*",
-                    // Onboarding data-class holders (generated constructors + getters only)
-                    "dev.ayuislands.onboarding.WizardSvgGeometry",
-                    "dev.ayuislands.onboarding.RailCardSpec",
-                    "dev.ayuislands.onboarding.RailCardLayout",
-                    // IR plugin integration: reflection into 3rd-party plugin internals
-                    "dev.ayuislands.indent.IndentRainbowSync*",
-                    // Swing TreeCellRenderer (paintComponent, JTree integration)
-                    "dev.ayuislands.projectview.RootFilteringRenderer*",
-                    // Graphics2D paint rendering (editor highlight overlays)
-                    "dev.ayuislands.accent.elements.BracketScopeRenderer*",
-                    // Accent mappings UI: DialogWrapper, JBTable wiring, paintComponent renderers
-                    "dev.ayuislands.settings.mappings.OverridesGroupBuilder*",
-                    "dev.ayuislands.settings.mappings.AddProjectMappingDialog*",
-                    "dev.ayuislands.settings.mappings.AddLanguageMappingDialog*",
-                    "dev.ayuislands.settings.mappings.EditAccentColorDialog*",
-                    "dev.ayuislands.settings.mappings.AccentSwatchPickerRow*",
-                    "dev.ayuislands.settings.mappings.RoundedSwatchRenderer*",
-                )
-            }
-        }
+val detektConfigService =
+    gradle.sharedServices.registerIfAbsent(
+        "DetektGenerateConfigSingleExecution",
+        DetektGenerateConfigTask.SingleExecutionBuildService::class.java,
+    ) {
+        maxParallelUsages.set(1)
+    }
+tasks.register<DetektGenerateConfigTask>("detektGenerateConfig") {
+    configFile.set(detektConfig)
+    usesService(detektConfigService)
+}
+tasks.named("check") {
+    dependsOn(detekt)
+}
 
-        total {
-            xml {
-                onCheck = false
-                xmlFile = layout.buildDirectory.file("reports/kover/report.xml")
-            }
-        }
+// Report required flags and optional languageVersion/basePath stay unset, preserving upstream defaults.
+// The public jvmTarget setter requires a String, so task realization resolves the configured launcher.
 
-        verify {
-            rule("Line coverage") {
-                minBound(80)
-            }
+val coverageExcludedClasses: List<String> =
+    listOf(
+        // Pure-rendering UI panels (no extractable logic, visual-only)
+        "dev.ayuislands.settings.AyuIslandsPreviewPanel*",
+        "dev.ayuislands.settings.AyuIslandsEffectsPanel*",
+        "dev.ayuislands.settings.AyuIslandsElementsPanel*",
+        "dev.ayuislands.settings.AyuIslandsAccentPanel*",
+        "dev.ayuislands.settings.AyuIslandsAppearancePanel*",
+        "dev.ayuislands.settings.AyuIslandsSettingsPanel*",
+        "dev.ayuislands.settings.AyuIslandsConfigurable*",
+        "dev.ayuislands.settings.PresetButtonBar*",
+        // Data class in EffectsPanel file, pure UI config
+        "dev.ayuislands.settings.SliderConfig*",
+        // Pure-rendering UI panel (Integrations settings)
+        "dev.ayuislands.settings.IntegrationsPanel*",
+        // LicenseChecker: thin IDE wrapper; crypto logic tested via LicenseVerifier
+        "dev.ayuislands.licensing.LicenseChecker*",
+        // IDE glue: Swing UI DSL panel (pure rendering, no extractable logic)
+        "dev.ayuislands.settings.WorkspacePanel*",
+        "dev.ayuislands.settings.PluginsPanel*",
+        // IDE glue: thin ToolWindowManagerListener wrappers delegating to ToolWindowAutoFitter
+        "dev.ayuislands.commitpanel.CommitPanelAutoFitManager*",
+        "dev.ayuislands.gitpanel.GitPanelAutoFitManager*",
+        // IDE glue: Project service (ToolWindowManager, Registry, ProjectView singletons)
+        "dev.ayuislands.projectview.ProjectViewScrollbarManager*",
+        // IDE glue: JTree traversal, ToolWindowManager, Timer, expansion listeners
+        "dev.ayuislands.toolwindow.ToolWindowAutoFitter*",
+        // Swing animation panel (Timer, Graphics2D, Swing lifecycle, editor font lookup)
+        "dev.ayuislands.settings.AccentColorPanel",
+        // Pure Swing rendering: Graphics2D paint, mouse handlers, animation timers
+        $$"dev.ayuislands.settings.AccentColorPanel$ThirteenthSwatch*",
+        $$"dev.ayuislands.settings.AccentColorPanel$ShuffleLink*",
+        $$"dev.ayuislands.settings.AccentColorPanel$ShadeNameLabel*",
+        $$"dev.ayuislands.settings.AccentColorPanel$LinkLabel*",
+        $$"dev.ayuislands.settings.AccentColorPanel$PresetComponent*",
+        $$"dev.ayuislands.settings.AccentColorPanel$CustomLink*",
+        $$"dev.ayuislands.settings.AccentColorPanel$ResetLabel*",
+        // Onboarding Swing panels (Graphics2D paint, mouse handlers, SVG rendering)
+        "dev.ayuislands.onboarding.PremiumOnboardingPanel*",
+        "dev.ayuislands.onboarding.FreeOnboardingPanel*",
+        // Onboarding Swing factories and rendering helpers (createStyledButton, createRailCard, paintScrim etc.)
+        "dev.ayuislands.onboarding.OnboardingComponentsKt*",
+        "dev.ayuislands.onboarding.OnboardingSharedRenderingKt*",
+        // Onboarding IDE glue (thin editor providers, virtual files, coroutine scheduler)
+        "dev.ayuislands.onboarding.*EditorProvider*",
+        "dev.ayuislands.onboarding.*Editor",
+        "dev.ayuislands.onboarding.*VirtualFile*",
+        "dev.ayuislands.onboarding.OnboardingSchedulerService*",
+        // What's New tab — pure Swing UI builders + IDE glue. Pure logic
+        // (computeScale, computeMaxLogicalImageWidth, computeButtonWidth,
+        // isEligible, normalizeVersion, centerInRow, gaussianBlur, toBufferedImage,
+        // readImageScale, readString, half-CTA WARN, per-slide try/catch contract)
+        // lives in companion objects / top-level helpers with dedicated red/green
+        // tests. These excludes only cover the Swing lifecycle scaffolding:
+        //   - WhatsNewPanel: JBScrollPane assembly, AncestorListener/ComponentListener
+        //     wiring, FileEditorManager.closeFile invocation, Swing paint
+        //   - WhatsNewSlideCard: JBLabel/HTML body construction, BoxLayout wiring,
+        //     paintCardChrome forward to onboarding helper
+        //   - WhatsNewImagePanel: Graphics2D paintComponent, shadow BufferedImage
+        //     caching, removeNotify/invalidate Swing lifecycle
+        //   - ShowWhatsNewButton: MouseAdapter event dispatch, hover/pressed
+        //     paint, JBLabel layout
+        //   - WhatsNewEditor: thin FileEditor contract wrapper
+        //   - WhatsNewLauncher: OnboardingSchedulerService coroutine launch,
+        //     FileEditorManager open (the pure isEligible + version
+        //     normalization paths ARE tested; the focus-race protocol lives
+        //     in the fully tested dev.ayuislands.ui.FocusWinningTabOpener)
+        "dev.ayuislands.whatsnew.WhatsNewPanel",
+        $$"dev.ayuislands.whatsnew.WhatsNewPanel$1",
+        $$"dev.ayuislands.whatsnew.WhatsNewPanel$2",
+        "dev.ayuislands.whatsnew.WhatsNewSlideCard",
+        "dev.ayuislands.whatsnew.WhatsNewSlideCard$*",
+        "dev.ayuislands.whatsnew.WhatsNewImagePanel",
+        "dev.ayuislands.whatsnew.ShowWhatsNewButton",
+        $$"dev.ayuislands.whatsnew.ShowWhatsNewButton$1",
+        "dev.ayuislands.whatsnew.WhatsNewEditor",
+        "dev.ayuislands.whatsnew.WhatsNewLauncher",
+        "dev.ayuislands.whatsnew.WhatsNewLauncher$*",
+        // Onboarding data-class holders (generated constructors + getters only)
+        "dev.ayuislands.onboarding.WizardSvgGeometry",
+        "dev.ayuislands.onboarding.RailCardSpec",
+        "dev.ayuislands.onboarding.RailCardLayout",
+        // IR plugin integration: reflection into 3rd-party plugin internals
+        "dev.ayuislands.indent.IndentRainbowSync*",
+        // Swing TreeCellRenderer (paintComponent, JTree integration)
+        "dev.ayuislands.projectview.RootFilteringRenderer*",
+        // Graphics2D paint rendering (editor highlight overlays)
+        "dev.ayuislands.accent.elements.BracketScopeRenderer*",
+        // Accent mappings UI: DialogWrapper, JBTable wiring, paintComponent renderers
+        "dev.ayuislands.settings.mappings.OverridesGroupBuilder*",
+        "dev.ayuislands.settings.mappings.AddProjectMappingDialog*",
+        "dev.ayuislands.settings.mappings.AddLanguageMappingDialog*",
+        "dev.ayuislands.settings.mappings.EditAccentColorDialog*",
+        "dev.ayuislands.settings.mappings.AccentSwatchPickerRow*",
+        "dev.ayuislands.settings.mappings.RoundedSwatchRenderer*",
+    )
+
+class AyuCoverageArguments(
+    private val argumentsFile: File,
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    val agentJar: Provider<RegularFile>,
+    @get:Input val excludedClasses: Provider<Set<String>>,
+    @get:OutputFile val reportFile: Provider<RegularFile>,
+) : CommandLineArgumentProvider,
+    Named {
+    @Internal
+    override fun getName(): String = "ayuCoverageArguments"
+
+    override fun asArguments(): Iterable<String> {
+        argumentsFile.parentFile.mkdirs()
+        argumentsFile.writeText(
+            buildString {
+                appendLine("report.file=${reportFile.get().asFile.canonicalPath}")
+                excludedClasses.get().forEach { appendLine("exclude=$it") }
+            },
+            Charsets.UTF_8,
+        )
+        return listOf("-javaagent:${agentJar.get().asFile.canonicalPath}=file:${argumentsFile.canonicalPath}")
+    }
+}
+
+@CacheableTask
+abstract class AyuCoverageTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val binaryReports: ConfigurableFileCollection
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val classDirectories: ConfigurableFileCollection
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sourceDirectories: ConfigurableFileCollection
+
+    @get:Input abstract val excludedClasses: SetProperty<String>
+
+    protected fun createFilters(): ClassFilters =
+        ClassFilters(
+            includeClasses = emptySet(),
+            excludeClasses = excludedClasses.get(),
+            includeAnnotation = emptySet(),
+            excludeAnnotation = emptySet(),
+            includeInheritedFrom = emptySet(),
+            excludeInheritedFrom = emptySet(),
+        )
+
+    protected fun collectReports(): List<File> = binaryReports.files.filter { it.isFile }
+
+    protected fun collectClasses(): List<File> = classDirectories.files.filter { it.isDirectory }
+
+    protected fun collectSources(): List<File> = sourceDirectories.files.filter { it.isDirectory }
+}
+
+@CacheableTask
+abstract class AyuCoverageXml : AyuCoverageTask() {
+    @get:Input abstract val title: Property<String>
+
+    @get:OutputFile abstract val reportFile: RegularFileProperty
+
+    @TaskAction
+    fun generateReport() {
+        KoverLegacyFeatures.generateXmlReport(
+            reportFile.get().asFile.also { it.parentFile.mkdirs() },
+            collectReports(),
+            collectClasses(),
+            collectSources(),
+            title.get(),
+            createFilters(),
+        )
+    }
+}
+
+@CacheableTask
+abstract class AyuCoverageHtml : AyuCoverageTask() {
+    @get:Input abstract val title: Property<String>
+
+    @get:OutputDirectory abstract val reportDirectory: DirectoryProperty
+
+    @TaskAction
+    fun generateReport() {
+        KoverLegacyFeatures.generateHtmlReport(
+            reportDirectory.get().asFile.also { it.mkdirs() },
+            null,
+            collectReports(),
+            collectClasses(),
+            collectSources(),
+            title.get(),
+            createFilters(),
+        )
+    }
+}
+
+@CacheableTask
+abstract class AyuCoverageBinary : AyuCoverageTask() {
+    @get:OutputFile abstract val reportFile: RegularFileProperty
+
+    @TaskAction
+    fun generateReport() {
+        KoverLegacyFeatures.aggregateIc(
+            reportFile.get().asFile.also { it.parentFile.mkdirs() },
+            createFilters(),
+            temporaryDir,
+            collectReports(),
+            collectClasses(),
+        )
+    }
+}
+
+@CacheableTask
+abstract class AyuCoverageCheck : AyuCoverageTask() {
+    @get:Input abstract val minimumCoverage: Property<Int>
+
+    @get:OutputFile abstract val resultFile: RegularFileProperty
+
+    @TaskAction
+    fun checkCoverage() {
+        val rules =
+            listOf(
+                Rule(
+                    "Line coverage",
+                    GroupingBy.APPLICATION,
+                    listOf(
+                        Bound(
+                            BigDecimal(minimumCoverage.get()),
+                            null,
+                            CoverageUnit.LINE,
+                            AggregationType.COVERED_PERCENTAGE,
+                        ),
+                    ),
+                ),
+            )
+        val violations =
+            KoverLegacyFeatures.verify(
+                rules,
+                temporaryDir,
+                createFilters(),
+                collectReports(),
+                collectClasses(),
+            )
+        resultFile.get().asFile.apply {
+            parentFile.mkdirs()
+            writeText(KoverLegacyFeatures.violationMessage(violations), Charsets.UTF_8)
         }
     }
+}
+
+@DisableCachingByDefault(because = "Enforces the cached coverage result on every invocation")
+abstract class AyuCoverageVerify : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val resultFile: RegularFileProperty
+
+    @TaskAction
+    fun verifyCoverage() {
+        val failure = resultFile.get().asFile.readText(Charsets.UTF_8)
+        if (failure.isNotEmpty()) throw GradleException(failure)
+    }
+}
+
+@DisableCachingByDefault(because = "Prints current coverage without producing a report")
+abstract class AyuCoverageLog : AyuCoverageTask() {
+    @TaskAction
+    fun logCoverage() {
+        val coverage =
+            KoverLegacyFeatures.evalCoverage(
+                GroupingBy.APPLICATION,
+                CoverageUnit.LINE,
+                AggregationType.COVERED_PERCENTAGE,
+                temporaryDir,
+                createFilters(),
+                collectReports(),
+                collectClasses(),
+            )
+        if (coverage.isEmpty()) {
+            logger.quiet("No sources")
+            return
+        }
+        coverage.forEach { entry ->
+            val entityName = entry.entityName ?: "application"
+            val percentage = entry.value.stripTrailingZeros().toPlainString()
+            logger.quiet("$entityName line coverage: $percentage%")
+        }
+    }
+}
+
+val coverageVersion = providers.gradleProperty("koverVersion")
+val coverageAgent =
+    configurations.create("koverJvmAgent") {
+        isCanBeConsumed = false
+        isCanBeResolved = true
+        isTransitive = false
+    }
+dependencies.add(coverageAgent.name, coverageVersion.map { "org.jetbrains.kotlinx:kover-jvm-agent:$it" })
+val findCoverageAgent =
+    tasks.register<Copy>("koverFindJar") {
+        from(coverageAgent)
+        into(layout.buildDirectory.dir("kover/agent"))
+    }
+val coverageAgentFile = layout.buildDirectory.file(coverageVersion.map { "kover/agent/kover-jvm-agent-$it.jar" })
+val coverageAgentExcludes =
+    providers
+        .gradleProperty("kover.android.excludes.disable")
+        .map { setOf("jdk.internal.*") }
+        .orElse(setOf("android.*", "com.android.*", "jdk.internal.*"))
+val uncoveredTests = syntaxRuntimeTargets.map { it.taskName }.toSet()
+
+tasks.withType<Test>().configureEach {
+    jvmArgumentProviders.removeAll { it is AyuCoverageArguments }
+    if (name !in uncoveredTests) {
+        val binaryReport = layout.buildDirectory.file("kover/bin-reports/$name.ic")
+        dependsOn(findCoverageAgent)
+        jvmArgumentProviders.add(
+            AyuCoverageArguments(
+                temporaryDir.resolve("kover-agent.args"),
+                coverageAgentFile,
+                coverageAgentExcludes,
+                binaryReport,
+            ),
+        )
+        doFirst {
+            val reportPath = binaryReport.get().asFile.toPath()
+            Files.createDirectories(reportPath.parent)
+            Files.deleteIfExists(reportPath)
+        }
+    }
+}
+
+val coverageTests = tasks.withType<Test>().matching { it.enabled && it.name !in uncoveredTests }
+val coverageSources = sourceSets.matching { it.name != "test" }
+val coverageClasses = objects.fileCollection().from(coverageSources.map { it.output.classesDirs })
+val coverageSourceDirs =
+    objects.fileCollection().from(
+        coverageSources.map { it.java.srcDirs },
+        kotlin.sourceSets.matching { it.name != "test" }.map { it.kotlin.srcDirs },
+    )
+val coverageReports =
+    objects.fileCollection().from(
+        providers.provider {
+            coverageTests.map { layout.buildDirectory.file("kover/bin-reports/${it.name}.ic").get() }
+        },
+    )
+
+tasks.withType<AyuCoverageTask>().configureEach {
+    group = "verification"
+    dependsOn(coverageTests)
+    binaryReports.from(coverageReports)
+    classDirectories.from(coverageClasses)
+    sourceDirectories.from(coverageSourceDirs)
+    excludedClasses.set(coverageExcludedClasses)
+}
+
+for (suffix in listOf("", "Jvm")) {
+    val xmlReport =
+        tasks.register<AyuCoverageXml>("koverXmlReport$suffix") {
+            title.set("Kover Gradle Plugin XML report for ${project.path}")
+            reportFile.set(layout.buildDirectory.file("reports/kover/report$suffix.xml"))
+        }
+    val htmlReport =
+        tasks.register<AyuCoverageHtml>("koverHtmlReport$suffix") {
+            title.set(project.name)
+            reportDirectory.set(layout.buildDirectory.dir("reports/kover/html$suffix"))
+        }
+    val binaryReport =
+        tasks.register<AyuCoverageBinary>("koverBinaryReport$suffix") {
+            reportFile.set(layout.buildDirectory.file("reports/kover/report$suffix.bin"))
+        }
+    val cachedCheck =
+        tasks.register<AyuCoverageCheck>("koverCachedVerify$suffix") {
+            minimumCoverage.set(80)
+            resultFile.set(layout.buildDirectory.file("reports/kover/verify$suffix.err"))
+        }
+    val verifyCoverage =
+        tasks.register<AyuCoverageVerify>("koverVerify$suffix") {
+            group = "verification"
+            resultFile.set(cachedCheck.flatMap { it.resultFile })
+            shouldRunAfter(xmlReport, htmlReport, binaryReport)
+        }
+    tasks.register<AyuCoverageLog>("koverLog$suffix")
+    if (suffix.isEmpty()) tasks.named("check") { dependsOn(verifyCoverage) }
 }
 
 val proguardTask: TaskProvider<proguard.gradle.ProGuardTask> =
@@ -621,10 +1147,7 @@ val proguardTask: TaskProvider<proguard.gradle.ProGuardTask> =
         injars(jarFile)
         outjars(tempOut)
 
-        val javaHome =
-            org.gradle.internal.jvm.Jvm
-                .current()
-                .javaHome.absolutePath
+        val javaHome = System.getProperty("java.home")
         libraryjars(
             mapOf("jarfilter" to "!**.jar", "filter" to "!module-info.class"),
             "$javaHome/jmods/java.base.jmod",
@@ -632,6 +1155,10 @@ val proguardTask: TaskProvider<proguard.gradle.ProGuardTask> =
         libraryjars(
             mapOf("jarfilter" to "!**.jar", "filter" to "!module-info.class"),
             "$javaHome/jmods/java.desktop.jmod",
+        )
+        libraryjars(
+            mapOf("jarfilter" to "!**.jar", "filter" to "!module-info.class"),
+            "$javaHome/jmods/java.xml.jmod",
         )
 
         libraryjars(configurations.getByName("compileClasspath"))

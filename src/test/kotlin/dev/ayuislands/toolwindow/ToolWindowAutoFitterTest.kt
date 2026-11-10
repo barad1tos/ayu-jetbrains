@@ -484,6 +484,34 @@ class ToolWindowAutoFitterTest {
     }
 
     @Test
+    fun `pending debounce preserves native width when accepted preferences become unavailable`() {
+        SwingUtilities.invokeAndWait {
+            mockCalculatorForWidth(280)
+            var maximum: Int? = 500
+            val tree = JTree()
+            val panel =
+                JPanel(FlowLayout()).apply {
+                    add(tree)
+                    setSize(200, 400)
+                }
+            val content = mockk<Content> { every { component } returns panel }
+            val contentManager = mockk<ContentManager> { every { contents } returns arrayOf(content) }
+            every { toolWindowManager.getToolWindow("Project") } returns toolWindowEx
+            every { toolWindowEx.contentManager } returns contentManager
+            every { toolWindowEx.component } returns panel
+            every { toolWindowEx.type } returns ToolWindowType.DOCKED
+
+            val fitter = ToolWindowAutoFitter(project, "Project", 100)
+            fitter.maxWidthProvider = { maximum }
+            fitter.scheduleAutoFit()
+            maximum = null
+            fitter.flushDebounceForTesting()
+
+            verify(exactly = 0) { toolWindowEx.stretchWidth(any()) }
+        }
+    }
+
+    @Test
     fun `AUTO_FIT to FIXED to AUTO_FIT reinstalls listener correctly`() {
         SwingUtilities.invokeAndWait {
             mockCalculatorForWidth(180)

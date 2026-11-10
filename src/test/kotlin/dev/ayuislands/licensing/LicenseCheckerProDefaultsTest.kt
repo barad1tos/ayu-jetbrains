@@ -1,34 +1,10 @@
 package dev.ayuislands.licensing
 
-import com.intellij.notification.NotificationGroup
-import com.intellij.notification.NotificationGroupManager
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
-import dev.ayuislands.accent.AccentElementId
-import dev.ayuislands.accent.AccentGroup
-import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
-import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowStyle
-import dev.ayuislands.rotation.AccentRotationService
-import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.CommitPathDisplayMode
 import dev.ayuislands.settings.PanelWidthMode
-import io.mockk.every
-import io.mockk.just
-import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
-import io.mockk.runs
-import io.mockk.unmockkAll
-import io.mockk.verify
-import javax.swing.SwingUtilities
-import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,17 +17,6 @@ class LicenseCheckerProDefaultsTest {
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
-        mockkStatic(SwingUtilities::class)
-        every { SwingUtilities.isEventDispatchThread() } returns true
-        val settingsMock = mockk<AyuIslandsSettings>()
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns state
-    }
-
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
     }
 
     // enableProDefaults — glow settings
@@ -59,31 +24,31 @@ class LicenseCheckerProDefaultsTest {
     @Test
     fun `enableProDefaults enables glow`() {
         assertFalse(state.glowEnabled)
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertTrue(state.glowEnabled)
     }
 
     @Test
     fun `enableProDefaults sets glow style to SHARP_NEON`() {
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertEquals(GlowStyle.SHARP_NEON.name, state.glowStyle)
     }
 
     @Test
     fun `enableProDefaults sets glow preset to CUSTOM`() {
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertEquals(GlowPreset.CUSTOM.name, state.glowPreset)
     }
 
     @Test
     fun `enableProDefaults sets animation to BREATHE`() {
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertEquals(GlowAnimation.BREATHE.name, state.glowAnimation)
     }
 
     @Test
     fun `enableProDefaults sets intensity to 100 and width to 2`() {
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertEquals(100, state.sharpNeonIntensity)
         assertEquals(2, state.sharpNeonWidth)
     }
@@ -98,7 +63,7 @@ class LicenseCheckerProDefaultsTest {
         state.glowGit = false
         state.glowServices = false
 
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
 
         assertTrue(state.glowEditor)
         assertTrue(state.glowProject)
@@ -112,14 +77,14 @@ class LicenseCheckerProDefaultsTest {
     @Test
     fun `enableProDefaults enables focus ring`() {
         state.glowFocusRing = false
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertTrue(state.glowFocusRing)
     }
 
     @Test
     fun `enableProDefaults sets proDefaultsApplied flag`() {
         assertFalse(state.proDefaultsApplied)
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertTrue(state.proDefaultsApplied)
     }
 
@@ -128,7 +93,7 @@ class LicenseCheckerProDefaultsTest {
     @Test
     fun `enableProDefaults does not change panel width modes`() {
         assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertEquals(PanelWidthMode.DEFAULT.name, state.projectPanelWidthMode)
     }
 
@@ -136,7 +101,7 @@ class LicenseCheckerProDefaultsTest {
     fun `enableProDefaults does not change project root path or scrollbar`() {
         assertFalse(state.hideProjectRootPath)
         assertFalse(state.hideProjectViewHScrollbar)
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertFalse(state.hideProjectRootPath)
         assertFalse(state.hideProjectViewHScrollbar)
     }
@@ -144,7 +109,7 @@ class LicenseCheckerProDefaultsTest {
     @Test
     fun `enableProDefaults does not set workspaceDefaultsApplied`() {
         assertFalse(state.workspaceDefaultsApplied)
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(state)
         assertFalse(state.workspaceDefaultsApplied)
     }
 
@@ -152,7 +117,7 @@ class LicenseCheckerProDefaultsTest {
 
     @Test
     fun `applyWorkspaceDefaults sets all three panel modes to AUTO_FIT`() {
-        LicenseChecker.applyWorkspaceDefaults()
+        LicenseDefaults.applyWorkspace(state)
 
         assertEquals(PanelWidthMode.AUTO_FIT.name, state.projectPanelWidthMode)
         assertEquals(PanelWidthMode.AUTO_FIT.name, state.commitPanelWidthMode)
@@ -161,7 +126,7 @@ class LicenseCheckerProDefaultsTest {
 
     @Test
     fun `applyWorkspaceDefaults hides root path and scrollbar`() {
-        LicenseChecker.applyWorkspaceDefaults()
+        LicenseDefaults.applyWorkspace(state)
 
         assertTrue(state.hideProjectRootPath)
         assertTrue(state.hideProjectViewHScrollbar)
@@ -169,194 +134,7 @@ class LicenseCheckerProDefaultsTest {
 
     @Test
     fun `applyWorkspaceDefaults sets workspaceDefaultsApplied flag`() {
-        LicenseChecker.applyWorkspaceDefaults()
+        LicenseDefaults.applyWorkspace(state)
         assertTrue(state.workspaceDefaultsApplied)
-    }
-
-    // revertToFreeDefaults
-
-    @Test
-    fun `revertToFreeDefaults preserves glow preference`() {
-        state.glowEnabled = true
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertTrue(state.glowEnabled)
-    }
-
-    @Test
-    fun `revertToFreeDefaults preserves tab mode preference`() {
-        state.glowTabMode = "FULL"
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertEquals("FULL", state.glowTabMode)
-    }
-
-    @Test
-    fun `revertToFreeDefaults preserves every element choice`() {
-        // Entitlement gates CHROME execution without erasing any free or premium
-        // surface choice during a temporary downgrade.
-        for (id in AccentElementId.entries) {
-            state.setToggle(id, id.group == AccentGroup.CHROME)
-        }
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        for (id in AccentElementId.entries.filter { it.group != AccentGroup.CHROME }) {
-            assertFalse(state.isToggleEnabled(id), "${id.name} should be preserved on free tier")
-        }
-        for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
-            assertTrue(state.isToggleEnabled(id), "${id.name} should be preserved on free tier")
-        }
-    }
-
-    @Test
-    fun `revertToFreeDefaults preserves all workspace settings`() {
-        state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
-        state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
-        state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
-        state.commitPanelPathDisplayMode = CommitPathDisplayMode.TOOLTIP.name
-        state.commitPanelPathMinHiddenLevels = 2
-        state.commitPanelPathMaxHiddenLevels = 4
-        state.hideProjectRootPath = true
-        state.hideProjectViewHScrollbar = true
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertEquals(PanelWidthMode.AUTO_FIT.name, state.projectPanelWidthMode)
-        assertEquals(PanelWidthMode.AUTO_FIT.name, state.commitPanelWidthMode)
-        assertEquals(PanelWidthMode.AUTO_FIT.name, state.gitPanelWidthMode)
-        assertEquals(CommitPathDisplayMode.TOOLTIP.name, state.commitPanelPathDisplayMode)
-        assertEquals(2, state.commitPanelPathMinHiddenLevels)
-        assertEquals(4, state.commitPanelPathMaxHiddenLevels)
-        assertTrue(state.hideProjectRootPath)
-        assertTrue(state.hideProjectViewHScrollbar)
-    }
-
-    @Test
-    fun `revertToFreeDefaults preserves accent color`() {
-        state.mirageAccent = "#CUSTOM1"
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertEquals("#CUSTOM1", state.mirageAccent)
-    }
-
-    @Test
-    fun `revertToFreeDefaults preserves cgpIntegrationEnabled`() {
-        state.cgpIntegrationEnabled = true
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertTrue(state.cgpIntegrationEnabled)
-    }
-
-    @Test
-    fun `revertToFreeDefaults preserves irIntegrationEnabled`() {
-        state.irIntegrationEnabled = true
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertTrue(state.irIntegrationEnabled)
-    }
-
-    @Test
-    fun `revertToFreeDefaults preserves accentRotationEnabled`() {
-        state.accentRotationEnabled = true
-        mockAccentApplicator()
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertTrue(state.accentRotationEnabled)
-    }
-
-    @Test
-    fun `revertToFreeDefaults stops accent rotation service`() {
-        mockAccentApplicator()
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.isDispatchThread } returns true
-        every { app.getService(AccentRotationService::class.java) } returns rotationService
-
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        verify { rotationService.stopRotation() }
-    }
-
-    // Fragile: this test mocks a 4-deep notification chain
-    // (NotificationGroupManager→NotificationGroup→Notification→notify).
-    // If the notification path in revertToFreeDefaults changes, update
-    // the mock setup below rather than deleting the test — it covers
-    // an important error-handling path (AccentApplicator crash recovery).
-    @Test
-    fun `revertToFreeDefaults handles AccentApplicator failure gracefully`() {
-        val settingsMock = mockk<AyuIslandsSettings>()
-        every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns state
-        every { settingsMock.getAccentForVariant(any()) } returns "#FFCC66"
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } throws RuntimeException("Test failure")
-
-        // Mock ApplicationManager for AccentRotationService.stopRotation() call
-        mockkStatic(ApplicationManager::class)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.isDispatchThread } returns true
-        every { app.getService(AccentRotationService::class.java) } returns null
-
-        // Mock GlowOverlayManager.syncGlowForAllProjects()
-        mockkObject(GlowOverlayManager.Companion)
-        every { GlowOverlayManager.syncGlowForAllProjects() } just runs
-
-        // Mock NotificationGroupManager for the catch block's warning notification
-        mockkStatic(NotificationGroupManager::class)
-        val notificationManager = mockk<NotificationGroupManager>()
-        val notificationGroup = mockk<NotificationGroup>()
-        every { NotificationGroupManager.getInstance() } returns notificationManager
-        every { notificationManager.getNotificationGroup(any()) } returns notificationGroup
-        val notification = mockk<com.intellij.notification.Notification>(relaxed = true)
-        every {
-            notificationGroup.createNotification(
-                any<String>(),
-                any<String>(),
-                any<com.intellij.notification.NotificationType>(),
-            )
-        } returns notification
-        every { notification.notify(any()) } just runs
-
-        // Should not throw — exception is caught internally
-        LicenseChecker.revertToFreeDefaults(AyuVariant.MIRAGE)
-
-        assertFalse(state.glowEnabled)
-    }
-
-    private fun mockAccentApplicator() {
-        val settingsMock = mockk<AyuIslandsSettings>()
-        every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns state
-        every { settingsMock.getAccentForVariant(any()) } returns "#FFCC66"
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.apply(any()) } answers
-            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
-
-        // Mock ApplicationManager for AccentRotationService.stopRotation() call
-        mockkStatic(ApplicationManager::class)
-        val app = mockk<Application>()
-        every { ApplicationManager.getApplication() } returns app
-        every { app.isDispatchThread } returns true
-        every { app.getService(AccentRotationService::class.java) } returns null
-
-        // Mock GlowOverlayManager.syncGlowForAllProjects()
-        mockkObject(GlowOverlayManager.Companion)
-        every { GlowOverlayManager.syncGlowForAllProjects() } just runs
     }
 }

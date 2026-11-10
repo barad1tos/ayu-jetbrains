@@ -13,6 +13,7 @@ import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -84,7 +85,7 @@ class MainToolbarElementTest {
 
         mockState = AyuIslandsState()
         mockSettings = mockk(relaxed = true)
-        every { mockSettings.state } returns mockState
+        every { mockSettings.state } answers { StudioFixtures.legacyView(mockState).settings }
 
         mockApplication = mockk(relaxed = true)
         every { mockApplication.getService(AyuIslandsSettings::class.java) } returns mockSettings

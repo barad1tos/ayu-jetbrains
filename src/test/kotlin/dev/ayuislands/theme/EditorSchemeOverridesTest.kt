@@ -11,12 +11,11 @@ import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.ColorUtil
 import dev.ayuislands.accent.AccentApplyScope
 import dev.ayuislands.accent.AccentElementId
+import dev.ayuislands.accent.AccentWriteState
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.syntax.IdeSyntaxSchemeWriter
-import dev.ayuislands.syntax.SyntaxRecoveryLedger
-import dev.ayuislands.syntax.SyntaxSchemeChange
-import dev.ayuislands.syntax.SyntaxSchemeTransaction
-import dev.ayuislands.syntax.SyntaxTransactionResult
+import dev.ayuislands.theme.EditorSchemeOverrides.CheckpointEntry
+import dev.ayuislands.theme.EditorSchemeOverrides.SchemeEntry
+import dev.ayuislands.theme.EditorSchemeOverrides.SchemeValue
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -32,7 +31,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -267,6 +265,880 @@ class EditorSchemeOverridesTest {
     }
 
     @Test
+    fun `prepared editor write rejects pending recovery without triggering cleanup`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        var failRestore = true
+        var restoreCalls = 0
+        every { target.setColor(colorKey, Color.ORANGE) } answers {
+            restoreCalls++
+            check(!failRestore) { "restore setter failed before mutation" }
+            colors[colorKey] = Color.ORANGE
+        }
+        abortAccent { AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW) }
+        failRestore = false
+        restoreCalls = 0
+        var publications = 0
+        every { EditorSchemeChange.publish() } answers { publications++ }
+        val savedMetadata = target.metaProperties.toMap()
+
+        SwingUtilities.invokeAndWait {
+            assertFailsWith<IllegalStateException> {
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.PINK), null, null),
+                    target,
+                )
+            }
+        }
+
+        assertEquals(0, restoreCalls)
+        assertEquals(0, publications)
+        assertEquals(Color.YELLOW, colors[colorKey])
+        assertEquals(savedMetadata, target.metaProperties.toMap())
+    }
+
+    @Test
+    fun `prepared editor write survives scope closure and only changes native state on apply`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val scope = AccentApplyScope()
+            scope.open()
+            val prepared =
+                try {
+                    EditorSchemeOverrides.checkpoints.prepareWrite(
+                        target,
+                        SchemeEntry.ColorEntry(colorKey),
+                        CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                        target,
+                    )
+                } finally {
+                    scope.close()
+                }
+            assertSame(Color.RED, colors[colorKey])
+            assertTrue(target.metaProperties.isEmpty)
+            assertEquals(AccentWriteState.PREPARED, prepared.state)
+            assertFalse(prepared.hasPending)
+            assertTrue(prepared.apply())
+            assertSame(Color.ORANGE, colors[colorKey])
+            assertFailsWith<IllegalStateException> { prepared.apply() }
+            prepared.restore()
+            assertSame(Color.RED, colors[colorKey])
+            assertEquals(AccentWriteState.RESTORED, prepared.state)
+        }
+    }
+
+    @Test
+    fun `cancelling a prepared editor write never changes its captured scheme`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            every { target.setColor(any(), any()) } throws IllegalStateException("Unused capture must not write")
+            prepared.restore()
+            assertSame(Color.RED, colors[colorKey])
+            assertTrue(target.metaProperties.isEmpty)
+            assertEquals(AccentWriteState.RESTORED, prepared.state)
+            assertFailsWith<IllegalStateException> { prepared.apply() }
+        }
+    }
+
+    @Test
+    fun `prepared editor attributes freeze the caller value before acknowledgement`() {
+        val original = fullAttributes(Color.RED)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to original)
+        val target = scheme(attributes = attributes)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val requested = fullAttributes(Color.ORANGE)
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.AttributesEntry(attributesKey),
+                    CheckpointEntry(SchemeValue.AttributesValue(requested), null, null),
+                    target,
+                )
+            requested.foregroundColor = Color.GREEN
+            assertTrue(prepared.apply())
+            assertEquals(Color.ORANGE, attributes[attributesKey]?.foregroundColor)
+            prepared.restore()
+            assertEquals(original, attributes[attributesKey])
+        }
+    }
+
+    @Test
+    fun `replaced active scheme rejects prepared writes without modifying either target`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val first = scheme(colors = colors)
+        val second = scheme()
+        var current = first
+        every { editorColorsManager.globalScheme } answers { current }
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    first,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    first,
+                )
+            current = second
+            assertFalse(prepared.apply())
+            prepared.restore()
+            assertSame(Color.RED, colors[colorKey])
+            assertTrue(first.metaProperties.isEmpty)
+            assertTrue(second.metaProperties.isEmpty)
+        }
+    }
+
+    @Test
+    fun `recovery queued after preparation prevents a detached editor write`() {
+        val independent = ColorKey.find("TEST_PREPARED_INDEPENDENT")
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED, independent to Color.BLUE)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        every { target.setColor(colorKey, Color.ORANGE) } throws IllegalStateException("Recovery is blocked")
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(independent),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.PINK), null, null),
+                    target,
+                )
+            val scope = AccentApplyScope()
+            scope.open()
+            try {
+                assertFailsWith<IllegalStateException> {
+                    scope.restoringOnFailure {
+                        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+                        error("Abort after native mutation")
+                    }
+                }
+            } finally {
+                scope.close()
+            }
+            assertFalse(prepared.apply())
+            assertSame(Color.BLUE, colors[independent])
+            assertSame(Color.YELLOW, colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `prepared admission preserves an equal color installed by another writer`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            val foreign = Color(Color.RED.rgb)
+            colors[colorKey] = foreign
+            assertFalse(prepared.apply())
+            prepared.restore()
+            assertSame(foreign, colors[colorKey])
+            assertTrue(target.metaProperties.isEmpty)
+        }
+    }
+
+    @Test
+    fun `detached rollback preserves an equal foreign color after successful apply`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            val foreign = Color(Color.ORANGE.rgb, true)
+            colors[colorKey] = foreign
+            prepared.restore()
+            assertSame(foreign, colors[colorKey])
+            assertFalse(prepared.hasPending)
+        }
+    }
+
+    @Test
+    fun `detached rollback preserves an equal foreign attribute object after apply`() {
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to fullAttributes(Color.RED))
+        val target = scheme(attributes = attributes)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.AttributesEntry(attributesKey),
+                    CheckpointEntry(SchemeValue.AttributesValue(fullAttributes(Color.ORANGE)), null, null),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            val foreign = attributes.getValue(attributesKey)!!.clone()
+            attributes[attributesKey] = foreign
+            prepared.restore()
+            assertSame(foreign, attributes[attributesKey])
+            assertFalse(prepared.hasPending)
+        }
+    }
+
+    @Test
+    fun `detached rollback prevents legacy cleanup from reclaiming an equal foreign color`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.PINK), null, null),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            val foreign = Color(Color.ORANGE.rgb, true)
+            colors[colorKey] = foreign
+            prepared.restore()
+            assertSame(foreign, colors[colorKey])
+            AyuEditorSchemeScope.restore(elementOwner)
+            assertSame(foreign, colors[colorKey])
+            EditorSchemeOverrides.reset()
+            AyuEditorSchemeScope.restore(elementOwner)
+            assertSame(foreign, colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `detached rollback prevents legacy cleanup from reclaiming equal foreign attributes`() {
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to fullAttributes(Color.RED))
+        val target = scheme(attributes = attributes)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            AyuEditorSchemeScope.writeAttributes(elementOwner, attributesKey, fullAttributes(Color.ORANGE))
+            val foreign = attributes.getValue(attributesKey)!!.clone()
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.AttributesEntry(attributesKey),
+                    CheckpointEntry(SchemeValue.AttributesValue(fullAttributes(Color.PINK)), null, null),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            attributes[attributesKey] = foreign
+            prepared.restore()
+            assertSame(foreign, attributes[attributesKey])
+            AyuEditorSchemeScope.restore(elementOwner)
+            assertSame(foreign, attributes[attributesKey])
+            EditorSchemeOverrides.reset()
+            AyuEditorSchemeScope.restore(elementOwner)
+            assertSame(foreign, attributes[attributesKey])
+        }
+    }
+
+    @Test
+    fun `detached preparation rejects replaced ownership metadata without adopting it`() {
+        for (replacement in listOf("opaque", "equal", "absent")) {
+            EditorSchemeOverrides.reset()
+            val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+            val target = scheme(colors = colors)
+            val entry = SchemeEntry.ColorEntry(colorKey)
+            every { editorColorsManager.globalScheme } returns target
+            SwingUtilities.invokeAndWait {
+                AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+                val encoded = target.metaProperties.getProperty(entry.metadataKey)
+                val foreign: Any? =
+                    when (replacement) {
+                        "opaque" -> Any()
+                        "equal" -> String(encoded.toCharArray())
+                        else -> null
+                    }
+                if (foreign == null) {
+                    target.metaProperties.remove(entry.metadataKey)
+                } else {
+                    target.metaProperties[entry.metadataKey] = foreign
+                }
+                assertFailsWith<IllegalStateException> {
+                    EditorSchemeOverrides.checkpoints.prepareWrite(
+                        target,
+                        entry,
+                        CheckpointEntry(SchemeValue.ColorValue(Color.PINK), null, null),
+                        target,
+                    )
+                }
+                assertSame(Color.ORANGE, colors[colorKey])
+                assertSame(foreign, target.metaProperties[entry.metadataKey])
+            }
+        }
+    }
+
+    @Test
+    fun `detached rollback keeps a new claim relinquished after a foreign write and reload`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        val entry = SchemeEntry.ColorEntry(colorKey)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+            val desired =
+                EditorSchemeOverrides.checkpoints
+                    .capture(target, elementOwner, setOf(entry))
+                    .entries
+                    .getValue(entry)
+            AyuEditorSchemeScope.restore(elementOwner)
+            val prepared = EditorSchemeOverrides.checkpoints.prepareWrite(target, entry, desired, target)
+            assertTrue(prepared.apply())
+            val foreign = Color(Color.ORANGE.rgb, true)
+            colors[colorKey] = foreign
+            prepared.restore()
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.YELLOW)
+            assertSame(foreign, colors[colorKey])
+            EditorSchemeOverrides.reset()
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.PINK)
+            assertSame(foreign, colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `detached release retries metadata without resurrecting the old owner`() {
+        for (mutateBeforeFailure in listOf(false, true)) {
+            EditorSchemeOverrides.reset()
+            val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+            val target = scheme(colors = colors)
+            var failRelease = false
+            var releaseWrites = 0
+            val metadata =
+                object : Properties() {
+                    override fun put(
+                        key: Any,
+                        value: Any,
+                    ): Any? {
+                        if (value is String && value.startsWith("R;")) {
+                            releaseWrites++
+                            if (failRelease) {
+                                if (mutateBeforeFailure) super.put(key, value)
+                                error("Release metadata interrupted")
+                            }
+                        }
+                        return super.put(key, value)
+                    }
+                }
+            every { target.metaProperties } returns metadata
+            every { editorColorsManager.globalScheme } returns target
+            SwingUtilities.invokeAndWait {
+                AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+                val prepared =
+                    EditorSchemeOverrides.checkpoints.prepareWrite(
+                        target,
+                        SchemeEntry.ColorEntry(colorKey),
+                        CheckpointEntry(SchemeValue.ColorValue(Color.PINK), null, null),
+                        target,
+                    )
+                assertTrue(prepared.apply())
+                val foreign = Color(Color.ORANGE.rgb, true)
+                colors[colorKey] = foreign
+                failRelease = true
+                assertFailsWith<IllegalStateException> { prepared.restore() }
+                assertTrue(prepared.hasPending)
+                AyuEditorSchemeScope.restore(elementOwner)
+                assertSame(foreign, colors[colorKey])
+                failRelease = false
+                prepared.restore()
+                assertFalse(prepared.hasPending)
+                assertEquals(if (mutateBeforeFailure) 1 else 2, releaseWrites)
+                EditorSchemeOverrides.reset()
+                AyuEditorSchemeScope.restore(elementOwner)
+                assertSame(foreign, colors[colorKey])
+            }
+        }
+    }
+
+    @Test
+    fun `foreign change during metadata recovery releases an already restored owner`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        val entry = SchemeEntry.ColorEntry(colorKey)
+        var failRestore = false
+        var originalMetadata: Any? = null
+        val metadata =
+            object : Properties() {
+                override fun put(
+                    key: Any,
+                    value: Any,
+                ): Any? {
+                    check(!failRestore || value !== originalMetadata) { "Original metadata interrupted" }
+                    return super.put(key, value)
+                }
+            }
+        every { target.metaProperties } returns metadata
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+            originalMetadata = metadata[entry.metadataKey]
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    entry,
+                    CheckpointEntry(SchemeValue.ColorValue(Color.PINK), null, null),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            failRestore = true
+            assertFailsWith<IllegalStateException> { prepared.restore() }
+            assertSame(Color.ORANGE, colors[colorKey])
+            val foreign = Color(Color.ORANGE.rgb, true)
+            colors[colorKey] = foreign
+            failRestore = false
+            prepared.restore()
+            AyuEditorSchemeScope.restore(elementOwner)
+            assertSame(foreign, colors[colorKey])
+            EditorSchemeOverrides.reset()
+            AyuEditorSchemeScope.restore(elementOwner)
+            assertSame(foreign, colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `detached rollback restores raw opaque metadata without evaluating it`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        val entry = SchemeEntry.ColorEntry(colorKey)
+        val opaque =
+            object {
+                override fun equals(other: Any?): Boolean = error("Opaque metadata equality must not run")
+
+                override fun hashCode(): Int = error("Opaque metadata hash must not run")
+            }
+        target.metaProperties[entry.metadataKey] = opaque
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    entry,
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, "prepared metadata"),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            prepared.restore()
+            assertSame(opaque, target.metaProperties[entry.metadataKey])
+            assertSame(Color.RED, colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `detached mutation then exception does not claim an equal foreign replacement`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        val foreign = Color(Color.ORANGE.rgb, true)
+        every { editorColorsManager.globalScheme } returns target
+        every { target.setColor(colorKey, Color.ORANGE) } answers {
+            colors[colorKey] = foreign
+            error("Setter replaced the value before failing")
+        }
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            assertFailsWith<IllegalStateException> { prepared.apply() }
+            prepared.restore()
+            assertSame(foreign, colors[colorKey])
+            assertFalse(prepared.hasPending)
+        }
+    }
+
+    @Test
+    fun `detached mutation then exception retains the actual setter payload for rollback`() {
+        val original = fullAttributes(Color.RED)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to original)
+        val target = scheme(attributes = attributes)
+        var failApply = true
+        every { editorColorsManager.globalScheme } returns target
+        every { target.setAttributes(attributesKey, any()) } answers {
+            attributes[attributesKey] = secondArg()
+            check(!failApply) { "Setter installed the exact payload before failing" }
+        }
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.AttributesEntry(attributesKey),
+                    CheckpointEntry(SchemeValue.AttributesValue(fullAttributes(Color.ORANGE)), null, null),
+                    target,
+                )
+            assertFailsWith<IllegalStateException> { prepared.apply() }
+            failApply = false
+            prepared.restore()
+            assertEquals(original, attributes[attributesKey])
+            assertFalse(prepared.hasPending)
+        }
+    }
+
+    @Test
+    fun `detached rollback preserves a newer owner even when it reuses the applied color`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+            val foreignMetadata = target.metaProperties.toMap()
+            prepared.restore()
+            assertSame(Color.ORANGE, colors[colorKey])
+            assertEquals(foreignMetadata, target.metaProperties.toMap())
+        }
+    }
+
+    @Test
+    fun `opaque foreign attributes do not hide independently owned metadata during rollback`() {
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to fullAttributes(Color.RED))
+        val target = scheme(attributes = attributes)
+        val entry = SchemeEntry.AttributesEntry(attributesKey)
+        val opaqueMetadata = Any()
+        target.metaProperties[entry.metadataKey] = opaqueMetadata
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    entry,
+                    CheckpointEntry(SchemeValue.AttributesValue(fullAttributes(Color.ORANGE)), null, "owned metadata"),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            val foreign =
+                object : TextAttributes() {
+                    override fun clone(): TextAttributes = error("Opaque clone must not run")
+                }
+            attributes[attributesKey] = foreign
+            prepared.restore()
+            assertSame(foreign, attributes[attributesKey])
+            assertSame(opaqueMetadata, target.metaProperties[entry.metadataKey])
+        }
+    }
+
+    @Test
+    fun `unchanged detached metadata never invokes its mutators`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        val metadata =
+            object : Properties() {
+                override fun remove(key: Any): Nothing = error("Unchanged metadata must not be removed")
+
+                override fun put(
+                    key: Any,
+                    value: Any,
+                ): Nothing = error("Unchanged metadata must not be replaced")
+            }
+        every { target.metaProperties } returns metadata
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            prepared.restore()
+            assertSame(Color.RED, colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `detached restore retries metadata without replaying settled value writes`() {
+        for (mutateBeforeFailure in listOf(false, true)) {
+            val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+            val target = scheme(colors = colors)
+            val entry = SchemeEntry.ColorEntry(colorKey)
+            val originalMetadata = "original metadata"
+            var failRestore = false
+            val metadata =
+                object : Properties() {
+                    override fun put(
+                        key: Any,
+                        value: Any,
+                    ): Any? {
+                        if (failRestore && value === originalMetadata) {
+                            if (mutateBeforeFailure) super.put(key, value)
+                            error("Metadata restoration interrupted")
+                        }
+                        return super.put(key, value)
+                    }
+                }
+            metadata[entry.metadataKey] = originalMetadata
+            every { target.metaProperties } returns metadata
+            every { editorColorsManager.globalScheme } returns target
+            var valueWrites = 0
+            every { target.setColor(colorKey, any()) } answers {
+                valueWrites++
+                colors[colorKey] = secondArg()
+            }
+            SwingUtilities.invokeAndWait {
+                val prepared =
+                    EditorSchemeOverrides.checkpoints.prepareWrite(
+                        target,
+                        entry,
+                        CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, "applied metadata"),
+                        target,
+                    )
+                assertTrue(prepared.apply())
+                failRestore = true
+                assertFailsWith<IllegalStateException> { prepared.restore() }
+                assertSame(Color.RED, colors[colorKey])
+                assertTrue(prepared.hasPending)
+                assertEquals(2, valueWrites)
+                colors[colorKey] = Color.PINK
+                failRestore = false
+                prepared.restore()
+                assertSame(Color.PINK, colors[colorKey])
+                assertSame(originalMetadata, metadata[entry.metadataKey])
+                assertEquals(2, valueWrites)
+                assertFalse(prepared.hasPending)
+            }
+        }
+    }
+
+    @Test
+    fun `detached admission rejects a replaced parent without writing native state`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        var parent = mockk<AbstractColorsScheme>()
+        every { target.parentScheme } answers { parent }
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            parent = mockk()
+            assertFalse(prepared.apply())
+            assertSame(Color.RED, colors[colorKey])
+            assertTrue(target.metaProperties.isEmpty)
+        }
+    }
+
+    @Test
+    fun `detached rollback preserves a scheme whose parent changed after apply`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        var parent = mockk<AbstractColorsScheme>()
+        every { target.parentScheme } answers { parent }
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, "owned metadata"),
+                    target,
+                )
+            assertTrue(prepared.apply())
+            val metadata = target.metaProperties.toMap()
+            parent = mockk()
+            prepared.restore()
+            assertSame(Color.ORANGE, colors[colorKey])
+            assertEquals(metadata, target.metaProperties.toMap())
+            assertEquals(AccentWriteState.RELINQUISHED, prepared.state)
+            assertFalse(prepared.hasPending)
+        }
+    }
+
+    @Test
+    fun `prepared admission distinguishes absent color from a newly installed inheritance marker`() {
+        val colors = mutableMapOf<ColorKey, Color?>()
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            colors[colorKey] = AbstractColorsScheme.INHERITED_COLOR_MARKER
+            assertFalse(prepared.apply())
+            assertSame(AbstractColorsScheme.INHERITED_COLOR_MARKER, colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `prepared admission preserves opaque metadata replaced after capture`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        val entry = SchemeEntry.ColorEntry(colorKey)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            target.metaProperties[entry.metadataKey] = Any()
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    entry,
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            val foreign = Any()
+            target.metaProperties[entry.metadataKey] = foreign
+            assertFalse(prepared.apply())
+            assertSame(Color.RED, colors[colorKey])
+            assertSame(foreign, target.metaProperties[entry.metadataKey])
+        }
+    }
+
+    @Test
+    fun `prepared admission rejects an equal replacement of native attributes`() {
+        val original = fullAttributes(Color.RED)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to original)
+        val target = scheme(attributes = attributes)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.AttributesEntry(attributesKey),
+                    CheckpointEntry(SchemeValue.AttributesValue(fullAttributes(Color.ORANGE)), null, null),
+                    target,
+                )
+            val foreign = original.clone()
+            assertSame(original.flyweight, foreign.flyweight)
+            attributes[attributesKey] = foreign
+            assertFalse(prepared.apply())
+            assertSame(foreign, attributes[attributesKey])
+        }
+    }
+
+    @Test
+    fun `prepared admission detects in place changes to native attributes`() {
+        val original = fullAttributes(Color.RED)
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to original)
+        val target = scheme(attributes = attributes)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.AttributesEntry(attributesKey),
+                    CheckpointEntry(SchemeValue.AttributesValue(fullAttributes(Color.ORANGE)), null, null),
+                    target,
+                )
+            original.foregroundColor = Color.BLUE
+            assertFalse(prepared.apply())
+            assertSame(original, attributes[attributesKey])
+            assertEquals(Color.BLUE, original.foregroundColor)
+        }
+    }
+
+    @Test
+    fun `prepared admission rejects an equal ownership record replaced by a later operation`() {
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
+        val target = scheme(colors = colors)
+        val entry = SchemeEntry.ColorEntry(colorKey)
+        every { editorColorsManager.globalScheme } returns target
+        AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+        SwingUtilities.invokeAndWait {
+            val metadata = target.metaProperties[entry.metadataKey]
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    entry,
+                    CheckpointEntry(SchemeValue.ColorValue(Color.PINK), null, null),
+                    target,
+                )
+            AyuEditorSchemeScope.writeColor(elementOwner, colorKey, Color.ORANGE)
+            target.metaProperties[entry.metadataKey] = metadata
+            assertFalse(prepared.apply())
+            assertSame(Color.ORANGE, colors[colorKey])
+            assertSame(metadata, target.metaProperties[entry.metadataKey])
+        }
+    }
+
+    @Test
+    fun `prepared admission never evaluates opaque color equality`() {
+        val opaque =
+            object : Color(0) {
+                override fun equals(other: Any?): Boolean = error("Foreign equality must not run")
+
+                override fun hashCode(): Int = error("Foreign hash must not run")
+
+                override fun getRGB(): Int = error("Foreign color getter must not run")
+            }
+        val colors = mutableMapOf<ColorKey, Color?>(colorKey to opaque)
+        val target = scheme(colors = colors)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            val prepared =
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.ColorEntry(colorKey),
+                    CheckpointEntry(SchemeValue.ColorValue(Color.ORANGE), null, null),
+                    target,
+                )
+            colors[colorKey] = Color.RED
+            assertFalse(prepared.apply())
+            assertSame(Color.RED, colors[colorKey])
+        }
+    }
+
+    @Test
+    fun `unqualified attributes reject preparation without cloning or changing them`() {
+        val opaque =
+            object : TextAttributes() {
+                override fun clone(): TextAttributes = error("Unqualified attributes must not be cloned")
+            }
+        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(attributesKey to opaque)
+        val target = scheme(attributes = attributes)
+        every { editorColorsManager.globalScheme } returns target
+        SwingUtilities.invokeAndWait {
+            assertFailsWith<IllegalStateException> {
+                EditorSchemeOverrides.checkpoints.prepareWrite(
+                    target,
+                    SchemeEntry.AttributesEntry(attributesKey),
+                    CheckpointEntry(SchemeValue.AttributesValue(fullAttributes(Color.ORANGE)), null, null),
+                    target,
+                )
+            }
+            assertSame(opaque, attributes[attributesKey])
+            assertTrue(target.metaProperties.isEmpty)
+        }
+    }
+
+    @Test
     fun `editor recovery retains proven progress after a restore setter mutates then throws`() {
         val colors = mutableMapOf<ColorKey, Color?>(colorKey to Color.RED)
         val target = scheme(colors = colors)
@@ -442,8 +1314,8 @@ class EditorSchemeOverridesTest {
                 target,
                 elementOwner,
                 setOf(
-                    EditorSchemeOverrides.SchemeEntry.ColorEntry(colorKey),
-                    EditorSchemeOverrides.SchemeEntry.AttributesEntry(attributesKey),
+                    SchemeEntry.ColorEntry(colorKey),
+                    SchemeEntry.AttributesEntry(attributesKey),
                 ),
             )
         target.setColor(colorKey, Color.ORANGE)
@@ -1057,7 +1929,7 @@ class EditorSchemeOverridesTest {
                 setOf(
                     ownedKey,
                     directKey,
-                ).mapTo(mutableSetOf()) { EditorSchemeOverrides.SchemeEntry.AttributesEntry(it) },
+                ).mapTo(mutableSetOf()) { SchemeEntry.AttributesEntry(it) },
             )
 
         EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
@@ -1093,7 +1965,7 @@ class EditorSchemeOverridesTest {
                 linkedSetOf(
                     cancelledKey,
                     restoredKey,
-                ).mapTo(linkedSetOf()) { EditorSchemeOverrides.SchemeEntry.AttributesEntry(it) },
+                ).mapTo(linkedSetOf()) { SchemeEntry.AttributesEntry(it) },
             )
         scheme.setAttributes(cancelledKey, fullAttributes(Color.ORANGE))
         scheme.setAttributes(restoredKey, fullAttributes(Color.YELLOW))
@@ -1135,94 +2007,36 @@ class EditorSchemeOverridesTest {
                 otherKey to fullAttributes(Color.BLUE),
             )
         val scheme = scheme(attributes = attributes)
-        val writer = IdeSyntaxSchemeWriter()
-        val ledger = SyntaxRecoveryLedger()
-        val change =
-            SyntaxSchemeChange(
+        val checkpoint =
+            preview(
                 scheme,
-                "preview",
                 mapOf(manualKey to fullAttributes(Color.ORANGE), otherKey to fullAttributes(Color.YELLOW)),
-                emptySet(),
             )
-        assertIs<SyntaxTransactionResult.Applied>(SyntaxSchemeTransaction(writer) {}.apply(listOf(change), ledger))
-        val manual = fullAttributes(Color.GREEN)
-        scheme.setAttributes(manualKey, manual)
+        scheme.setAttributes(manualKey, fullAttributes(Color.GREEN))
         val current = attributes.toMap()
-        var publications = 0
 
         repeat(2) {
-            assertIs<SyntaxTransactionResult.RecoveryRequired>(ledger.restore(writer) { publications += 1 })
+            val attempt = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(checkpoint))
+            assertTrue(attempt.failures.isNotEmpty())
+            assertTrue(attempt.completed.isEmpty())
             assertEquals(current, attributes)
-            assertTrue(ledger.hasPendingFailure)
         }
-        assertEquals(0, publications)
-        assertFails { ledger.advance(writer) }
     }
 
     @Test
-    fun `preview publication cannot adopt a subscribers manual edit`() {
+    fun `sealed preview cannot adopt a subscribers later manual edit`() {
         val key = TextAttributesKey.find("TEST_PREVIEW_SUBSCRIBER")
         val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to fullAttributes(Color.RED))
         val scheme = scheme(attributes = attributes)
-        val writer = IdeSyntaxSchemeWriter()
-        val ledger = SyntaxRecoveryLedger()
+        val checkpoint = preview(scheme, mapOf(key to fullAttributes(Color.ORANGE)))
         val manual = fullAttributes(Color.GREEN)
-        val transaction = SyntaxSchemeTransaction(writer) { scheme.setAttributes(key, manual) }
-        val change = SyntaxSchemeChange(scheme, "preview", mapOf(key to fullAttributes(Color.ORANGE)), emptySet())
+        scheme.setAttributes(key, manual)
 
-        assertIs<SyntaxTransactionResult.Applied>(transaction.apply(listOf(change), ledger))
-        assertIs<SyntaxTransactionResult.RecoveryRequired>(ledger.restore(writer) {})
+        val attempt = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(checkpoint))
+
+        assertTrue(attempt.failures.isNotEmpty())
+        assertTrue(attempt.completed.isEmpty())
         assertEquals(manual, attributes[key])
-    }
-
-    @Test
-    fun `failed transaction recovery finishes before restoring an older preview`() {
-        val key = TextAttributesKey.find("TEST_PREVIEW_MIXED_RECOVERY")
-        val other = TextAttributesKey.find("TEST_PREVIEW_FAILED_TRANSACTION")
-        val attributes =
-            mutableMapOf<TextAttributesKey, TextAttributes?>(
-                key to fullAttributes(Color.RED),
-                other to fullAttributes(Color.BLUE),
-            )
-        val scheme = scheme(attributes = attributes)
-        val writer = IdeSyntaxSchemeWriter()
-        val ledger = SyntaxRecoveryLedger()
-        val first = SyntaxSchemeChange(scheme, "preview", mapOf(key to fullAttributes(Color.ORANGE)), emptySet())
-        assertIs<SyntaxTransactionResult.Applied>(SyntaxSchemeTransaction(writer) {}.apply(listOf(first), ledger))
-        var rollbackBlocked = true
-        every { scheme.setAttributes(any(), any()) } answers {
-            val target = firstArg<TextAttributesKey>()
-            val value = secondArg<TextAttributes>()
-            check(target != other || value.foregroundColor != Color.GREEN) { "transaction write failed" }
-            check(
-                !rollbackBlocked || target != key || value.foregroundColor != Color.ORANGE,
-            ) { "transaction rollback failed" }
-            attributes[target] = value
-        }
-        val next =
-            SyntaxSchemeChange(
-                scheme,
-                "failed transaction",
-                linkedMapOf(key to fullAttributes(Color.YELLOW), other to fullAttributes(Color.GREEN)),
-                emptySet(),
-            )
-        var publications = 0
-        val transaction = SyntaxSchemeTransaction(writer) { publications += 1 }
-        assertIs<SyntaxTransactionResult.RecoveryRequired>(transaction.apply(listOf(next), ledger))
-
-        assertIs<SyntaxTransactionResult.RecoveryRequired>(ledger.restore(writer) { publications += 1 })
-        assertEquals(fullAttributes(Color.YELLOW), attributes[key])
-        assertEquals(fullAttributes(Color.BLUE), attributes[other])
-        assertEquals(0, publications)
-        assertTrue(ledger.hasPendingFailure)
-        assertFails { ledger.advance(writer) }
-
-        rollbackBlocked = false
-        assertIs<SyntaxTransactionResult.Applied>(ledger.restore(writer) { publications += 1 })
-        assertEquals(fullAttributes(Color.RED), attributes[key])
-        assertEquals(fullAttributes(Color.BLUE), attributes[other])
-        assertEquals(1, publications)
-        assertFalse(ledger.hasRecoveryWork)
     }
 
     @Test
@@ -1232,19 +2046,21 @@ class EditorSchemeOverridesTest {
         val scheme = scheme(attributes = attributes)
         EditorSchemeOverrides.writeAttributes(scheme, EditorSchemeOwner.Syntax, key, fullAttributes(Color.ORANGE))
         val metadata = scheme.metaProperties.toMap()
-        val writer = IdeSyntaxSchemeWriter()
-        val ledger = SyntaxRecoveryLedger()
-        val change =
-            SyntaxSchemeChange(
+        val saved =
+            EditorSchemeOverrides.checkpoints.capture(
                 scheme,
-                "preview",
-                mapOf(key to fullAttributes(Color.YELLOW)),
-                setOf(key.externalName),
+                EditorSchemeOwner.Syntax,
+                setOf(SchemeEntry.AttributesEntry(key)),
             )
-        assertIs<SyntaxTransactionResult.Applied>(SyntaxSchemeTransaction(writer) {}.apply(listOf(change), ledger))
+        EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
+        EditorSchemeOverrides.rearm(EditorSchemeOwner.Syntax, listOf(scheme), mapOf(scheme to setOf(key.externalName)))
+        EditorSchemeOverrides.writeAttributes(scheme, EditorSchemeOwner.Syntax, key, fullAttributes(Color.YELLOW))
+        val checkpoint = EditorSchemeOverrides.checkpoints.sealPreview(saved)
 
-        assertIs<SyntaxTransactionResult.Applied>(ledger.restore(writer) {})
+        val attempt = EditorSchemeOverrides.checkpoints.restorePreviews(listOf(checkpoint))
 
+        assertTrue(attempt.failures.isEmpty())
+        assertEquals(setOf(checkpoint), attempt.completed)
         assertEquals(fullAttributes(Color.ORANGE), attributes[key])
         assertEquals(metadata, scheme.metaProperties.toMap())
         EditorSchemeOverrides.restore(scheme, EditorSchemeOwner.Syntax)
@@ -1260,7 +2076,7 @@ class EditorSchemeOverridesTest {
             EditorSchemeOverrides.checkpoints.capture(
                 scheme,
                 EditorSchemeOwner.Syntax,
-                setOf(EditorSchemeOverrides.SchemeEntry.AttributesEntry(key)),
+                setOf(SchemeEntry.AttributesEntry(key)),
             )
         EditorSchemeOverrides.writeAttributes(scheme, EditorSchemeOwner.Syntax, key, fullAttributes(Color.ORANGE))
         val preview = EditorSchemeOverrides.checkpoints.sealPreview(saved)
@@ -1285,32 +2101,6 @@ class EditorSchemeOverridesTest {
         assertTrue(restored.failures.isEmpty())
         assertEquals(setOf(preview), restored.completed)
         assertNull(metadata.getProperty(propertyName))
-    }
-
-    @Test
-    fun `restoring an unchanged preview still publishes semantic restoration once`() {
-        val key = TextAttributesKey.find("TEST_PREVIEW_SEMANTIC_RESTORE")
-        val value = fullAttributes(Color.RED)
-        val attributes = mutableMapOf<TextAttributesKey, TextAttributes?>(key to value)
-        val scheme = scheme(attributes = attributes)
-        val writer = IdeSyntaxSchemeWriter()
-        val ledger = SyntaxRecoveryLedger()
-        val change = SyntaxSchemeChange(scheme, "preview", mapOf(key to value), emptySet())
-        SyntaxSchemeTransaction(writer) {}.apply(listOf(change), ledger)
-        var restored = false
-        var publications = 0
-
-        assertIs<SyntaxTransactionResult.Applied>(
-            ledger.restore(writer, afterRollback = { restored = true }) {
-                assertTrue(restored)
-                publications += 1
-            },
-        )
-        ledger.restore(writer) { publications += 1 }
-
-        assertEquals(1, publications)
-        assertEquals(value, attributes[key])
-        assertFalse(ledger.hasRecoveryWork)
     }
 
     @Test
@@ -1477,7 +2267,7 @@ class EditorSchemeOverridesTest {
             EditorSchemeOverrides.checkpoints.capture(
                 scheme,
                 EditorSchemeOwner.Syntax,
-                attributes.keys.mapTo(mutableSetOf()) { EditorSchemeOverrides.SchemeEntry.AttributesEntry(it) },
+                attributes.keys.mapTo(mutableSetOf()) { SchemeEntry.AttributesEntry(it) },
             )
         attributes.forEach { (key, value) -> scheme.setAttributes(key, value) }
         return EditorSchemeOverrides.checkpoints.sealPreview(saved)

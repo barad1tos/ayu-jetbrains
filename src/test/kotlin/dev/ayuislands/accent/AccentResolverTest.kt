@@ -3,8 +3,10 @@ package dev.ayuislands.accent
 import com.intellij.openapi.project.Project
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -37,7 +39,8 @@ class AccentResolverTest {
         every { AyuIslandsSettings.getInstance() } returns globalSettings
 
         val mappingsSettings = mockk<AccentMappingsSettings>()
-        every { mappingsSettings.state } returns mappingsState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = mappingsState).mappings }
         mockkObject(AccentMappingsSettings.Companion)
         every { AccentMappingsSettings.getInstance() } returns mappingsSettings
 

@@ -39,11 +39,11 @@ class SettingsBadgesTest {
         SettingsBadges.clearSessionWiring()
     }
 
-    private fun updatedState(): AyuIslandsState = AyuIslandsState().apply { lastSeenVersion = "2.8.0" }
+    private fun updatedState(): SettingsBadgeState = SettingsBadgeState().apply { lastSeenVersion = "2.8.0" }
 
     @Test
     fun `fresh install has nothing pending even with an empty acknowledged set`() {
-        val state = AyuIslandsState()
+        val state = SettingsBadgeState()
 
         assertTrue(SettingsBadges.pendingAnchors(state).isEmpty())
     }
@@ -56,6 +56,23 @@ class SettingsBadgesTest {
             SettingsBadges.registry.map { it.id },
             SettingsBadges.pendingAnchors(state).map { it.id },
         )
+    }
+
+    @Test
+    fun `profile and draft preview badges are visible from every settings tab`() {
+        val ids = listOf("work-profiles", "settings-draft-preview")
+        val state = updatedState()
+        state.acknowledgedSettingsBadges.addAll(SettingsBadges.registry.map { it.id }.filterNot { it in ids })
+
+        assertEquals(ids, SettingsBadges.pendingAnchors(state).map { it.id })
+        for (tab in listOf("Accent", "Font", "Glow", "Syntax", "VCS", "Workspace", "Plugins")) {
+            assertTrue(SettingsBadges.visibleAnchors(tab).containsAll(ids))
+        }
+
+        SettingsBadges.acknowledgeTab(state, "Workspace")
+
+        assertTrue(SettingsBadges.pendingAnchors(state).isEmpty())
+        assertEquals(SettingsBadges.registry.map { it.id }.toSet(), state.acknowledgedSettingsBadges)
     }
 
     @Test
@@ -284,10 +301,24 @@ class SettingsBadgesTest {
     @Test
     fun `selecting a badged tab acknowledges visible anchors and clears the dot live`() {
         val state = updatedState()
-        val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
+        mockkObject(SettingsBadgeState.Companion)
+        every { SettingsBadgeState.current() } returns state
+        val studio = mockk<dev.ayuislands.studio.StudioService>()
+        mockkObject(dev.ayuislands.studio.StudioService.Companion)
+        every {
+            dev.ayuislands.studio.StudioService
+                .getInstance()
+        } returns studio
+        every { studio.metadata(any(), any()) } answers {
+            val command = firstArg<dev.ayuislands.studio.model.StudioMetadataCommand.BadgesSeen>()
+            SettingsBadges.markSeen(state, command.ids)
+            secondArg<
+                (
+                    dev.ayuislands.studio.model.AcceptanceResult,
+                ) -> Unit,
+            >()(dev.ayuislands.studio.model.AcceptanceResult.NoChanges)
+            mockk()
+        }
 
         val titles = listOf("Plugins", "Glow", "Accent")
         val tabs = JBTabbedPane()
@@ -338,10 +369,24 @@ class SettingsBadgesTest {
     @Test
     fun `review action opens and acknowledges the first pending tab`() {
         val state = updatedState()
-        val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
+        mockkObject(SettingsBadgeState.Companion)
+        every { SettingsBadgeState.current() } returns state
+        val studio = mockk<dev.ayuislands.studio.StudioService>()
+        mockkObject(dev.ayuislands.studio.StudioService.Companion)
+        every {
+            dev.ayuislands.studio.StudioService
+                .getInstance()
+        } returns studio
+        every { studio.metadata(any(), any()) } answers {
+            val command = firstArg<dev.ayuislands.studio.model.StudioMetadataCommand.BadgesSeen>()
+            SettingsBadges.markSeen(state, command.ids)
+            secondArg<
+                (
+                    dev.ayuislands.studio.model.AcceptanceResult,
+                ) -> Unit,
+            >()(dev.ayuislands.studio.model.AcceptanceResult.NoChanges)
+            mockk()
+        }
         SettingsBadges.registerGroupExpanded("accent-from-project-icon") { false }
 
         val titles = listOf("Plugins", "Glow", "Accent")
@@ -360,10 +405,24 @@ class SettingsBadgesTest {
     @Test
     fun `group title carries an accent dot while its anchor pends and restores after`() {
         val state = updatedState()
-        val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
+        mockkObject(SettingsBadgeState.Companion)
+        every { SettingsBadgeState.current() } returns state
+        val studio = mockk<dev.ayuislands.studio.StudioService>()
+        mockkObject(dev.ayuislands.studio.StudioService.Companion)
+        every {
+            dev.ayuislands.studio.StudioService
+                .getInstance()
+        } returns studio
+        every { studio.metadata(any(), any()) } answers {
+            val command = firstArg<dev.ayuislands.studio.model.StudioMetadataCommand.BadgesSeen>()
+            SettingsBadges.markSeen(state, command.ids)
+            secondArg<
+                (
+                    dev.ayuislands.studio.model.AcceptanceResult,
+                ) -> Unit,
+            >()(dev.ayuislands.studio.model.AcceptanceResult.NoChanges)
+            mockk()
+        }
         mockUiDslApplication()
 
         lateinit var overrides: CollapsibleRow
@@ -435,10 +494,24 @@ class SettingsBadgesTest {
     fun `nothing pending yields no controller and no dots`() {
         val state = updatedState()
         SettingsBadges.seedAllAcknowledged(state)
-        val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
+        mockkObject(SettingsBadgeState.Companion)
+        every { SettingsBadgeState.current() } returns state
+        val studio = mockk<dev.ayuislands.studio.StudioService>()
+        mockkObject(dev.ayuislands.studio.StudioService.Companion)
+        every {
+            dev.ayuislands.studio.StudioService
+                .getInstance()
+        } returns studio
+        every { studio.metadata(any(), any()) } answers {
+            val command = firstArg<dev.ayuislands.studio.model.StudioMetadataCommand.BadgesSeen>()
+            SettingsBadges.markSeen(state, command.ids)
+            secondArg<
+                (
+                    dev.ayuislands.studio.model.AcceptanceResult,
+                ) -> Unit,
+            >()(dev.ayuislands.studio.model.AcceptanceResult.NoChanges)
+            mockk()
+        }
 
         val tabs = JBTabbedPane()
         tabs.addTab("Accent", JPanel())

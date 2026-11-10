@@ -11,6 +11,7 @@ import com.intellij.ui.content.Content
 import com.intellij.ui.content.ContentManager
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
+import dev.ayuislands.accent.AccentWriteState
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
@@ -34,6 +35,8 @@ import javax.swing.tree.TreePath
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -44,6 +47,7 @@ class CommitPanelAutoFitManagerTest {
     private lateinit var settingsMock: AyuIslandsSettings
     private lateinit var realState: AyuIslandsState
     private lateinit var connection: MessageBusConnection
+    private val managers = mutableListOf<CommitPanelAutoFitManager>()
 
     @BeforeTest
     fun setUp() {
@@ -54,7 +58,11 @@ class CommitPanelAutoFitManagerTest {
         realState = AyuIslandsState()
         settingsMock =
             mockk<AyuIslandsSettings> {
-                every { state } returns realState
+                every { state } answers {
+                    dev.ayuislands.studio.StudioFixtures
+                        .legacyView(realState)
+                        .settings
+                }
             }
         every {
             AyuIslandsSettings.getInstance()
@@ -84,6 +92,11 @@ class CommitPanelAutoFitManagerTest {
 
     @AfterTest
     fun tearDown() {
+        SwingUtilities.invokeAndWait {
+            managers.asReversed().forEach { it.dispose() }
+            managers.clear()
+        }
+        SwingUtilities.invokeAndWait { }
         unmockkAll()
     }
 
@@ -94,7 +107,7 @@ class CommitPanelAutoFitManagerTest {
                 LicenseChecker.isLicensedOrGrace()
             } returns false
 
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
 
             // No ToolWindowManager interaction expected
@@ -119,7 +132,7 @@ class CommitPanelAutoFitManagerTest {
                 toolWindowManager.getToolWindow("Commit")
             } returns null
 
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
 
             // Should not call stretchWidth
@@ -151,7 +164,7 @@ class CommitPanelAutoFitManagerTest {
                 toolWindowEx.type
             } returns ToolWindowType.DOCKED
 
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
 
             verify { toolWindowEx.stretchWidth(any()) }
@@ -168,7 +181,7 @@ class CommitPanelAutoFitManagerTest {
                 toolWindowManager.getToolWindow("Commit")
             } returns null
 
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             // Should not throw
             manager.dispose()
         }
@@ -176,7 +189,7 @@ class CommitPanelAutoFitManagerTest {
 
     @Test
     fun `init subscribes to ToolWindowManagerListener`() {
-        CommitPanelAutoFitManager(project)
+        createManager()
 
         verify {
             connection.subscribe(
@@ -204,7 +217,7 @@ class CommitPanelAutoFitManagerTest {
                 )
             } returns Unit
 
-            CommitPanelAutoFitManager(project)
+            createManager()
 
             listenerSlot.captured.stateChanged(
                 toolWindowManager,
@@ -242,7 +255,7 @@ class CommitPanelAutoFitManagerTest {
                 )
             } returns Unit
 
-            CommitPanelAutoFitManager(project)
+            createManager()
 
             listenerSlot.captured.stateChanged(
                 toolWindowManager,
@@ -278,7 +291,7 @@ class CommitPanelAutoFitManagerTest {
                 )
             } returns Unit
 
-            CommitPanelAutoFitManager(project)
+            createManager()
 
             listenerSlot.captured.stateChanged(
                 toolWindowManager,
@@ -307,8 +320,9 @@ class CommitPanelAutoFitManagerTest {
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
 
+            tree.accessibleContext
             val listenersBefore = tree.treeExpansionListeners.size
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
 
             // Listener installed
@@ -352,8 +366,9 @@ class CommitPanelAutoFitManagerTest {
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
 
+            tree.accessibleContext
             val listenersBefore = tree.treeExpansionListeners.size
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
 
             // AUTO_FIT -> listener installed
             manager.apply()
@@ -393,7 +408,7 @@ class CommitPanelAutoFitManagerTest {
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
 
-            CommitPanelAutoFitManager(project).apply()
+            createManager().apply()
 
             assertTrue(
                 tree.cellRenderer is CommitPathShorteningRenderer,
@@ -418,7 +433,7 @@ class CommitPanelAutoFitManagerTest {
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
 
-            CommitPanelAutoFitManager(project).apply()
+            createManager().apply()
 
             assertTrue(
                 tree.cellRenderer is CommitPathShorteningRenderer,
@@ -446,7 +461,7 @@ class CommitPanelAutoFitManagerTest {
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
 
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
             assertTrue(tree.cellRenderer is CommitPathShorteningRenderer)
 
@@ -481,7 +496,7 @@ class CommitPanelAutoFitManagerTest {
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
 
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
             assertTrue(tree.cellRenderer is CommitPathShorteningRenderer)
 
@@ -511,7 +526,7 @@ class CommitPanelAutoFitManagerTest {
                     setSize(200, 400)
                 }
             setupCommitToolWindow(panel)
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
 
             every { LicenseChecker.isLicensedOrGrace() } returns false
@@ -541,7 +556,7 @@ class CommitPanelAutoFitManagerTest {
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
 
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
             assertTrue(tree.cellRenderer is CommitPathShorteningRenderer)
 
@@ -557,50 +572,41 @@ class CommitPanelAutoFitManagerTest {
     }
 
     @Test
-    fun `path renderer guard wraps replacement renderer`() {
+    fun `path renderer guard prepares replacement on a later EDT turn`() {
+        lateinit var tree: JTree
+        lateinit var manager: CommitPanelAutoFitManager
+        val replacement = DefaultTreeCellRenderer()
         SwingUtilities.invokeAndWait {
-            every {
-                LicenseChecker.isLicensedOrGrace()
-            } returns true
-            realState.commitPanelWidthMode =
-                PanelWidthMode.FIXED.name
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            realState.commitPanelWidthMode = PanelWidthMode.FIXED.name
             realState.commitPanelFixedWidth = 350
-
-            val tree = JTree()
-            val panel = JPanel(FlowLayout())
-            panel.add(tree)
-            panel.setSize(200, 400)
-            setupCommitToolWindow(panel)
-
-            CommitPanelAutoFitManager(project).apply()
-            assertTrue(tree.cellRenderer is CommitPathShorteningRenderer)
-
-            val replacement = DefaultTreeCellRenderer()
-            tree.cellRenderer = replacement
-
-            val renderer = tree.cellRenderer as CommitPathShorteningRenderer
-            assertSame(
-                replacement,
-                renderer.delegate,
-                "Renderer guard must preserve the IDE replacement as the delegate",
+            tree = JTree()
+            setupCommitToolWindow(
+                JPanel(FlowLayout()).apply {
+                    add(tree)
+                    setSize(200, 400)
+                },
             )
+            manager = createManager()
+            manager.apply()
+            tree.cellRenderer = replacement
+            assertSame(replacement, tree.cellRenderer, "Native callback must not prepare node presentation inline")
+        }
+        SwingUtilities.invokeAndWait {
+            val renderer = tree.cellRenderer as CommitPathShorteningRenderer
+            assertSame(replacement, renderer.delegate)
             clearMocks(LicenseChecker, answers = false, recordedCalls = true)
-            val isSelected = false
-            val isExpanded = false
-            val isLeaf = false
-            val hasFocus = false
-
             renderer.getTreeCellRendererComponent(
                 tree,
                 tree.model.root,
-                isSelected,
-                isExpanded,
-                isLeaf,
-                0,
-                hasFocus,
+                selected = false,
+                expanded = false,
+                leaf = false,
+                row = 0,
+                hasFocus = false,
             )
-
             verify(exactly = 0) { LicenseChecker.isLicensedOrGrace() }
+            manager.dispose()
         }
     }
 
@@ -620,7 +626,7 @@ class CommitPanelAutoFitManagerTest {
             panel.setSize(200, 400)
             setupCommitToolWindow(panel)
 
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
             val firstRenderer = tree.cellRenderer
             manager.apply()
@@ -646,7 +652,7 @@ class CommitPanelAutoFitManagerTest {
                     setSize(200, 400)
                 }
             setupCommitToolWindow(panel)
-            val manager = CommitPanelAutoFitManager(project)
+            val manager = createManager()
             manager.apply()
             clearMocks(LicenseChecker, answers = false, recordedCalls = true)
 
@@ -665,6 +671,159 @@ class CommitPanelAutoFitManagerTest {
         }
     }
 
+    @Test
+    fun `tentative path disable retains listener order and restores the original renderer`() {
+        SwingUtilities.invokeAndWait {
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            realState.commitPanelWidthMode = PanelWidthMode.FIXED.name
+            val tree = JTree()
+            setupCommitToolWindow(
+                JPanel().apply {
+                    add(tree)
+                    setSize(300, 400)
+                },
+            )
+            val manager = createManager()
+            manager.apply()
+            val original = tree.cellRenderer as CommitPathShorteningRenderer
+            val listeners = tree.getPropertyChangeListeners("cellRenderer").toList()
+            val candidate = AyuIslandsState().apply { commitPanelWidthMode = PanelWidthMode.DEFAULT.name }
+            val checkpoint = manager.prepareRenderer(candidate)
+            assertSame(original, tree.cellRenderer)
+            assertEquals(listeners, tree.getPropertyChangeListeners("cellRenderer").toList())
+            assertTrue(checkpoint.apply())
+            assertSame(original.delegate, tree.cellRenderer)
+            manager.apply()
+            assertSame(original.delegate, tree.cellRenderer)
+            assertEquals(listeners, tree.getPropertyChangeListeners("cellRenderer").toList())
+            checkpoint.restore()
+            assertSame(original, tree.cellRenderer)
+            assertEquals(listeners, tree.getPropertyChangeListeners("cellRenderer").toList())
+            assertFalse(checkpoint.hasPending)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `foreign renderer during tentative path change survives rollback`() {
+        SwingUtilities.invokeAndWait {
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            realState.commitPanelWidthMode = PanelWidthMode.FIXED.name
+            val tree = JTree()
+            setupCommitToolWindow(
+                JPanel().apply {
+                    add(tree)
+                    setSize(300, 400)
+                },
+            )
+            val manager = createManager()
+            manager.apply()
+            val checkpoint =
+                manager.prepareRenderer(
+                    AyuIslandsState().apply {
+                        commitPanelWidthMode =
+                            PanelWidthMode.DEFAULT.name
+                    },
+                )
+            assertTrue(checkpoint.apply())
+            val foreign = DefaultTreeCellRenderer()
+            tree.cellRenderer = foreign
+            checkpoint.restore()
+            assertSame(foreign, tree.cellRenderer)
+            assertEquals(AccentWriteState.RELINQUISHED, checkpoint.state)
+            manager.dispose()
+            assertSame(foreign, tree.cellRenderer)
+        }
+    }
+
+    @Test
+    fun `accepting candidate paths keeps one renderer and never changes saved preferences`() {
+        SwingUtilities.invokeAndWait {
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            realState.commitPanelWidthMode = PanelWidthMode.FIXED.name
+            val tree = JTree()
+            setupCommitToolWindow(
+                JPanel().apply {
+                    add(tree)
+                    setSize(300, 400)
+                },
+            )
+            val manager = createManager()
+            manager.apply()
+            val candidate =
+                AyuIslandsState().apply {
+                    commitPanelWidthMode = PanelWidthMode.FIXED.name
+                    commitPanelPathMinHiddenLevels = 7
+                }
+            val checkpoint = manager.prepareRenderer(candidate)
+            assertTrue(checkpoint.apply())
+            val applied = tree.cellRenderer
+            checkpoint.commit()
+            checkpoint.commit()
+            assertSame(applied, tree.cellRenderer)
+            assertTrue((applied as CommitPathShorteningRenderer).delegate !is CommitPathShorteningRenderer)
+            assertEquals(AyuIslandsState().commitPanelPathMinHiddenLevels, realState.commitPanelPathMinHiddenLevels)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `renderer capture and ownership guards never create tool window content`() {
+        SwingUtilities.invokeAndWait {
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            realState.commitPanelWidthMode = PanelWidthMode.FIXED.name
+            val tree = JTree()
+            setupCommitToolWindow(
+                JPanel().apply {
+                    add(tree)
+                    setSize(300, 400)
+                },
+            )
+            val manager = createManager()
+            manager.apply()
+            every { toolWindowEx.contentManager } throws IllegalStateException("Creating content getter used")
+            val checkpoint =
+                manager.prepareRenderer(
+                    AyuIslandsState().apply {
+                        commitPanelWidthMode =
+                            PanelWidthMode.DEFAULT.name
+                    },
+                )
+            assertTrue(checkpoint.apply())
+            checkpoint.restore()
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `accepted empty capture retires owned listeners without touching a foreign renderer`() {
+        SwingUtilities.invokeAndWait {
+            every { LicenseChecker.isLicensedOrGrace() } returns true
+            realState.commitPanelWidthMode = PanelWidthMode.FIXED.name
+            val tree = JTree()
+            val originalListeners = tree.getPropertyChangeListeners("cellRenderer").toList()
+            setupCommitToolWindow(
+                JPanel().apply {
+                    add(tree)
+                    setSize(300, 400)
+                },
+            )
+            val manager = createManager()
+            manager.apply()
+            val foreign = DefaultTreeCellRenderer()
+            tree.cellRenderer = foreign
+            every { toolWindowManager.getToolWindow("Commit") } returns null
+            val checkpoint = manager.prepareRenderer(AyuIslandsState())
+            assertTrue(checkpoint.records.isEmpty())
+            assertTrue(checkpoint.apply())
+            checkpoint.commit()
+            assertSame(foreign, tree.cellRenderer)
+            assertEquals(originalListeners, tree.getPropertyChangeListeners("cellRenderer").toList())
+        }
+    }
+
+    private fun createManager(): CommitPanelAutoFitManager = CommitPanelAutoFitManager(project).also { managers += it }
+
     private fun setupCommitToolWindow(component: JPanel) {
         val content =
             mockk<Content>(relaxed = true) {
@@ -680,6 +839,7 @@ class CommitPanelAutoFitManagerTest {
         every {
             toolWindowEx.contentManager
         } returns contentManager
+        every { toolWindowEx.contentManagerIfCreated } returns contentManager
         every {
             toolWindowEx.component
         } returns component

@@ -103,8 +103,9 @@ object FontDetector {
             try {
                 AyuIslandsSettings
                     .getInstance()
-                    .state.installedFonts
-                    .toSet()
+                    .state
+                    ?.installedFonts
+                    ?: return false
             } catch (_: IllegalStateException) {
                 return false
             } catch (_: NullPointerException) {
@@ -131,9 +132,8 @@ object FontDetector {
      * The underlying font family list is cached across calls within a single
      * cache epoch (see [installedFonts]), but filesystem path existence checks
      * (`File.exists()`) are re-evaluated on each call. In practice this is
-     * fast (typical installs have fewer than 10 files) and
-     * [FontPresetPanel][dev.ayuislands.settings.FontPresetPanel] calls
-     * [status] only once per refresh cycle inside [updateFontMissing].
+     * fast (typical installs have fewer than 10 files). Settings consumers
+     * reuse one [status] result per refresh cycle.
      *
      * **Runtime note (macOS):** on JBR 25 / macOS, deleting a font file from
      * `~/Library/Fonts` does NOT propagate to `availableFontFamilyNames` within
@@ -152,7 +152,7 @@ object FontDetector {
 
         val state =
             try {
-                AyuIslandsSettings.getInstance().state
+                AyuIslandsSettings.getInstance().state ?: return FontStatus.NOT_INSTALLED
             } catch (_: IllegalStateException) {
                 return FontStatus.NOT_INSTALLED
             } catch (_: NullPointerException) {

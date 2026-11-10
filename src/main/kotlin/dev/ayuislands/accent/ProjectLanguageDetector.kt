@@ -48,8 +48,8 @@ import javax.swing.SwingUtilities
  * retries. A scan that ran cleanly but produced no winner (after both the proportional
  * rule AND the SDK tiebreak fail) IS cached as [ProjectLanguageVerdict.NoWinner],
  * because the answer is definitive.
- * Legacy SDK/module lookups that throw are NOT cached; without this guard a single
- * transient failure would permanently poison the cache for that project.
+ * With an empty scan, a failed SDK/module lookup remains unavailable and is not cached.
+ * With nonempty weights, a failed legacy tiebreak retains the scan's NoWinner result.
  */
 object ProjectLanguageDetector {
     private val LOG = logger<ProjectLanguageDetector>()
@@ -66,10 +66,8 @@ object ProjectLanguageDetector {
      */
     fun dominant(project: Project): String? {
         val key = AccentResolver.projectKey(project) ?: return null
-        AccentMappingsSettings
-            .getInstance()
-            .state
-            .forcedProjectLanguages[key]
+        val mappings = AccentMappingsSettings.getInstance().state ?: return null
+        mappings.forcedProjectLanguages[key]
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?.lowercase(Locale.ROOT)
@@ -128,6 +126,24 @@ object ProjectLanguageDetector {
             return ProjectLanguageVerdict.Cold
         }
         return detectAndCache(project, key).verdict
+    }
+
+    /** Reclassifies a copied completed scan without scanning, warming, publishing or replacing the cache. */
+    internal fun verdict(
+        project: Project,
+        policy: LanguageDetectionRules.ResolutionPolicy,
+        mappedLanguageIds: Set<String>,
+    ): ProjectLanguageVerdict {
+        if (project.isDisposed) return ProjectLanguageVerdict.Unavailable
+        val weights =
+            when (val cached = verdict(project)) {
+                is ProjectLanguageVerdict.Detected -> cached.weights.orEmpty()
+                is ProjectLanguageVerdict.NoWinner -> cached.weights
+                ProjectLanguageVerdict.Empty -> emptyMap()
+                ProjectLanguageVerdict.Cold, ProjectLanguageVerdict.Unavailable -> return cached
+            }
+        val snapshot: Map<String, Long> = java.util.Collections.unmodifiableMap(LinkedHashMap(weights))
+        return resolveScan(project, snapshot, policy, mappedLanguageIds).verdict
     }
 
     /**
@@ -407,63 +423,37 @@ object ProjectLanguageDetector {
         if (project.isDisposed) {
             return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
         }
-        val mappings = AccentMappingsSettings.getInstance().state
-        val policy = mappings.languageResolutionPolicy()
-        if (weights.isNotEmpty()) {
-            val scanWinner = LanguageDetectionRules.pickDominantFromAllWeights(weights, policy)
-            if (scanWinner != null) {
-                return DetectionResult(
-                    ProjectLanguageVerdict.Detected(scanWinner, weights),
-                    cacheable = true,
-                )
-            }
-            LanguageDetectionRules
-                .pickTopMappedLanguage(weights, mappings.languageAccents.keys)
-                ?.let { mappedWinner ->
-                    return DetectionResult(
-                        ProjectLanguageVerdict.Detected(mappedWinner, weights),
-                        cacheable = true,
-                    )
-                }
-            // Scan found weights but no clear or plurality winner. Consult the
-            // legacy heuristic as a tiebreaker — but only accept its answer when
-            // that language is already represented in the scan's code weights at the
-            // configured tiebreak floor. Guards against the SDK confidently reporting
-            // a language that the scan didn't even find.
-            resolveTiebreakFromLegacy(project, weights, policy)?.let {
-                return DetectionResult(
-                    ProjectLanguageVerdict.Detected(it, weights),
-                    cacheable = true,
-                )
-            }
-            return DetectionResult(ProjectLanguageVerdict.NoWinner(weights), cacheable = true)
-        }
-        return legacySdkModuleDetection(project)
+        val mappings =
+            AccentMappingsSettings.getInstance().state
+                ?: return DetectionResult(ProjectLanguageVerdict.Unavailable, cacheable = false)
+        return resolveScan(project, weights, mappings.languageResolutionPolicy(), mappings.languageAccents.keys)
     }
 
-    /**
-     * When the proportional scan is polyglot, fall back to the legacy SDK / module
-     * heuristic — but only if the language it names has a foothold in the scan's
-     * code weights according to [LanguageDetectionRules.ResolutionPolicy.tiebreakMinShare].
-     * Returns null when the hint doesn't meet that bar.
-     */
-    private fun resolveTiebreakFromLegacy(
+    /** Native orchestration keeps SDK/module reads lazy behind the shared pure selection rules. */
+    private fun resolveScan(
         project: Project,
         weights: Map<String, Long>,
         policy: LanguageDetectionRules.ResolutionPolicy,
-    ): String? {
+        mappedLanguageIds: Set<String>,
+    ): DetectionResult {
+        if (weights.isEmpty()) return legacySdkModuleDetection(project)
+        val scanWinner =
+            LanguageDetectionRules.pickDominantFromAllWeights(weights, policy)
+                ?: LanguageDetectionRules.pickTopMappedLanguage(weights, mappedLanguageIds)
+        if (scanWinner != null) {
+            return DetectionResult(ProjectLanguageVerdict.Detected(scanWinner, weights), cacheable = true)
+        }
         val hint =
             (legacySdkModuleDetection(project).verdict as? ProjectLanguageVerdict.Detected)
                 ?.languageId
-                ?: return null
-        val codeWeights = weights.filterKeys { it !in LanguageDetectionRules.MARKUP_IDS }
-        val base = codeWeights.ifEmpty { weights }
-        val total = base.values.sum()
-        if (total <= 0L) return null
-        val hintWeight = base[hint] ?: 0L
-        if (hintWeight <= 0L) return null
-        val share = hintWeight.toDouble() / total.toDouble()
-        return if (share >= policy.tiebreakMinShare) hint else null
+        val winner = LanguageDetectionRules.pickLegacyTiebreak(weights, hint, policy)
+        val verdict =
+            if (winner == null) {
+                ProjectLanguageVerdict.NoWinner(weights)
+            } else {
+                ProjectLanguageVerdict.Detected(winner, weights)
+            }
+        return DetectionResult(verdict, cacheable = true)
     }
 
     private fun legacySdkModuleDetection(project: Project): DetectionResult {

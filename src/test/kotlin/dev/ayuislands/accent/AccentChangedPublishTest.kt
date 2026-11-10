@@ -2,285 +2,140 @@ package dev.ayuislands.accent
 
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.editor.colors.EditorColorsManager
-import com.intellij.openapi.editor.colors.EditorColorsScheme
-import com.intellij.openapi.editor.colors.TextAttributesKey
-import com.intellij.openapi.editor.markup.TextAttributes
-import com.intellij.openapi.extensions.ExtensionPointName
+import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
 import com.intellij.testFramework.LoggedErrorProcessor
 import com.intellij.util.messages.MessageBus
-import dev.ayuislands.AyuPlugin
-import dev.ayuislands.accent.conflict.ConflictRegistry
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
-import dev.ayuislands.ui.ComponentTreeRefresher
+import dev.ayuislands.studio.StudioAccentPublication
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.session.StudioAccentResult
+import dev.ayuislands.studio.session.StudioProjectAccent
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import io.mockk.verify
-import java.awt.Window
+import java.lang.reflect.InvocationTargetException
 import javax.swing.SwingUtilities
-import javax.swing.UIManager
 import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
-import kotlin.test.assertTrue
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 
-/**
- * Invariant lock: [AccentApplicator.apply] publishes [AccentChangedTopic.TOPIC]
- * exactly once per open usable project, on the EDT, AFTER `state.lastApplyOk = true`.
- *
- * The publish step has to run in the same EDT turn as — and immediately after —
- * the `MarkApplyClean` flag write, so subscribers (toolbar stripe + chip) only
- * fire on a fully-painted apply. The step adjacency itself is locked by
- * `AccentApplyPlanTest`; this test locks the observable behavior end-to-end.
- * Per-project try/catch (Pattern B) prevents a single throwing subscriber from
- * tearing down the apply pipeline mid-EDT and leaving the IDE in a half-applied state.
- *
- * Mirrors `AccentApplicatorTest.setUp` for the platform-static mock harness so the
- * test runs headless without booting the IntelliJ application.
- */
+/** The accepted resolver census drives notifications without re-reading raw preferences. */
 class AccentChangedPublishTest {
-    private val mockScheme = mockk<EditorColorsScheme>(relaxed = true)
-    private val mockColorsManager = mockk<EditorColorsManager>(relaxed = true)
-    private val mockSettings = mockk<AyuIslandsSettings>(relaxed = true)
-    private val state = AyuIslandsState()
-    private val mockApplication = mockk<Application>(relaxed = true)
-    private val mockMessageBus = mockk<MessageBus>(relaxed = true)
-    private val mockProjectManager = mockk<ProjectManager>(relaxed = true)
-    private lateinit var listener: AccentChangeListener
-    private lateinit var project: Project
-    private var originalEpName: ExtensionPointName<AccentElement>? = null
+    private val application = mockk<Application>()
+    private val bus = mockk<MessageBus>()
+    private val received = mutableListOf<Pair<Project, ResolvedAccent>>()
+    private var beforeDelivery: (Project) -> Unit = {}
 
-    @BeforeTest
-    fun setUp() {
-        saveOriginalEpName()
-        mockEpExtensionList(emptyList())
-
-        mockkStatic(SwingUtilities::class)
-        every { SwingUtilities.isEventDispatchThread() } returns true
-
-        mockkStatic(UIManager::class)
-
-        mockkStatic(EditorColorsManager::class)
-        every { EditorColorsManager.getInstance() } returns mockColorsManager
-        every { mockColorsManager.globalScheme } returns mockScheme
-        every { mockScheme.getAttributes(any<TextAttributesKey>()) } returns TextAttributes()
-
+    init {
         mockkStatic(ApplicationManager::class)
-        every { ApplicationManager.getApplication() } returns mockApplication
-        every { mockApplication.messageBus } returns mockMessageBus
-        every { mockApplication.getService(ProjectAccentSwapService::class.java) } returns ProjectAccentSwapService()
-
-        // Editor colour scheme publish is fired during apply — keep it relaxed
-        // (it is not the publisher under test).
-        every { mockMessageBus.syncPublisher(EditorColorsManager.TOPIC) } returns mockk(relaxed = true)
-
-        // The publisher under test.
-        listener = mockk(relaxed = true)
-        every { mockMessageBus.syncPublisher(AccentChangedTopic.TOPIC) } returns listener
-
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns mockSettings
-        every { mockSettings.state } returns state
-
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-
-        mockkObject(ConflictRegistry)
-        every { ConflictRegistry.getConflictFor(any()) } returns null
-
-        mockkStatic(Window::class)
-        every { Window.getWindows() } returns emptyArray()
-
-        mockkObject(AyuPlugin)
-        every { AyuPlugin.findLoadedPlugin(any()) } returns null
-
-        // ProjectManager.openProjects drives the per-project publish loop.
-        project =
-            mockk {
-                every { isDefault } returns false
-                every { isDisposed } returns false
-                every { name } returns "publish-project"
-                every { basePath } returns "/tmp/publish-project"
+        every { ApplicationManager.getApplication() } returns application
+        every { application.messageBus } returns bus
+        every { bus.syncPublisher(AccentChangedTopic.TOPIC) } returns
+            AccentChangeListener { project, hex, source ->
+                check(SwingUtilities.isEventDispatchThread())
+                beforeDelivery(project)
+                received += project to ResolvedAccent(source, hex.value)
             }
-        mockkStatic(ProjectManager::class)
-        every { ProjectManager.getInstance() } returns mockProjectManager
-        every { mockProjectManager.openProjects } returns arrayOf(project)
-
-        // notifyOnly + AccentResolver.source are downstream of the publish loop.
-        mockkObject(ComponentTreeRefresher)
-        every { ComponentTreeRefresher.notifyOnly(any()) } returns Unit
-
-        mockkObject(AccentResolver)
-        every { AccentResolver.source(project) } returns AccentResolver.Source.GLOBAL
     }
 
     @AfterTest
-    fun tearDown() {
-        restoreOriginalEpName()
-        unmockkAll()
-    }
+    fun close() = unmockkAll()
 
-    private fun saveOriginalEpName() {
-        if (originalEpName != null) return
-        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
-        epField.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
-        originalEpName = epField.get(null) as ExtensionPointName<AccentElement>
-    }
+    @Test
+    fun `publication uses each confirmed project color and winning source in census order`() {
+        val first = project()
+        val second = project()
+        val colors =
+            listOf(
+                StudioProjectAccent(first, ResolvedAccent(AccentResolver.Source.PROJECT_OVERRIDE, "#112233")),
+                StudioProjectAccent(second, ResolvedAccent(AccentResolver.Source.LANGUAGE_OVERRIDE, "#AABBCC")),
+            )
 
-    private fun restoreOriginalEpName() {
-        val original = originalEpName ?: return
-        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
-        epField.isAccessible = true
-        unsafeWriteStaticField(epField, original)
-        originalEpName = null
-    }
+        SwingUtilities.invokeAndWait { StudioAccentPublication.publish(result(colors)) }
 
-    private fun mockEpExtensionList(elements: List<AccentElement>) {
-        val epField = AccentApplicator::class.java.getDeclaredField("EP_NAME")
-        epField.isAccessible = true
-        val mockEp = mockk<ExtensionPointName<AccentElement>>(relaxed = true)
-        every { mockEp.extensionList } returns elements
-        unsafeWriteStaticField(epField, mockEp)
-    }
-
-    @Suppress("DEPRECATION")
-    private fun unsafeWriteStaticField(
-        field: java.lang.reflect.Field,
-        value: Any?,
-    ) {
-        val unsafeField = sun.misc.Unsafe::class.java.getDeclaredField("theUnsafe")
-        unsafeField.isAccessible = true
-        val unsafe = unsafeField.get(null) as sun.misc.Unsafe
-        val offset = unsafe.staticFieldOffset(field)
-        unsafe.putObject(field.declaringClass, offset, value)
+        assertEquals(colors.map { it.project to it.accent }, received)
     }
 
     @Test
-    fun `apply publishes AccentChangedTopic exactly once per usable open project`() {
-        // One publish per usable project, with the post-resolution source (so
-        // subscribers can render the "Project override" / "Global" label).
-        // Payload is the AccentHex value class, not raw String — assertion
-        // matches by wrapping the literal via the same factory the publisher uses.
-        val accentHex = AccentHex.of("#FFCC66")!!
-        AccentApplicator.apply(accentHex)
+    fun `disposed default and unavailable contexts never manufacture notifications`() {
+        val closed = project(disposed = true)
+        val template = project(default = true)
+        val colors =
+            listOf(closed, template).map {
+                StudioProjectAccent(it, ResolvedAccent(AccentResolver.Source.GLOBAL, "#112233"))
+            }
 
-        verify(exactly = 1) {
-            listener.accentChanged(project, accentHex, AccentResolver.Source.GLOBAL)
+        SwingUtilities.invokeAndWait {
+            StudioAccentPublication.publish(null)
+            StudioAccentPublication.publish(result(colors))
         }
+
+        assertEquals(emptyList(), received)
     }
 
     @Test
-    fun `apply does not publish for default or disposed projects`() {
-        // The publish loop reuses the existing `project.isUsable()` filter — a
-        // mid-dispose race must NOT fan out a stale project to subscribers.
-        val disposed =
-            mockk<Project> {
-                every { isDefault } returns false
-                every { isDisposed } returns true
-                every { name } returns "disposed"
-            }
-        val default =
-            mockk<Project> {
-                every { isDefault } returns true
-                every { isDisposed } returns false
-                every { name } returns "default"
-            }
-        every { mockProjectManager.openProjects } returns arrayOf(disposed, default, project)
-        every { AccentResolver.source(project) } returns AccentResolver.Source.PROJECT_OVERRIDE
-
-        val accentHex = AccentHex.of("#5CCFE6")!!
-        AccentApplicator.apply(accentHex)
-
-        verify(exactly = 0) { listener.accentChanged(disposed, any(), any()) }
-        verify(exactly = 0) { listener.accentChanged(default, any(), any()) }
-        verify(exactly = 1) {
-            listener.accentChanged(project, accentHex, AccentResolver.Source.PROJECT_OVERRIDE)
-        }
-    }
-
-    @Test
-    fun `apply marks clean and runs on EDT when subscriber throws`() {
-        // Pattern B regression lock: a throwing subscriber must NOT propagate into
-        // the apply pipeline. `lastApplyOk` must stay `true`, and the WARN line
-        // must be captured so triage has a thread to pull.
-        val onEdtCapture = mutableListOf<Boolean>()
-        every {
-            listener.accentChanged(project, any(), any())
-        } answers {
-            onEdtCapture += SwingUtilities.isEventDispatchThread()
-            error("boom subscriber")
-        }
-
-        val otherProject =
-            mockk<Project> {
-                every { isDefault } returns false
-                every { isDisposed } returns false
-                every { name } returns "other-project"
-            }
-        every { mockProjectManager.openProjects } returns arrayOf(project, otherProject)
-        every { AccentResolver.source(otherProject) } returns AccentResolver.Source.GLOBAL
-
-        val capturedWarns = mutableListOf<String>()
-        val processor =
+    fun `ordinary subscriber failure preserves later project delivery without repeating the first`() {
+        val first = project()
+        val second = project()
+        val failure = IllegalStateException("subscriber failed")
+        beforeDelivery = { if (it === first) throw failure }
+        val warnings = mutableListOf<Throwable?>()
+        val logger =
             object : LoggedErrorProcessor() {
                 override fun processWarn(
                     category: String,
                     message: String,
-                    throwable: Throwable?,
+                    t: Throwable?,
                 ): Boolean {
-                    if (!message.contains("Accent apply torn at PublishAccentChanged")) return true
-                    capturedWarns += message
+                    warnings += t
                     return false
                 }
             }
+        val colors =
+            listOf(first, second).map {
+                StudioProjectAccent(it, ResolvedAccent(AccentResolver.Source.GLOBAL, "#112233"))
+            }
 
-        LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            val outcome =
-                kotlin.test.assertIs<AccentApplyOutcome.Torn>(
-                    AccentApplicator.apply(requireNotNull(AccentHex.of("#DFBFFF"))),
-                )
-            assertTrue(outcome.visualsApplied)
-            kotlin.test.assertEquals(AccentApplyStep.PublishAccentChanged, outcome.failures.single().step)
+        LoggedErrorProcessor.executeWith<Throwable>(logger) {
+            SwingUtilities.invokeAndWait { StudioAccentPublication.publish(result(colors)) }
         }
 
-        verify(exactly = 1) {
-            listener.accentChanged(otherProject, requireNotNull(AccentHex.of("#DFBFFF")), AccentResolver.Source.GLOBAL)
-        }
-        assertTrue(
-            state.lastApplyOk,
-            "state.lastApplyOk must remain true — the throw is contained by the per-project try/catch",
-        )
-        assertTrue(
-            onEdtCapture.any { it },
-            "AccentChanged publish must run on EDT (Pattern C) — captured EDT flags: $onEdtCapture",
-        )
-        assertTrue(
-            capturedWarns.any { it.contains("Accent apply torn at PublishAccentChanged") },
-            "Pattern B: subscriber exception must surface as WARN with the topic-failed marker; got: $capturedWarns",
-        )
+        assertEquals(listOf(second to colors.last().accent), received)
+        assertEquals(listOf<Throwable?>(failure), warnings)
     }
 
     @Test
-    fun `publication cancellation escapes unchanged`() {
-        val cancelled =
-            com.intellij.openapi.progress
-                .ProcessCanceledException()
-        every { listener.accentChanged(project, any(), any()) } throws cancelled
+    fun `subscriber cancellation remains a control signal`() {
+        val cancelled = ProcessCanceledException()
+        beforeDelivery = { throw cancelled }
+        val colors = listOf(StudioProjectAccent(project(), ResolvedAccent(AccentResolver.Source.GLOBAL, "#112233")))
 
-        kotlin.test.assertSame(
-            cancelled,
-            kotlin.test.assertFailsWith<com.intellij.openapi.progress.ProcessCanceledException> {
-                AccentApplicator.apply(requireNotNull(AccentHex.of("#DFBFFF")))
-            },
-        )
-        assertTrue(state.lastApplyOk)
+        val thrown =
+            assertFailsWith<InvocationTargetException> {
+                SwingUtilities.invokeAndWait { StudioAccentPublication.publish(result(colors)) }
+            }
+
+        assertSame(cancelled, thrown.cause)
+        assertEquals(emptyList(), received)
     }
+
+    private fun result(colors: List<StudioProjectAccent>) =
+        StudioAccentResult(
+            AccentContext.Ayu(AyuVariant.MIRAGE),
+            colors.firstOrNull()?.project,
+            ResolvedAccent(AccentResolver.Source.GLOBAL, "#FFCC66"),
+            StudioList(colors),
+        )
+
+    private fun project(
+        disposed: Boolean = false,
+        default: Boolean = false,
+    ): Project =
+        mockk {
+            every { isDisposed } returns disposed
+            every { isDefault } returns default
+        }
 }

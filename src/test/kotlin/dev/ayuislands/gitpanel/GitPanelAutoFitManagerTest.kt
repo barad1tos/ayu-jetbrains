@@ -52,7 +52,11 @@ class GitPanelAutoFitManagerTest {
         realState = AyuIslandsState()
         settingsMock =
             mockk<AyuIslandsSettings> {
-                every { state } returns realState
+                every { state } answers {
+                    dev.ayuislands.studio.StudioFixtures
+                        .legacyView(realState)
+                        .settings
+                }
             }
         every {
             AyuIslandsSettings.getInstance()
@@ -158,7 +162,7 @@ class GitPanelAutoFitManagerTest {
             val toolWindow =
                 mockk<ToolWindow>(relaxed = true) {
                     every {
-                        this@mockk.contentManager
+                        this@mockk.contentManagerIfCreated
                     } returns contentManager
                 }
             every {
@@ -212,7 +216,7 @@ class GitPanelAutoFitManagerTest {
             val toolWindow =
                 mockk<ToolWindow>(relaxed = true) {
                     every {
-                        this@mockk.contentManager
+                        this@mockk.contentManagerIfCreated
                     } returns contentManager
                 }
             every {
@@ -260,7 +264,7 @@ class GitPanelAutoFitManagerTest {
             val toolWindow =
                 mockk<ToolWindow>(relaxed = true) {
                     every {
-                        this@mockk.contentManager
+                        this@mockk.contentManagerIfCreated
                     } returns contentManager
                 }
             every {
@@ -382,7 +386,7 @@ class GitPanelAutoFitManagerTest {
                     every { id } returns "Version Control"
                     every { isVisible } returns true
                     every {
-                        this@mockk.contentManager
+                        this@mockk.contentManagerIfCreated
                     } returns contentManager
                 }
             every { toolWindowManager.activeToolWindowId } returns "Version Control"
@@ -459,7 +463,7 @@ class GitPanelAutoFitManagerTest {
             val toolWindow =
                 mockk<ToolWindow>(relaxed = true) {
                     every {
-                        this@mockk.contentManager
+                        this@mockk.contentManagerIfCreated
                     } returns contentManager
                 }
             every {
@@ -589,7 +593,7 @@ class GitPanelAutoFitManagerTest {
             }
         val toolWindow =
             mockk<ToolWindow>(relaxed = true) {
-                every { this@mockk.contentManager } returns contentManager
+                every { this@mockk.contentManagerIfCreated } returns contentManager
             }
         every { toolWindowManager.getToolWindow("Version Control") } returns toolWindow
 

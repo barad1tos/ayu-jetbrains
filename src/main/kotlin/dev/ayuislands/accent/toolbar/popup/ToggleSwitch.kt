@@ -35,11 +35,10 @@ import javax.swing.JComponent
  */
 internal class ToggleSwitch(
     private val selectedSupplier: () -> Boolean,
-    private val accentSupplier: () -> String,
+    private val accentSupplier: () -> String?,
     private val listener: (Boolean) -> Unit,
 ) : JComponent() {
-    var isSelected: Boolean = selectedSupplier()
-        private set
+    val isSelected: Boolean get() = selectedSupplier()
 
     init {
         isOpaque = false
@@ -64,7 +63,6 @@ internal class ToggleSwitch(
         try {
             listener(!selectedSupplier())
         } finally {
-            isSelected = selectedSupplier()
             repaint()
         }
     }
@@ -106,7 +104,7 @@ internal class ToggleSwitch(
             )
 
         if (isSelected) {
-            g2.color = ColorUtil.fromHex(accentSupplier())
+            g2.color = accentSupplier()?.let(ColorUtil::fromHex) ?: JBUI.CurrentTheme.Label.disabledForeground()
             g2.fill(pill)
         } else {
             g2.color = JBUI.CurrentTheme.ActionButton.pressedBackground()

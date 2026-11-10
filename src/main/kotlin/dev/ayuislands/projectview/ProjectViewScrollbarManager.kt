@@ -3,7 +3,6 @@ package dev.ayuislands.projectview
 import com.intellij.ide.projectView.ProjectView
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryValue
@@ -11,9 +10,15 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.ui.SimpleColoredComponent
 import com.intellij.ui.SimpleTextAttributes
+import dev.ayuislands.accent.AccentApplyPlanRunner
+import dev.ayuislands.accent.AccentCheckpoint
+import dev.ayuislands.accent.AccentWriteCheckpoint
+import dev.ayuislands.accent.AccentWriteState
+import dev.ayuislands.accent.UiDefaultsTarget
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.settings.WorkspaceWidth
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import dev.ayuislands.toolwindow.ToolWindowAutoFitter
 import dev.ayuislands.toolwindow.shouldTriggerAutoFitFor
@@ -21,7 +26,6 @@ import dev.ayuislands.ui.ComponentTreeRefreshedListener
 import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import java.awt.Component
 import java.beans.PropertyChangeListener
-import java.util.MissingResourceException
 import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
@@ -34,18 +38,18 @@ class ProjectViewScrollbarManager private constructor(
     private val project: Project,
     // Constructor parameters, not reassigned fields: init queues the first apply() before any secondary body runs.
     private val rootPathLeaseProvider: () -> RootPathLease,
-    private val registryValueProvider: () -> RegistryValue,
 ) : Disposable {
-    constructor(project: Project) : this(project, RootPathLease::getInstance, ::showUrlRegistryValue)
+    constructor(project: Project) : this(project, RootPathLease::getInstance)
 
     internal constructor(
         project: Project,
         rootPathLease: RootPathLease,
-        registryValueProvider: () -> RegistryValue = ::showUrlRegistryValue,
-    ) : this(project, { rootPathLease }, registryValueProvider)
+    ) : this(project, { rootPathLease })
 
     private var originalScrollbarPolicy: Int? = null
-    private var hasRegistryLease = false
+    private var scrollbarHold: ScrollbarCheckpoint? = null
+    private var rootRendererHold: RootRendererCheckpoint? = null
+    private var isDisposed = false
     private var trackedTree: JTree? = null
     private var lastAppliedHidePath: Boolean? = null
     private var rendererListener: PropertyChangeListener? = null
@@ -59,8 +63,8 @@ class ProjectViewScrollbarManager private constructor(
             minWidth = AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
             canApply = { LicenseChecker.isLicensedOrGrace() },
         ).apply {
-            maxWidthProvider = { AyuIslandsSettings.getInstance().state.autoFitMaxWidth }
-            minWidthProvider = { AyuIslandsSettings.getInstance().state.projectPanelAutoFitMinWidth }
+            maxWidthProvider = { AyuIslandsSettings.getInstance().state?.autoFitMaxWidth }
+            minWidthProvider = { AyuIslandsSettings.getInstance().state?.projectPanelAutoFitMinWidth }
         }
 
     init {
@@ -94,7 +98,7 @@ class ProjectViewScrollbarManager private constructor(
     }
 
     private fun applyIfAnyProjectFeatureManaged() {
-        val state = AyuIslandsSettings.getInstance().state
+        val state = AyuIslandsSettings.getInstance().state ?: return
         val widthMode = PanelWidthMode.fromString(state.projectPanelWidthMode)
         val allFeaturesDisabled =
             !state.hideProjectRootPath &&
@@ -104,6 +108,11 @@ class ProjectViewScrollbarManager private constructor(
     }
 
     fun apply() {
+        rootRendererHold?.let { checkpoint ->
+            checkpoint.defer { if (!isDisposed && !project.isDisposed) apply() }
+            return
+        }
+        if (AyuIslandsSettings.getInstance().state == null) return
         canFilterRoot = LicenseChecker.isLicensedOrGrace()
         if (!canFilterRoot) {
             cleanupRuntime()
@@ -115,9 +124,10 @@ class ProjectViewScrollbarManager private constructor(
     }
 
     private fun applyScrollbar() {
+        if (scrollbarHold != null || isDisposed || project.isDisposed) return
         val scrollPane = findProjectScrollPane() ?: return
         val shouldHide =
-            AyuIslandsSettings.getInstance().state.hideProjectViewHScrollbar
+            AyuIslandsSettings.getInstance().state?.hideProjectViewHScrollbar ?: return
 
         if (shouldHide) {
             if (originalScrollbarPolicy == null) {
@@ -133,14 +143,318 @@ class ProjectViewScrollbarManager private constructor(
         }
     }
 
+    /** Observes the current native pane and existing baseline without changing settings or acquiring a hold. */
+    internal fun prepareScrollbar(hideH: Boolean): ScrollbarCheckpoint? {
+        check(SwingUtilities.isEventDispatchThread()) { "Project scrollbar capture must run on EDT" }
+        check(scrollbarHold == null) { "Project scrollbar recovery must settle before capture" }
+        if (isDisposed || project.isDisposed) return null
+        return findProjectScrollPane(onlyExisting = true)?.let { ScrollbarCheckpoint(it, hideH) }
+    }
+
+    internal data class ScrollbarPolicy(
+        val policy: Int,
+        val originalPolicy: Int?,
+    )
+
+    /** Retains the existing fitter; capture never starts a second width owner or applies sibling settings. */
+    internal fun prepareWidth(width: WorkspaceWidth): ToolWindowAutoFitter.WidthCheckpoint? {
+        if (isDisposed || project.isDisposed) return null
+        return autoFitter.prepareWidth(PanelWidthMode.fromString(width.mode), width.maximum, width.fixed, width.minimum)
+    }
+
+    /** Captures native renderer identity only; Registry membership is retained by the shared root-path lease. */
+    internal fun prepareRootRenderer(hidePath: Boolean): RootRendererCheckpoint {
+        check(SwingUtilities.isEventDispatchThread()) { "Project root capture must run on EDT" }
+        check(rootRendererHold == null) { "Project root recovery must settle before capture" }
+        return RootRendererCheckpoint(
+            if (isDisposed ||
+                project.isDisposed
+            ) {
+                null
+            } else {
+                findProjectTree(onlyExisting = true)
+            },
+            hidePath,
+        )
+    }
+
+    internal inner class RootRendererCheckpoint(
+        private val tree: JTree?,
+        val hidePath: Boolean,
+    ) : AccentWriteCheckpoint {
+        private val target = UiDefaultsTarget()
+        private val before = tree?.cellRenderer
+        private val planned =
+            when {
+                hidePath && before != null && before !is RootFilteringRenderer -> wrapRenderer(before)
+                !hidePath && before is RootFilteringRenderer -> before.delegate
+                else -> before
+            }
+        private var expected = before
+        private val priorTree = trackedTree
+        private val priorGuard = rendererListener
+        private val priorEligibility = canFilterRoot
+        private val candidateGuard =
+            tree?.takeIf { hidePath && (priorTree !== it || priorGuard == null) }?.let(::createRendererGuard)
+        private var needsCleanup = false
+        private val deferred = mutableListOf<() -> Unit>()
+
+        override var state: AccentWriteState = AccentWriteState.PREPARED
+            private set
+
+        override val hasPending: Boolean get() = state == AccentWriteState.OWNED || needsCleanup
+
+        val records: List<ProjectRootRendererRecord>
+            get() = tree?.let { listOf(ProjectRootRendererRecord(it, before, planned, expected, state)) } ?: emptyList()
+
+        override fun apply(): Boolean {
+            check(SwingUtilities.isEventDispatchThread()) { "Project root writes must run on EDT" }
+            check(state == AccentWriteState.PREPARED) { "Project root application was already started" }
+            if (rootRendererHold != null || !isCurrent() || tree?.cellRenderer !== expected) {
+                state = AccentWriteState.RELINQUISHED
+                return false
+            }
+            rootRendererHold = this
+            needsCleanup = true
+            state = AccentWriteState.OWNED
+            if (tree != null) {
+                canFilterRoot = LicenseChecker.isLicensedOrGrace()
+                write(planned)
+                if (!ownsRenderer()) return false
+                if (candidateGuard != null) tree.addPropertyChangeListener("cellRenderer", candidateGuard)
+            }
+            return ownsRenderer()
+        }
+
+        override fun restore(blockedBy: List<AccentCheckpoint>) {
+            check(SwingUtilities.isEventDispatchThread()) { "Project root restoration must run on EDT" }
+            if (state == AccentWriteState.PREPARED) {
+                state = AccentWriteState.RESTORED
+                return
+            }
+            if (!hasPending) return
+            check(blockedBy.none { it is RootRendererCheckpoint && it.tree === tree && it.hasPending }) {
+                "Project root restoration is blocked by a newer write"
+            }
+            if (ownsRenderer()) {
+                write(before)
+                ownsRenderer()
+            }
+            discardCandidateGuard()
+            if (tree != null) canFilterRoot = priorEligibility
+            if (state == AccentWriteState.OWNED) state = AccentWriteState.RESTORED
+            needsCleanup = false
+            releaseResources()
+        }
+
+        override fun commit() {
+            check(SwingUtilities.isEventDispatchThread()) { "Project root acceptance must run on EDT" }
+            if (state == AccentWriteState.PREPARED) {
+                state = AccentWriteState.RESTORED
+                return
+            }
+            if (!hasPending) return
+            if (!ownsRenderer()) {
+                discardCandidateGuard()
+                if (tree != null) canFilterRoot = priorEligibility
+            } else {
+                if (tree != null) acceptGuard()
+                state = AccentWriteState.RESTORED
+            }
+            needsCleanup = false
+            releaseResources()
+        }
+
+        override fun releaseResources() {
+            if (hasPending) return
+            for (action in deferred.toList()) {
+                AccentApplyPlanRunner.post { action() }
+                deferred.remove(action)
+            }
+            if (rootRendererHold === this) rootRendererHold = null
+        }
+
+        override fun retain() {
+            check(!hasPending || rootRendererHold === this) { "Project root recovery lost its hold" }
+        }
+
+        internal fun defer(action: () -> Unit) {
+            deferred += action
+        }
+
+        private fun isCurrent(): Boolean =
+            !isDisposed && !project.isDisposed && target.isCurrent() && findProjectTree(onlyExisting = true) === tree
+
+        private fun ownsRenderer(): Boolean {
+            if (state != AccentWriteState.OWNED) return false
+            if (!isCurrent() || tree?.cellRenderer !== expected) state = AccentWriteState.RELINQUISHED
+            return state == AccentWriteState.OWNED
+        }
+
+        private fun write(renderer: TreeCellRenderer?) {
+            val previous = expected
+            expected = renderer
+            try {
+                if (tree != null && tree.cellRenderer !== renderer) tree.cellRenderer = renderer
+            } finally {
+                val observed = tree?.cellRenderer
+                if (observed !== expected) {
+                    if (observed === previous) expected = previous else state = AccentWriteState.RELINQUISHED
+                }
+            }
+        }
+
+        private fun discardCandidateGuard() {
+            if (tree != null &&
+                candidateGuard != null &&
+                tree.getPropertyChangeListeners("cellRenderer").any { it === candidateGuard }
+            ) {
+                tree.removePropertyChangeListener("cellRenderer", candidateGuard)
+            }
+        }
+
+        private fun acceptGuard() {
+            if (!hidePath || candidateGuard != null) {
+                if (priorTree != null &&
+                    priorGuard != null &&
+                    priorTree.getPropertyChangeListeners("cellRenderer").any { it === priorGuard }
+                ) {
+                    priorTree.removePropertyChangeListener("cellRenderer", priorGuard)
+                }
+                trackedTree = if (hidePath) tree else null
+                rendererListener = if (hidePath) candidateGuard else null
+            }
+            lastAppliedHidePath = hidePath
+        }
+    }
+
+    /** Retains one policy and the manager's original baseline until outer acceptance or completed rollback. */
+    internal inner class ScrollbarCheckpoint(
+        val scrollPane: JScrollPane,
+        hideH: Boolean,
+    ) : AccentWriteCheckpoint {
+        private val target = UiDefaultsTarget()
+        val before = ScrollbarPolicy(scrollPane.horizontalScrollBarPolicy, originalScrollbarPolicy)
+        val planned =
+            if (hideH) {
+                ScrollbarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, before.originalPolicy ?: before.policy)
+            } else {
+                ScrollbarPolicy(before.originalPolicy ?: before.policy, null)
+            }
+        private var expected = before
+        val lastWritten: ScrollbarPolicy get() = expected
+        override var state: AccentWriteState = AccentWriteState.PREPARED
+            private set
+
+        override val hasPending: Boolean
+            get() = state == AccentWriteState.OWNED
+
+        override fun apply(): Boolean {
+            check(SwingUtilities.isEventDispatchThread()) { "Project scrollbar writes must run on EDT" }
+            check(state == AccentWriteState.PREPARED) { "Project scrollbar application was already started" }
+            if (scrollbarHold != null) {
+                state = AccentWriteState.RELINQUISHED
+                return false
+            }
+            if (!isCurrent() || !matches(expected)) {
+                relinquish()
+                return false
+            }
+            scrollbarHold = this
+            state = AccentWriteState.OWNED
+            write(planned)
+            return permitsWrite()
+        }
+
+        override fun restore(blockedBy: List<AccentCheckpoint>) {
+            check(SwingUtilities.isEventDispatchThread()) { "Project scrollbar restoration must run on EDT" }
+            if (state == AccentWriteState.PREPARED) {
+                state = AccentWriteState.RESTORED
+                return
+            }
+            if (!hasPending) return
+            check(blockedBy.none { it is ScrollbarCheckpoint && it.scrollPane === scrollPane && it.hasPending }) {
+                "Project scrollbar restoration is blocked by a newer write"
+            }
+            if (!permitsWrite()) return
+            write(before)
+            if (permitsWrite()) {
+                state = AccentWriteState.RESTORED
+                releaseResources()
+            }
+        }
+
+        override fun commit() {
+            check(SwingUtilities.isEventDispatchThread()) { "Project scrollbar acceptance must run on EDT" }
+            if (hasPending && !permitsWrite()) return
+            if (state != AccentWriteState.RELINQUISHED) state = AccentWriteState.RESTORED
+            releaseResources()
+        }
+
+        override fun releaseResources() {
+            if (!hasPending && scrollbarHold === this) scrollbarHold = null
+        }
+
+        override fun retain() {
+            check(!hasPending || scrollbarHold === this) { "Project scrollbar recovery lost its hold" }
+        }
+
+        private fun write(next: ScrollbarPolicy) {
+            val previous = expected
+            expected = next
+            originalScrollbarPolicy = next.originalPolicy
+            try {
+                if (scrollPane.horizontalScrollBarPolicy !=
+                    next.policy
+                ) {
+                    scrollPane.horizontalScrollBarPolicy = next.policy
+                }
+            } finally {
+                val observed = ScrollbarPolicy(scrollPane.horizontalScrollBarPolicy, originalScrollbarPolicy)
+                if (observed != expected) {
+                    if (observed.policy == previous.policy && observed.originalPolicy == next.originalPolicy) {
+                        expected = observed
+                    } else {
+                        relinquish()
+                    }
+                }
+            }
+        }
+
+        private fun permitsWrite(): Boolean {
+            if (!hasPending) return false
+            if (!isCurrent() || !matches(expected)) relinquish()
+            return hasPending
+        }
+
+        private fun matches(policy: ScrollbarPolicy): Boolean =
+            scrollPane.horizontalScrollBarPolicy == policy.policy && originalScrollbarPolicy == policy.originalPolicy
+
+        private fun isCurrent(): Boolean =
+            !isDisposed &&
+                !project.isDisposed &&
+                target.isCurrent() &&
+                findProjectScrollPane(onlyExisting = true) === scrollPane
+
+        private fun relinquish() {
+            if (originalScrollbarPolicy == expected.originalPolicy) originalScrollbarPolicy = null
+            state = AccentWriteState.RELINQUISHED
+            releaseResources()
+        }
+    }
+
     private fun manageAutoFit() {
-        val state = AyuIslandsSettings.getInstance().state
+        val state = AyuIslandsSettings.getInstance().state ?: return
         when (PanelWidthMode.fromString(state.projectPanelWidthMode)) {
-            PanelWidthMode.DEFAULT -> autoFitter.removeExpansionListener()
+            PanelWidthMode.DEFAULT -> {
+                autoFitter.removeExpansionListener()
+            }
+
             PanelWidthMode.AUTO_FIT -> {
                 autoFitter.installExpansionListener()
                 autoFitter.applyAutoFitWidth(state.autoFitMaxWidth)
             }
+
             PanelWidthMode.FIXED -> {
                 autoFitter.removeExpansionListener()
                 autoFitter.applyFixedWidth(state.projectPanelFixedWidth)
@@ -149,31 +463,10 @@ class ProjectViewScrollbarManager private constructor(
     }
 
     private fun applyRootDisplay() {
-        val hidePath = AyuIslandsSettings.getInstance().state.hideProjectRootPath
+        if (rootPathLease.deferIfHeld { if (!isDisposed && !project.isDisposed) apply() }) return
+        val hidePath = AyuIslandsSettings.getInstance().state?.hideProjectRootPath ?: return
         if (hidePath == lastAppliedHidePath) return
         lastAppliedHidePath = hidePath
-
-        // ProjectViewImpl.isShowURL() reads directly from this Registry key.
-        // Only resetToDefault when WE changed it — don't override the user's choice.
-        val registryKey =
-            try {
-                registryValueProvider()
-            } catch (_: MissingResourceException) {
-                LOG.warn(
-                    "Registry key '$SHOW_URL_KEY' not " +
-                        "found — the IDE may have removed it",
-                )
-                return
-            }
-        if (hidePath) {
-            if (!hasRegistryLease) {
-                rootPathLease.acquire(project, registryKey)
-                hasRegistryLease = true
-            }
-        } else if (hasRegistryLease) {
-            rootPathLease.release(project, registryKey)
-            hasRegistryLease = false
-        }
 
         val tree = findProjectTree() ?: return
 
@@ -192,8 +485,18 @@ class ProjectViewScrollbarManager private constructor(
     private fun installRendererWrapper(tree: JTree) {
         val current = tree.cellRenderer
         if (current is RootFilteringRenderer) return
-        tree.cellRenderer = RootFilteringRenderer(current, project) { canFilterRoot }
+        tree.cellRenderer = wrapRenderer(current)
     }
+
+    private fun wrapRenderer(delegate: TreeCellRenderer): RootFilteringRenderer =
+        RootFilteringRenderer(
+            delegate,
+            project,
+            hidePath = {
+                rootRendererHold?.hidePath ?: AyuIslandsSettings.getInstance().state?.hideProjectRootPath
+                    ?: (lastAppliedHidePath == true)
+            },
+        ) { canFilterRoot && !isDisposed && !project.isDisposed }
 
     private fun unwrapRenderer(tree: JTree) {
         val current = tree.cellRenderer
@@ -207,27 +510,29 @@ class ProjectViewScrollbarManager private constructor(
 
         removeRendererGuard()
         trackedTree = tree
-        rendererListener =
-            PropertyChangeListener { event ->
-                if (event.propertyName == "cellRenderer") {
-                    val newRenderer =
-                        event.newValue as? TreeCellRenderer
-                            ?: return@PropertyChangeListener
-                    canFilterRoot = LicenseChecker.isLicensedOrGrace()
-                    if (newRenderer !is RootFilteringRenderer &&
-                        canFilterRoot &&
-                        AyuIslandsSettings.getInstance().state.hideProjectRootPath
-                    ) {
-                        tree.cellRenderer =
-                            RootFilteringRenderer(newRenderer, project) { canFilterRoot }
-                    }
-                }
-            }
+        rendererListener = createRendererGuard(tree)
         tree.addPropertyChangeListener(
             "cellRenderer",
             rendererListener,
         )
     }
+
+    private fun createRendererGuard(tree: JTree): PropertyChangeListener =
+        PropertyChangeListener { event ->
+            if (event.propertyName == "cellRenderer") {
+                if (rootRendererHold != null) return@PropertyChangeListener
+                val newRenderer =
+                    event.newValue as? TreeCellRenderer
+                        ?: return@PropertyChangeListener
+                canFilterRoot = LicenseChecker.isLicensedOrGrace()
+                if (newRenderer !is RootFilteringRenderer &&
+                    canFilterRoot &&
+                    (AyuIslandsSettings.getInstance().state?.hideProjectRootPath == true)
+                ) {
+                    tree.cellRenderer = wrapRenderer(newRenderer)
+                }
+            }
+        }
 
     private fun removeRendererGuard() {
         val tree = trackedTree ?: return
@@ -240,57 +545,53 @@ class ProjectViewScrollbarManager private constructor(
         rendererListener = null
     }
 
-    private fun findProjectScrollPane(): JScrollPane? {
-        val content = findProjectContent() ?: return null
+    private fun findProjectScrollPane(onlyExisting: Boolean = false): JScrollPane? {
+        val content = findProjectContent(onlyExisting) ?: return null
         return AutoFitCalculator.findFirstOfType(
             content,
             JScrollPane::class.java,
         ) as? JScrollPane
     }
 
-    private fun findProjectTree(): JTree? {
-        val content = findProjectContent() ?: return null
+    private fun findProjectTree(onlyExisting: Boolean = false): JTree? {
+        val content = findProjectContent(onlyExisting) ?: return null
         return AutoFitCalculator.findFirstOfType(
             content,
             JTree::class.java,
         ) as? JTree
     }
 
-    private fun findProjectContent(): Component? {
+    private fun findProjectContent(onlyExisting: Boolean): Component? {
         val toolWindow =
             ToolWindowManager
                 .getInstance(project)
                 .getToolWindow(TOOL_WINDOW_ID)
                 ?: return null
-        return toolWindow
-            .contentManager
-            .contents
-            .firstOrNull()
+        val contentManager = if (onlyExisting) toolWindow.contentManagerIfCreated else toolWindow.contentManager
+        return contentManager
+            ?.contents
+            ?.firstOrNull()
             ?.component
     }
 
     override fun dispose() {
+        isDisposed = true
         cleanupRuntime()
     }
 
     private fun cleanupRuntime() {
+        rootRendererHold?.let { checkpoint ->
+            checkpoint.defer { cleanupRuntime() }
+            return
+        }
         canFilterRoot = false
         removeRendererGuard()
         autoFitter.removeExpansionListener()
         val scrollPane = findProjectScrollPane()
-        if (scrollPane != null && originalScrollbarPolicy != null) {
+        if (scrollbarHold == null && scrollPane != null && originalScrollbarPolicy != null) {
             scrollPane.horizontalScrollBarPolicy =
                 originalScrollbarPolicy!!
             originalScrollbarPolicy = null
-        }
-        try {
-            rootPathLease.release(project, registryValueProvider())
-            hasRegistryLease = false
-        } catch (_: MissingResourceException) {
-            LOG.warn(
-                "Registry key '$SHOW_URL_KEY' not " +
-                    "found during dispose",
-            )
         }
         val tree = findProjectTree()
         if (tree != null) {
@@ -300,11 +601,10 @@ class ProjectViewScrollbarManager private constructor(
     }
 
     companion object {
-        private val LOG = logger<ProjectViewScrollbarManager>()
         private const val TOOL_WINDOW_ID = "Project"
         private const val SHOW_URL_KEY = "project.tree.structure.show.url"
 
-        private fun showUrlRegistryValue(): RegistryValue = Registry.get(SHOW_URL_KEY)
+        internal fun showUrlRegistryValue(): RegistryValue = Registry.get(SHOW_URL_KEY)
 
         fun getInstance(project: Project): ProjectViewScrollbarManager =
             project.getService(
@@ -313,6 +613,14 @@ class ProjectViewScrollbarManager private constructor(
     }
 }
 
+internal data class ProjectRootRendererRecord(
+    val tree: JTree,
+    val before: TreeCellRenderer?,
+    val planned: TreeCellRenderer?,
+    val lastWritten: TreeCellRenderer?,
+    val state: AccentWriteState,
+)
+
 /**
  * Filters root node path fragments.
  * Reads the path-display setting live; entitlement is supplied by the owning manager.
@@ -320,6 +628,7 @@ class ProjectViewScrollbarManager private constructor(
 internal class RootFilteringRenderer(
     val delegate: TreeCellRenderer,
     private val project: Project,
+    private val hidePath: () -> Boolean = { (AyuIslandsSettings.getInstance().state?.hideProjectRootPath == true) },
     private val canApply: () -> Boolean = { LicenseChecker.isLicensedOrGrace() },
 ) : TreeCellRenderer {
     override fun getTreeCellRendererComponent(
@@ -348,7 +657,7 @@ internal class RootFilteringRenderer(
     }
 
     private fun filterRootFragments(component: SimpleColoredComponent) {
-        if (!AyuIslandsSettings.getInstance().state.hideProjectRootPath) return
+        if (!hidePath()) return
 
         val basePath = project.basePath
         val tildeBasePath =

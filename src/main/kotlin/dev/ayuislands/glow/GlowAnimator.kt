@@ -11,7 +11,8 @@ class GlowAnimator : Disposable {
 
     private var timer: Timer? = null
     internal var frame: Long = 0
-    private var currentAnimation: GlowAnimation = GlowAnimation.NONE
+    internal var currentAnimation: GlowAnimation = GlowAnimation.NONE
+        private set
     private var onFrame: ((alpha: Float) -> Unit)? = null
 
     // Reactive animation state
@@ -49,17 +50,17 @@ class GlowAnimator : Disposable {
         frame = 0
         reactiveBoost = 0.0f
 
-        timer =
+        val createdTimer =
             Timer(FRAME_INTERVAL_MS) {
                 if (!isVisible()) return@Timer
 
                 val alpha = calculateAlpha(animation)
                 frame++
                 callback(alpha)
-            }.also {
-                it.isRepeats = true
-                it.start()
             }
+        timer = createdTimer
+        createdTimer.isRepeats = true
+        createdTimer.start()
 
         log.info("Glow animation started: ${animation.displayName}")
     }

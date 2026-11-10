@@ -48,7 +48,7 @@ class VerifyReleasePolicyTest(unittest.TestCase):
 
         self.assertFalse(report.has_errors, report.findings)
 
-    def test_feature_introduced_requires_minor_bump(self) -> None:
+    def test_feature_introduced_rejects_patch_bump(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = make_repository(
                 Path(temporary_directory),
@@ -71,7 +71,7 @@ class VerifyReleasePolicyTest(unittest.TestCase):
             )
 
         self.assertTrue(report.has_errors)
-        self.assertIn("expects a minor bump", messages(report))
+        self.assertIn("expects a minor or major bump", messages(report))
 
     def test_feature_introduced_allows_minor_bump(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -124,6 +124,73 @@ class VerifyReleasePolicyTest(unittest.TestCase):
             )
 
         self.assertFalse(report.has_errors, report.findings)
+
+    def test_feature_introduced_allows_major_bump(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = make_repository(
+                Path(temporary_directory),
+                plugin_version="3.0.0",
+                plugin_xml_version="3.0.0",
+                changelog_text="""
+                    ## [3.0.0] - 2026-11-09
+
+                    - [Paid] Saved appearance profiles.
+
+                    ## [2.8.9] - 2026-10-28
+
+                    - [Fix] Preserve custom editor colors.
+                """,
+            )
+
+            report = run_release_policy(
+                root,
+                features_data(feature_id="appearance-profiles", introduced="3.0.0"),
+            )
+
+        self.assertFalse(report.has_errors, report.findings)
+
+    def test_fix_only_rejects_major_bump(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = make_repository(
+                Path(temporary_directory),
+                plugin_version="3.0.0",
+                plugin_xml_version="3.0.0",
+                changelog_text="""
+                    ## [3.0.0] - 2026-11-09
+
+                    - [Fix] Preserve custom editor colors.
+
+                    ## [2.8.9] - 2026-10-28
+                """,
+            )
+
+            report = run_release_policy(root, features_data())
+
+        self.assertTrue(report.has_errors)
+        self.assertIn("fix-only releases should be patch bumps", messages(report))
+
+    def test_feature_release_rejects_major_skip(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = make_repository(
+                Path(temporary_directory),
+                plugin_version="4.0.0",
+                plugin_xml_version="4.0.0",
+                changelog_text="""
+                    ## [4.0.0] - 2026-11-09
+
+                    - [Paid] Saved appearance profiles.
+
+                    ## [2.8.9] - 2026-10-28
+                """,
+            )
+
+            report = run_release_policy(
+                root,
+                features_data(feature_id="appearance-profiles", introduced="4.0.0"),
+            )
+
+        self.assertTrue(report.has_errors)
+        self.assertIn("expected exactly one major, minor, or patch step", messages(report))
 
     def test_gradle_version_must_match_latest_changelog(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

@@ -34,7 +34,7 @@ class QuickSwitcherWidgetAction :
         val state = AyuIslandsSettings.getInstance().state
         event.presentation.isEnabledAndVisible =
             AccentContext.isQuickSwitcherActive() &&
-            state.quickSwitcherWidgetEnabled
+            state?.quickSwitcherWidgetEnabled == true
     }
 
     override fun actionPerformed(event: AnActionEvent) {

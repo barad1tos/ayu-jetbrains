@@ -9,8 +9,12 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.projectRoots.Sdk
 import com.intellij.openapi.projectRoots.SdkTypeId
 import com.intellij.openapi.roots.ProjectRootManager
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.studio.StudioFixtures
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.StudioNativeChange
 import io.mockk.clearMocks
 import io.mockk.clearStaticMockk
 import io.mockk.every
@@ -20,6 +24,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import kotlinx.coroutines.Job
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.TestInstance
@@ -29,6 +34,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 
 /**
  * Exercises the real heuristic of [ProjectLanguageDetector] — [AccentResolverTest]
@@ -41,6 +47,8 @@ import kotlin.test.assertNull
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ProjectLanguageDetectorTest {
+    private lateinit var mappings: AccentMappingsState
+
     @BeforeAll
     fun installSharedMocks() {
         mockkStatic(ProjectRootManager::class)
@@ -51,6 +59,8 @@ class ProjectLanguageDetectorTest {
 
     @BeforeTest
     fun setUp() {
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns null
         clearStaticMockk(ProjectRootManager::class)
         clearStaticMockk(ModuleManager::class)
         clearMocks(ProjectLanguageScanner, AccentMappingsSettings.Companion)
@@ -59,8 +69,10 @@ class ProjectLanguageDetectorTest {
         // the legacy path — their fixtures don't set up a ProjectFileIndex and the
         // fallback is what they're really asserting against.
         every { ProjectLanguageScanner.scan(any()) } returns emptyMap()
+        mappings = AccentMappingsState()
         val mappingsSettings = mockk<AccentMappingsSettings>()
-        every { mappingsSettings.state } returns AccentMappingsState()
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = mappings).mappings }
         every { AccentMappingsSettings.getInstance() } returns mappingsSettings
         ProjectLanguageDetector.clear()
     }
@@ -83,7 +95,7 @@ class ProjectLanguageDetectorTest {
             AyuVariant.Companion,
             AccentResolver,
             AccentApplicator,
-            dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion,
+            StudioService.Companion,
         )
         unmockkStatic(ApplicationManager::class, javax.swing.SwingUtilities::class)
     }
@@ -329,6 +341,109 @@ class ProjectLanguageDetectorTest {
     // ── Content-scan primary path (new in v2.6.x) ────────────────────────────────────
 
     @Test
+    fun `candidate thresholds reclassify cached weights without scanning or changing the cache`() {
+        val project = stubProject("/tmp/candidate-threshold-${System.nanoTime()}")
+        every { ProjectLanguageScanner.scan(project) } returns linkedMapOf("kotlin" to 700L, "java" to 300L)
+        wireProjectRootManager(project, sdkName = null)
+        wireModuleManager(project, moduleNames = emptyList())
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        val cached = ProjectLanguageDetector.verdict(project)
+        every { AccentMappingsSettings.getInstance() } throws IllegalStateException("Unexpected persisted input")
+        val policy = LanguageDetectionRules.ResolutionPolicy(0.9, 10.0, 0.9, 0.2)
+
+        val candidate = ProjectLanguageDetector.verdict(project, policy, emptySet())
+
+        assertEquals(ProjectLanguageVerdict.NoWinner(linkedMapOf("kotlin" to 700L, "java" to 300L)), candidate)
+        assertSame(cached, ProjectLanguageDetector.verdict(project))
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 1) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `candidate mappings replace an old mapped winner without reading legacy or persisted input`() {
+        val project = stubProject("/tmp/candidate-mapping-${System.nanoTime()}")
+        mappings.languageAccents["kotlin"] = "#112233"
+        every { ProjectLanguageScanner.scan(project) } returns
+            linkedMapOf("kotlin" to 450L, "java" to 450L, "python" to 100L)
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        val cached = ProjectLanguageDetector.verdict(project)
+        every { AccentMappingsSettings.getInstance() } throws IllegalStateException("Unexpected persisted input")
+
+        val candidate =
+            ProjectLanguageDetector.verdict(project, LanguageDetectionRules.ResolutionPolicy.DEFAULT, setOf("java"))
+
+        assertEquals("java", assertIs<ProjectLanguageVerdict.Detected>(candidate).languageId)
+        assertSame(cached, ProjectLanguageDetector.verdict(project))
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `candidate reads current SDK only when changed policy needs a legacy tiebreak`() {
+        val project = stubProject("/tmp/candidate-sdk-${System.nanoTime()}")
+        val weights = linkedMapOf("kotlin" to 700L, "java" to 300L)
+        every { ProjectLanguageScanner.scan(project) } returns weights
+        wireProjectRootManager(project, sdkName = "JavaSDK")
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        val cached = ProjectLanguageDetector.verdict(project)
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+        val policy = LanguageDetectionRules.ResolutionPolicy(0.9, 10.0, 0.9, 0.2)
+
+        val candidate =
+            assertIs<ProjectLanguageVerdict.Detected>(ProjectLanguageDetector.verdict(project, policy, emptySet()))
+
+        assertEquals("java", candidate.languageId)
+        assertEquals(weights, candidate.weights)
+        weights["java"] = 1L
+        assertEquals(300L, candidate.weights?.get("java"))
+        assertSame(cached, ProjectLanguageDetector.verdict(project))
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 1) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `candidate cold and unavailable remain distinct without native discovery`() {
+        val project = stubProject("/tmp/candidate-cold-${System.nanoTime()}")
+        val policy = LanguageDetectionRules.ResolutionPolicy.DEFAULT
+        assertSame(ProjectLanguageVerdict.Cold, ProjectLanguageDetector.verdict(project, policy, emptySet()))
+        every { project.basePath } returns null
+        assertSame(ProjectLanguageVerdict.Unavailable, ProjectLanguageDetector.verdict(project, policy, emptySet()))
+        verify(exactly = 0) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 0) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `candidate empty scan reads current legacy input without replacing its cached winner`() {
+        val project = stubProject("/tmp/candidate-empty-${System.nanoTime()}")
+        wireProjectRootManager(project, sdkName = "KotlinSdkType")
+        assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
+        val cached = ProjectLanguageDetector.verdict(project)
+        wireProjectRootManager(project, sdkName = "Python SDK")
+
+        val candidate =
+            ProjectLanguageDetector.verdict(project, LanguageDetectionRules.ResolutionPolicy.DEFAULT, emptySet())
+
+        assertEquals(ProjectLanguageVerdict.Detected("python", null), candidate)
+        assertSame(cached, ProjectLanguageDetector.verdict(project))
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 2) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
+    fun `weighted legacy failure retains the existing cached no-winner behavior`() {
+        val project = stubProject("/tmp/weighted-sdk-failure-${System.nanoTime()}")
+        val weights = linkedMapOf("kotlin" to 500L, "java" to 500L)
+        every { ProjectLanguageScanner.scan(project) } returns weights
+        every { ProjectRootManager.getInstance(project) } throws IllegalStateException("SDK unavailable")
+
+        assertNull(ProjectLanguageDetector.dominant(project))
+        assertNull(ProjectLanguageDetector.dominant(project))
+        assertEquals(ProjectLanguageVerdict.NoWinner(weights), ProjectLanguageDetector.verdict(project))
+        verify(exactly = 1) { ProjectLanguageScanner.scan(project) }
+        verify(exactly = 1) { ProjectRootManager.getInstance(project) }
+    }
+
+    @Test
     fun `content scan dominance wins over SDK fallback`() {
         // Scanner says Kotlin is 80% of the weight — even though the SDK is Python,
         // the scan is authoritative. Guards against a regression where someone wires
@@ -353,7 +468,8 @@ class ProjectLanguageDetectorTest {
                 dominanceFloor = 0.40f
             }
         val mappingsSettings = AccentMappingsSettings.getInstance()
-        every { mappingsSettings.state } returns policyState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = policyState).mappings }
 
         val project = stubProject("/tmp/scan-policy-${System.nanoTime()}")
         every { ProjectLanguageScanner.scan(project) } returns
@@ -373,7 +489,8 @@ class ProjectLanguageDetectorTest {
                 forcedProjectLanguages[projectKey] = "  Kotlin  "
             }
         val mappingsSettings = AccentMappingsSettings.getInstance()
-        every { mappingsSettings.state } returns policyState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = policyState).mappings }
 
         assertEquals("kotlin", ProjectLanguageDetector.dominant(project))
 
@@ -390,7 +507,8 @@ class ProjectLanguageDetectorTest {
                 forcedProjectLanguages[projectKey] = "typescript"
             }
         val mappingsSettings = AccentMappingsSettings.getInstance()
-        every { mappingsSettings.state } returns policyState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = policyState).mappings }
         val weights = mapOf("typescript" to 500L, "javascript" to 500L)
         every { ProjectLanguageScanner.scan(project) } returns weights
         wireProjectRootManager(project, sdkName = null)
@@ -413,7 +531,8 @@ class ProjectLanguageDetectorTest {
                 forcedProjectLanguages[projectKey] = "   "
             }
         val mappingsSettings = AccentMappingsSettings.getInstance()
-        every { mappingsSettings.state } returns policyState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = policyState).mappings }
         every { ProjectLanguageScanner.scan(project) } returns
             mapOf("kotlin" to 900L, "java" to 100L)
         wireProjectRootManager(project, sdkName = null)
@@ -432,7 +551,8 @@ class ProjectLanguageDetectorTest {
                 tiebreakMinShare = 0.60f
             }
         val mappingsSettings = AccentMappingsSettings.getInstance()
-        every { mappingsSettings.state } returns policyState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = policyState).mappings }
 
         val project = stubProject("/tmp/scan-tiebreak-floor-${System.nanoTime()}")
         every { ProjectLanguageScanner.scan(project) } returns
@@ -450,7 +570,8 @@ class ProjectLanguageDetectorTest {
                 tiebreakMinShare = 0.0f
             }
         val mappingsSettings = AccentMappingsSettings.getInstance()
-        every { mappingsSettings.state } returns policyState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = policyState).mappings }
 
         val project = stubProject("/tmp/scan-zero-floor-absent-hint-${System.nanoTime()}")
         every { ProjectLanguageScanner.scan(project) } returns
@@ -516,7 +637,8 @@ class ProjectLanguageDetectorTest {
                 languageAccents["kotlin"] = "#5CCFE6"
             }
         val mappingsSettings = AccentMappingsSettings.getInstance()
-        every { mappingsSettings.state } returns policyState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = policyState).mappings }
         every { ProjectLanguageScanner.scan(project) } returns
             mapOf("kotlin" to 450L, "java" to 450L, "python" to 100L)
         wireProjectRootManager(project, sdkName = "JavaSDK")
@@ -1065,14 +1187,16 @@ class ProjectLanguageDetectorTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        every { AccentApplicator.apply(any()) } answers
-            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
+        val studio = mockk<StudioService>()
+        mockkObject(StudioService.Companion)
+        every { StudioService.getInstance() } returns studio
+        every { studio.nativeChanged(any()) } returns Job().apply { complete() }
 
         ProjectLanguageDetector.rescan(project)
 
         verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Unavailable) }
         verify(exactly = 0) { AccentApplicator.resolveFocusedProject() }
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
+        verify(exactly = 0) { studio.nativeChanged(any()) }
     }
 
     @Test
@@ -1120,22 +1244,14 @@ class ProjectLanguageDetectorTest {
         every { AccentResolver.resolve(project, AyuVariant.MIRAGE) } returns "#FFCC66"
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns project
-        every { AccentApplicator.apply(any()) } answers
-            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
-        val swapService = mockk<dev.ayuislands.settings.mappings.ProjectAccentSwapService>(relaxed = true)
-        mockkObject(dev.ayuislands.settings.mappings.ProjectAccentSwapService.Companion)
-        every {
-            dev.ayuislands.settings.mappings.ProjectAccentSwapService
-                .getInstance()
-        } returns swapService
-
+        val studio = mockk<StudioService>()
+        mockkObject(StudioService.Companion)
+        every { StudioService.getInstance() } returns studio
+        every { studio.nativeChanged(any()) } returns Job().apply { complete() }
         ProjectLanguageDetector.rescan(project)
 
         verify(exactly = 1) { listener.scanCompleted(ScanOutcome.Polyglot) }
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#FFCC66") }
-        verify(exactly = 1) {
-            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
-        }
+        verify(exactly = 1) { studio.nativeChanged(StudioNativeChange.AccentContext) }
     }
 
     @Test

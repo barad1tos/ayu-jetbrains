@@ -1,32 +1,33 @@
 package dev.ayuislands.accent.toolbar
 
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.diagnostic.logger
-import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.popup.JBPopup
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.ui.popup.JBPopupListener
 import com.intellij.openapi.ui.popup.LightweightWindowEvent
+import com.intellij.ui.components.ActionLink
 import com.intellij.ui.dsl.builder.AlignX
 import com.intellij.ui.dsl.builder.BottomGap
 import com.intellij.ui.dsl.builder.TopGap
 import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
-import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AccentDefaults
-import dev.ayuislands.accent.AccentResolutionChain
-import dev.ayuislands.accent.AccentResolutionStep
-import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.StepOutcome
 import dev.ayuislands.accent.toolbar.popup.AccentStripe
 import dev.ayuislands.accent.toolbar.popup.BlockSeparator
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.SectionCard
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.studio.model.DraftId
+import dev.ayuislands.studio.model.StudioDocument
+import dev.ayuislands.studio.model.StudioProfileChoice
+import dev.ayuislands.studio.session.StudioProfileLabels
+import dev.ayuislands.studio.session.StudioQuickCommand
 import java.awt.BorderLayout
+import java.util.UUID
 import javax.swing.JComponent
+import javax.swing.JMenuItem
 import javax.swing.JPanel
+import javax.swing.JPopupMenu
 import javax.swing.SwingUtilities
 
 /**
@@ -51,7 +52,6 @@ import javax.swing.SwingUtilities
  * non-Ayu theme.
  */
 internal object QuickSwitcherPopup {
-    private val LOG = logger<QuickSwitcherPopup>()
     private val openPopups = mutableSetOf<JBPopup>()
 
     fun closeOpenPopups() {
@@ -67,23 +67,17 @@ internal object QuickSwitcherPopup {
         chip: QuickSwitcherChipComponent? = null,
     ) {
         val context = AccentContext.detectQuickSwitcher() ?: return
-        val focusedProject = AccentApplicator.resolveFocusedProject()
+        val commands = QuickSwitcherCommands.capture(context = context) ?: return
+        val chain = commands.chain() ?: return
 
-        val accentGrid = QuickSwitcherAccentGrid()
+        val accentGrid = QuickSwitcherAccentGrid(commands)
         val diagnosticsPanel =
             QuickSwitcherAccentDiagnosticsPanel(
-                resolveCurrentAccentChain(focusedProject, context),
+                chain,
             )
         val isLicensed = LicenseChecker.isLicensedOrGrace()
 
-        val variantCard =
-            when (context) {
-                is AccentContext.Ayu ->
-                    SectionCard("Variant").apply {
-                        setContent(VariantSwitcherRow(context.ayuVariant).component)
-                    }
-                AccentContext.External -> null
-            }
+        val variantCard = buildVariantCard(context)
         val accentCard =
             SectionCard("Accent").apply {
                 setContent(buildAccentContent(accentGrid.component, diagnosticsPanel))
@@ -92,7 +86,9 @@ internal object QuickSwitcherPopup {
             SectionCard("Toggles").apply {
                 setContent(
                     QuickSwitcherRelatedTogglesSection(
+                        context = context,
                         showPremiumToggles = isLicensed,
+                        commands = commands,
                     ).component,
                 )
             }
@@ -103,6 +99,7 @@ internal object QuickSwitcherPopup {
                         anchor = anchor,
                         context = context,
                         showPremiumActions = isLicensed,
+                        commands = commands,
                     ).component,
                 )
             }
@@ -115,7 +112,7 @@ internal object QuickSwitcherPopup {
                 }
             }
 
-        val stripe = AccentStripe { resolveCurrentAccentHex(context) }
+        val stripe = AccentStripe(commands::accent)
 
         val content =
             panel {
@@ -127,6 +124,9 @@ internal object QuickSwitcherPopup {
                         .topGap(TopGap.NONE)
                         .bottomGap(BottomGap.NONE)
                 }
+                row { cell(profileLink(commands)) }
+                    .topGap(TopGap.NONE)
+                    .bottomGap(BottomGap.NONE)
                 row { cell(accentCard).align(AlignX.FILL) }
                     .topGap(TopGap.NONE)
                     .bottomGap(BottomGap.NONE)
@@ -163,6 +163,23 @@ internal object QuickSwitcherPopup {
                 .setCancelKeyEnabled(true)
                 .createPopup()
 
+        trackPopup(popup, chip)
+        popup.showUnderneathOf(anchor)
+    }
+
+    private fun buildVariantCard(context: AccentContext): SectionCard? =
+        when (context) {
+            is AccentContext.Ayu ->
+                SectionCard("Variant").apply {
+                    setContent(VariantSwitcherRow(context.ayuVariant).component)
+                }
+            AccentContext.External -> null
+        }
+
+    private fun trackPopup(
+        popup: JBPopup,
+        chip: QuickSwitcherChipComponent?,
+    ) {
         openPopups.add(popup)
         popup.addListener(
             object : JBPopupListener {
@@ -180,42 +197,38 @@ internal object QuickSwitcherPopup {
                 }
             },
         )
-
-        popup.showUnderneathOf(anchor)
     }
 
-    private fun resolveCurrentAccentHex(context: AccentContext): String =
-        try {
-            AccentResolver.resolve(AccentApplicator.resolveFocusedProject(), context)
-        } catch (exception: RuntimeException) {
-            LOG.warn("AccentStripe resolve failed", exception)
-            DEFAULT_ACCENT_FALLBACK
-        }
+    private fun profileLink(commands: QuickSwitcherCommands): JComponent {
+        lateinit var link: ActionLink
+        link =
+            ActionLink("Apply profile…") {
+                val document = commands.document ?: return@ActionLink
+                buildProfileMenu(document, commands).show(link, 0, link.height)
+            }
+        return link
+    }
 
-    private fun resolveCurrentAccentChain(
-        project: Project?,
-        context: AccentContext,
-    ): AccentResolutionChain =
-        try {
-            AccentResolver.resolveChain(project, context)
-        } catch (exception: RuntimeException) {
-            LOG.warn("Accent diagnostics resolve failed", exception)
-            fallbackChain()
-        }
-
-    private fun fallbackChain(): AccentResolutionChain {
-        val winner =
-            AccentResolutionStep(
-                source = AccentResolver.Source.GLOBAL,
-                hex = DEFAULT_ACCENT_FALLBACK,
-                outcome = StepOutcome.WON,
-                detail = "Global fallback",
+    internal fun buildProfileMenu(
+        document: StudioDocument,
+        commands: QuickSwitcherCommands,
+    ): JPopupMenu {
+        val menu = JPopupMenu()
+        val labels = StudioProfileLabels.project(document, work = null)
+        for (profile in document.catalog) {
+            val label = labels.getValue(StudioProfileChoice.Profile(profile.id))
+            val profileText = label.name + label.qualifier?.let { " · $it" }.orEmpty()
+            menu.add(
+                JMenuItem(profileText).apply {
+                    addActionListener {
+                        commands.submit(
+                            StudioQuickCommand.Profile(profile.id, DraftId(UUID.randomUUID().toString())),
+                        )
+                    }
+                },
             )
-        return AccentResolutionChain(
-            steps = listOf(winner),
-            winner = winner,
-            verdict = null,
-        )
+        }
+        return menu
     }
 
     private fun buildAccentContent(
@@ -242,6 +255,4 @@ internal object QuickSwitcherPopup {
                 }
             }
         }
-
-    private const val DEFAULT_ACCENT_FALLBACK: String = AccentDefaults.MIRAGE_HEX
 }

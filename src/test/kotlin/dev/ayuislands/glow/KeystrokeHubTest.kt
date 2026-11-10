@@ -7,6 +7,7 @@ import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.actionSystem.DataContext
 import com.intellij.openapi.actionSystem.IdeActions
+import com.intellij.openapi.actionSystem.ex.AnActionListener
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
@@ -26,6 +27,7 @@ import io.mockk.verify
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 
 class KeystrokeHubTest {
     private val settings = mockk<AyuIslandsSettings>()
@@ -40,7 +42,11 @@ class KeystrokeHubTest {
     fun setUp() {
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
-        every { settings.state } returns state
+        every { settings.state } answers {
+            dev.ayuislands.studio.StudioFixtures
+                .legacyView(state)
+                .settings
+        }
         state.glowEnabled = true
 
         mockkObject(LicenseChecker)
@@ -166,6 +172,54 @@ class KeystrokeHubTest {
 
         verify(exactly = 1) { messageBus.connect(hub) }
         verify(exactly = 1) { GlowOverlayManager.broadcastPowerSave(true) }
+    }
+
+    @Test
+    fun `partial registration disconnects its exact connection before retry`() {
+        val application = mockk<Application>()
+        val bus = mockk<MessageBus>()
+        val partial = mockk<MessageBusConnection>(relaxed = true)
+        val replacement = mockk<MessageBusConnection>(relaxed = true)
+        val hub = KeystrokeHub()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.messageBus } returns bus
+        every { bus.connect(hub) } returnsMany listOf(partial, replacement)
+        every { partial.subscribe(AnActionListener.TOPIC, any()) } throws IllegalStateException("subscribe failed")
+
+        assertFailsWith<IllegalStateException> { hub.initialize() }
+        hub.initialize()
+        hub.initialize()
+
+        verify(exactly = 1) { partial.disconnect() }
+        verify(exactly = 2) { bus.connect(hub) }
+        verify(exactly = 1) { replacement.subscribe(PowerSaveMode.TOPIC, any()) }
+        verify(exactly = 1) { replacement.subscribe(AnActionListener.TOPIC, hub.actionListener) }
+    }
+
+    @Test
+    fun `failed cleanup retains partial subscription and prevents replacement`() {
+        val application = mockk<Application>()
+        val bus = mockk<MessageBus>()
+        val partial = mockk<MessageBusConnection>(relaxed = true)
+        val replacement = mockk<MessageBusConnection>(relaxed = true)
+        val hub = KeystrokeHub()
+        mockkStatic(ApplicationManager::class)
+        every { ApplicationManager.getApplication() } returns application
+        every { application.messageBus } returns bus
+        every { bus.connect(hub) } returnsMany listOf(partial, replacement)
+        every { partial.subscribe(AnActionListener.TOPIC, any()) } throws IllegalStateException("subscribe failed")
+        every { partial.disconnect() } throws IllegalStateException("disconnect failed")
+
+        assertFailsWith<IllegalStateException> { hub.initialize() }
+        assertFailsWith<IllegalStateException> { hub.initialize() }
+        verify(exactly = 1) { bus.connect(hub) }
+
+        every { partial.disconnect() } returns Unit
+        hub.initialize()
+
+        verify(exactly = 2) { partial.disconnect() }
+        verify(exactly = 2) { bus.connect(hub) }
     }
 
     private companion object {

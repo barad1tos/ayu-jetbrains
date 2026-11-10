@@ -43,32 +43,39 @@ class ScrollbarElement : AccentElement {
         const val DEFAULT_ALPHA = 0x59
     }
 
-    override fun apply(color: Color) {
+    internal val uiKeys: List<String>
+        get() = hoverKeys + defaultKeys
+
+    internal fun uiColors(color: Color): Map<String, Color> {
         val hoverColor = ColorUtil.toAlpha(color, HOVER_ALPHA)
         val defaultColor = ColorUtil.toAlpha(color, DEFAULT_ALPHA)
-
-        // UIManager keys (non-editor scrollbars: Project tree, tool windows, etc.)
-        for (key in hoverKeys) {
-            putAccentUiDefault(key, hoverColor)
+        return buildMap {
+            hoverKeys.forEach { put(it, hoverColor) }
+            defaultKeys.forEach { put(it, defaultColor) }
         }
-        for (key in defaultKeys) {
-            putAccentUiDefault(key, defaultColor)
+    }
+
+    internal fun editorColors(colors: Map<String, Color>): Sequence<Pair<ColorKey, Color>> =
+        colors.asSequence().map { (key, value) -> ColorKey.find(key) to value }
+
+    override fun apply(color: Color) {
+        val colors = uiColors(color)
+        // UIManager keys (non-editor scrollbars: Project tree, tool windows, etc.)
+        for ((key, value) in colors) {
+            putAccentUiDefault(key, value)
         }
 
         // EditorColorsScheme keys (editor scrollbars via OpaqueAwareScrollBar).
         // Editor scrollbars bypass UIManager entirely — OpaqueAwareScrollBar installs
         // a ColorKey.FUNCTION_KEY that resolves colors from EditorColorsScheme.getColor().
         val scheme = AyuEditorSchemeScope.activeScheme() ?: return
-        for (key in hoverKeys) {
-            AyuEditorSchemeScope.writeColor(scheme, schemeOwner, ColorKey.find(key), hoverColor)
-        }
-        for (key in defaultKeys) {
-            AyuEditorSchemeScope.writeColor(scheme, schemeOwner, ColorKey.find(key), defaultColor)
+        for ((key, value) in editorColors(colors)) {
+            AyuEditorSchemeScope.writeColor(scheme, schemeOwner, key, value)
         }
     }
 
     override fun revert() {
-        for (key in hoverKeys + defaultKeys) {
+        for (key in uiKeys) {
             putAccentUiDefault(key, null)
         }
         AyuEditorSchemeScope.restore(schemeOwner)

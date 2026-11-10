@@ -9,47 +9,16 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import org.jetbrains.annotations.TestOnly
 import java.io.File
 import java.io.IOException
 
 /**
- * Filesystem delete pipeline for curated font presets.
+ * Deletes recorded curated-font files after caller-owned native consent.
+ * Rejects the entire request if a path escapes the platform
+ * font directory. File work runs in [Task.Backgroundable]; completion runs on EDT.
  *
- * Separation from [FontInstaller] is deliberate — install and uninstall are
- * opposite lifecycle operations with independent test surfaces and different
- * failure modes. [FontInstaller.persistFontState] remains the sole writer of
- * `state.installedFonts` on the install path; this object is the sole remover
- * via [runUninstallPipeline].
- *
- * Pipeline:
- * 1. Consent dialog via [FontInstallConsent.confirmUninstall] — **caller responsibility**.
- *    This object ASSUMES consent has been obtained. Consent is NOT inside the
- *    pipeline because [Task.Backgroundable] queue indirection would surface the
- *    dialog from a background thread, which either deadlocks on EDT or silently
- *    skips.
- * 2. Off-EDT filesystem work in [Task.Backgroundable], matching [FontInstaller.install]'s
- *    threading.
- * 3. Reads authoritative paths from `AyuIslandsState.installedFontFiles` — never
- *    re-derives from regex.
- * 4. Rejects any persisted path not canonically under [FontInstaller.platformFontDir]
- *    (path-traversal guard). Rejection returns [UninstallResult.Failure] WITHOUT
- *    mutating state.
- * 5. State mutation on EDT: removes from `AyuIslandsState.installedFonts`, adds to
- *    `AyuIslandsState.explicitlyUninstalledFonts` (resurrection guard), clears the
- *    `AyuIslandsState.installedFontFiles` entry, calls [FontDetector.invalidateCache].
- * 6. Calls [FontPresetApplicator.revert] for the deleted family across available
- *    schemes, restoring only surfaces whose recorded ownership still matches.
- * 7. Notifies outcome — success, partial (file lock), or failure (path rejection).
- *
- * **Residual risk:** TOCTOU between canonical-path check and `File.delete()` via
- * symlink swap. Accepted — requires local fs write access to race the delete in
- * milliseconds, and the attacker can already delete the target directly.
- *
- * No exception ever escapes to the caller; `onComplete` always fires with an
- * [UninstallResult].
+ * [uninstallResource] consumes explicit accepted paths and
+ * returns the native outcome for Studio's metadata writer without changing appearance.
  */
 object FontUninstaller {
     private val LOG = logger<FontUninstaller>()
@@ -67,9 +36,9 @@ object FontUninstaller {
 
         /**
          * Some files could not be deleted (file lock, permission denied).
-         * State was still mutated — the family is removed from `AyuIslandsState.installedFonts`
-         * and added to `AyuIslandsState.explicitlyUninstalledFonts`. The stale file(s) will
-         * be fully released after the next IDE restart.
+         * The inventory owner removes the family and records an explicit uninstall.
+         * Failed paths remain in this outcome; the JVM releases font registrations
+         * after the next IDE restart.
          */
         data class Partial(
             override val familyName: String,
@@ -90,118 +59,78 @@ object FontUninstaller {
         ) : UninstallResult()
     }
 
-    fun uninstall(
-        preset: FontPreset,
+    /** Deletes only the accepted installation paths; the caller records the resource outcome. */
+    fun uninstallResource(
+        entry: FontCatalog.Entry,
+        familyName: String,
+        paths: List<String>,
         project: Project?,
         onComplete: (UninstallResult) -> Unit,
     ) {
-        // Non-curated presets (CUSTOM) have no install metadata to uninstall.
-        // UI rows that route here are gated by fontInstalled, which is
-        // force-false for non-curated; this is unreachable under normal flow.
-        // Defensive log + fire onComplete with a Failure so callers tracking
-        // progress don't hang waiting for a callback that never fires.
-        val entry =
-            FontCatalog.forPreset(preset)
-                ?: run {
-                    LOG.warn("FontUninstaller.uninstall called for non-curated preset $preset; ignoring")
-                    // familyName uses preset.name (sentinel "CUSTOM") rather than
-                    // preset.fontFamily — the latter is `DEFAULT_CUSTOM_FONT` for
-                    // CUSTOM unless overridden, which would lie to telemetry/logs
-                    // about "we removed JetBrains Mono" when nothing was removed.
-                    onComplete(
-                        UninstallResult.Failure(
-                            familyName = preset.name,
-                            message = "No catalog entry for preset ${preset.name} (non-curated)",
-                        ),
-                    )
-                    return
-                }
-        val task =
+        FontCatalog.requireCanonicalEntry(entry)
+        val removal = Removal(entry, familyName, paths.toList(), project)
+        ProgressManager.getInstance().run(
             object : Task.Backgroundable(project, "Removing ${entry.displayName}…", true) {
-                override fun run(indicator: ProgressIndicator) {
-                    runUninstallPipeline(entry, project, indicator, onComplete)
-                }
-            }
-        ProgressManager.getInstance().run(task)
+                override fun run(indicator: ProgressIndicator) = removeFiles(removal, indicator, onComplete)
+            },
+        )
     }
 
-    @TestOnly
-    @Suppress("LongMethod")
-    internal fun runUninstallPipeline(
-        entry: FontCatalog.Entry,
-        project: Project?,
+    private data class Removal(
+        val entry: FontCatalog.Entry,
+        val family: String,
+        val paths: List<String>,
+        val project: Project?,
+    )
+
+    private fun removeFiles(
+        removal: Removal,
         indicator: ProgressIndicator,
         onComplete: (UninstallResult) -> Unit,
     ) {
         indicator.text = "Locating installed files…"
-        val state = AyuIslandsSettings.getInstance().state
-        val family = entry.familyName
-
-        val rawPaths = AyuIslandsState.decodeFontPaths(state.installedFontFiles[family])
-
-        // Path-traversal guard: reject any path that escapes platformFontDir.
-        // Runs BEFORE any File.delete() call so a malicious ayuIslands.xml can
-        // never make us touch /etc/passwd or anywhere else.
-        val platformDirCanonical =
-            try {
-                FontInstaller.platformFontDir().canonicalPath
-            } catch (e: IOException) {
-                LOG.warn("Could not canonicalize platformFontDir", e)
-                finishUninstallFailure(
-                    entry,
-                    project,
-                    onComplete,
-                    "Could not resolve platform font directory",
-                )
-                return
-            }
-
-        val (safePaths, rejectedPaths) = partitionSafePaths(rawPaths, platformDirCanonical)
-
-        if (rejectedPaths.isNotEmpty()) {
-            LOG.warn(
-                "Path-traversal guard rejected ${rejectedPaths.size} path(s) " +
-                    "for family $family: $rejectedPaths",
-            )
-            finishUninstallFailure(
-                entry,
-                project,
-                onComplete,
-                "Installation record contained paths outside the font directory. " +
-                    "State was not modified. Please report at $GH_ISSUES_URL.",
-            )
-            return
-        }
-
+        val safePaths = acceptedPaths(removal, onComplete) ?: return
         indicator.text = "Removing files…"
         val failed = deleteSafely(safePaths)
-
-        // Restore matching owned surfaces across available schemes on the EDT.
         ApplicationManager.getApplication().invokeLater {
-            state.installedFonts.remove(family)
-            state.installedFontFiles.remove(family)
-            state.explicitlyUninstalledFonts.add(family)
             FontDetector.invalidateCache()
-
-            try {
-                FontPresetApplicator.revert(family)
-            } catch (e: RuntimeException) {
-                LOG.warn("FontPresetApplicator.revert() failed during uninstall of $family", e)
-            }
-
-            val result: UninstallResult =
+            val result =
                 if (failed.isEmpty()) {
-                    UninstallResult.Success(family, safePaths.size)
+                    UninstallResult.Success(removal.family, safePaths.size)
                 } else {
-                    UninstallResult.Partial(family, failed)
+                    UninstallResult.Partial(removal.family, failed)
                 }
-
-            val message = uninstallMessage(entry, safePaths.size, failed.size)
+            val message = uninstallMessage(removal.entry, safePaths.size, failed.size)
             val type = if (failed.isEmpty()) NotificationType.INFORMATION else NotificationType.WARNING
-            notifyUninstall(project, message, type)
-
+            notifyUninstall(removal.project, message, type)
             onComplete(result)
         }
+    }
+
+    private fun acceptedPaths(
+        removal: Removal,
+        onComplete: (UninstallResult) -> Unit,
+    ): List<String>? {
+        val platformDirectory =
+            try {
+                FontInstaller.platformFontDir().canonicalPath
+            } catch (failure: IOException) {
+                LOG.warn("Could not canonicalize platformFontDir", failure)
+                finishUninstallFailure(removal, onComplete, "Could not resolve platform font directory")
+                return null
+            }
+        val (safePaths, rejectedPaths) = partitionSafePaths(removal.paths, platformDirectory)
+        if (rejectedPaths.isEmpty()) return safePaths
+        LOG.warn(
+            "Path-traversal guard rejected ${rejectedPaths.size} path(s) for family ${removal.family}: $rejectedPaths",
+        )
+        finishUninstallFailure(
+            removal,
+            onComplete,
+            "Installation record contained paths outside the font directory. " +
+                "State was not modified. Please report at $GH_ISSUES_URL.",
+        )
+        return null
     }
 
     private fun partitionSafePaths(
@@ -236,14 +165,13 @@ object FontUninstaller {
     }
 
     private fun finishUninstallFailure(
-        entry: FontCatalog.Entry,
-        project: Project?,
+        removal: Removal,
         onComplete: (UninstallResult) -> Unit,
         message: String,
     ) {
         ApplicationManager.getApplication().invokeLater {
-            notifyUninstall(project, message, NotificationType.ERROR)
-            onComplete(UninstallResult.Failure(entry.familyName, message))
+            notifyUninstall(removal.project, message, NotificationType.ERROR)
+            onComplete(UninstallResult.Failure(removal.family, message))
         }
     }
 

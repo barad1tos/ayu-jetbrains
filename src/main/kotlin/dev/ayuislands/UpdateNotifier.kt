@@ -5,7 +5,9 @@ import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.SettingsBadges
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.AcceptanceResult
+import dev.ayuislands.studio.model.StudioMetadataCommand
 import dev.ayuislands.whatsnew.WhatsNewLauncher
 
 internal object UpdateNotifier {
@@ -16,30 +18,25 @@ internal object UpdateNotifier {
             AyuPlugin.findLoadedPlugin(AyuPlugin.ID)
                 ?: return
         val currentVersion = descriptor.version
-        val state = AyuIslandsSettings.getInstance().state
+        val state = AyuIslandsSettings.getInstance().state ?: return
         val lastSeen = state.lastSeenVersion
-        val nowMs = System.currentTimeMillis()
-
-        if (lastSeen == currentVersion) {
-            SettingsBadges.expireIfDue(state, nowMs)
-            SettingsBadges.armExpiry(state, nowMs)
-            return
+        StudioService.getInstance().metadata(
+            StudioMetadataCommand.ReleaseSeen(currentVersion, System.currentTimeMillis()),
+        ) { result ->
+            if (result !is AcceptanceResult.Accepted) return@metadata
+            if (lastSeen != null &&
+                lastSeen != currentVersion &&
+                !project.isDisposed
+            ) {
+                showUpdate(project, currentVersion)
+            }
         }
+    }
 
-        state.lastSeenVersion = currentVersion
-
-        // Skip notification on the first installation (no previous version).
-        // Everything is new to a fresh install, so no settings badge shows;
-        // onboarding and What's New own the first-run experience.
-        if (lastSeen == null) {
-            SettingsBadges.seedAllAcknowledged(state)
-            return
-        }
-
-        SettingsBadges.pruneStaleIds(state)
-        SettingsBadges.expireIfDue(state, nowMs)
-        SettingsBadges.armExpiry(state, nowMs)
-
+    private fun showUpdate(
+        project: Project,
+        currentVersion: String,
+    ) {
         // Tab supersedes balloon when the version ships rich What's New content.
         // Falls through to balloon for patches without a manifest. The launcher's
         // own gating (lastWhatsNewShownVersion + manifest existence) decides
@@ -70,6 +67,14 @@ internal object UpdateNotifier {
 
     private val RELEASE_NOTES =
         mapOf(
+            "3.0.0" to
+                releaseNotes(
+                    "[Free] Work Profiles: Whisper, Ambient, Neon, Cyberpunk, and your own named appearances",
+                    "[Free] Redesigned Settings with immediate local previews and Current/Draft comparison",
+                    "[Fix] Your 2.x appearance and saved preferences migrate to Custom without resets",
+                    "[Fix] Settings and Quick-Switcher toggles preserve styles and per-surface choices",
+                    "[Fix] Interrupted appearance changes recover while preserving edits made elsewhere",
+                ),
             "2.8.9" to
                 releaseNotes(
                     "[Free] Keep native accents on external themes without disabling selected Ayu enhancements",

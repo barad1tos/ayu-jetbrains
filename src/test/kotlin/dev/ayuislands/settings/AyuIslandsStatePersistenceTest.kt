@@ -15,24 +15,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/**
- * Verifies that [AyuIslandsState] survives a save/reload cycle via
- * [com.intellij.openapi.components.SimplePersistentStateComponent.loadState].
- *
- * IntelliJ serializes [com.intellij.openapi.components.BaseState] to XML via
- * reflection. `loadState` copies fields with `XmlSerializerUtil.copyBean`, which is
- * the same mechanism used across real IDE restarts. If properties survive the
- * in-memory round-trip here, they survive on-disk persistence as well.
- */
+/** Legacy XML import and accepted Studio persistence retain user choices across reload. */
 class AyuIslandsStatePersistenceTest {
-    private fun roundTrip(mutate: (AyuIslandsState) -> Unit): AyuIslandsSettings {
-        val original = AyuIslandsSettings()
-        mutate(original.state)
-        val savedState = original.state
-        val reloaded = AyuIslandsSettings()
-        reloaded.loadState(savedState)
-        return reloaded
-    }
+    private fun roundTrip(mutate: (AyuIslandsState) -> Unit): dev.ayuislands.studio.persistence.AyuSettingsView =
+        dev.ayuislands.studio.StudioFixtures
+            .persistedView(freshSettingsState().apply(mutate))
+            .settings
 
     @Test
     fun `legacy XML keeps native override enabled and opt out round trips raw choices`() {
@@ -63,11 +51,11 @@ class AyuIslandsStatePersistenceTest {
                 state.externalThemeGlowEnabled = true
                 state.externalThemeChromeTintEnabled = true
             }
-        assertFalse(reloaded.state.externalThemeAccentOverrideEnabled)
-        assertEquals("FUTURE_SOURCE", reloaded.state.externalThemeAccentSource)
-        assertEquals("future-color", reloaded.state.externalThemeAccent)
-        assertTrue(reloaded.state.externalThemeGlowEnabled)
-        assertTrue(reloaded.state.externalThemeChromeTintEnabled)
+        assertFalse(reloaded.externalThemeAccentOverrideEnabled)
+        assertEquals("FUTURE_SOURCE", reloaded.externalThemeAccentSource)
+        assertEquals("future-color", reloaded.externalThemeAccent)
+        assertTrue(reloaded.externalThemeGlowEnabled)
+        assertTrue(reloaded.externalThemeChromeTintEnabled)
     }
 
     @Test
@@ -79,9 +67,9 @@ class AyuIslandsStatePersistenceTest {
                 state.lightAccent = "#0000CC"
             }
 
-        assertEquals("#AA0000", reloaded.state.mirageAccent)
-        assertEquals("#00BB00", reloaded.state.darkAccent)
-        assertEquals("#0000CC", reloaded.state.lightAccent)
+        assertEquals("#AA0000", reloaded.mirageAccent)
+        assertEquals("#00BB00", reloaded.darkAccent)
+        assertEquals("#0000CC", reloaded.lightAccent)
     }
 
     @Test
@@ -95,7 +83,7 @@ class AyuIslandsStatePersistenceTest {
 
         for (element in AccentElementId.entries) {
             assertFalse(
-                reloaded.state.isToggleEnabled(element),
+                reloaded.isToggleEnabled(element),
                 "Toggle for ${element.name} must remain disabled after reload",
             )
         }
@@ -112,17 +100,17 @@ class AyuIslandsStatePersistenceTest {
                 state.glowAnimation = GlowAnimation.BREATHE.name
             }
 
-        assertTrue(reloaded.state.glowEnabled)
-        assertEquals(GlowStyle.SHARP_NEON.name, reloaded.state.glowStyle)
+        assertTrue(reloaded.glowEnabled)
+        assertEquals(GlowStyle.SHARP_NEON.name, reloaded.glowStyle)
         assertEquals(
             EXPECTED_SHARP_NEON_INTENSITY,
-            reloaded.state.getIntensityForStyle(GlowStyle.SHARP_NEON),
+            reloaded.getIntensityForStyle(GlowStyle.SHARP_NEON),
         )
         assertEquals(
             EXPECTED_SHARP_NEON_WIDTH,
-            reloaded.state.getWidthForStyle(GlowStyle.SHARP_NEON),
+            reloaded.getWidthForStyle(GlowStyle.SHARP_NEON),
         )
-        assertEquals(GlowAnimation.BREATHE.name, reloaded.state.glowAnimation)
+        assertEquals(GlowAnimation.BREATHE.name, reloaded.glowAnimation)
     }
 
     @Test
@@ -139,14 +127,14 @@ class AyuIslandsStatePersistenceTest {
                 state.waveformLoopSeconds = 3.7f
             }
 
-        assertEquals(GlowShape.WAVEFORM.name, reloaded.state.glowShape)
-        assertEquals(WaveformMovement.COUNTER_CLOCKWISE.name, reloaded.state.waveformDirection)
-        assertEquals(WaveformBaseline.CENTERED.name, reloaded.state.waveformBaseline)
-        assertEquals(4, reloaded.state.waveformTraceDensity)
-        assertEquals(640, reloaded.state.waveformTraceLength)
-        assertEquals(36, reloaded.state.waveformAmplitude)
-        assertEquals(150, reloaded.state.waveformIntensity)
-        assertEquals(3.7f, reloaded.state.waveformLoopSeconds)
+        assertEquals(GlowShape.WAVEFORM.name, reloaded.glowShape)
+        assertEquals(WaveformMovement.COUNTER_CLOCKWISE.name, reloaded.waveformDirection)
+        assertEquals(WaveformBaseline.CENTERED.name, reloaded.waveformBaseline)
+        assertEquals(4, reloaded.waveformTraceDensity)
+        assertEquals(640, reloaded.waveformTraceLength)
+        assertEquals(36, reloaded.waveformAmplitude)
+        assertEquals(150, reloaded.waveformIntensity)
+        assertEquals(3.7f, reloaded.waveformLoopSeconds)
     }
 
     @Test
@@ -156,7 +144,7 @@ class AyuIslandsStatePersistenceTest {
                 state.waveformDirection = WaveformMovement.CHAOTIC.name
             }
 
-        assertEquals(WaveformMovement.CHAOTIC.name, reloaded.state.waveformDirection)
+        assertEquals(WaveformMovement.CHAOTIC.name, reloaded.waveformDirection)
     }
 
     @Test
@@ -168,9 +156,9 @@ class AyuIslandsStatePersistenceTest {
                 state.lastSeenVersion = "2.4.1"
             }
 
-        assertTrue(reloaded.state.freeOnboardingShown)
-        assertTrue(reloaded.state.premiumOnboardingShown)
-        assertEquals("2.4.1", reloaded.state.lastSeenVersion)
+        assertTrue(reloaded.freeOnboardingShown)
+        assertTrue(reloaded.premiumOnboardingShown)
+        assertEquals("2.4.1", reloaded.lastSeenVersion)
     }
 
     @Test
@@ -187,9 +175,9 @@ class AyuIslandsStatePersistenceTest {
                 "glow-waveform" to "123456",
                 "accent-from-project-icon" to "654321",
             ),
-            reloaded.state.settingsBadgeDeadlines,
+            reloaded.settingsBadgeDeadlines,
         )
-        assertEquals(111111L, reloaded.state.settingsBadgesExpireAtMs)
+        assertEquals(111111L, reloaded.settingsBadgesExpireAtMs)
     }
 
     @Test
@@ -201,10 +189,10 @@ class AyuIslandsStatePersistenceTest {
                 state.installedFonts.add("Fira Code")
             }
 
-        assertEquals(3, reloaded.state.installedFonts.size)
-        assertTrue(reloaded.state.installedFonts.contains("Maple Mono"))
-        assertTrue(reloaded.state.installedFonts.contains("JetBrains Mono"))
-        assertTrue(reloaded.state.installedFonts.contains("Fira Code"))
+        assertEquals(3, reloaded.installedFonts.size)
+        assertTrue(reloaded.installedFonts.contains("Maple Mono"))
+        assertTrue(reloaded.installedFonts.contains("JetBrains Mono"))
+        assertTrue(reloaded.installedFonts.contains("Fira Code"))
     }
 
     @Test
@@ -216,9 +204,9 @@ class AyuIslandsStatePersistenceTest {
                 state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
             }
 
-        assertEquals(PanelWidthMode.AUTO_FIT.name, reloaded.state.projectPanelWidthMode)
-        assertEquals(PanelWidthMode.AUTO_FIT.name, reloaded.state.commitPanelWidthMode)
-        assertEquals(PanelWidthMode.AUTO_FIT.name, reloaded.state.gitPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, reloaded.projectPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, reloaded.commitPanelWidthMode)
+        assertEquals(PanelWidthMode.AUTO_FIT.name, reloaded.gitPanelWidthMode)
     }
 
     @Test
@@ -230,9 +218,9 @@ class AyuIslandsStatePersistenceTest {
                 state.commitPanelPathMaxHiddenLevels = 6
             }
 
-        assertEquals(CommitPathDisplayMode.TOOLTIP.name, reloaded.state.commitPanelPathDisplayMode)
-        assertEquals(2, reloaded.state.commitPanelPathMinHiddenLevels)
-        assertEquals(6, reloaded.state.commitPanelPathMaxHiddenLevels)
+        assertEquals(CommitPathDisplayMode.TOOLTIP.name, reloaded.commitPanelPathDisplayMode)
+        assertEquals(2, reloaded.commitPanelPathMinHiddenLevels)
+        assertEquals(6, reloaded.commitPanelPathMaxHiddenLevels)
     }
 
     @Test
@@ -243,9 +231,9 @@ class AyuIslandsStatePersistenceTest {
                 state.fontPresetCustomizations["WHISPER"] = "13|1.1|false|300"
             }
 
-        assertEquals(2, reloaded.state.fontPresetCustomizations.size)
-        assertEquals("14|1.2|true|400", reloaded.state.fontPresetCustomizations["AMBIENT"])
-        assertEquals("13|1.1|false|300", reloaded.state.fontPresetCustomizations["WHISPER"])
+        assertEquals(2, reloaded.fontPresetCustomizations.size)
+        assertEquals("14|1.2|true|400", reloaded.fontPresetCustomizations["AMBIENT"])
+        assertEquals("13|1.1|false|300", reloaded.fontPresetCustomizations["WHISPER"])
     }
 
     @Test
@@ -258,16 +246,16 @@ class AyuIslandsStatePersistenceTest {
                 state.lastKnownLicensedMs = EXPECTED_LICENSED_MS
             }
 
-        assertTrue(reloaded.state.trialExpiredNotified)
-        assertTrue(reloaded.state.trialExpiryWarningShown)
-        assertTrue(reloaded.state.everBeenPro)
-        assertEquals(EXPECTED_LICENSED_MS, reloaded.state.lastKnownLicensedMs)
+        assertTrue(reloaded.trialExpiredNotified)
+        assertTrue(reloaded.trialExpiryWarningShown)
+        assertTrue(reloaded.everBeenPro)
+        assertEquals(EXPECTED_LICENSED_MS, reloaded.lastKnownLicensedMs)
     }
 
     @Test
     fun `installedFontFiles defaults to empty map`() {
-        val settings = AyuIslandsSettings()
-        assertTrue(settings.state.installedFontFiles.isEmpty())
+        val settings = freshSettingsState()
+        assertTrue(settings.installedFontFiles.isEmpty())
     }
 
     @Test
@@ -284,11 +272,11 @@ class AyuIslandsStatePersistenceTest {
         assertEquals(
             "/Users/test/Library/Fonts/MapleMono-Regular.ttf\n" +
                 "/Users/test/Library/Fonts/MapleMono-Italic.ttf",
-            reloaded.state.installedFontFiles["Maple Mono"],
+            reloaded.installedFontFiles["Maple Mono"],
         )
         assertEquals(
             "/Users/test/Library/Fonts/VictorMono-Light.ttf",
-            reloaded.state.installedFontFiles["Victor Mono"],
+            reloaded.installedFontFiles["Victor Mono"],
         )
     }
 
@@ -301,14 +289,14 @@ class AyuIslandsStatePersistenceTest {
                 state.installedFontFiles.remove("Victor Mono")
             }
 
-        assertEquals("/a/MapleMono-Regular.ttf", reloaded.state.installedFontFiles["Maple Mono"])
-        assertFalse(reloaded.state.installedFontFiles.containsKey("Victor Mono"))
+        assertEquals("/a/MapleMono-Regular.ttf", reloaded.installedFontFiles["Maple Mono"])
+        assertFalse(reloaded.installedFontFiles.containsKey("Victor Mono"))
     }
 
     @Test
     fun `explicitlyUninstalledFonts defaults to empty set`() {
-        val settings = AyuIslandsSettings()
-        assertTrue(settings.state.explicitlyUninstalledFonts.isEmpty())
+        val settings = freshSettingsState()
+        assertTrue(settings.explicitlyUninstalledFonts.isEmpty())
     }
 
     @Test
@@ -319,9 +307,9 @@ class AyuIslandsStatePersistenceTest {
                 state.explicitlyUninstalledFonts.add("Victor Mono")
             }
 
-        assertTrue(reloaded.state.explicitlyUninstalledFonts.contains("Monaspace Neon"))
-        assertTrue(reloaded.state.explicitlyUninstalledFonts.contains("Victor Mono"))
-        assertEquals(2, reloaded.state.explicitlyUninstalledFonts.size)
+        assertTrue(reloaded.explicitlyUninstalledFonts.contains("Monaspace Neon"))
+        assertTrue(reloaded.explicitlyUninstalledFonts.contains("Victor Mono"))
+        assertEquals(2, reloaded.explicitlyUninstalledFonts.size)
     }
 
     @Test
@@ -331,7 +319,7 @@ class AyuIslandsStatePersistenceTest {
                 state.ignorePluginSyntaxColorsEnabled = false
             }
 
-        assertFalse(reloaded.state.ignorePluginSyntaxColorsEnabled)
+        assertFalse(reloaded.ignorePluginSyntaxColorsEnabled)
     }
 
     // ---------- Chrome tinting (phase 40) XML round-trip for all 8 new fields ----------
@@ -348,16 +336,16 @@ class AyuIslandsStatePersistenceTest {
                 }
             }
 
-        assertTrue(reloaded.state.chromeStatusBar, "chromeStatusBar must persist")
-        assertTrue(reloaded.state.chromeMainToolbar, "chromeMainToolbar must persist")
-        assertTrue(reloaded.state.chromeToolWindowStripe, "chromeToolWindowStripe must persist")
-        assertTrue(reloaded.state.chromeNavBar, "chromeNavBar must persist")
-        assertTrue(reloaded.state.chromePanelBorder, "chromePanelBorder must persist")
+        assertTrue(reloaded.chromeStatusBar, "chromeStatusBar must persist")
+        assertTrue(reloaded.chromeMainToolbar, "chromeMainToolbar must persist")
+        assertTrue(reloaded.chromeToolWindowStripe, "chromeToolWindowStripe must persist")
+        assertTrue(reloaded.chromeNavBar, "chromeNavBar must persist")
+        assertTrue(reloaded.chromePanelBorder, "chromePanelBorder must persist")
 
         // isToggleEnabled must resolve through the reloaded state, not the original.
         for (id in AccentElementId.entries.filter { it.group == AccentGroup.CHROME }) {
             assertTrue(
-                reloaded.state.isToggleEnabled(id),
+                reloaded.isToggleEnabled(id),
                 "${id.name} must remain enabled after reload",
             )
         }
@@ -369,7 +357,7 @@ class AyuIslandsStatePersistenceTest {
             roundTrip { state ->
                 state.chromeTintIntensity = EXPECTED_CHROME_TINT_INTENSITY
             }
-        assertEquals(EXPECTED_CHROME_TINT_INTENSITY, reloaded.state.chromeTintIntensity)
+        assertEquals(EXPECTED_CHROME_TINT_INTENSITY, reloaded.chromeTintIntensity)
     }
 
     @Test
@@ -378,15 +366,15 @@ class AyuIslandsStatePersistenceTest {
             roundTrip { state ->
                 state.chromeTintingGroupExpanded = true
             }
-        assertTrue(reloaded.state.chromeTintingGroupExpanded)
+        assertTrue(reloaded.chromeTintingGroupExpanded)
     }
 
     // ---- Startup-flicker anti-flash (phase 40) ----
 
     @Test
     fun `lastAppliedAccentHex defaults to null`() {
-        val settings = AyuIslandsSettings()
-        assertEquals(null, settings.state.lastAppliedAccentHex)
+        val settings = freshSettingsState()
+        assertEquals(null, settings.lastAppliedAccentHex)
     }
 
     @Test
@@ -395,7 +383,7 @@ class AyuIslandsStatePersistenceTest {
             roundTrip { state ->
                 state.lastAppliedAccentHex = "#5CCFE6"
             }
-        assertEquals("#5CCFE6", reloaded.state.lastAppliedAccentHex)
+        assertEquals("#5CCFE6", reloaded.lastAppliedAccentHex)
     }
 
     @Test
@@ -405,7 +393,7 @@ class AyuIslandsStatePersistenceTest {
                 state.lastAppliedAccentHex = "#5CCFE6"
                 state.lastAppliedAccentHex = "#FF3333"
             }
-        assertEquals("#FF3333", reloaded.state.lastAppliedAccentHex)
+        assertEquals("#FF3333", reloaded.lastAppliedAccentHex)
     }
 
     // ---- encodeFontPaths / decodeFontPaths helpers ----

@@ -11,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 
+internal enum class ChromeCacheSlot { CURRENT, STOCK, TINT }
+
 /**
  * Caches stock UIManager colors captured BEFORE any chrome tint is applied, so
  * subsequent tint operations always blend from the true base — not from a previously
@@ -134,11 +136,11 @@ object ChromeBaseColors {
                 }
                 return null
             }
-            val stock = recoverStockIfCurrentIsPluginTint(key, current)
-            CacheCheckpoints.put(lastStockSnapshot, key, stock)
+            val stock = recoverChromeStock(current, lastStockSnapshot[key], lastPluginTint[key])
+            CacheCheckpoints.put(ChromeCacheSlot.STOCK, key, stock)
             // A UIManager getter can reenter and capture the key while this read runs.
             snapshot[key]?.let { return it }
-            CacheCheckpoints.put(snapshot, key, stock)
+            CacheCheckpoints.put(ChromeCacheSlot.CURRENT, key, stock)
             return snapshot[key] ?: stock
         }
     }
@@ -151,12 +153,12 @@ object ChromeBaseColors {
         key: String,
         color: Color,
     ) {
-        CacheCheckpoints.put(lastPluginTint, key, color)
+        CacheCheckpoints.put(ChromeCacheSlot.TINT, key, color)
     }
 
     /** Clears the remembered plugin tint for [key] after the matching revert. */
     fun forgetPluginTint(key: String) {
-        CacheCheckpoints.put(lastPluginTint, key, null)
+        CacheCheckpoints.put(ChromeCacheSlot.TINT, key, null)
     }
 
     /**
@@ -186,43 +188,76 @@ object ChromeBaseColors {
         }
     }
 
+    /** Captures an exact cache slot without publishing it or running pending recovery. */
+    internal fun prepare(
+        slot: ChromeCacheSlot,
+        key: String,
+        color: Color?,
+    ): CacheCheckpoint =
+        synchronized(snapshot) {
+            check(SwingUtilities.isEventDispatchThread()) { "Chrome cache preparation must run on EDT" }
+            AccentApplyScope.active?.takeUnless { it.isCommitted }?.checkWritable()
+            CacheCheckpoints.checkNoPending()
+            CacheCheckpoint(slot, key, color)
+        }
+
+    private fun cacheEntries(slot: ChromeCacheSlot): ConcurrentHashMap<String, Color> =
+        when (slot) {
+            ChromeCacheSlot.CURRENT -> snapshot
+            ChromeCacheSlot.STOCK -> lastStockSnapshot
+            ChromeCacheSlot.TINT -> lastPluginTint
+        }
+
+    private fun writeCacheEntry(
+        entries: ConcurrentHashMap<String, Color>,
+        key: String,
+        color: Color?,
+    ) {
+        if (color == null) entries.remove(key) else entries[key] = color
+    }
+
     private object CacheCheckpoints {
         private val pending = mutableListOf<CacheCheckpoint>()
         private val receipts = mutableListOf<CacheCheckpoint>()
         private var boundScope: AccentApplyScope? = null
 
         fun put(
-            entries: ConcurrentHashMap<String, Color>,
+            slot: ChromeCacheSlot,
             key: String,
             color: Color?,
         ) {
             synchronized(snapshot) {
                 val scope =
                     if (SwingUtilities.isEventDispatchThread()) {
-                        AccentApplyScope.active?.takeUnless {
-                            it.isCommitted
-                        }
+                        AccentApplyScope.active?.takeUnless { it.isCommitted }
                     } else {
                         null
                     }
-                if (scope != null) {
-                    scope.checkWritable()
-                    if (pending.isNotEmpty()) scope.recover { restoreAccentCheckpoints(pending) }
-                    bind(scope)
-                    val previous =
-                        receipts.lastOrNull {
-                            it.entries === entries &&
-                                it.key == key &&
-                                it.capturedGeneration == generation &&
-                                it.isUnsettled
-                        }
-                    if (previous?.permitsWrite() == false) return
-                    val checkpoint = CacheCheckpoint(entries, key, color)
-                    receipts += checkpoint
-                    scope.record(checkpoint)
+                if (scope == null) {
+                    writeCacheEntry(cacheEntries(slot), key, color)
+                    return
                 }
-                if (color == null) entries.remove(key) else entries[key] = color
+                scope.checkWritable()
+                if (pending.isNotEmpty()) scope.recover { restoreAccentCheckpoints(pending) }
+                bind(scope)
+                val previous =
+                    receipts.lastOrNull {
+                        it.slot == slot && it.key == key && it.capturedGeneration == generation && it.isUnsettled
+                    }
+                if (previous?.permitsWrite() == false) return
+                val checkpoint = prepare(slot, key, color)
+                receipts += checkpoint
+                scope.record(checkpoint)
+                checkpoint.apply()
             }
+        }
+
+        fun checkNoPending() {
+            check(pending.none { it.hasPending }) { "Chrome cache has unresolved recovery" }
+        }
+
+        fun retain(checkpoint: CacheCheckpoint) {
+            if (checkpoint.hasPending && checkpoint !in pending) pending += checkpoint
         }
 
         private fun bind(scope: AccentApplyScope) {
@@ -236,62 +271,112 @@ object ChromeBaseColors {
                 }
             }
         }
+    }
 
-        private class CacheCheckpoint(
-            val entries: ConcurrentHashMap<String, Color>,
-            val key: String,
-            private val expected: Color?,
-        ) : AccentCheckpoint {
-            private enum class State { OWNED, RELINQUISHED, RESTORED }
+    /** Owns one captured cache cell; generation and raw references guard both directions. */
+    internal class CacheCheckpoint internal constructor(
+        val slot: ChromeCacheSlot,
+        val key: String,
+        val planned: Color?,
+    ) : AccentWriteCheckpoint {
+        private val entries = cacheEntries(slot)
+        val capturedGeneration = generation
+        val before: Color? = entries[key]
+        override var state = AccentWriteState.PREPARED
+            private set
 
-            val capturedGeneration = generation
-            private val original = entries[key]
-            private var state = State.OWNED
+        override val hasPending: Boolean
+            get() = synchronized(snapshot) { state == AccentWriteState.OWNED }
 
-            override val hasPending: Boolean
-                get() = state == State.OWNED
+        val isUnsettled: Boolean
+            get() = state != AccentWriteState.RESTORED
 
-            val isUnsettled: Boolean
-                get() = state != State.RESTORED
-
-            fun permitsWrite(): Boolean {
-                if (state != State.OWNED) return false
-                if (capturedGeneration != generation || entries[key] !== expected) state = State.RELINQUISHED
-                return state == State.OWNED
-            }
-
-            override fun restore(blockedBy: List<AccentCheckpoint>) {
-                synchronized(snapshot) {
-                    if (!hasPending) return
-                    check(
-                        blockedBy.none {
-                            it is CacheCheckpoint && it.entries === entries && it.key == key && it.hasPending
-                        },
-                    ) { "Chrome cache restoration blocked by a newer write: $key" }
-                    if (!permitsWrite()) return
-                    if (original == null) entries.remove(key) else entries[key] = original
-                    commit()
+        override fun apply(): Boolean =
+            synchronized(snapshot) {
+                check(SwingUtilities.isEventDispatchThread()) { "Chrome cache writes must run on EDT" }
+                if (state != AccentWriteState.PREPARED) return false
+                AccentApplyScope.active?.takeUnless { it.isCommitted }?.checkWritable()
+                CacheCheckpoints.checkNoPending()
+                if (capturedGeneration != generation || entries[key] !== before) {
+                    state = AccentWriteState.RELINQUISHED
+                    return false
                 }
+                state = AccentWriteState.OWNED
+                writeCacheEntry(entries, key, planned)
+                true
             }
 
-            override fun commit() {
-                if (state != State.RELINQUISHED) state = State.RESTORED
+        fun permitsWrite(): Boolean =
+            synchronized(snapshot) {
+                if (state != AccentWriteState.OWNED) return false
+                if (capturedGeneration != generation || entries[key] !== planned) state = AccentWriteState.RELINQUISHED
+                state == AccentWriteState.OWNED
             }
 
-            override fun retain() {
-                if (hasPending && this !in pending) pending += this
+        override fun restore(blockedBy: List<AccentCheckpoint>) {
+            synchronized(snapshot) {
+                if (state == AccentWriteState.PREPARED) commit()
+                if (!hasPending) return
+                check(
+                    blockedBy.none {
+                        it is CacheCheckpoint && it.entries === entries && it.key == key && it.hasPending
+                    },
+                ) { "Chrome cache restoration blocked by a newer write: $key" }
+                if (!permitsWrite()) return
+                writeCacheEntry(entries, key, before)
+                commit()
             }
+        }
+
+        override fun commit() {
+            synchronized(snapshot) {
+                if (state != AccentWriteState.RELINQUISHED) state = AccentWriteState.RESTORED
+            }
+        }
+
+        override fun retain() {
+            synchronized(snapshot) { CacheCheckpoints.retain(this) }
         }
     }
 
-    private fun recoverStockIfCurrentIsPluginTint(
-        key: String,
-        current: Color,
-    ): Color {
-        val lastTint = lastPluginTint[key] ?: return current
-        val lastStock = lastStockSnapshot[key] ?: return current
-        return if (current == lastTint) lastStock else current
-    }
+    /** Observes platform stock before raw write capture, without cache, lifecycle or diagnostic publication. */
+    internal fun observeStock(key: String): ChromeStockObservation =
+        synchronized(snapshot) {
+            check(SwingUtilities.isEventDispatchThread()) { "Chrome stock observation must run on EDT" }
+            AccentApplyScope.active?.takeUnless { it.isCommitted }?.checkWritable()
+            CacheCheckpoints.checkNoPending()
+            val target = UiDefaultsTarget()
+            val capturedGeneration = generation
+            val resolved = if (snapshot[key] == null) UIManager.getColor(key) else null
+            check(target.isCurrent() && generation == capturedGeneration) {
+                "Chrome stock target changed during observation"
+            }
+            CacheCheckpoints.checkNoPending()
+            // A platform getter may populate the cache reentrantly. Observe all dependencies after it returns.
+            val cached = snapshot[key]
+            val previousStock = lastStockSnapshot[key]
+            val previousTint = lastPluginTint[key]
+            val stock = cached ?: resolved?.let { recoverChromeStock(it, previousStock, previousTint) }
+            val source =
+                ChromeStockSource(
+                    readRawUiDefault(target.defaults, key),
+                    readRawUiDefault(UIManager.getLookAndFeelDefaults(), key),
+                )
+            ChromeStockObservation(key, target, capturedGeneration, cached, previousStock, previousTint, stock, source)
+        }
+
+    /** Revalidates cache, raw source and native theme identities without evaluating a provider again. */
+    internal fun isStockCurrent(observation: ChromeStockObservation): Boolean =
+        synchronized(snapshot) {
+            check(SwingUtilities.isEventDispatchThread()) { "Chrome stock validation must run on EDT" }
+            observation.target.isCurrent() &&
+                generation == observation.generation &&
+                snapshot[observation.key] === observation.cached &&
+                lastStockSnapshot[observation.key] === observation.previousStock &&
+                lastPluginTint[observation.key] === observation.previousTint &&
+                readRawUiDefault(observation.target.defaults, observation.key) === observation.source.local &&
+                readRawUiDefault(UIManager.getLookAndFeelDefaults(), observation.key) === observation.source.fallback
+        }
 }
 
 @Service(Service.Level.APP)

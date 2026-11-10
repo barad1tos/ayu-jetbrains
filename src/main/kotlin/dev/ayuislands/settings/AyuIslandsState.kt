@@ -8,27 +8,20 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowIslandIds
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.DEFAULT_TRACE_DENSITY
-import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
-import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
-import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
-import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
-import dev.ayuislands.glow.waveform.MIN_TRACE_DENSITY
-import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
-import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
-import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformMovement
-import dev.ayuislands.glow.waveform.normalizedLoopSeconds
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.vcs.VcsColorCategory
 import dev.ayuislands.vcs.VcsColorPreset
+import dev.ayuislands.vcs.VcsColorRules
 import dev.ayuislands.vcs.VcsIntensity
 import java.io.File
 
@@ -83,35 +76,10 @@ class AyuIslandsState : BaseState() {
     var freeOnboardingShown by property(false)
     var premiumOnboardingShown by property(false)
 
-    /**
-     * Last accent hex applied by [dev.ayuislands.accent.AccentApplicator.apply].
-     * Persisted so the next IDE startup can paint the correct color on the very
-     * first frame (before project contexts load), eliminating the "Gold → override"
-     * flicker users see when multiple project windows restore simultaneously with
-     * distinct per-project overrides.
-     *
-     * Written by every `apply()`, read by
-     * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] for first-frame
-     * anti-flicker and by [dev.ayuislands.glow.GlowOverlayManager] so late-created
-     * glow overlays match the app-global chrome accent that was actually painted.
-     *
-     * Stored as hex string (e.g. `"#5CCFE6"`) for IDE-state simplicity — no color
-     * serialization round-trip. `null` on first launch (pre-plugin-install history).
-     */
+    /** Legacy last-painted accent, imported unchanged and advanced only by accepted Studio runtime output. */
     var lastAppliedAccentHex by string(null)
 
-    /**
-     * Whether the most recent [dev.ayuislands.accent.AccentApplicator.apply] call
-     * completed its full step plan cleanly — set `true` only by the penultimate
-     * [dev.ayuislands.accent.AccentApplyStep.MarkApplyClean] step (only the
-     * accent-changed publish follows it). Used by
-     * [dev.ayuislands.AyuIslandsAppListener.appFrameCreated] as a trust gate around
-     * the cached [lastAppliedAccentHex]: persisting the hex BEFORE the EP iteration
-     * makes startup anti-flicker robust to a failed apply, but the cached value is
-     * only reliable when the previous session actually finished painting. If a prior
-     * apply threw mid-EP and left the hex persisted without a matching true here,
-     * the next startup resolves fresh instead of trusting the partial cache.
-     */
+    /** Legacy cache trust marker; an interrupted 2.x apply must never become a trusted Studio baseline. */
     var lastApplyOk by property(false)
 
     // Per-element accent toggles (all ON by default)
@@ -489,34 +457,11 @@ class AyuIslandsState : BaseState() {
      * [effectiveChromeTintIntensity] discipline — Ambient is the no-op
      * default so corrupted persisted XML never accidentally tints surfaces
      * the user didn't opt into. Maps each color category to the owning
-     * section's preset field — DIFF_VIEWER / PROJECT_VIEW_FILE_STATUS /
-     * EDITOR_GUTTER read [vcsDiffPreset], CONFLICT_MARKERS reads
-     * [vcsMergePreset], BLAME_GUTTER reads [vcsBlamePreset]. Placeholder
-     * categories (MERGE_3WAY, INLINE_DIFF_POPUP, LOCAL_HISTORY,
-     * BRANCH_INDICATOR, BRANCHES_POPUP, COMMIT_HIGHLIGHTS) default to
-     * AMBIENT until their respective sections wire up in a future release.
+     * section's preset field through [VcsColorRules]. Branch and commit
+     * categories remain Ambient until their surfaces are implemented.
      */
     fun effectiveVcsPresetFor(category: VcsColorCategory): VcsColorPreset =
-        when (category) {
-            VcsColorCategory.DIFF_VIEWER,
-            VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
-            VcsColorCategory.EDITOR_GUTTER,
-            -> VcsColorPreset.byName(vcsDiffPreset)
-
-            VcsColorCategory.CONFLICT_MARKERS,
-            VcsColorCategory.MERGE_3WAY,
-            VcsColorCategory.INLINE_DIFF_POPUP,
-            -> VcsColorPreset.byName(vcsMergePreset)
-
-            VcsColorCategory.BLAME_GUTTER,
-            VcsColorCategory.LOCAL_HISTORY,
-            -> VcsColorPreset.byName(vcsBlamePreset)
-
-            VcsColorCategory.BRANCH_INDICATOR,
-            VcsColorCategory.BRANCHES_POPUP,
-            VcsColorCategory.COMMIT_HIGHLIGHTS,
-            -> VcsColorPreset.AMBIENT
-        }
+        VcsColorRules.preset(category, vcsDiffPreset, vcsMergePreset, vcsBlamePreset)
 
     /**
      * Returns the per-category intensity map snapshot for the applier. The
@@ -547,17 +492,13 @@ class AyuIslandsState : BaseState() {
      * When [vcsColorEnabled] is `false` the helper short-circuits to `0` so the
      * applier returns the stock XML color.
      */
-    fun effectiveVcsIntensityFor(category: VcsColorCategory): VcsIntensity {
-        if (!vcsColorEnabled) return VcsIntensity.of(0)
-        val preset = effectiveVcsPresetFor(category)
-        val raw =
-            if (preset == VcsColorPreset.CUSTOM) {
-                effectiveVcsPerCategoryIntensities().getValue(category)
-            } else {
-                preset.intensityFor(category)
-            }
-        return VcsIntensity.of(raw)
-    }
+    fun effectiveVcsIntensityFor(category: VcsColorCategory): VcsIntensity =
+        VcsColorRules.intensity(
+            vcsColorEnabled,
+            category,
+            effectiveVcsPresetFor(category),
+            effectiveVcsPerCategoryIntensities().getValue(category),
+        )
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
         if (id.group == AccentGroup.CHROME) {
@@ -630,18 +571,14 @@ class AyuIslandsState : BaseState() {
         }
     }
 
-    fun effectiveWaveformAmplitude(): Int = waveformAmplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
-
-    fun effectiveWaveformIntensity(): Int = waveformIntensity.coerceIn(MIN_WAVEFORM_INTENSITY, MAX_WAVEFORM_INTENSITY)
-
     fun isIslandEnabled(toolWindowId: String): Boolean =
-        when (toolWindowId) {
+        when (GlowIslandIds.canonical(toolWindowId)) {
             "Editor" -> glowEditor
             "Project" -> glowProject
             "Terminal" -> glowTerminal
             "Run" -> glowRun
             "Debug" -> glowDebug
-            "Git", "Version Control", "Commit" -> glowGit
+            "Git" -> glowGit
             "Services" -> glowServices
             else -> false
         }
@@ -650,13 +587,13 @@ class AyuIslandsState : BaseState() {
         toolWindowId: String,
         enabled: Boolean,
     ) {
-        when (toolWindowId) {
+        when (GlowIslandIds.canonical(toolWindowId)) {
             "Editor" -> glowEditor = enabled
             "Project" -> glowProject = enabled
             "Terminal" -> glowTerminal = enabled
             "Run" -> glowRun = enabled
             "Debug" -> glowDebug = enabled
-            "Git", "Version Control", "Commit" -> glowGit = enabled
+            "Git" -> glowGit = enabled
             "Services" -> glowServices = enabled
         }
     }
@@ -733,12 +670,6 @@ private const val LEGACY_TRACE_LENGTH = 167
 private const val LEGACY_WAVEFORM_AMPLITUDE = 10
 private const val LEGACY_WAVEFORM_INTENSITY = 70
 private const val LEGACY_LOOP_SECONDS = 30f
-
-fun AyuIslandsState.effectiveTraceDensity(): Int = waveformTraceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
-
-fun AyuIslandsState.effectiveTraceLength(): Int = waveformTraceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH)
-
-fun AyuIslandsState.effectiveLoopSeconds(): Float = waveformLoopSeconds.normalizedLoopSeconds()
 
 private fun AyuIslandsState.isAccentElementEnabled(id: AccentElementId): Boolean =
     when (id) {

@@ -7,13 +7,10 @@ import com.intellij.openapi.wm.IdeFocusManager
 import com.intellij.openapi.wm.IdeFrame
 import com.intellij.openapi.wm.WindowManager
 import com.intellij.testFramework.LoggedErrorProcessor
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import io.mockk.verify
 import java.awt.Window
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -23,50 +20,16 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * Locks in the contract of [AccentApplicator.applyForFocusedProject] — five production
- * callers (the three settings panels, the LAF listener, the rotation tick) previously
- * hand-wired inconsistent variants of this sequence (most skipped the swap-cache sync).
- * These tests are the safety net that keeps the sequence (focused-project selection →
- * resolver → apply → swap-cache sync) from drifting.
- *
- * Uses the real [AccentApplicator] object but mocks every collaborator:
- *  - [ProjectUtil.getActiveProject] defaults to `null`, with an explicit test proving that
- *    its active-project result wins over stale focus state
- *  - [com.intellij.openapi.wm.IdeFocusManager] defaults to the headless no-op manager whose
- *    `lastFocusedFrame` is `null`, with explicit tests for focused-frame fallbacks
- *  - [ProjectManager.getInstance] for the final fallback pick (first non-default,
- *    non-disposed open project)
- *  - [AccentResolver.resolve] for the resolver call (covered independently in AccentResolverTest)
- *  - A partial mock on [AccentApplicator] itself to intercept `apply(hex)` — we only care that
- *    the helper forwards the resolver's output, not the full UIManager side-effect chain
- *  - [ProjectAccentSwapService.getInstance] for the notifyExternalApply assertion
- */
+/** Preserves the shared focus reader precedence and failure diagnostics. */
 class AccentApplicatorFocusedProjectTest {
-    private lateinit var swapService: ProjectAccentSwapService
-
     @BeforeTest
     fun setUp() {
         mockkStatic(ProjectUtil::class)
         every { ProjectUtil.getActiveProject() } returns null
         mockkStatic(ProjectManager::class)
-        mockkObject(AccentResolver)
-        mockkObject(AccentApplicator, recordPrivateCalls = false)
-        every { AccentApplicator.applyFromHexString(any()) } answers
-            {
-                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
-                    ?: AccentApplyOutcome.Rejected(firstArg())
-            }
-        every { AccentApplicator.apply(any()) } answers
-            { AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(firstArg<String>()))) }
-
-        mockkObject(ProjectAccentSwapService.Companion)
-        swapService = mockk(relaxed = true)
-        every { ProjectAccentSwapService.getInstance() } returns swapService
-
         // AccentApplicator is a JVM-wide object; WARN-gate flags persist across tests in
         // the same JVM. Reset before AND after so other test classes running in the same
         // fork can neither poison this suite nor inherit stale state from it.
@@ -99,76 +62,34 @@ class AccentApplicatorFocusedProjectTest {
     }
 
     @Test
-    fun `applyForFocusedProject forwards the resolver output to apply and the swap cache`() {
-        val focused = stubProject(isDefault = false, isDisposed = false)
-        val manager = mockk<ProjectManager>()
-        every { manager.openProjects } returns arrayOf(focused)
-        every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(focused, ayu(AyuVariant.MIRAGE)) } returns "#ABCDEF"
-
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#ABCDEF", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#ABCDEF") }
-        verify(exactly = 1) {
-            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#ABCDEF"))))
-        }
-    }
-
-    @Test
-    fun `applyForFocusedProject resolves and applies external context`() {
-        val focused = stubProject(isDefault = false, isDisposed = false)
-        val manager = mockk<ProjectManager>()
-        every { manager.openProjects } returns arrayOf(focused)
-        every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(focused, AccentContext.External) } returns "#AABBCC"
-
-        val applied = AccentApplicator.applyForFocusedProject(AccentContext.External)
-
-        assertEquals("#AABBCC", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(focused, AccentContext.External) }
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#AABBCC") }
-        verify(exactly = 1) {
-            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#AABBCC"))))
-        }
-    }
-
-    @Test
-    fun `applyForFocusedProject skips default and disposed projects when picking focus`() {
+    fun `resolveFocusedProject skips default and disposed projects when picking focus`() {
         val defaultProject = stubProject(isDefault = true, isDisposed = false)
         val disposedProject = stubProject(isDefault = false, isDisposed = true)
         val realFocus = stubProject(isDefault = false, isDisposed = false)
         val manager = mockk<ProjectManager>()
         every { manager.openProjects } returns arrayOf(defaultProject, disposedProject, realFocus)
         every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(realFocus, ayu(AyuVariant.DARK)) } returns "#123456"
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.DARK)
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        assertEquals("#123456", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(realFocus, ayu(AyuVariant.DARK)) }
+        assertSame(realFocus, selected)
     }
 
     @Test
-    fun `applyForFocusedProject passes null to resolver when no non-default project is open`() {
+    fun `resolveFocusedProject returns null when no non-default project is open`() {
         // Simulates the "Welcome screen / all projects closed" startup path. Resolver sees a null
         // project, short-circuits to the global accent, and the helper still propagates it.
         val manager = mockk<ProjectManager>()
         every { manager.openProjects } returns emptyArray()
         every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(null, ayu(AyuVariant.LIGHT)) } returns "#F29718"
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.LIGHT)
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        assertEquals("#F29718", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("#F29718") }
-        verify(exactly = 1) {
-            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#F29718"))))
-        }
+        assertSame(null, selected)
     }
 
     @Test
-    fun `applyForFocusedProject prefers IdeFocusManager focused frame over openProjects order`() {
+    fun `resolveFocusedProject prefers IdeFocusManager focused frame over openProjects order`() {
         // Locks the primary path of resolveFocusedProject: when IdeFocusManager.lastFocusedFrame
         // resolves to a real project, that wins over openProjects enumeration. Multi-window
         // bug R2 was about the OPPOSITE — silently picking the first open project regardless
@@ -194,17 +115,13 @@ class AccentApplicatorFocusedProjectTest {
         every { manager.openProjects } returns arrayOf(otherProject, focusedProject)
         every { ProjectManager.getInstance() } returns manager
 
-        every { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) } returns "#123ABC"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#123ABC", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) }
-        verify(exactly = 0) { AccentResolver.resolve(otherProject, any<AccentContext>()) }
+        assertSame(focusedProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject prefers platform active project over stale focused frame`() {
+    fun `resolveFocusedProject prefers platform active project over stale focused frame`() {
         val activeProject = stubProject(isDefault = false, isDisposed = false)
         val staleFocusedProject = stubProject(isDefault = false, isDisposed = false)
         every { ProjectUtil.getActiveProject() } returns activeProject
@@ -223,18 +140,14 @@ class AccentApplicatorFocusedProjectTest {
         val manager = mockk<ProjectManager>()
         every { manager.openProjects } returns arrayOf(staleFocusedProject, activeProject)
         every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(activeProject, ayu(AyuVariant.MIRAGE)) } returns "#234BCD"
-        every { AccentResolver.resolve(staleFocusedProject, ayu(AyuVariant.MIRAGE)) } returns "#STALE"
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        assertEquals("#234BCD", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(activeProject, ayu(AyuVariant.MIRAGE)) }
-        verify(exactly = 0) { AccentResolver.resolve(staleFocusedProject, any<AccentContext>()) }
+        assertSame(activeProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject falls back to openProjects when focused frame has null project`() {
+    fun `resolveFocusedProject falls back to openProjects when focused frame has null project`() {
         // IdeFrame.getProject is @Nullable on the platform; the lastFocusedFrame may itself
         // be non-null but return null for its project (welcome-frame edge). The cascade must
         // treat that the same as "no focused frame" and fall through to ProjectManager.
@@ -254,16 +167,13 @@ class AccentApplicatorFocusedProjectTest {
         every { manager.openProjects } returns arrayOf(healthyProject)
         every { ProjectManager.getInstance() } returns manager
 
-        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#345CDE"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#345CDE", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
+        assertSame(healthyProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject falls back to openProjects when focused frame project is disposed`() {
+    fun `resolveFocusedProject falls back to openProjects when focused frame project is disposed`() {
         // Edge case in resolveFocusedProject: lastFocusedFrame returns a project that
         // disposed between focus event and our read. The takeIf { isUsable() } guard
         // discards it; the openProjects scan provides the fallback.
@@ -285,35 +195,13 @@ class AccentApplicatorFocusedProjectTest {
         every { manager.openProjects } returns arrayOf(healthyProject)
         every { ProjectManager.getInstance() } returns manager
 
-        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#345CDE"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#345CDE", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
+        assertSame(healthyProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject ordering - resolver runs before apply, swap cache after`() {
-        // The swap cache's notifyExternalApply must fire AFTER apply, otherwise a concurrent
-        // window-activated event would see the cache updated for a hex that's not yet painted.
-        val focused = stubProject(isDefault = false, isDisposed = false)
-        val manager = mockk<ProjectManager>()
-        every { manager.openProjects } returns arrayOf(focused)
-        every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(focused, ayu(AyuVariant.MIRAGE)) } returns "#FFCC66"
-
-        AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        io.mockk.verifyOrder {
-            AccentResolver.resolve(focused, ayu(AyuVariant.MIRAGE))
-            AccentApplicator.applyFromHexString("#FFCC66")
-            swapService.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of("#FFCC66"))))
-        }
-    }
-
-    @Test
-    fun `applyForFocusedProject prefers OS-active project frame over IdeFocusManager lastFocusedFrame`() {
+    fun `resolveFocusedProject prefers OS-active project frame over IdeFocusManager lastFocusedFrame`() {
         // IdeFocusManager.lastFocusedFrame can still point at the previously-clicked IDE
         // frame even when the user has since alt-tabbed to the other open project. OS-level
         // window activity is the ground truth for "which project window is visible right now"
@@ -340,17 +228,13 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(IdeFocusManager::class)
         every { IdeFocusManager.getGlobalInstance() } returns focusManager
 
-        every { AccentResolver.resolve(osActiveProject, ayu(AyuVariant.MIRAGE)) } returns "#456DEF"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#456DEF", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(osActiveProject, ayu(AyuVariant.MIRAGE)) }
-        verify(exactly = 0) { AccentResolver.resolve(lastFocusedProject, any<AccentContext>()) }
+        assertSame(osActiveProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject falls back to IdeFocusManager when no project frame is OS-active`() {
+    fun `resolveFocusedProject falls back to IdeFocusManager when no project frame is OS-active`() {
         // User alt-tabbed to a non-IDE app (browser, Slack). No project frame has OS focus,
         // so the OS-active-frame path returns null and the cascade falls through to
         // IdeFocusManager.lastFocusedFrame — the best available signal for "which project
@@ -377,16 +261,13 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(IdeFocusManager::class)
         every { IdeFocusManager.getGlobalInstance() } returns focusManager
 
-        every { AccentResolver.resolve(lastFocusedProject, ayu(AyuVariant.MIRAGE)) } returns "#567EF0"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#567EF0", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(lastFocusedProject, ayu(AyuVariant.MIRAGE)) }
+        assertSame(lastFocusedProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject skips OS-active frame whose project is disposed and continues the cascade`() {
+    fun `resolveFocusedProject skips OS-active frame whose project is disposed and continues the cascade`() {
         // Shutdown race: a project frame is OS-active but its project has just been disposed.
         // The isUsable() guard inside the OS-active scan must drop it so the cascade reaches
         // IdeFocusManager / ProjectManager. AccentResolver.findOverride has its own isDisposed
@@ -407,16 +288,13 @@ class AccentApplicatorFocusedProjectTest {
         every { manager.openProjects } returns arrayOf(healthyProject)
         every { ProjectManager.getInstance() } returns manager
 
-        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#345CDE"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#345CDE", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 0) { AccentResolver.resolve(disposedProject, any<AccentContext>()) }
+        assertSame(healthyProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject falls through to IdeFocusManager when WindowManager service is null`() {
+    fun `resolveFocusedProject falls through to IdeFocusManager when WindowManager service is null`() {
         // Early-startup or mid-shutdown edge case: the Application service registry has not
         // yet produced a WindowManager (or has just torn it down). The OS-active path must
         // degrade cleanly to the middle tier of the cascade rather than NPE out of the whole
@@ -435,16 +313,13 @@ class AccentApplicatorFocusedProjectTest {
         mockkStatic(IdeFocusManager::class)
         every { IdeFocusManager.getGlobalInstance() } returns focusManager
 
-        every { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) } returns "#345CDE"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#345CDE", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) }
+        assertSame(focusedProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject logs WARN once then DEBUG for repeated null WindowManager`() {
+    fun `resolveFocusedProject logs WARN once then DEBUG for repeated null WindowManager`() {
         // Sibling parity with ProjectAccentSwapService.findProjectForWindow: first occurrence
         // surfaces in user-submitted idea.log at WARN, subsequent ones degrade to DEBUG so
         // repeated Apply / LAF-change / rotation-tick calls during a prolonged null-service
@@ -455,7 +330,6 @@ class AccentApplicatorFocusedProjectTest {
         val projectManager = mockk<ProjectManager>()
         every { projectManager.openProjects } returns emptyArray()
         every { ProjectManager.getInstance() } returns projectManager
-        every { AccentResolver.resolve(null, ayu(AyuVariant.MIRAGE)) } returns "#GLOBAL"
 
         val capturedWarns = mutableListOf<String>()
         val processor =
@@ -472,9 +346,9 @@ class AccentApplicatorFocusedProjectTest {
             }
 
         LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-            AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-            AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+            AccentApplicator.resolveFocusedProject()
+            AccentApplicator.resolveFocusedProject()
+            AccentApplicator.resolveFocusedProject()
         }
 
         assertEquals(
@@ -497,7 +371,7 @@ class AccentApplicatorFocusedProjectTest {
     }
 
     @Test
-    fun `applyForFocusedProject skips frame with null project in OS-active scan`() {
+    fun `resolveFocusedProject skips frame with null project in OS-active scan`() {
         // IdeFrame.getProject is @Nullable on the platform — a welcome frame, a newly-opened
         // but not-yet-bound project window, or a frame mid-dispose can legitimately return
         // null. The scan must skip and keep looking; crashing here would NPE every Apply.
@@ -517,16 +391,13 @@ class AccentApplicatorFocusedProjectTest {
             WindowManager.getInstance().allProjectFrames
         } returns arrayOf(nullProjectFrame, healthyFrame)
 
-        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#678F01"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#678F01", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
+        assertSame(healthyProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject picks first OS-active frame when multiple are marked active`() {
+    fun `resolveFocusedProject picks first OS-active frame when multiple are marked active`() {
         // Two frames briefly report `isActive = true` during alt-tab transitions before the
         // OS settles. The scan returns the first match; locking that contract red/green
         // catches a refactor that flips to `lastOrNull` or filters differently. In reality
@@ -551,17 +422,13 @@ class AccentApplicatorFocusedProjectTest {
             WindowManager.getInstance().allProjectFrames
         } returns arrayOf(firstFrame, secondFrame)
 
-        every { AccentResolver.resolve(firstProject, ayu(AyuVariant.MIRAGE)) } returns "#789012"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#789012", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(firstProject, ayu(AyuVariant.MIRAGE)) }
-        verify(exactly = 0) { AccentResolver.resolve(secondProject, any<AccentContext>()) }
+        assertSame(firstProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject continues scan when a frame has no window ancestor`() {
+    fun `resolveFocusedProject continues scan when a frame has no window ancestor`() {
         // SwingUtilities.getWindowAncestor can return null for a frame whose component has
         // been detached from the tree (rare, but observed during startup animation). The
         // null-ancestor branch must `continue` the loop, not exit with null — otherwise a
@@ -582,17 +449,13 @@ class AccentApplicatorFocusedProjectTest {
             WindowManager.getInstance().allProjectFrames
         } returns arrayOf(detachedFrame, healthyFrame)
 
-        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#678F01"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#678F01", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
-        verify(exactly = 0) { AccentResolver.resolve(detachedProject, any<AccentContext>()) }
+        assertSame(healthyProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject disposed OS-active frame falls through to IdeFocusManager not ProjectManager`() {
+    fun `resolveFocusedProject disposed OS-active frame falls through to IdeFocusManager not ProjectManager`() {
         // A regression that collapsed tiers 2+3 of the cascade would pass the existing
         // "fall back to openProjects" test (empty tier-1, empty tier-2, hits tier-3 as
         // expected) but silently reach tier-3 instead of tier-2 when tier-1 returns an
@@ -624,17 +487,13 @@ class AccentApplicatorFocusedProjectTest {
         every { projectManager.openProjects } returns arrayOf(projectManagerProject)
         every { ProjectManager.getInstance() } returns projectManager
 
-        every { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) } returns "#890123"
+        val selected = AccentApplicator.resolveFocusedProject()
 
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("#890123", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(focusedProject, ayu(AyuVariant.MIRAGE)) }
-        verify(exactly = 0) { AccentResolver.resolve(projectManagerProject, any<AccentContext>()) }
+        assertSame(focusedProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject survives a frame throwing during OS-active resolution`() {
+    fun `resolveFocusedProject survives a frame throwing during OS-active resolution`() {
         // Frame access can throw when the frame is mid-dispose during shutdown. The OS-active
         // scan wraps each frame access in try/catch so one bad frame doesn't break resolution
         // of a healthy one — same defensive pattern as ProjectAccentSwapService.findProjectForWindow.
@@ -651,8 +510,6 @@ class AccentApplicatorFocusedProjectTest {
 
         every { WindowManager.getInstance().allProjectFrames } returns arrayOf(brokenFrame, healthyFrame)
 
-        every { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) } returns "#678F01"
-
         val loggedErrors = mutableListOf<Throwable?>()
         val processor =
             object : LoggedErrorProcessor() {
@@ -667,17 +524,16 @@ class AccentApplicatorFocusedProjectTest {
                 }
             }
 
-        var applied: AccentApplyOutcome? = null
+        var selected: Project? = null
         LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+            selected = AccentApplicator.resolveFocusedProject()
         }
 
-        assertEquals("#678F01", assertIs<AccentApplyOutcome.Applied>(applied).accentHex.value)
-        verify(exactly = 1) { AccentResolver.resolve(healthyProject, ayu(AyuVariant.MIRAGE)) }
+        assertSame(healthyProject, selected)
     }
 
     @Test
-    fun `applyForFocusedProject WARN context includes resolved project name when name succeeded before throw`() {
+    fun `resolveFocusedProject WARN context includes resolved project name when name succeeded before throw`() {
         // Exercises the other branch of `probedName ?: "<unresolved>"` in the WARN context
         // string: when `project.name` succeeds but a later state probe (isUsable / window
         // ancestor) throws, the catch must credit the resolved name in the log so triage
@@ -697,7 +553,6 @@ class AccentApplicatorFocusedProjectTest {
         val projectManager = mockk<ProjectManager>()
         every { projectManager.openProjects } returns emptyArray()
         every { ProjectManager.getInstance() } returns projectManager
-        every { AccentResolver.resolve(null, ayu(AyuVariant.MIRAGE)) } returns "#GLOBAL"
 
         val capturedWarns = mutableListOf<String>()
         val processor =
@@ -714,7 +569,7 @@ class AccentApplicatorFocusedProjectTest {
             }
 
         LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+            AccentApplicator.resolveFocusedProject()
         }
 
         val firstWarn = capturedWarns.single()
@@ -725,7 +580,7 @@ class AccentApplicatorFocusedProjectTest {
     }
 
     @Test
-    fun `applyForFocusedProject WARN-gates per-frame failures then degrades to DEBUG`() {
+    fun `resolveFocusedProject WARN-gates per-frame failures then degrades to DEBUG`() {
         // Three consecutive apply cycles each hit the same broken frame. The first must WARN
         // (so user-submitted idea.log captures it); subsequent failures must DEBUG-log so
         // interactive sessions calling Apply multiple times per minute don't drown the log.
@@ -740,7 +595,6 @@ class AccentApplicatorFocusedProjectTest {
         val projectManager = mockk<ProjectManager>()
         every { projectManager.openProjects } returns emptyArray()
         every { ProjectManager.getInstance() } returns projectManager
-        every { AccentResolver.resolve(null, ayu(AyuVariant.MIRAGE)) } returns "#GLOBAL"
 
         val capturedWarns = mutableListOf<String>()
         val processor =
@@ -757,9 +611,9 @@ class AccentApplicatorFocusedProjectTest {
             }
 
         LoggedErrorProcessor.executeWith<Throwable>(processor) {
-            AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-            AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-            AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
+            AccentApplicator.resolveFocusedProject()
+            AccentApplicator.resolveFocusedProject()
+            AccentApplicator.resolveFocusedProject()
         }
 
         assertEquals(
@@ -782,32 +636,6 @@ class AccentApplicatorFocusedProjectTest {
         )
     }
 
-    // ── Pattern D regression lock: swap publish must observe applyFromHexString's verdict ──
-
-    @Test
-    fun `applyForFocusedProject forwards rejection without applying the resolver output`() {
-        // The real validation boundary rejects malformed resolver output.
-        val focused = stubProject(isDefault = false, isDisposed = false)
-        val manager = mockk<ProjectManager>()
-        every { manager.openProjects } returns arrayOf(focused)
-        every { ProjectManager.getInstance() } returns manager
-        every { AccentResolver.resolve(focused, ayu(AyuVariant.MIRAGE)) } returns "not-a-hex"
-
-        // Override the recordPrivateCalls=false BeforeTest default: we want the real
-        // applyFromHexString to run so its AccentHex.of shape-validation rejects the
-        // malformed input and returns Rejected. The inner `apply(AccentHex)` must never
-        // be called because the hex never validates.
-        every { AccentApplicator.applyFromHexString("not-a-hex") } answers { callOriginal() }
-
-        val applied = AccentApplicator.applyForFocusedProject(AyuVariant.MIRAGE)
-
-        assertEquals("not-a-hex", assertIs<AccentApplyOutcome.Rejected>(applied).rawHex)
-        verify(exactly = 1) { AccentApplicator.applyFromHexString("not-a-hex") }
-        verify(exactly = 1) { swapService.notifyExternalApply(AccentApplyOutcome.Rejected("not-a-hex")) }
-        // Sanity: apply(AccentHex) was never called — the hex was rejected before it.
-        verify(exactly = 0) { AccentApplicator.apply(any()) }
-    }
-
     private fun stubProject(
         isDefault: Boolean,
         isDisposed: Boolean,
@@ -822,8 +650,6 @@ class AccentApplicatorFocusedProjectTest {
         every { project.name } returns name
         return project
     }
-
-    private fun ayu(variant: AyuVariant): AccentContext = AccentContext.Ayu(variant)
 
     private fun stubIdeFrame(
         project: Project,

@@ -3,6 +3,7 @@ package dev.ayuislands.licensing
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.int
 import io.kotest.property.checkAll
@@ -30,7 +31,7 @@ class LicenseCheckerPropertyTest {
     fun setUp() {
         val state = AyuIslandsState()
         val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings

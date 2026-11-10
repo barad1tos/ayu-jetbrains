@@ -13,17 +13,8 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.ui.LicensingFacade
 import dev.ayuislands.AyuPlugin
-import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.glow.GlowAnimation
-import dev.ayuislands.glow.GlowPreset
-import dev.ayuislands.glow.GlowStyle
-import dev.ayuislands.reapply.ReapplyReason
-import dev.ayuislands.reapply.ReapplyStatus
-import dev.ayuislands.reapply.ReapplyStep
-import dev.ayuislands.reapply.ThemeReapplication
-import dev.ayuislands.rotation.AccentRotationService
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.studio.persistence.AyuSettingsView
 import org.jetbrains.annotations.VisibleForTesting
 import java.time.LocalDate
 import java.time.ZoneId
@@ -151,29 +142,22 @@ object LicenseChecker {
      * Returns the effective runtime entitlement while keeping an uninitialized
      * Marketplace facade distinct from a confirmed licensed state.
      *
-     * A confirmed license advances the offline-grace timestamp monotonically.
-     * A future timestamp on an unlicensed check revokes grace and resets the stamp.
-     * [LicenseEntitlement.UNKNOWN] never changes the stamp and must not trigger a
-     * lifecycle transition.
+     * Reads the accepted offline-grace evidence without writing preferences. The admitted
+     * metadata route records confirmations and clock corrections; this reader never
+     * starts a lifecycle transition or publishes an uncommitted observation.
      */
     internal fun currentEntitlement(): LicenseEntitlement {
         val rawLicense = isLicensed()
-        val state = AyuIslandsSettings.getInstance().state
+        val state = AyuIslandsSettings.getInstance().state ?: return LicenseEntitlement.UNKNOWN
         val now = nowMsSupplier()
         val previousStamp = state.lastKnownLicensedMs
         val result = resolveEntitlement(rawLicense, previousStamp, now)
 
-        if (result.lastLicensedMs != previousStamp) {
-            state.lastKnownLicensedMs = result.lastLicensedMs
-        }
-        if (result.entitlement != LicenseEntitlement.UNKNOWN) {
-            state.lastConfirmedEntitlement = result.entitlement.name
-        }
         if (result.isStampReset) {
             LOG.warn(
                 "Clock rollback or lastKnownLicensedMs tamper detected " +
                     "(stamp=$previousStamp, now=$now); " +
-                    "revoking grace and resetting stamp",
+                    "revoking grace; the admitted metadata owner records the correction",
             )
         }
         if (rawLicense == false && result.entitlement == LicenseEntitlement.LICENSED) {
@@ -197,7 +181,7 @@ object LicenseChecker {
             LicenseEntitlement.UNLICENSED -> false
             LicenseEntitlement.UNKNOWN ->
                 LicenseEntitlement.fromName(
-                    AyuIslandsSettings.getInstance().state.lastConfirmedEntitlement,
+                    AyuIslandsSettings.getInstance().state?.lastConfirmedEntitlement,
                 ) != LicenseEntitlement.UNLICENSED
         }
     }
@@ -223,12 +207,16 @@ object LicenseChecker {
     }
 
     internal fun nextRecheckDelayMs(): Long? {
-        val state = AyuIslandsSettings.getInstance().state
-        if (LicenseEntitlement.fromName(state.lastConfirmedEntitlement) != LicenseEntitlement.LICENSED) {
-            return null
-        }
-        val now = nowMsSupplier()
-        val stamp = state.lastKnownLicensedMs
+        val state = AyuIslandsSettings.getInstance().state ?: return null
+        return nextRecheckDelayMs(state.lastConfirmedEntitlement, state.lastKnownLicensedMs, nowMsSupplier())
+    }
+
+    internal fun nextRecheckDelayMs(
+        confirmed: String?,
+        stamp: Long,
+        now: Long,
+    ): Long? {
+        if (LicenseEntitlement.fromName(confirmed) != LicenseEntitlement.LICENSED) return null
         if (stamp !in 1..now) return null
         val elapsed = now - stamp
         if (elapsed >= OFFLINE_GRACE_MS) return null
@@ -251,7 +239,7 @@ object LicenseChecker {
             .createNotification(
                 "Ayu Islands trial ended",
                 "Glow, accent toggles, auto-fit, and plugin sync " +
-                    "reverted to defaults. " +
+                    "are paused. Your settings are saved. " +
                     "A license brings them back \u2014 one-time, forever.",
                 NotificationType.INFORMATION,
             ).addAction(
@@ -265,93 +253,6 @@ object LicenseChecker {
                     }
                 },
             ).notify(project)
-    }
-
-    /**
-     * Enable all Pro features on genuine first-time license activation.
-     *
-     * Guarded by `everBeenPro` which survives trial expiry, so a re-purchase does
-     * NOT overwrite user customizations. `proDefaultsApplied` is still set to
-     * prevent redundant calls within the same license period.
-     */
-    fun enableProDefaults() {
-        val state = AyuIslandsSettings.getInstance().state
-        if (state.everBeenPro) {
-            state.proDefaultsApplied = true
-            return
-        }
-        state.glowEnabled = true
-        state.glowStyle = GlowStyle.SHARP_NEON.name
-        state.glowPreset = GlowPreset.CUSTOM.name
-        state.sharpNeonIntensity = PRO_DEFAULT_NEON_INTENSITY
-        state.sharpNeonWidth = PRO_DEFAULT_NEON_WIDTH
-        state.glowAnimation = GlowAnimation.BREATHE.name
-        state.glowEditor = true
-        state.glowProject = true
-        state.glowTerminal = true
-        state.glowRun = true
-        state.glowDebug = true
-        state.glowGit = true
-        state.glowServices = true
-        state.glowFocusRing = true
-        state.everBeenPro = true
-        state.proDefaultsApplied = true
-    }
-
-    /**
-     * Apply workspace defaults (auto-fit, hide path/VCS).
-     * Callers must guard with the workspaceDefaultsApplied flag.
-     */
-    fun applyWorkspaceDefaults() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
-        state.commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
-        state.gitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
-        state.hideProjectRootPath = true
-        state.hideProjectViewHScrollbar = true
-        state.workspaceDefaultsApplied = true
-    }
-
-    /** Apply the free runtime presentation without changing saved premium preferences. */
-    fun revertToFreeDefaults(variant: AyuVariant) {
-        ApplicationManager.getApplication().getService(AccentRotationService::class.java)?.stopRotation()
-
-        // Re-apply accent (free-tier feature stays), sync glow, and revert VCS colors
-        // through the shared reapplication seam so this caller matches the LAF-listener
-        // and rotation-tick paths.
-        val freeHex = AyuIslandsSettings.getInstance().getAccentForVariant(variant)
-        ThemeReapplication.reapply(ReapplyReason.LicenseRevert(freeHex)) { result ->
-            if (result.status == ReapplyStatus.SUPERSEDED) return@reapply
-            for ((step, error) in result.failures) {
-                LOG.warn("License revert step=$step failed", error)
-            }
-            if (result.failed(ReapplyStep.ApplyExplicitHex)) {
-                notifyRevertIncomplete(
-                    "Accent revert incomplete",
-                    "Some accent colors could not be reverted. " +
-                        "Restart your IDE to complete the reset.",
-                )
-            }
-            if (result.failed(ReapplyStep.Glow)) {
-                notifyRevertIncomplete(
-                    "Glow sync incomplete",
-                    "Glow overlays could not be updated after license change. " +
-                        "Restart your IDE to complete the reset.",
-                )
-            }
-            // VcsRevert failures stay LOG.warn-only (above), matching pre-migration behavior.
-        }
-    }
-
-    private fun notifyRevertIncomplete(
-        title: String,
-        body: String,
-    ) {
-        NotificationGroupManager
-            .getInstance()
-            .getNotificationGroup(NOTIFICATION_GROUP)
-            .createNotification(title, body, NotificationType.WARNING)
-            .notify(null)
     }
 
     /**
@@ -375,17 +276,20 @@ object LicenseChecker {
     }
 
     /** Show a two-stage trial expiry warning (7-day and 3-day thresholds). */
-    fun checkTrialExpiryWarning(project: Project?) {
+    internal suspend fun checkTrialExpiryWarning(
+        project: Project?,
+        state: AyuSettingsView,
+        recordShown: suspend (String) -> Boolean,
+    ) {
         val daysRemaining = getTrialDaysRemaining() ?: return
-        val state = AyuIslandsSettings.getInstance().state
 
         val shouldWarn7Day = daysRemaining <= TRIAL_WARNING_7_DAY_THRESHOLD && !state.trialExpiryWarningShown
         val shouldWarn3Day = daysRemaining <= TRIAL_WARNING_3_DAY_THRESHOLD && !state.trialExpiry3DayWarningShown
 
         if (!shouldWarn7Day && !shouldWarn3Day) return
 
-        if (shouldWarn3Day) state.trialExpiry3DayWarningShown = true
-        if (shouldWarn7Day) state.trialExpiryWarningShown = true
+        if (shouldWarn3Day && !recordShown("trialExpiry3DayWarningShown")) return
+        if (shouldWarn7Day && !recordShown("trialExpiryWarningShown")) return
 
         NotificationGroupManager
             .getInstance()
@@ -393,7 +297,7 @@ object LicenseChecker {
             .createNotification(
                 "Ayu Islands trial: $daysRemaining days remaining",
                 "Glow, accent toggles, auto-fit, and plugin sync " +
-                    "will revert to defaults when your trial ends. " +
+                    "will pause when your trial ends. Your settings stay saved. " +
                     "A license keeps them \u2014 one-time, forever.",
                 NotificationType.INFORMATION,
             ).addAction(
@@ -412,8 +316,6 @@ object LicenseChecker {
     private const val KEY_PREFIX_LENGTH = 4
     private const val STAMP_PREFIX_LENGTH = 6
     private const val STAMP_LOG_PREFIX_LENGTH = 10
-    private const val PRO_DEFAULT_NEON_INTENSITY = 100
-    private const val PRO_DEFAULT_NEON_WIDTH = 2
     private const val TRIAL_WARNING_7_DAY_THRESHOLD = 7L
     private const val TRIAL_WARNING_3_DAY_THRESHOLD = 3L
     private const val MARKETPLACE_URL = "https://plugins.jetbrains.com/plugin/30373-ayu-islands"

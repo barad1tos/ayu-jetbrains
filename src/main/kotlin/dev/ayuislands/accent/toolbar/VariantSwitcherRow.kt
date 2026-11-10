@@ -4,12 +4,15 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.AyuLaf
 import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentDefaults
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.IslandsUiPill
 import dev.ayuislands.accent.toolbar.popup.SegmentedControl
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.StudioNativeChange
+import dev.ayuislands.studio.model.StudioThemeChange
 import java.awt.BorderLayout
 import javax.swing.JPanel
 
@@ -18,12 +21,8 @@ import javax.swing.JPanel
  * (Mirage / Dark / Light) on the left, plus an [IslandsUiPill] toggle on the
  * right.
  *
- * Both children share a single `applyVariantAndChrome(variant, islandsUi)`
- * sink that resolves the exact theme via
- * [VariantThemeNameResolver.resolveThemeName] and applies it through
- * `LafManager.setCurrentLookAndFeel(laf, false)`. The second argument is
- * `lockEditorScheme = false` so the same-named editor scheme follows the
- * theme switch instead of locking on the old.
+ * Both children submit the exact variant/Islands choice through the shared Studio
+ * coordinator. Native theme and editor-scheme changes settle together before acceptance.
  *
  * Pattern A — segmented/pill mouse callbacks run on EDT by Swing contract.
  */
@@ -60,14 +59,14 @@ internal class VariantSwitcherRow(
             }
     }
 
-    private fun resolveCurrentAccent(): String {
+    private fun resolveCurrentAccent(): String? {
         val variant = AyuVariant.detect() ?: currentVariant
         val project = AccentApplicator.resolveFocusedProject()
         return try {
             AccentResolver.resolve(project, variant)
         } catch (exception: RuntimeException) {
             LOG.warn("Variant row accent resolve failed", exception)
-            AccentDefaults.MIRAGE_HEX
+            null
         }
     }
 
@@ -75,34 +74,13 @@ internal class VariantSwitcherRow(
         variant: AyuVariant,
         islandsUi: Boolean,
     ) {
-        // Pattern B — every API call in this body can throw RuntimeException:
-        //   - `VariantThemeNameResolver.resolveThemeName` raises
-        //     [IllegalStateException] when the [AyuVariant.themeNames] set drifts
-        //     (enum-rename regression).
-        //   - `LafManager.setCurrentLookAndFeel` / `updateUI` can throw on a
-        //     plugin install/uninstall race or a malformed `UIThemeLookAndFeelInfo`.
-        // Without this wrapper, a transient throw lands as SEVERE in idea.log and
-        // tears down the popup mouse-handler chain. The user-visible failure mode
-        // is "popup goes blank after one click". Swallow and WARN so the next
-        // attempt succeeds.
         try {
             val themeName = VariantThemeNameResolver.resolveThemeName(variant, islandsUi)
-            // `findLaf(String)` on IDEA 2026.1 expects the platform theme *id* (e.g.
-            // `com.ayuislands.theme.mirage`), not the user-visible *name* ("Ayu Mirage").
-            // Match by name across the installed-themes sequence so this stays decoupled
-            // from plugin.xml `themeProvider` ids — if those ids ever change, this still
-            // resolves as long as the display names in `themes/*.theme.json` match.
-            // Second arg is `lockEditorScheme = false` so the same-named editor
-            // scheme follows the theme switch instead of locking on the old.
-            if (!AyuLaf.switchToThemeByName(
-                    themeName,
-                    shouldLockEditorScheme = false,
-                    shouldApplyLater = false,
-                )
-            ) {
-                LOG.warn("Theme not found for variant=$variant islandsUi=$islandsUi name='$themeName'")
-            }
+            StudioService.getInstance().nativeChanged(
+                StudioNativeChange.Theme(StudioThemeChange.Explicit(themeName)),
+            )
         } catch (exception: RuntimeException) {
+            exception.rethrowIfCancelled()
             LOG.warn(
                 "Variant/Islands apply failed (variant=$variant islandsUi=$islandsUi)",
                 exception,

@@ -14,16 +14,9 @@ import com.intellij.util.xmlb.XmlSerializer
 import dev.ayuislands.font.FontOwnershipCodec
 import dev.ayuislands.font.FontOwnershipStatus
 import dev.ayuislands.font.FontPreset
-import dev.ayuislands.font.FontPresetApplicator
 import dev.ayuislands.font.FontSettings
 import dev.ayuislands.font.FontSnapshot
 import dev.ayuislands.font.FontWeight
-import dev.ayuislands.settings.AyuIslandsSettings
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
 import org.jdom.Element
 import org.junit.After
 import org.junit.Before
@@ -36,7 +29,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class FontPersistenceTest {
@@ -46,12 +38,18 @@ class FontPersistenceTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
-    private lateinit var activeScheme: EditorColorsSchemeImpl
+    private lateinit var native: FontNativeFixture
+    private var activeScheme: EditorColorsSchemeImpl
+        get() = native.scheme as EditorColorsSchemeImpl
+        set(value) {
+            native.replace(value)
+        }
     private lateinit var schemeManager: SchemeManager<EditorColorsSchemeImpl>
     private lateinit var factory: SchemeManagerFactory
 
     @Before
     fun setup() {
+        native = FontNativeFixture()
         val parent =
             requireNotNull(EditorColorsManager.getInstance().getScheme(EditorColorsManager.getDefaultSchemeName()))
         activeScheme =
@@ -75,60 +73,48 @@ class FontPersistenceTest {
         schemeManager.addScheme(activeScheme)
         schemeManager.save()
         assertEquals(17f, reloadScheme().editorFontSize2D)
-
-        val manager = mockk<EditorColorsManager>()
-        every { manager.globalScheme } answers { activeScheme }
-        every { manager.allSchemes } answers { arrayOf(activeScheme) }
-        mockkStatic(EditorColorsManager::class)
-        every { EditorColorsManager.getInstance() } returns manager
-        val settings = AyuIslandsSettings()
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
     }
 
     @After
     fun cleanup() {
         if (::schemeManager.isInitialized) factory.dispose(schemeManager)
-        unmockkAll()
     }
 
     @Test
     fun ownershipSurvivesReload() {
-        val settings = AyuIslandsSettings.getInstance()
         val requested = customFonts().copy(applyToConsole = false, weight = FontWeight.REGULAR)
-        settings.state.fontPresetEnabled = true
-        settings.state.fontPresetName = FontPreset.CUSTOM.name
-        settings.state.fontPresetCustomizations[FontPreset.CUSTOM.name] = requested.encode()
-        SwingUtilities.invokeAndWait { FontPresetApplicator.apply(requested) }
-        val before = settings.state.fontOwnershipSnapshots.toMap()
+        native.state.fontPresetEnabled = true
+        native.state.fontPresetName = FontPreset.CUSTOM.name
+        native.state.fontPresetCustomizations[FontPreset.CUSTOM.name] = requested.encode()
+        SwingUtilities.invokeAndWait { native.apply(requested) }
+        val before = native.state.fontOwnershipSnapshots.toMap()
         schemeManager.save()
         activeScheme = reloadScheme()
         schemeManager.addScheme(activeScheme)
-        val xml = JDOMUtil.writeElement(XmlSerializer.serialize(settings.state))
-        settings.loadState(XmlSerializer.deserialize(JDOMUtil.load(xml), settings.state.javaClass))
+        val xml = JDOMUtil.writeElement(XmlSerializer.serialize(native.state))
+        native.state = XmlSerializer.deserialize(JDOMUtil.load(xml), native.state.javaClass)
 
-        SwingUtilities.invokeAndWait { FontPresetApplicator.applyFromState() }
-        assertEquals(before, settings.state.fontOwnershipSnapshots)
+        SwingUtilities.invokeAndWait { native.apply(requested) }
+        assertEquals(before, native.state.fontOwnershipSnapshots)
         assertEquals(19f, activeScheme.editorFontSize2D)
         assertEquals("Serif", activeScheme.editorFontName)
         assertTrue(
-            settings.state.fontOwnershipSnapshots.values.all {
+            native.state.fontOwnershipSnapshots.values.all {
                 FontOwnershipCodec.decode(it)?.status == FontOwnershipStatus.OWNED
             },
         )
-        SwingUtilities.invokeAndWait { FontPresetApplicator.revert() }
+        SwingUtilities.invokeAndWait { native.disable() }
         assertEquals("Dialog", activeScheme.editorFontName)
         assertEquals(17f, activeScheme.editorFontSize2D)
-        assertTrue(settings.state.fontOwnershipSnapshots.isEmpty())
+        assertTrue(native.state.fontOwnershipSnapshots.isEmpty())
     }
 
     private fun reloadRegularPreset(): FontSettings {
-        val settings = AyuIslandsSettings.getInstance()
         val requested = customFonts().copy(applyToConsole = false, weight = FontWeight.REGULAR)
-        settings.state.fontPresetEnabled = true
-        settings.state.fontPresetName = FontPreset.CUSTOM.name
-        settings.state.fontPresetCustomizations[FontPreset.CUSTOM.name] = requested.encode()
-        SwingUtilities.invokeAndWait { FontPresetApplicator.apply(requested) }
+        native.state.fontPresetEnabled = true
+        native.state.fontPresetName = FontPreset.CUSTOM.name
+        native.state.fontPresetCustomizations[FontPreset.CUSTOM.name] = requested.encode()
+        SwingUtilities.invokeAndWait { native.apply(requested) }
         schemeManager.save()
         activeScheme = reloadScheme()
         schemeManager.addScheme(activeScheme)
@@ -137,19 +123,19 @@ class FontPersistenceTest {
 
     @Test
     fun manualEditsSurviveReload() {
-        reloadRegularPreset()
-        val state = AyuIslandsSettings.getInstance().state
+        val requested = reloadRegularPreset()
+        val state = native.state
         val key = state.fontOwnershipSnapshots.keys.single()
         val before = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
         SwingUtilities.invokeAndWait {
             activeScheme.setEditorFontSize(23f)
-            FontPresetApplicator.applyFromState()
+            assertFailsWith<IllegalStateException> { native.apply(requested) }
         }
         val suspended = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
         assertEquals(23f, activeScheme.editorFontSize2D)
-        assertEquals(FontOwnershipStatus.SUSPENDED, suspended.status)
+        assertEquals(before, suspended)
         assertEquals(before.baseline, suspended.baseline)
-        SwingUtilities.invokeAndWait { FontPresetApplicator.revert() }
+        SwingUtilities.invokeAndWait { native.disable() }
         val released = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
         assertEquals(23f, activeScheme.editorFontSize2D)
         assertEquals(FontOwnershipStatus.RELEASED, released.status)
@@ -159,7 +145,7 @@ class FontPersistenceTest {
     @Test
     fun explicitRecoverySurvivesReload() {
         val requested = reloadRegularPreset()
-        val state = AyuIslandsSettings.getInstance().state
+        val state = native.state
         val key = state.fontOwnershipSnapshots.keys.single()
         val record = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
         val applied = assertIs<FontSnapshot.Explicit>(record.applied)
@@ -171,14 +157,14 @@ class FontPersistenceTest {
                 ),
             )
         state.fontOwnershipSnapshots[key] = oldRaw
-        SwingUtilities.invokeAndWait { FontPresetApplicator.applyFromState() }
+        SwingUtilities.invokeAndWait { assertFailsWith<IllegalStateException> { native.apply(requested) } }
         assertEquals(oldRaw, state.fontOwnershipSnapshots.getValue(key))
         assertEquals(19f, activeScheme.editorFontSize2D)
         SwingUtilities.invokeAndWait {
             state.fontPresetEnabled = false
-            FontPresetApplicator.revert()
+            native.disable()
             state.fontPresetEnabled = true
-            FontPresetApplicator.apply(requested)
+            native.apply(requested)
         }
         val recovered = assertNotNull(FontOwnershipCodec.decode(state.fontOwnershipSnapshots.getValue(key)))
         assertEquals(FontOwnershipStatus.OWNED, recovered.status)
@@ -187,14 +173,14 @@ class FontPersistenceTest {
         schemeManager.save()
         activeScheme = reloadScheme()
         schemeManager.addScheme(activeScheme)
-        SwingUtilities.invokeAndWait { FontPresetApplicator.applyFromState() }
+        SwingUtilities.invokeAndWait { native.apply(requested) }
         assertEquals(beforeReload, state.fontOwnershipSnapshots)
     }
 
     @Test
     fun appliedFontsSurviveReload() {
         SwingUtilities.invokeAndWait {
-            FontPresetApplicator.apply(customFonts())
+            native.apply(customFonts())
         }
 
         schemeManager.save()
@@ -208,9 +194,9 @@ class FontPersistenceTest {
     }
 
     @Test
-    fun installedFontsSurviveReload() {
+    fun onboardingAcceptedFontsSurviveReload() {
         SwingUtilities.invokeAndWait {
-            FontPresetApplicator.applyInstalled(customFonts())
+            native.apply(customFonts())
         }
 
         schemeManager.save()
@@ -224,15 +210,15 @@ class FontPersistenceTest {
 
     @Test
     fun unchangedFontsPersistNewIdentity() {
-        SwingUtilities.invokeAndWait { FontPresetApplicator.apply(customFonts()) }
-        val state = AyuIslandsSettings.getInstance().state
+        SwingUtilities.invokeAndWait { native.apply(customFonts()) }
+        val state = native.state
         state.fontOwnershipSnapshots.clear()
         activeScheme.metaProperties.remove("dev.ayuislands.fontOwnershipId")
         activeScheme.setSaveNeeded(true)
         schemeManager.save()
         assertNull(reloadScheme().metaProperties.getProperty("dev.ayuislands.fontOwnershipId"))
 
-        SwingUtilities.invokeAndWait { FontPresetApplicator.apply(customFonts()) }
+        SwingUtilities.invokeAndWait { native.apply(customFonts()) }
         schemeManager.save()
 
         val identity = assertNotNull(activeScheme.metaProperties.getProperty("dev.ayuislands.fontOwnershipId"))
@@ -244,14 +230,14 @@ class FontPersistenceTest {
     @Test
     fun restoredFontsSurviveReload() {
         SwingUtilities.invokeAndWait {
-            FontPresetApplicator.apply(customFonts())
+            native.apply(customFonts())
         }
         // Seed an already saved preset independently of Apply's persistence behavior.
         activeScheme.setSaveNeeded(true)
         schemeManager.save()
         assertEquals("Serif", reloadScheme().editorFontName)
 
-        SwingUtilities.invokeAndWait { FontPresetApplicator.revert() }
+        SwingUtilities.invokeAndWait { native.disable() }
         schemeManager.save()
 
         val reloaded = reloadScheme()
@@ -268,11 +254,11 @@ class FontPersistenceTest {
         activeScheme.setSaveNeeded(true)
         schemeManager.save()
         assertTrue(reloadScheme().isUseAppFontPreferencesInEditor)
-        SwingUtilities.invokeAndWait { FontPresetApplicator.apply(customFonts()) }
+        SwingUtilities.invokeAndWait { native.apply(customFonts()) }
         activeScheme.setSaveNeeded(true)
         schemeManager.save()
 
-        SwingUtilities.invokeAndWait { FontPresetApplicator.revert() }
+        SwingUtilities.invokeAndWait { native.disable() }
         schemeManager.save()
 
         val reloaded = reloadScheme()
@@ -300,10 +286,9 @@ class FontPersistenceTest {
 
         failWrites = true
         SwingUtilities.invokeAndWait {
-            assertSame(
-                failure,
-                assertFailsWith<IllegalStateException> { FontPresetApplicator.apply(customFonts()) },
-            )
+            val thrown = assertFailsWith<IllegalStateException> { native.apply(customFonts()) }
+            assertEquals(failure.message, thrown.message)
+            assertTrue(generateSequence<Throwable>(thrown) { it.cause }.any { it === failure })
         }
         schemeManager.save()
 

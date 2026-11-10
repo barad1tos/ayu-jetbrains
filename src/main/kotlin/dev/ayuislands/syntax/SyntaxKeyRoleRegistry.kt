@@ -1,7 +1,6 @@
 package dev.ayuislands.syntax
 
 import com.intellij.openapi.diagnostic.logger
-import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 
@@ -54,8 +53,8 @@ object SyntaxKeyRoleRegistry {
     private val log = logger<SyntaxKeyRoleRegistry>()
     private val warnedUnknownSuffixes = ConcurrentHashMap.newKeySet<String>()
 
-    // Reuse successful suffix matches without retaining external key names.
-    private val primitiveCache = Collections.synchronizedMap(WeakHashMap<String, PrimitiveCategory>())
+    // Reuse matches and misses without retaining external key names.
+    private val primitiveCache = WeakHashMap<String, PrimitiveCategory?>()
     private val excludedLanguageKeys =
         mapOf(
             "COFFEESCRIPT.CLASS_NAME" to "Provider emits JS.EXPORTED.CLASS for class names",
@@ -356,9 +355,15 @@ object SyntaxKeyRoleRegistry {
     }
 
     private fun primitiveFor(keyName: String): PrimitiveCategory? =
-        primitiveCache.computeIfAbsent(keyName) { candidate ->
-            suffixRules.firstNotNullOfOrNull { (regex, category) ->
-                category.takeIf { regex.containsMatchIn(candidate) }
+        synchronized(primitiveCache) {
+            val cached = primitiveCache[keyName]
+            if (cached != null || primitiveCache.containsKey(keyName)) {
+                cached
+            } else {
+                suffixRules
+                    .firstNotNullOfOrNull { (regex, category) ->
+                        category.takeIf { regex.containsMatchIn(keyName) }
+                    }.also { primitiveCache[keyName] = it }
             }
         }
 

@@ -39,7 +39,7 @@ import javax.swing.JComponent
  */
 internal class IslandsUiPill(
     initialSelected: Boolean,
-    private val accentSupplier: () -> String,
+    private val accentSupplier: () -> String?,
     private val onToggle: (Boolean) -> Unit,
 ) : JComponent() {
     var isSelected: Boolean = initialSelected
@@ -161,7 +161,11 @@ internal class IslandsUiPill(
 
     private fun paintGlyphAndLabel(g2: Graphics2D) {
         val glyphColor: Color =
-            if (isSelected) ColorUtil.fromHex(accentSupplier()) else JBUI.CurrentTheme.Label.disabledForeground()
+            if (isSelected) {
+                accentSupplier()?.let(ColorUtil::fromHex) ?: JBUI.CurrentTheme.Label.disabledForeground()
+            } else {
+                JBUI.CurrentTheme.Label.disabledForeground()
+            }
 
         g2.font = font.deriveFont(Font.PLAIN, JBUI.scale(GLYPH_FONT_PX).toFloat())
         val glyphMetrics = g2.fontMetrics

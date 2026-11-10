@@ -3,20 +3,29 @@ package dev.ayuislands
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
-import dev.ayuislands.commitpanel.CommitPanelAutoFitManager
-import dev.ayuislands.editor.EditorScrollbarManager
-import dev.ayuislands.gitpanel.GitPanelAutoFitManager
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.rethrowIfCancelled
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.licensing.LicenseRecheckScheduler
+import dev.ayuislands.licensing.LicenseRecheckSlot
 import dev.ayuislands.onboarding.FreeOnboardingVirtualFile
 import dev.ayuislands.onboarding.OnboardingOrchestrator
 import dev.ayuislands.onboarding.OnboardingSchedulerService
 import dev.ayuislands.onboarding.OnboardingVirtualFile
 import dev.ayuislands.onboarding.WizardAction
-import dev.ayuislands.projectview.ProjectViewScrollbarManager
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.studio.StudioApplicationGraph
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.AcceptanceResult
+import dev.ayuislands.studio.model.FieldAddress
+import dev.ayuislands.studio.model.FieldValue
+import dev.ayuislands.studio.model.LegacyFieldKey
+import dev.ayuislands.studio.model.LegacyStore
+import dev.ayuislands.studio.model.RawValue
+import dev.ayuislands.studio.model.StudioMetadataCommand
+import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.persistence.AyuSettingsView
+import dev.ayuislands.studio.persistence.StudioLegacyProjection
 import dev.ayuislands.ui.FocusWinningTabOpener
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -53,59 +62,106 @@ internal object StartupLicenseHandler {
         }
     }
 
-    fun applyLicensedDefaults(settings: AyuIslandsSettings) {
-        if (settings.state.trialExpiredNotified) {
-            settings.state.trialExpiredNotified = false
-            settings.state.proDefaultsApplied = false
-            // Reset premium onboarding so re-purchase shows premium wizard again
-            settings.state.premiumOnboardingShown = false
-        }
-
-        if (!settings.state.proDefaultsApplied) {
-            LicenseChecker.enableProDefaults()
-            LOG.info(
-                "Ayu Islands Pro defaults enabled " +
-                    "(first-time license activation)",
-            )
-        }
-
-        if (!settings.state.workspaceDefaultsApplied) {
-            LicenseChecker.applyWorkspaceDefaults()
-            LOG.info(
-                "Ayu Islands workspace defaults " +
-                    "migrated for existing user",
-            )
-        }
-    }
-
-    /** Migrate legacy `trialWelcomeShown` flag to the new `premiumOnboardingShown` flag. */
-    fun runOnboardingMigration(settings: AyuIslandsSettings) {
-        val state = settings.state
-        if (state.trialWelcomeShown && !state.premiumOnboardingShown) {
-            state.premiumOnboardingShown = true
-            LOG.info("Ayu onboarding: migrated trialWelcomeShown -> premiumOnboardingShown")
-        }
-    }
-
-    /** Delegate to [OnboardingOrchestrator.resolve], applying returning-user skip logic first. */
-    fun resolveOnboarding(
-        isLicensedOrGrace: Boolean,
-        settings: AyuIslandsSettings,
+    /** Startup observes durable licensing before scheduling any onboarding or expiry notice. */
+    fun start(
+        project: Project,
+        graph: StudioApplicationGraph,
         isReturningUser: Boolean,
-    ): WizardAction {
-        val state = settings.state
-        // Returning users auto-skip free wizard (they already know the plugin)
-        if (isReturningUser && !state.freeOnboardingShown) {
-            state.freeOnboardingShown = true
-            LOG.info("Ayu onboarding: returning user — skipping free wizard")
+        delayMs: Int,
+    ) {
+        graph.scope.launch {
+            try {
+                val nextCheck = graph.refreshEntitlement()
+                if (nextCheck == LicenseRecheckScheduler.RETRY_DELAY_MS) {
+                    scheduleRetry(graph, isReturningUser, delayMs, nextCheck)
+                    return@launch
+                }
+                val target =
+                    project.takeUnless { it.isDisposed }
+                        ?: graph.projects.openProjects().firstOrNull() ?: return@launch
+                if (!complete(target, graph, isReturningUser, delayMs)) {
+                    scheduleRetry(graph, isReturningUser, delayMs, LicenseRecheckScheduler.RETRY_DELAY_MS)
+                } else if (nextCheck != null) {
+                    scheduleRetry(graph, isReturningUser, delayMs, nextCheck)
+                }
+            } catch (failure: RuntimeException) {
+                failure.rethrowIfCancelled()
+                LOG.warn("Startup licensing could not settle; retrying", failure)
+                scheduleRetry(graph, isReturningUser, delayMs, LicenseRecheckScheduler.RETRY_DELAY_MS)
+            }
         }
-        return OnboardingOrchestrator.resolve(
-            isLicensedOrGrace = isLicensedOrGrace,
-            freeOnboardingShown = state.freeOnboardingShown,
-            premiumOnboardingShown = state.premiumOnboardingShown,
-            isReturningUser = isReturningUser,
-        )
     }
+
+    private fun scheduleRetry(
+        graph: StudioApplicationGraph,
+        returning: Boolean,
+        delayMs: Int,
+        retryMs: Long,
+    ) {
+        LicenseRecheckScheduler.getInstance().schedule(LicenseRecheckSlot.STARTUP, retryMs) {
+            val project = graph.projects.openProjects().firstOrNull() ?: return@schedule
+            start(project, graph, returning, delayMs)
+        }
+    }
+
+    private suspend fun complete(
+        project: Project,
+        graph: StudioApplicationGraph,
+        isReturningUser: Boolean,
+        delayMs: Int,
+    ): Boolean {
+        var state = settings(graph) ?: return false
+        val entitlement = LicenseEntitlement.fromName(state.lastConfirmedEntitlement)
+        if (entitlement == LicenseEntitlement.UNKNOWN) return false
+        if (isReturningUser && !state.freeOnboardingShown) {
+            if (!recordUi(graph, "freeOnboardingShown")) return false
+            state = settings(graph) ?: return false
+        }
+        if (entitlement == LicenseEntitlement.UNLICENSED && !state.trialExpiredNotified) {
+            if (!recordUi(graph, "trialExpiredNotified")) return false
+            LicenseChecker.notifyTrialExpired(project)
+        }
+        if (AyuVariant.isAyuActive()) {
+            handleWizardAction(
+                resolveOnboarding(entitlement == LicenseEntitlement.LICENSED, state, isReturningUser),
+                project,
+                delayMs,
+            )
+        }
+        if (entitlement == LicenseEntitlement.LICENSED) {
+            LicenseChecker.checkTrialExpiryWarning(project, state) { recordUi(graph, it) }
+        }
+        return true
+    }
+
+    private fun settings(graph: StudioApplicationGraph): AyuSettingsView? =
+        graph.sessions?.document?.let { StudioLegacyProjection.project(it, StudioTarget.Global)?.settings }
+
+    private suspend fun recordUi(
+        graph: StudioApplicationGraph,
+        name: String,
+    ): Boolean {
+        val result =
+            graph.submitMetadata(
+                StudioMetadataCommand.UiChoice(
+                    FieldAddress(LegacyFieldKey(LegacyStore.SETTINGS, name)),
+                    FieldValue.Present(RawValue.BooleanValue(true)),
+                ),
+            )
+        return result is AcceptanceResult.Accepted || result == AcceptanceResult.NoChanges
+    }
+
+    internal fun resolveOnboarding(
+        licensed: Boolean,
+        state: AyuSettingsView,
+        isReturningUser: Boolean,
+    ): WizardAction =
+        OnboardingOrchestrator.resolve(
+            licensed,
+            state.freeOnboardingShown,
+            state.premiumOnboardingShown,
+            isReturningUser,
+        )
 
     /**
      * Focus-race protocol shared with the What's New launcher: EDT hop,
@@ -146,14 +202,18 @@ internal object StartupLicenseHandler {
         project: Project,
         delayMs: Int,
     ) {
-        val settings = AyuIslandsSettings.getInstance()
         val scope = OnboardingSchedulerService.getInstance(project).scope()
         scope.launch {
             delay(delayMs.milliseconds)
             if (project.isDisposed) return@launch
             wizardOpener.open(
                 project = project,
-                onSuccess = { settings.state.premiumOnboardingShown = true },
+                onSuccess = {
+                    StudioService.getInstance().updateUi(
+                        "premiumOnboardingShown",
+                        RawValue.BooleanValue(true),
+                    )
+                },
             ) { target ->
                 FileEditorManager.getInstance(target).openFile(OnboardingVirtualFile(), true)
             }
@@ -162,7 +222,7 @@ internal object StartupLicenseHandler {
 
     /**
      * Opens the free onboarding wizard tab after [delayMs].
-     * Sets [AyuIslandsState.freeOnboardingShown] only after `openFile` succeeds inside
+     * Records the free wizard marker only after `openFile` succeeds inside
      * the coroutine body, so a project that loses the focus-aware race does not
      * incorrectly mark the wizard as shown.
      */
@@ -170,7 +230,6 @@ internal object StartupLicenseHandler {
         project: Project,
         delayMs: Int,
     ) {
-        val settings = AyuIslandsSettings.getInstance()
         LOG.info("Ayu onboarding: scheduling free wizard (delay: ${delayMs}ms)")
         val scope = OnboardingSchedulerService.getInstance(project).scope()
         scope.launch {
@@ -178,71 +237,15 @@ internal object StartupLicenseHandler {
             if (project.isDisposed) return@launch
             wizardOpener.open(
                 project = project,
-                onSuccess = { settings.state.freeOnboardingShown = true },
+                onSuccess = {
+                    StudioService.getInstance().updateUi(
+                        "freeOnboardingShown",
+                        RawValue.BooleanValue(true),
+                    )
+                },
             ) { target ->
                 FileEditorManager.getInstance(target).openFile(FreeOnboardingVirtualFile(), true)
             }
-        }
-    }
-
-    fun applyEntitlement(
-        entitlement: LicenseEntitlement,
-        project: Project,
-        settings: AyuIslandsSettings,
-    ) {
-        when (entitlement) {
-            LicenseEntitlement.LICENSED -> applyLicensedDefaults(settings)
-            LicenseEntitlement.UNLICENSED -> notifyUnlicensed(project, settings)
-            LicenseEntitlement.UNKNOWN -> return
-        }
-    }
-
-    private fun notifyUnlicensed(
-        project: Project,
-        settings: AyuIslandsSettings,
-    ) {
-        if (!settings.state.trialExpiredNotified) {
-            LicenseChecker.notifyTrialExpired(project)
-            settings.state.trialExpiredNotified = true
-        }
-    }
-
-    fun initWorkspaceServices(
-        project: Project,
-        settings: AyuIslandsSettings,
-    ) {
-        if (project.isDisposed) {
-            LOG.info("Skipping workspace services — project disposed")
-            return
-        }
-        val state = settings.state
-        val hasProjectViewCustomizations =
-            state.hideProjectViewHScrollbar ||
-                state.hideProjectRootPath
-        if (hasProjectViewCustomizations ||
-            PanelWidthMode.fromString(
-                state.projectPanelWidthMode,
-            ) != PanelWidthMode.DEFAULT
-        ) {
-            ProjectViewScrollbarManager.getInstance(project)
-        }
-
-        if (state.hideEditorVScrollbar || state.hideEditorHScrollbar) {
-            EditorScrollbarManager.getInstance(project)
-        }
-
-        if (PanelWidthMode.fromString(
-                state.commitPanelWidthMode,
-            ) != PanelWidthMode.DEFAULT
-        ) {
-            CommitPanelAutoFitManager.getInstance(project)
-        }
-
-        if (PanelWidthMode.fromString(
-                state.gitPanelWidthMode,
-            ) != PanelWidthMode.DEFAULT
-        ) {
-            GitPanelAutoFitManager.getInstance(project)
         }
     }
 }

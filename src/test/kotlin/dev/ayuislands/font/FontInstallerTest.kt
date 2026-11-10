@@ -10,8 +10,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.util.SystemInfo
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -39,7 +37,7 @@ import kotlin.test.assertTrue
 
 /**
  * Unit tests for [FontInstaller] helper branches plus the cache-backed failure path
- * reachable from the queued [FontInstaller.install] task.
+ * reachable from the queued [FontInstaller.installResource] task.
  */
 class FontInstallerTest {
     private val tmpRoot: File = createTempDirectory("ayu-font-installer-test").toFile()
@@ -290,20 +288,6 @@ class FontInstallerTest {
     }
 
     @Test
-    fun `applyOnly invokes FontPresetApplicator inside invokeLater`() {
-        mockkStatic(ApplicationManager::class)
-        mockkObject(FontPresetApplicator)
-        val appMock = mockk<Application>(relaxed = true)
-        every { ApplicationManager.getApplication() } returns appMock
-        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { FontPresetApplicator.applyInstalled(any()) } answers { /* no-op */ }
-
-        FontInstaller.applyOnly(FontPreset.AMBIENT, project = null)
-
-        verify(exactly = 1) { FontPresetApplicator.applyInstalled(any()) }
-    }
-
-    @Test
     fun `install with matching consent queues background task`() {
         mockkStatic(com.intellij.openapi.progress.ProgressManager::class)
         val progressMgr = mockk<com.intellij.openapi.progress.ProgressManager>(relaxed = true)
@@ -314,7 +298,7 @@ class FontInstallerTest {
         val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
         val consent = acceptedInstallConsent(entry)
 
-        FontInstaller.install(entry, consent, project = null) { }
+        FontInstaller.installResource(entry, consent, project = null) { }
 
         verify(exactly = 1) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
     }
@@ -338,7 +322,7 @@ class FontInstallerTest {
         val consent = acceptedInstallConsent(entry)
         var result: FontInstaller.InstallResult? = null
 
-        FontInstaller.install(entry, consent, project = null) { result = it }
+        FontInstaller.installResource(entry, consent, project = null) { result = it }
 
         val failure = assertNotNull(result) as FontInstaller.InstallResult.Failure
         assertEquals(FontInstaller.FailureKind.PREMIUM_REQUIRED, failure.kind)
@@ -374,7 +358,7 @@ class FontInstallerTest {
         assertEquals(cachedZip.absolutePath, FontInstaller.cachedZipFile(entry.fallbackUrl, entry.preset).absolutePath)
         var result: FontInstaller.InstallResult? = null
 
-        FontInstaller.install(entry, consent, project = null) { result = it }
+        FontInstaller.installResource(entry, consent, project = null) { result = it }
         capturedTasks.single().run(mockk(relaxed = true))
 
         val completedResult = assertNotNull(result, "Install task should report a result")
@@ -407,7 +391,7 @@ class FontInstallerTest {
 
         val error =
             assertFailsWith<IllegalArgumentException> {
-                FontInstaller.install(entry, consent, project = null) { }
+                FontInstaller.installResource(entry, consent, project = null) { }
             }
 
         assertContains(error.message.orEmpty(), "Install consent does not match")
@@ -428,151 +412,10 @@ class FontInstallerTest {
 
         val error =
             assertFailsWith<IllegalArgumentException> {
-                FontInstaller.install(copiedEntry, consent, project = null) { }
+                FontInstaller.installResource(copiedEntry, consent, project = null) { }
             }
 
         assertContains(error.message.orEmpty(), "canonical entry")
         verify(exactly = 0) { progressMgr.run(any<com.intellij.openapi.progress.Task.Backgroundable>()) }
-    }
-
-    @Test
-    fun `applyOnly invokes applicator with CUSTOM-decoded settings for non-curated preset`() {
-        // Assert applicator runs with the RIGHT preset, not any preset. An
-        // earlier version used `any()` and would pass on a future refactor
-        // that called `apply` with WHISPER instead of CUSTOM.
-        mockkStatic(ApplicationManager::class)
-        mockkStatic(Notifications.Bus::class)
-        mockkObject(FontPresetApplicator)
-        val appMock = mockk<Application>(relaxed = true)
-        every { ApplicationManager.getApplication() } returns appMock
-        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { FontPresetApplicator.applyInstalled(any()) } answers { /* no-op */ }
-        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
-
-        FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
-
-        // Hard-coded "JetBrains Mono" rather than `FontPreset.CUSTOM.fontFamily`
-        // so the test fails loudly if either side (preset constant OR apply call)
-        // moves independently. Coupling to the same enum field both sides would
-        // weaken the lock to "they happen to agree right now".
-        verify(exactly = 1) {
-            FontPresetApplicator.applyInstalled(match { it.fontFamily == "JetBrains Mono" })
-        }
-        // Success path — no notification (the "couldn't apply" notification is
-        // for the catch branch, not the happy path).
-        verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
-    }
-
-    @Test
-    fun `applyOnly emits generic notification when applicator throws and preset is non-curated`() {
-        // When entry is null AND apply throws, the user clicked something that
-        // visibly failed. An earlier version left this path silent (log only);
-        // the current contract emits a generic notification pointing to manual
-        // recovery (Settings → Editor → Font). Lock that contract.
-        mockkStatic(ApplicationManager::class)
-        mockkStatic(Notifications.Bus::class)
-        mockkObject(FontPresetApplicator)
-        val appMock = mockk<Application>(relaxed = true)
-        every { ApplicationManager.getApplication() } returns appMock
-        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { FontPresetApplicator.applyInstalled(any()) } throws RuntimeException("boom")
-        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
-
-        FontInstaller.applyOnly(FontPreset.CUSTOM, project = null)
-
-        verify(exactly = 1) {
-            Notifications.Bus.notify(
-                match<Notification> {
-                    it.content.contains("Settings") && it.content.contains("Editor")
-                },
-                null,
-            )
-        }
-    }
-
-    @Test
-    fun `applyOnly notifies user when apply fails (regression for silent warn)`() {
-        mockkStatic(ApplicationManager::class)
-        mockkStatic(Notifications.Bus::class)
-        mockkObject(FontPresetApplicator)
-        val appMock = mockk<Application>(relaxed = true)
-        every { ApplicationManager.getApplication() } returns appMock
-        every { appMock.invokeLater(any()) } answers { firstArg<Runnable>().run() }
-        every { FontPresetApplicator.applyInstalled(any()) } throws RuntimeException("boom")
-        every { Notifications.Bus.notify(any(), null) } answers { }
-
-        FontInstaller.applyOnly(FontPreset.AMBIENT, project = null)
-
-        verify(exactly = 1) {
-            Notifications.Bus.notify(
-                match<Notification> { it.content.contains("Editor → Font") },
-                null,
-            )
-        }
-    }
-
-    // ---- persistFontState ----
-
-    private fun stubPersistFontStateSettings(state: AyuIslandsState = AyuIslandsState()): AyuIslandsState {
-        mockkObject(AyuIslandsSettings.Companion)
-        val settings = AyuIslandsSettings().apply { loadState(state) }
-        every { AyuIslandsSettings.getInstance() } returns settings
-        return state
-    }
-
-    @Test
-    fun `persistFontState recordsWrittenPaths`() {
-        val state = stubPersistFontStateSettings()
-        val files =
-            listOf(
-                File("/tmp/fonts/MapleMono-Regular.ttf"),
-                File("/tmp/fonts/MapleMono-Italic.ttf"),
-            )
-
-        FontInstaller.persistFontState("Maple Mono", files)
-
-        assertEquals(
-            "/tmp/fonts/MapleMono-Regular.ttf\n/tmp/fonts/MapleMono-Italic.ttf",
-            state.installedFontFiles["Maple Mono"],
-        )
-    }
-
-    @Test
-    fun `persistFontState stillWritesInstalledFonts`() {
-        val state = stubPersistFontStateSettings()
-
-        FontInstaller.persistFontState("Victor Mono", listOf(File("/tmp/victor.ttf")))
-
-        assertTrue(state.installedFonts.contains("Victor Mono"))
-    }
-
-    @Test
-    fun `persistFontState overwritesStaleFilePaths`() {
-        val state = stubPersistFontStateSettings()
-        state.installedFontFiles["Maple Mono"] = "/old/stale/path.ttf"
-
-        FontInstaller.persistFontState("Maple Mono", listOf(File("/new/MapleMono.ttf")))
-
-        assertEquals("/new/MapleMono.ttf", state.installedFontFiles["Maple Mono"])
-        assertFalse(state.installedFontFiles["Maple Mono"]!!.contains("old/stale"))
-    }
-
-    @Test
-    fun `persistFontState emptyFilesList clearsPathEntry`() {
-        val state = stubPersistFontStateSettings()
-
-        FontInstaller.persistFontState("Maple Mono", emptyList())
-
-        assertEquals("", state.installedFontFiles["Maple Mono"])
-    }
-
-    @Test
-    fun `persistFontState removesFromExplicitlyUninstalledFonts`() {
-        val state = stubPersistFontStateSettings()
-        state.explicitlyUninstalledFonts.add("Maple Mono")
-
-        FontInstaller.persistFontState("Maple Mono", listOf(File("/tmp/MapleMono.ttf")))
-
-        assertFalse(state.explicitlyUninstalledFonts.contains("Maple Mono"))
     }
 }

@@ -7,6 +7,7 @@ import com.intellij.ui.LicensingFacade
 import dev.ayuislands.AyuPlugin
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -24,7 +25,7 @@ import kotlin.test.assertTrue
 class LicenseCheckerTest {
     private val defaultSettings =
         mockk<AyuIslandsSettings>(relaxed = true).also {
-            every { it.state } returns AyuIslandsState()
+            every { it.state } returns StudioFixtures.legacyView(AyuIslandsState()).settings
         }
 
     @BeforeTest
@@ -144,6 +145,8 @@ class LicenseCheckerTest {
 
     @Test
     fun `unknown facade state preserves a confirmed unlicensed decision`() {
+        val confirmed = confirmUnlicensed(AyuIslandsState()).settings
+        every { defaultSettings.state } returns confirmed
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
         val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returnsMany listOf(facade, null)
@@ -178,7 +181,7 @@ class LicenseCheckerTest {
         val realState = AyuIslandsState()
         val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns realState
+        every { settingsMock.state } answers { StudioFixtures.legacyView(realState).settings }
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
         val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
@@ -197,7 +200,7 @@ class LicenseCheckerTest {
         val realState = AyuIslandsState()
         val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns realState
+        every { settingsMock.state } answers { StudioFixtures.legacyView(realState).settings }
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
         val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
@@ -216,7 +219,7 @@ class LicenseCheckerTest {
         val realState = AyuIslandsState()
         val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns realState
+        every { settingsMock.state } answers { StudioFixtures.legacyView(realState).settings }
         val fixedNow = 1_700_000_000_000L
         val elapsedMs = 47L * 3_600_000L
         realState.lastConfirmedEntitlement = LicenseEntitlement.LICENSED.name
@@ -228,11 +231,11 @@ class LicenseCheckerTest {
     }
 
     @Test
-    fun `isLicensedOrGrace writes lastKnownLicensedMs monotonically on each licensed call`() {
+    fun `admitted observation records lastKnownLicensedMs monotonically on each licensed call`() {
         val realState = AyuIslandsState()
         val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns realState
+        every { settingsMock.state } answers { StudioFixtures.legacyView(realState).settings }
         every { PathManager.getConfigPath() } returns "/home/user/.config/JetBrains/IntelliJIdea2025.1"
         val facade = mockk<LicensingFacade>()
         every { LicensingFacade.getInstance() } returns facade
@@ -242,13 +245,13 @@ class LicenseCheckerTest {
         LicenseCheckerClockSeam.pinNow { nowTick }
         try {
             realState.lastKnownLicensedMs = 0L
-            LicenseChecker.isLicensedOrGrace()
+            recordLicenseObservation(realState)
             val firstStamp = realState.lastKnownLicensedMs
             assertEquals(nowTick, firstStamp, "First licensed call must write the clock value")
 
             // Advance the fake clock; stamp must track the forward movement.
             nowTick += 1_000L
-            LicenseChecker.isLicensedOrGrace()
+            recordLicenseObservation(realState)
             assertEquals(nowTick, realState.lastKnownLicensedMs, "Stamp must move forward with the clock")
         } finally {
             LicenseCheckerClockSeam.restore()
@@ -260,7 +263,7 @@ class LicenseCheckerTest {
         val realState = AyuIslandsState()
         val settingsMock = mockk<AyuIslandsSettings>()
         every { AyuIslandsSettings.getInstance() } returns settingsMock
-        every { settingsMock.state } returns realState
+        every { settingsMock.state } answers { StudioFixtures.legacyView(realState).settings }
 
         // Verify defaults before — glowEnabled and proDefaultsApplied start false,
         // but all island toggles default to true (visibility controlled by glowEnabled)
@@ -274,7 +277,7 @@ class LicenseCheckerTest {
         assertTrue(realState.glowServices)
         assertFalse(realState.proDefaultsApplied)
 
-        LicenseChecker.enableProDefaults()
+        LicenseDefaults.enablePro(realState)
 
         assertTrue(realState.glowEnabled)
         assertTrue(realState.glowEditor)

@@ -4,13 +4,23 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.color.ProjectIconAccentExtractor
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.AcceptanceResult
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioProjectKey
+import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.model.TargetObservation
+import dev.ayuislands.studio.model.TargetPresence
+import dev.ayuislands.studio.session.ImmediateExecutionResult
+import dev.ayuislands.studio.session.StudioQuickCommand
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -29,36 +39,46 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
-/**
- * Behavior locks for [ProjectIconAccentAssigner]'s gate chain. Uses REAL
- * state instances and the real `AccentResolver.projectKey` canonicalization
- * against a real temp directory — only the settings singletons and the
- * license check are substituted, per the mappings-suite convention.
- */
+/** Real image extraction and race checks; the application boundary records submitted immutable commands. */
 class ProjectIconAccentAssignerTest {
     @field:TempDir
     lateinit var tempDir: Path
 
     private lateinit var state: AyuIslandsState
     private lateinit var mappingsState: AccentMappingsState
+    private val commands = mutableListOf<Pair<TargetObservation, StudioQuickCommand.PinIfAbsent>>()
 
     @BeforeTest
     fun setUp() {
         state = AyuIslandsState()
         mappingsState = AccentMappingsState()
 
-        val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
-
-        val mappingsSettings = mockk<AccentMappingsSettings>()
-        every { mappingsSettings.state } returns mappingsState
-        mockkObject(AccentMappingsSettings.Companion)
-        every { AccentMappingsSettings.getInstance() } returns mappingsSettings
+        commands.clear()
+        val service = mockk<StudioService>()
+        mockkObject(StudioService.Companion)
+        every { StudioService.getInstance() } returns service
+        every { service.capture(any()) } answers {
+            TargetObservation(
+                StudioTarget.Project(StudioProjectKey(tempDir.toFile().canonicalPath)),
+                1,
+                TargetPresence.ACTIVE,
+            )
+        }
+        every { service.view(any()) } answers { StudioFixtures.legacyView(state, mappings = mappingsState) }
+        every { service.submitQuick(any(), any(), any()) } answers {
+            commands.add(firstArg<TargetObservation>() to assertIs<StudioQuickCommand.PinIfAbsent>(secondArg()))
+            thirdArg<
+                (
+                    ImmediateExecutionResult,
+                ) -> Unit,
+            >()(ImmediateExecutionResult.Complete(AcceptanceResult.Accepted(1, StudioList(emptyList()))))
+            Job().apply { complete() }
+        }
 
         mockkObject(LicenseChecker)
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -66,13 +86,12 @@ class ProjectIconAccentAssignerTest {
 
     @AfterTest
     fun tearDown() {
-        unmockkObject(AyuIslandsSettings.Companion)
-        unmockkObject(AccentMappingsSettings.Companion)
+        unmockkObject(StudioService.Companion)
         unmockkObject(LicenseChecker)
     }
 
     @Test
-    fun `assigns dominant icon color and display name for a fresh project`() {
+    fun `submits dominant icon color and display name for the captured project`() {
         state.projectIconAccentEnabled = true
         writeIcon(Color(0x5C, 0xCF, 0xE6))
         val project = stubProject()
@@ -80,9 +99,12 @@ class ProjectIconAccentAssignerTest {
         assertTrue(assign(project))
 
         val key = tempDir.toFile().canonicalPath
-        assertEquals("#5CCFE6", mappingsState.projectAccents[key])
-        assertEquals("demo-project", mappingsState.projectDisplayNames[key], "display name must land in lockstep")
-        assertNotNull(AccentHex.of(mappingsState.projectAccents.getValue(key)), "stored hex must stay parseable")
+        val (target, command) = commands.single()
+        assertEquals(StudioTarget.Project(StudioProjectKey(key)), target.target)
+        assertEquals("#5CCFE6", command.hex)
+        assertEquals("demo-project", command.displayName)
+        assertNotNull(AccentHex.of(command.hex), "submitted hex must stay parseable")
+        assertTrue(mappingsState.projectAccents.isEmpty(), "producer must not write the old store")
     }
 
     @Test
@@ -155,14 +177,14 @@ class ProjectIconAccentAssignerTest {
                         ProjectIconAccentAssigner.assignIfAbsent(project, EmptyCoroutineContext)
                     }
                 try {
-                    withTimeout(5_000) { extractionStarted.await() }
+                    withTimeout(5.seconds) { extractionStarted.await() }
                     mappingsState.projectAccents[key] = "#FFCC66"
                     mappingsState.projectDisplayNames[key] = "pinned-by-hand"
                 } finally {
                     allowExtraction.countDown()
                 }
 
-                assertFalse(withTimeout(5_000) { assignment.await() })
+                assertFalse(withTimeout(5.seconds) { assignment.await() })
             }
         } finally {
             unmockkObject(ProjectIconAccentExtractor)
@@ -193,13 +215,13 @@ class ProjectIconAccentAssignerTest {
                         ProjectIconAccentAssigner.assignIfAbsent(project, EmptyCoroutineContext)
                     }
                 try {
-                    withTimeout(5_000) { extractionStarted.await() }
+                    withTimeout(5.seconds) { extractionStarted.await() }
                     state.projectIconAccentEnabled = false
                 } finally {
                     allowExtraction.countDown()
                 }
 
-                assertFalse(withTimeout(5_000) { assignment.await() })
+                assertFalse(withTimeout(5.seconds) { assignment.await() })
             }
         } finally {
             unmockkObject(ProjectIconAccentExtractor)

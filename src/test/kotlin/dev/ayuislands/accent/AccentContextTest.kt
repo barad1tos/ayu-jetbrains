@@ -2,6 +2,7 @@ package dev.ayuislands.accent
 
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -22,7 +23,7 @@ class AccentContextTest {
     fun setUp() {
         state = AyuIslandsState()
         settings = mockk(relaxed = true)
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings

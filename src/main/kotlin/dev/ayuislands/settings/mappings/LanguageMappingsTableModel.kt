@@ -63,10 +63,6 @@ internal class LanguageMappingsTableModel(
         fireTableRowsUpdated(row, row)
     }
 
-    internal fun refreshAll() {
-        fireTableDataChanged()
-    }
-
     fun rowAt(index: Int): LanguageMapping? = rows.getOrNull(index)
 
     /**
@@ -104,6 +100,6 @@ internal class LanguageMappingsTableModel(
     companion object {
         const val COLUMN_COLOR = 0
         const val COLUMN_LANGUAGE = 1
-        private val COLUMN_NAMES = listOf("Color", "Language")
+        val COLUMN_NAMES = listOf("Color", "Language")
     }
 }

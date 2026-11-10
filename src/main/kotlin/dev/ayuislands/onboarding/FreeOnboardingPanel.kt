@@ -2,7 +2,6 @@ package dev.ayuislands.onboarding
 
 import com.intellij.icons.AllIcons
 import com.intellij.ide.BrowserUtil
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
@@ -12,14 +11,16 @@ import com.intellij.ui.ColorUtil
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
-import dev.ayuislands.AyuLaf
 import dev.ayuislands.accent.AYU_ACCENT_PRESETS
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentColor
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.onboarding.OnboardingCardChrome.CARD_BORDER_COLOR
-import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AccentPanelEvent
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.model.StudioNativeChange
+import dev.ayuislands.studio.model.StudioThemeChange
+import dev.ayuislands.studio.session.StudioQuickCommand
+import dev.ayuislands.studio.ui.StudioCommandFeedback
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
@@ -54,6 +55,8 @@ internal class FreeOnboardingPanel(
     private val project: Project,
     private val virtualFile: VirtualFile,
 ) : JPanel(BorderLayout()) {
+    private val target = StudioService.getInstance().capture(project)
+
     /** Variant committed via click. Falls back to the variant active when the wizard opened. */
     private var committedVariant: AyuVariant? = AyuVariant.detect()
 
@@ -356,11 +359,7 @@ internal class FreeOnboardingPanel(
         val targetName =
             variant.themeNames.firstOrNull { it.contains("Islands UI") }
                 ?: variant.themeNames.first()
-        AyuLaf.switchToThemeByName(
-            targetName,
-            shouldLockEditorScheme = true,
-            shouldApplyLater = true,
-        )
+        StudioService.getInstance().nativeChanged(StudioNativeChange.Theme(StudioThemeChange.Explicit(targetName)))
     }
 
     /** Color shown as the variant card's accent dot. Selected swatch takes priority. */
@@ -463,26 +462,18 @@ internal class FreeOnboardingPanel(
     }
 
     private fun applyAccentPreset(preset: AccentColor) {
-        val settings = AyuIslandsSettings.getInstance()
+        val captured = target ?: return
         val variant = AyuVariant.detect() ?: return
-        when (variant) {
-            AyuVariant.MIRAGE -> settings.state.mirageAccent = preset.hex
-            AyuVariant.DARK -> settings.state.darkAccent = preset.hex
-            AyuVariant.LIGHT -> settings.state.lightAccent = preset.hex
-        }
-        selectedAccentHex = preset.hex
-        variantCards.forEach { it.repaint() }
-        val currentLabel = trialHeadlineLabel
-        if (currentLabel != null) {
-            val fontPx = currentLabel.font.size2D
-            updateTrialHeadline(fontPx)
-        }
-        ApplicationManager.getApplication().invokeLater {
-            val outcome = AccentApplicator.applyFromHexString(preset.hex)
-            when (outcome) {
-                is AccentApplyOutcome.Applied -> Unit
-                is AccentApplyOutcome.Rejected -> LOG.warn("Onboarding preset apply rejected (hex='${preset.hex}')")
-                is AccentApplyOutcome.Torn -> LOG.warn("Onboarding preset apply incomplete (hex='${preset.hex}')")
+        StudioService.getInstance().submitQuick(
+            captured,
+            StudioQuickCommand.Accent(AccentPanelEvent.Color(variant, preset.hex)),
+        ) { result ->
+            StudioCommandFeedback.show(project, result) {
+                if (!project.isDisposed) {
+                    selectedAccentHex = preset.hex
+                    variantCards.forEach { it.repaint() }
+                    refreshTrialHeadlineForVariant()
+                }
             }
         }
     }

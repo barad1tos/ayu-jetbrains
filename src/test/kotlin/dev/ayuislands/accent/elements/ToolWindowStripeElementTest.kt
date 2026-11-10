@@ -12,6 +12,7 @@ import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -59,7 +60,7 @@ class ToolWindowStripeElementTest {
         every { UIManager.put(any<String>(), any()) } returns Unit
 
         mockkObject(ChromeBaseColors)
-        every { ChromeBaseColors.get(any()) } returns stockBase
+        every { ChromeBaseColors[any()] } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
@@ -75,7 +76,7 @@ class ToolWindowStripeElementTest {
         // Mock the Application so the companion resolves without an IDE container.
         mockState = AyuIslandsState()
         mockSettings = mockk(relaxed = true)
-        every { mockSettings.state } returns mockState
+        every { mockSettings.state } answers { StudioFixtures.legacyView(mockState).settings }
 
         mockApplication = mockk(relaxed = true)
         every { mockApplication.getService(AyuIslandsSettings::class.java) } returns mockSettings
@@ -148,9 +149,9 @@ class ToolWindowStripeElementTest {
         val stripeFg = Color(0xEE, 0xEE, 0xEE)
         val selectedFg = Color(0x11, 0x11, 0x11)
 
-        every { ChromeBaseColors.get("ToolWindow.Stripe.background") } returns stripeBase
-        every { ChromeBaseColors.get("ToolWindow.Button.selectedBackground") } returns selectedBase
-        every { ChromeBaseColors.get("ToolWindow.Stripe.borderColor") } returns stockBase
+        every { ChromeBaseColors["ToolWindow.Stripe.background"] } returns stripeBase
+        every { ChromeBaseColors["ToolWindow.Button.selectedBackground"] } returns selectedBase
+        every { ChromeBaseColors["ToolWindow.Stripe.borderColor"] } returns stockBase
         every { ChromeTintBlender.blend(testAccent, stripeBase, TintIntensity.of(40)) } returns stripeTinted
         every { ChromeTintBlender.blend(testAccent, selectedBase, TintIntensity.of(40)) } returns selectedTinted
         every { ChromeTintBlender.blend(testAccent, stockBase, TintIntensity.of(40)) } returns blended

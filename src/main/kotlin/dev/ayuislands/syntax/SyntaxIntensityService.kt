@@ -1,206 +1,56 @@
 package dev.ayuislands.syntax
 
-import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
-import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.theme.EditorSchemeChange
+import dev.ayuislands.syntax.SyntaxIntensityService.Companion.AYU_SCHEMES
+import dev.ayuislands.syntax.SyntaxIntensityService.Companion.DARK_OVERLAY_VARIANTS
+import dev.ayuislands.theme.AyuEditorSchemeBinder
 import java.awt.Color
 import java.awt.Font
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Orchestrator for the syntax-intensity apply pipeline.
- *
- * Responsibilities (composed across the apply path):
- *  - H5 dual-write: for each [AYU_SCHEMES] tuple, look up the named scheme,
- *    compute the per-key payload, and write it back; then ALSO write to the
- *    active `globalScheme` whenever it isn't one of the named instances we
- *    already touched (identity dedup avoids double-writes on a clean
- *    install).
- *  - R-7 single publish: a successful transaction emits exactly one
- *    [EditorSchemeChange] event. Failures before publication emit none. The
- *    shared publisher supplies the write-intent context required by downstream
- *    editor listeners.
- *  - Pattern A latches: a missing named scheme logs WARN once per (scheme,
- *    session); an unknown overlay variant tag arriving via
- *    [resolveActiveAyuOverlayVariant] (a future Ayu variant outside the whitelist)
- *    logs WARN once per (variantTag, session) and skips the R-1 fallback.
- *  - Atomic scheme writes: every target is computed before mutation, then
- *    [SyntaxSchemeTransaction] checkpoints only the touched attributes. Any
- *    write or publisher failure attempts to restore every checkpoint. An
- *    incomplete rollback remains in the recovery ledger and blocks a later direct apply
- *    until recovery succeeds.
- *  - Inherited-key ownership: Custom may materialize a language key whose
- *    color normally comes from a registered fallback. [IdeSyntaxSchemeWriter]
- *    snapshots the exact direct attribute before the first write, restores it
- *    when the sparse cell disappears, and relinquishes ownership if the user
- *    changes that attribute while the overlay is active.
- *  - R-1 caller-side fallback: the applicator takes `editorBg` as a
- *    parameter and only emits a WARN when a dark variant arrives with
- *    `Color.WHITE`. This service is the canonical fallback site:
- *    [resolveEditorBg] substitutes [RgbBlend.fallbackEditorBgFor] when
- *    `scheme.defaultBackground == Color.WHITE` AND the variant tag is in
- *    the explicit [DARK_OVERLAY_VARIANTS] subset of [AYU_SCHEMES]. An
- *    unknown variant tag (a hypothetical future Ayu variant outside the
- *    whitelist) logs WARN once and the fallback is NOT applied — the
- *    rebuild needs to update [AYU_SCHEMES] + [DARK_OVERLAY_VARIANTS]
- *    before R-1 mitigation can engage. Substring matching against variant
- *    names is intentionally avoided here: a future scheme name like
- *    "Ayu Islands Darkroom" would otherwise silently capture the "Dark"
- *    branch.
- *  - Service-layer premium gates: [enforceCustomGate] normalises an unlicensed
- *    `CUSTOM` request down to `AMBIENT`, and [enforceReadabilityGate] drops
- *    premium readability modifiers for unlicensed callers. The Settings panel
- *    performs UI-level gating, but that gate is bypass-able from future
- *    actions, tests, or settings imports that call this service directly.
- *    Service-layer normalisation is the defense-in-depth so the applicator
- *    never sees premium syntax inputs from an unlicensed call path.
- *
- * The language tag for each baseline key is derived inside
- * [SyntaxIntensityApplicator.compute] via [SyntaxLanguageRegistry.classify].
- * The `overlayVariant` argument passed from here is the R-1 contract anchor
- * the applicator latches its dark-variant WARN against — the service does
- * NOT pre-compute a per-language map and does NOT pass the variant tag as
- * a "language" input to the curve lookup.
- *
- * Lifecycle gating (Pattern J `isAyuActive`) lives in
- * `dev.ayuislands.AyuIslandsLafListener`, not here — the service is callable
- * from the Settings Apply path even mid-LAF-switch.
- */
+/** Computes candidate syntax values; the shared Studio owner controls native writes and publication. */
 @Service(Service.Level.APP)
 class SyntaxIntensityService {
     private val log = logger<SyntaxIntensityService>()
     private val missingSchemeLogged = ConcurrentHashMap.newKeySet<String>()
     private val unknownVariantLogged = ConcurrentHashMap.newKeySet<String>()
     private val skippedForeignActiveSchemeLogged = ConcurrentHashMap.newKeySet<String>()
-    private val capabilitiesByVariant =
-        ConcurrentHashMap<String, Map<String, Set<PrimitiveCategory>>>()
-    private val loggedCapabilityMisses = ConcurrentHashMap.newKeySet<String>()
     private val unlicensedCustomLogged = AtomicBoolean(false)
-    private val directApplyLock = Any()
-    private val directWriter = IdeSyntaxSchemeWriter()
-    private val directRecovery = SyntaxRecoveryLedger()
-    private val runtimeCoordinator = SyntaxRuntimeCoordinator()
 
-    @Volatile
-    private var replacementFonts: Map<String, Map<String, Int>> = emptyMap()
+    internal val fontState = SyntaxFontState()
 
-    /** Convenience overload for [apply] that builds a complete preset configuration. */
-    fun apply(
-        preset: SyntaxPreset,
-        customOverrides: Map<String, Map<String, Int>>,
-        subordinatePreset: SyntaxPreset = SyntaxPreset.AMBIENT,
-        customStyles: Map<String, Map<String, Int>> = emptyMap(),
-        readabilityOptions: SyntaxReadabilityOptions = SyntaxReadabilityOptions.DEFAULT,
-    ) {
-        apply(
-            config =
-                SyntaxPresetConfig(
-                    selectedPreset = preset.name,
-                    customOverrides = customOverrides,
-                    subordinatePreset = subordinatePreset.name,
-                    customStyles = customStyles,
-                    readabilityOptions = readabilityOptions,
-                ),
+    /** Computes explicit candidate choices without native writes, publication, or advancing runtime state. */
+    internal fun prepare(
+        config: SyntaxPresetConfig,
+        isLicensed: Boolean,
+        ignorePluginSyntaxColorsEnabled: Boolean,
+    ): SyntaxPreparedChanges {
+        val context = applyContext(config, isLicensed, ignorePluginSyntaxColorsEnabled)
+        return SyntaxPreparedChanges(
+            schemeChanges(context),
+            SyntaxIntensityApplicator.replacementFonts(context.preset, context.customStyles, context.customEmphasis),
         )
-    }
-
-    /**
-     * Requests application of a complete syntax configuration.
-     *
-     * While a live Settings runtime owns reversible preview state, the request is deferred until all live
-     * runtimes close and any recovery retained at close completes. A newer deferred request replaces the
-     * older one. If the active Settings session commits successfully, its committed preview becomes
-     * authoritative and discards deferred requests as stale; this method may therefore return without
-     * applying the supplied configuration.
-     */
-    fun apply(config: SyntaxPresetConfig) = runtimeCoordinator.requestApply(config, ::applyDirectly)
-
-    private fun applyDirectly(config: SyntaxPresetConfig) {
-        synchronized(directApplyLock) {
-            runtimeCoordinator.recoverRetained(::retryRecovery)?.rethrow()
-            when (val recovery = directRecovery.restore(directWriter, publish = EditorSchemeChange::publish)) {
-                is SyntaxTransactionResult.Applied -> Unit
-                is SyntaxTransactionResult.RecoveryRequired -> {
-                    recovery.rollbackFailures.forEach { failure ->
-                        log.warn(ROLLBACK_FAILURE_MESSAGE, failure)
-                    }
-                    recovery.rethrow()
-                }
-                is SyntaxTransactionResult.RolledBack -> recovery.rethrow()
-            }
-            val context = applyContext(config)
-            val changes = schemeChanges(context)
-            retireLegacyKeys(changes)
-            when (val result = applyChanges(context, changes, directWriter, directRecovery)) {
-                is SyntaxTransactionResult.Applied -> directRecovery.advance(directWriter)
-                is SyntaxTransactionResult.RecoveryRequired -> {
-                    result.rollbackFailures.forEach { failure ->
-                        log.warn(ROLLBACK_FAILURE_MESSAGE, failure)
-                    }
-                    val recovery = directRecovery.restore(directWriter, publish = EditorSchemeChange::publish)
-                    if (recovery is SyntaxTransactionResult.Failure) {
-                        recovery.cause.takeIf { it !== result.cause }?.let(result.cause::addSuppressed)
-                        if (recovery is SyntaxTransactionResult.RecoveryRequired) {
-                            recovery.rollbackFailures.forEach { failure ->
-                                log.warn(ROLLBACK_FAILURE_MESSAGE, failure)
-                            }
-                        }
-                    }
-                    result.rethrow()
-                }
-                is SyntaxTransactionResult.RolledBack -> result.rethrow()
-            }
-        }
-    }
-
-    internal fun openRuntimeSession(): SyntaxRuntimeSession = runtimeCoordinator.openRuntime(::SyntaxRuntimeSession)
-
-    internal fun retryRecovery(ticket: SyntaxRecoveryTicket): SyntaxTransactionResult =
-        runtimeCoordinator.retryRecovery(ticket, SyntaxRuntimeSession::retryRecovery, ::applyDirectly)
-
-    internal fun preview(
-        config: SyntaxPresetConfig,
-        writer: SyntaxSchemeWriter,
-        ledger: SyntaxRecoveryLedger,
-    ): SyntaxTransactionResult {
-        val context = applyContext(config)
-        val change =
-            activeSchemeChange(context, emptySet())
-                ?: return SyntaxTransactionResult.Applied(emptySet(), emptySet())
-        return applyChanges(context, listOf(change), writer, ledger)
-    }
-
-    internal fun materialize(
-        config: SyntaxPresetConfig,
-        writer: SyntaxSchemeWriter,
-        ledger: SyntaxRecoveryLedger?,
-    ): SyntaxTransactionResult {
-        val context = applyContext(config)
-        return applyChanges(context, schemeChanges(context), writer, ledger)
     }
 
     private fun schemeChanges(context: ApplyContext): List<SyntaxSchemeChange> {
         val manager = EditorColorsManager.getInstance()
         val touched = mutableSetOf<EditorColorsScheme>()
         val changes = mutableListOf<SyntaxSchemeChange>()
-        for ((schemeName, overlayVariant) in AYU_SCHEMES) {
-            val scheme = manager.getScheme(schemeName)
+        for ((variant, overlayVariant) in AYU_SCHEMES) {
+            val schemeName = AyuEditorSchemeBinder.targetSchemeName(variant)
+            val scheme = manager.getScheme(variant.editorSchemeResource)
             if (scheme == null) {
                 if (missingSchemeLogged.add(schemeName)) {
-                    log.warn("Ayu scheme '$schemeName' not registered — skipping syntax intensity overlay")
+                    log.warn("Ayu editable scheme '$schemeName' not registered — skipping syntax intensity overlay")
                 }
                 continue
             }
@@ -211,23 +61,16 @@ class SyntaxIntensityService {
         return changes
     }
 
-    private fun retireLegacyKeys(changes: List<SyntaxSchemeChange>) {
-        val retiredSchemeNames =
-            PropertiesComponent
-                .getInstance()
-                .getList(RETIREMENT_FLAG_KEY)
-                ?.toSet()
-                .orEmpty()
-        val retirement = RetirementPass(retiredSchemeNames)
-        changes.forEach { change -> retireKeys(change.scheme, change.label, retirement) }
-        retirement.commitRepaired()
-    }
-
-    private fun applyContext(config: SyntaxPresetConfig): ApplyContext {
+    private fun applyContext(
+        config: SyntaxPresetConfig,
+        isLicensed: Boolean,
+        ignorePluginSyntaxColorsEnabled: Boolean,
+    ): ApplyContext {
         val preset = SyntaxPreset.fromName(config.selectedPreset)
         val subordinatePreset = SyntaxPreset.fromName(config.subordinatePreset)
-        val effectivePreset = enforceCustomGate(preset)
-        val effectiveReadabilityOptions = enforceReadabilityGate(config.readabilityOptions)
+        val effectivePreset = enforceCustomGate(preset, isLicensed)
+        val effectiveReadabilityOptions =
+            SyntaxIntensityApplicator.effectiveReadability(config.readabilityOptions, isLicensed)
         return ApplyContext(
             preset = effectivePreset,
             customOverrides = config.customOverrides,
@@ -235,34 +78,8 @@ class SyntaxIntensityService {
             customStyles = config.customStyles,
             readabilityOptions = effectiveReadabilityOptions,
             customEmphasis = config.customEmphasis,
-            ignorePluginSyntaxColorsEnabled =
-                AyuIslandsSettings.getInstance().state.ignorePluginSyntaxColorsEnabled,
+            ignorePluginSyntaxColorsEnabled = ignorePluginSyntaxColorsEnabled,
         )
-    }
-
-    private fun applyChanges(
-        context: ApplyContext,
-        changes: List<SyntaxSchemeChange>,
-        writer: SyntaxSchemeWriter,
-        ledger: SyntaxRecoveryLedger?,
-    ): SyntaxTransactionResult {
-        val previousFonts = replacementFonts
-        replacementFonts = context.replacementFonts()
-        return try {
-            when (val result = SyntaxSchemeTransaction(writer, EditorSchemeChange::publish).apply(changes, ledger)) {
-                is SyntaxTransactionResult.Applied -> result
-                is SyntaxTransactionResult.Failure -> {
-                    replacementFonts = previousFonts
-                    result
-                }
-            }
-        } catch (cancellation: ProcessCanceledException) {
-            replacementFonts = previousFonts
-            throw cancellation
-        } catch (cancellation: kotlinx.coroutines.CancellationException) {
-            replacementFonts = previousFonts
-            throw cancellation
-        }
     }
 
     private fun schemeChange(
@@ -280,35 +97,10 @@ class SyntaxIntensityService {
         )
     }
 
-    fun reapplyForActiveLaf() {
-        val state = SyntaxIntensityState.getInstance()
-        val config = state.toPresetConfig()
-        apply(config = config)
-    }
-
-    internal fun tunableCategories(variant: AyuVariant): Map<String, Set<PrimitiveCategory>>? {
-        val variantName =
-            when (variant) {
-                AyuVariant.MIRAGE -> "Mirage"
-                AyuVariant.DARK -> "Dark"
-                AyuVariant.LIGHT -> "Light"
-            }
-        return capabilitiesByVariant[variantName]
-            ?: run {
-                if (loggedCapabilityMisses.add(variantName)) {
-                    log.warn(
-                        "Syntax capability snapshot for '$variantName' is unavailable — " +
-                            "keeping all controls enabled",
-                    )
-                }
-                null
-            }
-    }
-
     internal fun replacementFontType(
         language: String,
         category: PrimitiveCategory,
-    ): Int? = replacementFonts[language]?.get(category.name)
+    ): Int? = fontState.current.styles[language]?.get(category.name)
 
     private data class ApplyContext(
         val preset: SyntaxPreset,
@@ -318,16 +110,7 @@ class SyntaxIntensityService {
         val readabilityOptions: SyntaxReadabilityOptions,
         val customEmphasis: Map<String, Map<String, Int>>,
         val ignorePluginSyntaxColorsEnabled: Boolean,
-    ) {
-        fun replacementFonts(): Map<String, Map<String, Int>> {
-            if (preset != SyntaxPreset.CUSTOM) return emptyMap()
-            return customStyles.mapValues { (language, styles) ->
-                styles.mapValues { (category, style) ->
-                    style or (customEmphasis[language]?.get(category) ?: Font.PLAIN)
-                }
-            }
-        }
-    }
+    )
 
     private data class SchemeComputation(
         val attributes: Map<TextAttributesKey, TextAttributes>,
@@ -345,21 +128,19 @@ class SyntaxIntensityService {
      * site. The WARN log is latched (Pattern A) so a leaky call site is
      * discoverable in `idea.log` without spamming.
      */
-    private fun enforceCustomGate(preset: SyntaxPreset): SyntaxPreset {
-        if (preset != SyntaxPreset.CUSTOM) return preset
-        if (LicenseChecker.isLicensedOrGrace()) return preset
+    private fun enforceCustomGate(
+        preset: SyntaxPreset,
+        isLicensed: Boolean,
+    ): SyntaxPreset {
+        val effective = SyntaxIntensityApplicator.effectivePreset(preset, isLicensed)
+        if (effective == preset) return effective
         if (unlicensedCustomLogged.compareAndSet(false, true)) {
             log.warn(
                 "Syntax intensity CUSTOM preset requested without license — normalizing to AMBIENT. " +
                     "If this is reproducible from a normal UI flow, the panel-level gate has a leak.",
             )
         }
-        return SyntaxPreset.AMBIENT
-    }
-
-    private fun enforceReadabilityGate(readabilityOptions: SyntaxReadabilityOptions): SyntaxReadabilityOptions {
-        if (readabilityOptions == SyntaxReadabilityOptions.DEFAULT) return readabilityOptions
-        return if (LicenseChecker.isLicensedOrGrace()) readabilityOptions else SyntaxReadabilityOptions.DEFAULT
+        return effective
     }
 
     /**
@@ -407,10 +188,10 @@ class SyntaxIntensityService {
      * H5 active-derived-scheme write. The IDE may persist a
      * `_@user_Ayu Islands {Variant}` derived scheme whose `parent_scheme` is
      * `Darcula` rather than our registered Ayu variant. That derived scheme
-     * sits in the rendering chain instead of the named one we wrote to by
-     * name. After the by-name loop, also write the same computed payload to
+     * sits in the rendering chain instead of the bundled original. After
+     * resolving the native editable targets, also write the computed payload to
      * the active `globalScheme` when it is still an Ayu Islands named or
-     * user-derived scheme and is NOT one of the three named instances we
+     * user-derived scheme and is NOT one of the three editable instances we
      * already touched (identity dedup — no double-write on a clean install).
      * Foreign active schemes are skipped so syntax-intensity reapply never
      * mutates non-Ayu color schemes.
@@ -475,13 +256,6 @@ class SyntaxIntensityService {
                 fallbacks = fallbacks,
             )
         val computed = SyntaxIntensityApplicator.compute(request)
-        capabilitiesByVariant[variantTag] =
-            SyntaxIntensityApplicator.tunableCategories(
-                baseline = baseline,
-                overlay = overlay,
-                fallbacks = fallbacks,
-            )
-        loggedCapabilityMisses.remove(variantTag)
         val materializedKeys =
             computed.keys
                 .filterTo(linkedSetOf()) { key ->
@@ -507,248 +281,22 @@ class SyntaxIntensityService {
         return result
     }
 
-    private fun ignorePluginStockAttributes(
-        variantTag: String,
-        keyName: String,
-    ): TextAttributes =
-        (if (variantTag == "Light") IGNORE_PLUGIN_DEFAULT_STOCK else IGNORE_PLUGIN_DARCULA_STOCK)
-            .getValue(keyName)
-            .toTextAttributes()
-
-    /**
-     * Map a named or `_@user_`-derived Ayu active scheme name to its overlay
-     * variant tag. Returns null for foreign schemes, including names that only
-     * happen to contain variant words such as "Light".
-     */
-    private fun resolveActiveAyuOverlayVariant(activeSchemeName: String): String? {
-        val normalized = activeSchemeName.removePrefix("_@user_")
-        for ((schemeName, overlayVariant) in AYU_SCHEMES) {
-            if (normalized.equals(schemeName, ignoreCase = true) ||
-                normalized.startsWith("$schemeName ", ignoreCase = true) ||
-                normalized.startsWith("$schemeName (", ignoreCase = true)
-            ) {
-                return overlayVariant
-            }
-        }
-        return null
-    }
-
-    /**
-     * Hands keys the plugin used to write back to the platform, once per install.
-     *
-     * Dropping a key from the overlay stops future writes but cannot undo a value an
-     * earlier version already persisted into a derived `_@user_` scheme, and that file
-     * outlives plugin upgrades. Writing the inherited marker is the only way to clear
-     * one.
-     *
-     * One-shot per scheme name, not per install. `EditorColorsManager.getScheme(name)`
-     * resolves the bundled instance by bare name; the editable `_@user_` copy that
-     * actually persists carries the prefix and only arrives here as the active scheme.
-     * The two therefore key separately and each gets its own pass, which also covers
-     * users who alternate light and dark and so carry a flattened copy of each. An
-     * install-wide flag would instead be spent on whichever copy happened to be active
-     * and seal the rest away. Past its own pass a scheme's visibility keys belong to the
-     * user again, so hand-set colours survive.
-     */
-    private fun retireKeys(
-        scheme: EditorColorsScheme,
-        schemeLabel: String,
-        retirement: RetirementPass,
-    ) {
-        if (!retirement.isPending(schemeLabel)) return
-        var clean = true
-        for (keyName in RETIRED_KEY_NAMES) {
-            try {
-                scheme.setAttributes(
-                    TextAttributesKey.find(keyName),
-                    AbstractColorsScheme.INHERITED_ATTRS_MARKER,
-                )
-            } catch (cancellation: kotlinx.coroutines.CancellationException) {
-                throw cancellation
-            } catch (runtime: RuntimeException) {
-                clean = false
-                log.warn(
-                    "Failed to retire $keyName on $schemeLabel — Java references may stay flattened " +
-                        "there; re-apply from Settings -> Ayu Islands -> Syntax",
-                    runtime,
-                )
-            }
-        }
-        if (clean) retirement.recordRepaired(schemeLabel)
-    }
-
-    /**
-     * Tracks which schemes the one-shot retirement has already repaired.
-     *
-     * A scheme is only recorded once all four keys landed on it, so a partial failure
-     * retries on the next apply instead of being sealed in.
-     */
-    private class RetirementPass(
-        private val alreadyRetired: Set<String>,
-    ) {
-        private val repaired = mutableSetOf<String>()
-
-        fun isPending(schemeLabel: String): Boolean = schemeLabel !in alreadyRetired
-
-        fun recordRepaired(schemeLabel: String) {
-            repaired.add(schemeLabel)
-        }
-
-        fun commitRepaired() {
-            if (repaired.isEmpty()) return
-            PropertiesComponent.getInstance().setList(RETIREMENT_FLAG_KEY, (alreadyRetired + repaired).toList())
-        }
-    }
-
-    internal inner class SyntaxRuntimeSession(
-        private val writer: SyntaxSchemeWriter = IdeSyntaxSchemeWriter(),
-        private val recovery: SyntaxRecoveryLedger = SyntaxRecoveryLedger(),
-    ) {
-        private var fontCheckpoint: Map<String, Map<String, Int>>? = null
-        private var lifecycle: RuntimeSessionLifecycle = RuntimeSessionLifecycle.Open
-        private var lastFailure: RuntimeException? = null
-
-        fun preview(config: SyntaxPresetConfig): SyntaxTransactionResult =
-            execute { this@SyntaxIntensityService.preview(config, writer, recovery) }
-
-        fun materialize(config: SyntaxPresetConfig): SyntaxTransactionResult =
-            execute { this@SyntaxIntensityService.materialize(config, writer, recovery) }
-
-        fun restore(): SyntaxTransactionResult = execute(::restoreCheckpoint)
-
-        fun advance() {
-            requireOpen()
-            recovery.advance(writer)
-            fontCheckpoint = replacementFonts
-            runtimeCoordinator.discardDeferredApply()
-        }
-
-        fun close(): SyntaxRecoveryTicket? {
-            var isReleased = false
-            val ticket =
-                when (val current = lifecycle) {
-                    RuntimeSessionLifecycle.Open -> {
-                        isReleased = true
-                        if (!recovery.hasRecoveryWork) {
-                            lifecycle = RuntimeSessionLifecycle.Closed
-                            null
-                        } else {
-                            val ticket =
-                                SyntaxRecoveryTicket(
-                                    lastFailure
-                                        ?: IllegalStateException("Syntax preview closed before restoration completed"),
-                                )
-                            lifecycle = RuntimeSessionLifecycle.RecoveryOwned(ticket)
-                            ticket
-                        }
-                    }
-                    is RuntimeSessionLifecycle.RecoveryOwned -> current.ticket
-                    RuntimeSessionLifecycle.Closed -> null
-                }
-            if (isReleased) runtimeCoordinator.closeRuntime(this, ticket, ::applyDirectly)
-            return ticket
-        }
-
-        internal fun retryRecovery(): SyntaxTransactionResult {
-            check(lifecycle is RuntimeSessionLifecycle.RecoveryOwned) {
-                "Only retained syntax sessions can retry recovery"
-            }
-            return track(::restoreCheckpoint)
-        }
-
-        internal fun finishRecovery(ticket: SyntaxRecoveryTicket) {
-            check(lifecycle == RuntimeSessionLifecycle.RecoveryOwned(ticket)) {
-                "Syntax recovery ticket does not own this runtime session"
-            }
-            lifecycle = RuntimeSessionLifecycle.Closed
-        }
-
-        private fun restoreCheckpoint(): SyntaxTransactionResult =
-            recovery.restore(
-                writer = writer,
-                afterRollback = { replacementFonts = fontCheckpoint ?: replacementFonts },
-                publish = EditorSchemeChange::publish,
-            )
-
-        private fun execute(operation: () -> SyntaxTransactionResult): SyntaxTransactionResult {
-            requireOpen()
-            runtimeCoordinator.recoverRetained(::retryRecovery)?.let { failure ->
-                lastFailure = failure.cause
-                return failure
-            }
-            if (fontCheckpoint == null) fontCheckpoint = replacementFonts
-            if (recovery.hasPendingFailure) {
-                val recoveryResult = track(::restoreCheckpoint)
-                if (recoveryResult is SyntaxTransactionResult.Failure) return recoveryResult
-            }
-            return track(operation)
-        }
-
-        private fun track(operation: () -> SyntaxTransactionResult): SyntaxTransactionResult =
-            try {
-                operation().also { result ->
-                    lastFailure = (result as? SyntaxTransactionResult.Failure)?.cause
-                }
-            } catch (failure: RuntimeException) {
-                lastFailure = failure
-                throw failure
-            }
-
-        private fun requireOpen() {
-            check(lifecycle == RuntimeSessionLifecycle.Open) { "Syntax runtime session is closed" }
-        }
-    }
-
-    internal class SyntaxRecoveryTicket internal constructor(
-        internal val failure: RuntimeException,
-    )
-
-    private sealed interface RuntimeSessionLifecycle {
-        data object Open : RuntimeSessionLifecycle
-
-        data class RecoveryOwned(
-            val ticket: SyntaxRecoveryTicket,
-        ) : RuntimeSessionLifecycle
-
-        data object Closed : RuntimeSessionLifecycle
-    }
-
     companion object {
-        // Explicit (registered scheme name -> overlay variant tag) whitelist.
+        // Explicit (theme variant -> overlay variant tag) whitelist.
         // Substring matching against variant names is intentionally avoided so
         // a hypothetical future "Ayu Islands Darkroom" does not silently
         // capture the "Dark" branch.
         private val AYU_SCHEMES =
             listOf(
-                "Ayu Islands Mirage" to "Mirage",
-                "Ayu Islands Dark" to "Dark",
-                "Ayu Islands Light" to "Light",
+                AyuVariant.MIRAGE to "Mirage",
+                AyuVariant.DARK to "Dark",
+                AyuVariant.LIGHT to "Light",
             )
 
         // Dark-variant subset of AYU_SCHEMES. Only these trigger R-1 fallback
         // when defaultBackground == Color.WHITE. The Light variant's
         // Color.WHITE IS correct and must flow through unchanged.
         private val DARK_OVERLAY_VARIANTS = setOf("Mirage", "Dark")
-
-        // Names of the schemes whose visibility keys have already been retired.
-        // PropertiesComponent matches SyntaxIntensityMigrationNotifier — this does not
-        // warrant its own @State file. Per scheme rather than one install-wide flag:
-        // only the active scheme arrives here writable, so each poisoned copy needs its
-        // own pass the first time it becomes active.
-        private const val RETIREMENT_FLAG_KEY = "ayu.syntax.visibility.retired.schemes"
-        private const val ROLLBACK_FAILURE_MESSAGE = "Failed to roll back syntax scheme transaction"
-
-        // Keys the overlay used to define and must now leave to the platform.
-        // Versions 2.7.0-2.8.1 gave these a foreground, which Java merges over the
-        // role colour of a reference and flattens Java highlighting (issue #290).
-        // Never add a key here without also removing it from the theme XMLs.
-        private val RETIRED_KEY_NAMES =
-            listOf(
-                "PUBLIC_REFERENCE",
-                "PROTECTED_REFERENCE",
-                "PACKAGE_PRIVATE_REFERENCE",
-                "PRIVATE_REFERENCE",
-            )
 
         private const val IGNORE_COMMENT_KEY = "IGNORE.COMMENT"
         private const val IGNORE_SECTION_KEY = "IGNORE.SECTION"
@@ -760,7 +308,7 @@ class SyntaxIntensityService {
         private const val IGNORE_VALUE_KEY = "IGNORE.VALUE"
         private const val IGNORE_UNUSED_ENTRY_KEY = "IGNORE.UNUSED_ENTRY"
 
-        private val IGNORE_PLUGIN_KEY_NAMES =
+        internal val IGNORE_PLUGIN_KEY_NAMES =
             listOf(
                 IGNORE_COMMENT_KEY,
                 IGNORE_SECTION_KEY,
@@ -819,6 +367,34 @@ class SyntaxIntensityService {
                 IGNORE_UNUSED_ENTRY_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
             )
 
+        /**
+         * Map a named or `_@user_`-derived Ayu active scheme name to its overlay
+         * variant tag. Returns null for foreign schemes, including names that only
+         * happen to contain variant words such as "Light".
+         */
+        internal fun resolveActiveAyuOverlayVariant(activeSchemeName: String): String? {
+            val normalized = activeSchemeName.removePrefix("_@user_")
+            for ((variant, overlayVariant) in AYU_SCHEMES) {
+                val schemeName = AyuEditorSchemeBinder.targetSchemeName(variant)
+                if (normalized.equals(schemeName, ignoreCase = true) ||
+                    normalized.startsWith("$schemeName ", ignoreCase = true) ||
+                    normalized.startsWith("$schemeName (", ignoreCase = true)
+                ) {
+                    return overlayVariant
+                }
+            }
+            return null
+        }
+
+        /** Materializes the same detached stock attributes used when Ignore colors are disabled. */
+        internal fun ignorePluginStockAttributes(
+            variantTag: String,
+            keyName: String,
+        ): TextAttributes =
+            (if (variantTag == "Light") IGNORE_PLUGIN_DEFAULT_STOCK else IGNORE_PLUGIN_DARCULA_STOCK)
+                .getValue(keyName)
+                .toTextAttributes()
+
         private data class IgnorePluginStockStyle(
             val foregroundRgb: Int,
             val backgroundRgb: Int? = null,
@@ -840,110 +416,3 @@ class SyntaxIntensityService {
         }
     }
 }
-
-private class SyntaxRuntimeCoordinator {
-    private val lock = Any()
-    private val activeRuntimes = mutableSetOf<SyntaxIntensityService.SyntaxRuntimeSession>()
-    private val retainedRecoveries =
-        linkedMapOf<SyntaxIntensityService.SyntaxRecoveryTicket, SyntaxIntensityService.SyntaxRuntimeSession>()
-    private var deferredConfig: SyntaxPresetConfig? = null
-
-    fun requestApply(
-        config: SyntaxPresetConfig,
-        applyConfig: (SyntaxPresetConfig) -> Unit,
-    ) {
-        synchronized(lock) {
-            if (activeRuntimes.isNotEmpty()) {
-                deferredConfig = config
-            } else {
-                deferredConfig = null
-                applyConfig(config)
-            }
-        }
-    }
-
-    fun openRuntime(
-        factory: () -> SyntaxIntensityService.SyntaxRuntimeSession,
-    ): SyntaxIntensityService.SyntaxRuntimeSession =
-        synchronized(lock) {
-            factory().also(activeRuntimes::add)
-        }
-
-    fun retryRecovery(
-        ticket: SyntaxIntensityService.SyntaxRecoveryTicket,
-        recover: (SyntaxIntensityService.SyntaxRuntimeSession) -> SyntaxTransactionResult,
-        applyConfig: (SyntaxPresetConfig) -> Unit,
-    ): SyntaxTransactionResult =
-        synchronized(lock) {
-            val runtime =
-                retainedRecoveries[ticket]
-                    ?: return SyntaxTransactionResult.Applied(emptySet(), emptySet())
-            val result = recover(runtime)
-            if (result is SyntaxTransactionResult.Applied) {
-                retainedRecoveries.remove(ticket)
-                val deferredFailure =
-                    try {
-                        applyDeferredIfReady(applyConfig)
-                    } catch (cancellation: ProcessCanceledException) {
-                        retainedRecoveries[ticket] = runtime
-                        throw cancellation
-                    } catch (cancellation: kotlinx.coroutines.CancellationException) {
-                        retainedRecoveries[ticket] = runtime
-                        throw cancellation
-                    }
-                if (deferredFailure != null) {
-                    retainedRecoveries[ticket] = runtime
-                    return SyntaxTransactionResult.RolledBack(deferredFailure)
-                }
-                runtime.finishRecovery(ticket)
-            }
-            result
-        }
-
-    fun recoverRetained(
-        recover: (SyntaxIntensityService.SyntaxRecoveryTicket) -> SyntaxTransactionResult,
-    ): SyntaxTransactionResult.Failure? {
-        val tickets = synchronized(lock) { retainedRecoveries.keys.toList() }
-        tickets.forEach { ticket ->
-            val result = recover(ticket)
-            if (result is SyntaxTransactionResult.Failure) return result
-        }
-        return null
-    }
-
-    fun closeRuntime(
-        runtime: SyntaxIntensityService.SyntaxRuntimeSession,
-        recoveryTicket: SyntaxIntensityService.SyntaxRecoveryTicket?,
-        applyConfig: (SyntaxPresetConfig) -> Unit,
-    ) {
-        synchronized(lock) {
-            check(activeRuntimes.remove(runtime)) { "Syntax runtime session is not active" }
-            recoveryTicket?.let { retainedRecoveries[it] = runtime }
-            applyDeferredIfReady(applyConfig)?.let { throw it }
-        }
-    }
-
-    fun discardDeferredApply() {
-        synchronized(lock) {
-            deferredConfig = null
-        }
-    }
-
-    private fun applyDeferredIfReady(applyConfig: (SyntaxPresetConfig) -> Unit): RuntimeException? {
-        if (activeRuntimes.isNotEmpty() || retainedRecoveries.isNotEmpty()) return null
-        val config = deferredConfig ?: return null
-        return try {
-            applyConfig(config)
-            if (deferredConfig == config) deferredConfig = null
-            null
-        } catch (cancellation: ProcessCanceledException) {
-            throw cancellation
-        } catch (cancellation: kotlinx.coroutines.CancellationException) {
-            throw cancellation
-        } catch (failure: RuntimeException) {
-            failure
-        }
-    }
-}
-
-private fun SyntaxTransactionResult.Failure.rethrow(): Nothing = throw cause

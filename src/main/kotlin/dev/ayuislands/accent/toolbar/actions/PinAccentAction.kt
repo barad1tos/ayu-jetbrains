@@ -2,32 +2,18 @@ package dev.ayuislands.accent.toolbar.actions
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnActionEvent
-import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.DumbAwareAction
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.isAccentCancellation
-import dev.ayuislands.accent.rethrowIfCancelled
+import dev.ayuislands.accent.toolbar.QuickSwitcherCommands
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.mappings.AccentMappingsSettings
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.studio.session.StudioQuickCommand
 
-/**
- * Pin the focused project's current accent into [AccentMappingsSettings].
- *
- * Writes the app-level personal-pin map:
- * `AccentMappingsSettings.state.projectAccents[key] = hex`. A future split
- * into a Shared (`.idea/`) vs Personal (app-level) lane is planned — the
- * follow-up marker below keeps the integration point discoverable.
- *
- * Premium gate via Pattern J two-level predicate
- * (`AccentContext.detect() is AccentContext.Ayu && LicenseChecker.isLicensedOrGrace()`) on every
- * `update` tick — both the right-click context menu and the popup quick-action
- * row must go through this gate.
- */
-class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to the focused project", null) {
+/** Pins only the captured project through the same ordered mapping edit as Settings. */
+class PinAccentAction internal constructor(
+    private val captured: QuickSwitcherCommands?,
+) : DumbAwareAction("Pin Accent", "Pin the current accent to the focused project", null) {
+    constructor() : this(null)
+
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun update(event: AnActionEvent) {
@@ -38,50 +24,9 @@ class PinAccentAction : DumbAwareAction("Pin Accent", "Pin the current accent to
 
     override fun actionPerformed(event: AnActionEvent) {
         if (!LicenseChecker.isLicensedOrGrace()) return
-        val context = AccentContext.detect()
-        if (context !is AccentContext.Ayu) return
-        val variant = context.ayuVariant
-        val project = AccentApplicator.resolveFocusedProject() ?: return
-        val hex =
-            try {
-                AccentResolver.resolve(project, variant)
-            } catch (exception: RuntimeException) {
-                exception.rethrowIfCancelled()
-                LOG.warn("Pin: resolve failed", exception)
-                return
-            }
-        val key =
-            AccentResolver.projectKey(project) ?: run {
-                LOG.warn("Pin: projectKey null for ${project.name}")
-                return
-            }
-        // Follow-up: split shared vs personal pin lanes — write to .idea/
-        // for shared pins, app-level state for personal. Today everything
-        // goes through the app-level map below (FOLLOWUP-PIN-LANE-SPLIT).
-        val pins = AccentMappingsSettings.getInstance().state.projectAccents
-        val previousPin = pins[key]
-        pins[key] = hex
-        try {
-            val outcome = AccentApplicator.applyFromHexString(hex)
-            if (outcome !is AccentApplyOutcome.Rejected) {
-                ProjectAccentSwapService.getInstance().notifyExternalApply(outcome)
-            } else {
-                LOG.warn("Pin: applyFromHexString rejected hex=$hex")
-            }
-        } catch (exception: RuntimeException) {
-            if (exception.isAccentCancellation()) {
-                if (previousPin == null) {
-                    pins.remove(key)
-                } else {
-                    pins[key] = previousPin
-                }
-                throw exception
-            }
-            LOG.warn("Pin: apply failed hex=$hex", exception)
-        }
-    }
-
-    private companion object {
-        val LOG = logger<PinAccentAction>()
+        val commands = captured ?: QuickSwitcherCommands.capture() ?: return
+        if (commands.context !is AccentContext.Ayu || commands.project == null) return
+        val hex = commands.accent() ?: return
+        commands.submit(StudioQuickCommand.Pin(hex))
     }
 }

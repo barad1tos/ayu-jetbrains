@@ -21,7 +21,7 @@ sealed interface AccentContext {
             val ayuVariant = AyuVariant.detect()
             if (ayuVariant != null) return Ayu(ayuVariant)
 
-            val state = AyuIslandsSettings.getInstance().state
+            val state = AyuIslandsSettings.getInstance().state ?: return null
             return if (state.externalThemeEnhancementsEnabled) External else null
         }
 
@@ -32,17 +32,10 @@ sealed interface AccentContext {
             val context = detect() ?: return null
             if (context is Ayu) return context
 
-            val state = AyuIslandsSettings.getInstance().state
+            val state = AyuIslandsSettings.getInstance().state ?: return null
             return if (state.isExternalQuickSwitcherAllowed()) External else null
         }
 
         fun isQuickSwitcherActive(): Boolean = detectQuickSwitcher() != null
     }
-}
-
-internal fun AccentContext.persistExternalManualAccentIfNeeded(hex: String) {
-    if (this != AccentContext.External) return
-    val state = AyuIslandsSettings.getInstance().state
-    state.externalThemeAccent = hex
-    state.externalThemeAccentSource = ExternalAccentSource.MANUAL.name
 }

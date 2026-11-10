@@ -19,8 +19,22 @@ import dev.ayuislands.onboarding.OnboardingOrchestrator
 import dev.ayuislands.onboarding.OnboardingSchedulerService
 import dev.ayuislands.onboarding.OnboardingVirtualFile
 import dev.ayuislands.onboarding.WizardAction
-import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
+import dev.ayuislands.studio.StudioService
+import dev.ayuislands.studio.fields.StudioMetadataPolicy
+import dev.ayuislands.studio.migration.MigrationResult
+import dev.ayuislands.studio.migration.StudioLegacyMigration
+import dev.ayuislands.studio.model.AcceptanceResult
+import dev.ayuislands.studio.model.FieldAddress
+import dev.ayuislands.studio.model.FieldValue
+import dev.ayuislands.studio.model.LegacyFieldKey
+import dev.ayuislands.studio.model.LegacyStore
+import dev.ayuislands.studio.model.RawValue
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioMetadataCommand
+import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.persistence.StudioLegacyProjection
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -30,6 +44,7 @@ import io.mockk.verify
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import org.junit.After
 import org.junit.Before
@@ -52,8 +67,7 @@ class OnboardingSchedulingTest {
     private val dispatcher = QueuedDispatcher()
     private val lifetime = SupervisorJob()
     private val failures = ConcurrentLinkedQueue<Throwable>()
-    private val state = AyuIslandsState()
-    private val settings = AyuIslandsSettings()
+    private var state = AyuIslandsState()
     private val target = mockk<Project>()
     private val editors = mockk<FileEditorManager>()
     private var isDisposed = false
@@ -63,9 +77,30 @@ class OnboardingSchedulingTest {
     @Before
     fun setUp() {
         OnboardingOrchestrator.gate.resetForTesting()
-        settings.loadState(state)
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
+        val service = mockk<StudioService>()
+        mockkObject(StudioService.Companion)
+        every { StudioService.getInstance() } returns service
+        every { service.updateUi(any(), any(), any()) } answers {
+            val command =
+                StudioMetadataCommand.UiChoice(
+                    FieldAddress(LegacyFieldKey(LegacyStore.SETTINGS, firstArg())),
+                    FieldValue.Present(secondArg<RawValue>()),
+                )
+            val before =
+                assertIs<MigrationResult.Ready>(
+                    StudioLegacyMigration.plan(StudioFixtures.capture(state)),
+                ).document
+            val after = requireNotNull(StudioMetadataPolicy.apply(before, command))
+            val accepted = requireNotNull(StudioLegacyProjection.project(after, StudioTarget.Global)).settings
+            state.freeOnboardingShown = accepted.freeOnboardingShown
+            state.premiumOnboardingShown = accepted.premiumOnboardingShown
+            thirdArg<
+                (
+                    AcceptanceResult,
+                ) -> Unit,
+            >()(AcceptanceResult.Accepted(after.header.revision, StudioList(emptyList())))
+            Job().apply { complete() }
+        }
         val exceptionHandler = CoroutineExceptionHandler { _, failure -> failures.add(failure) }
         val scope = CoroutineScope(lifetime + dispatcher + exceptionHandler)
         val scheduler = OnboardingSchedulerService(target, scope)
@@ -129,7 +164,7 @@ class OnboardingSchedulingTest {
 
     @Test
     fun `premium recovery marks shown without rewriting reloaded preferences`() {
-        settings.state.apply {
+        state.apply {
             freeOnboardingShown = true
             premiumOnboardingShown = false
             trialWelcomeShown = false
@@ -141,8 +176,8 @@ class OnboardingSchedulingTest {
             fontPresetName = "FUTURE_PRESET"
             fontPresetCustomizations["FUTURE_PRESET"] = "opaque|future|customization"
         }
-        settings.state.glowEnabled = false
-        val disabledXml = encodeState(settings.state)
+        state.glowEnabled = false
+        val disabledXml = encodeState(state)
         val failure = IllegalStateException("premium editor subsystem not ready")
         every { editors.openFile(any(), true) } throws failure
 
@@ -151,10 +186,10 @@ class OnboardingSchedulingTest {
 
         assertSame(failure, logged)
         assertTrue(openedFiles.isEmpty())
-        assertEquals(disabledXml, encodeState(settings.state))
+        assertEquals(disabledXml, encodeState(state))
 
-        settings.loadState(decodeState(disabledXml))
-        val disabledState = settings.state
+        state = decodeState(disabledXml)
+        val disabledState = state
         assertFalse(disabledState.glowEnabled)
         assertEquals("SHARP_NEON", disabledState.glowStyle)
         assertEquals(87, disabledState.sharpNeonIntensity)
@@ -165,15 +200,15 @@ class OnboardingSchedulingTest {
 
         disabledState.glowEnabled = true
         val reenabledXml = encodeState(disabledState)
-        settings.loadState(decodeState(reenabledXml))
-        val reloadedState = settings.state
+        state = decodeState(reenabledXml)
+        val reloadedState = state
         assertTrue(reloadedState.glowEnabled)
         assertEquals(reenabledXml, encodeState(reloadedState))
         val expectedState = decodeState(reenabledXml).apply { premiumOnboardingShown = true }
         val expectedXml = encodeState(expectedState)
         every { editors.openFile(any(), true) } answers {
             assertTrue(SwingUtilities.isEventDispatchThread())
-            val stateAtOpen = settings.state
+            val stateAtOpen = state
             assertFalse(stateAtOpen.premiumOnboardingShown, "Opening must complete before the premium wizard is marked")
             assertTrue(stateAtOpen.freeOnboardingShown)
             assertFalse(stateAtOpen.trialWelcomeShown)
@@ -189,10 +224,10 @@ class OnboardingSchedulingTest {
         drain()
 
         assertIs<OnboardingVirtualFile>(openedFiles.single())
-        assertEquals(expectedXml, encodeState(settings.state))
-        assertTrue(settings.state.premiumOnboardingShown)
-        assertTrue(settings.state.freeOnboardingShown)
-        assertFalse(settings.state.trialWelcomeShown)
+        assertEquals(expectedXml, encodeState(state))
+        assertTrue(state.premiumOnboardingShown)
+        assertTrue(state.freeOnboardingShown)
+        assertFalse(state.trialWelcomeShown)
     }
 
     @Test
@@ -267,7 +302,7 @@ class OnboardingSchedulingTest {
 
     @Test
     fun `disposed project leaves queued premium onboarding unseen`() {
-        settings.state.apply {
+        state.apply {
             freeOnboardingShown = true
             premiumOnboardingShown = false
             trialWelcomeShown = false
@@ -275,13 +310,13 @@ class OnboardingSchedulingTest {
             fontPresetEnabled = true
             fontPresetName = "FUTURE_PRESET"
         }
-        val expectedXml = encodeState(settings.state)
+        val expectedXml = encodeState(state)
         schedulePremiumWizard()
         isDisposed = true
 
         drain()
 
-        assertEquals(expectedXml, encodeState(settings.state))
+        assertEquals(expectedXml, encodeState(state))
         assertTrue(openedFiles.isEmpty())
         verify(exactly = 0) { editors.openFile(any(), any<Boolean>()) }
     }

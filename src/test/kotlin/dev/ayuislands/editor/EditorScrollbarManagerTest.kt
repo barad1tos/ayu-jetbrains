@@ -1,14 +1,18 @@
 package dev.ayuislands.editor
 
+import com.intellij.openapi.Disposable
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
 import com.intellij.testFramework.LoggedErrorProcessor
+import dev.ayuislands.accent.AccentWriteState
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.ui.ComponentTreeRefreshedListener
+import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -17,19 +21,28 @@ import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.awt.Dimension
+import javax.swing.JScrollBar
 import javax.swing.JScrollPane
+import javax.swing.SwingUtilities
+import javax.swing.UIManager
+import javax.swing.plaf.metal.MetalLookAndFeel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class EditorScrollbarManagerTest {
     private lateinit var project: Project
     private lateinit var editorFactory: EditorFactory
     private lateinit var realState: AyuIslandsState
     private val listenerSlot = slot<EditorFactoryListener>()
+    private val refreshListenerSlot = slot<ComponentTreeRefreshedListener>()
 
     private lateinit var scrollPane: JScrollPane
     private lateinit var editorEx: EditorEx
@@ -43,7 +56,11 @@ class EditorScrollbarManagerTest {
         realState = AyuIslandsState()
         val settingsMock =
             mockk<AyuIslandsSettings> {
-                every { state } returns realState
+                every { state } answers {
+                    dev.ayuislands.studio.StudioFixtures
+                        .legacyView(realState)
+                        .settings
+                }
             }
         every { AyuIslandsSettings.getInstance() } returns settingsMock
         every { LicenseChecker.isLicensedOrGrace() } returns true
@@ -52,6 +69,13 @@ class EditorScrollbarManagerTest {
             mockk(relaxed = true) {
                 every { isDisposed } returns false
             }
+
+        every {
+            project.messageBus.connect(any<Disposable>()).subscribe(
+                ComponentTreeRefreshedTopic.TOPIC,
+                capture(refreshListenerSlot),
+            )
+        } returns Unit
 
         scrollPane = JScrollPane()
         editorEx =
@@ -228,7 +252,7 @@ class EditorScrollbarManagerTest {
         // catches it as SEVERE and the follow-up apply() never runs (scrollbars stay
         // unhidden after LAF change). Mocked scrollbar that throws on the null-value
         // clear proves the per-pane try/catch keeps iteration alive.
-        val throwingVBar = mockk<javax.swing.JScrollBar>(relaxed = true)
+        val throwingVBar = mockk<JScrollBar>(relaxed = true)
         every {
             throwingVBar.putClientProperty(eq("ayuIslands.originalPreferredSize"), null)
         } throws IllegalStateException("simulated putClientProperty failure")
@@ -421,5 +445,326 @@ class EditorScrollbarManagerTest {
         assertEquals(originalH1, scrollPane1.horizontalScrollBar.preferredSize)
         assertEquals(originalH2, scrollPane2.horizontalScrollBar.preferredSize)
         assertEquals(originalH3, scrollPane3.horizontalScrollBar.preferredSize)
+    }
+
+    @Test
+    fun `capture is read only and stale preparation cannot replace a later native change`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = RecordingScrollBar(JScrollBar.VERTICAL)
+            val horizontal = RecordingScrollBar(JScrollBar.HORIZONTAL)
+            scrollPane.verticalScrollBar = vertical
+            scrollPane.horizontalScrollBar = horizontal
+            val beforeVertical = ScrollbarObservation(vertical)
+            val beforeHorizontal = ScrollbarObservation(horizontal)
+            val manager = createManager()
+            try {
+                val checkpoint = manager.capture(hideVertical = true, hideHorizontal = true)
+                beforeVertical.assertCurrent(vertical)
+                beforeHorizontal.assertCurrent(horizontal)
+                assertEquals(0, vertical.sizeWrites)
+                assertEquals(0, horizontal.sizeWrites)
+
+                // Capture does not hold callbacks before the outer journal acknowledgement.
+                realState.hideEditorVScrollbar = true
+                manager.apply()
+                assertEquals(Dimension(0, 0), vertical.preferredSize)
+                val changedVertical = ScrollbarObservation(vertical)
+                val writesBeforeAttempt = vertical.sizeWrites
+                assertFalse(checkpoint.apply())
+                checkpoint.restore()
+                checkpoint.releaseResources()
+
+                changedVertical.assertCurrent(vertical)
+                beforeHorizontal.assertCurrent(horizontal)
+                assertEquals(writesBeforeAttempt, vertical.sizeWrites)
+                assertEquals(0, horizontal.sizeWrites)
+            } finally {
+                manager.dispose()
+            }
+
+            val previousLaf = UIManager.getLookAndFeel()
+            for (isApplied in listOf(false, true)) {
+                val lafManager = createManager()
+                val prepared = lafManager.capture(hideVertical = true, hideHorizontal = true)
+                try {
+                    if (isApplied) assertTrue(prepared.apply())
+                    UIManager.setLookAndFeel(MetalLookAndFeel())
+                    val retainedVertical = ScrollbarObservation(vertical)
+                    val retainedHorizontal = ScrollbarObservation(horizontal)
+                    val verticalWrites = vertical.sizeWrites
+                    val horizontalWrites = horizontal.sizeWrites
+                    if (!isApplied) assertFalse(prepared.apply())
+                    prepared.restore()
+                    prepared.releaseResources()
+                    assertEquals(AccentWriteState.RELINQUISHED, prepared.state)
+                    retainedVertical.assertCurrent(vertical)
+                    retainedHorizontal.assertCurrent(horizontal)
+                    assertEquals(verticalWrites, vertical.sizeWrites)
+                    assertEquals(horizontalWrites, horizontal.sizeWrites)
+                } finally {
+                    UIManager.setLookAndFeel(previousLaf)
+                    lafManager.dispose()
+                }
+            }
+        }
+
+    @Test
+    fun `candidate axes restore inherited and explicit preferred sizes without rewriting preferences`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = scrollPane.verticalScrollBar
+            val horizontal = scrollPane.horizontalScrollBar
+            vertical.preferredSize = null
+            horizontal.preferredSize = Dimension(61, 9)
+            val beforeVertical = ScrollbarObservation(vertical)
+            val beforeHorizontal = ScrollbarObservation(horizontal)
+            every { LicenseChecker.isLicensedOrGrace() } returns false
+            val manager = createManager()
+            try {
+                val checkpoint = manager.capture(hideVertical = true, hideHorizontal = true)
+                assertTrue(checkpoint.apply())
+                assertEquals(Dimension(0, 0), vertical.preferredSize)
+                assertEquals(Dimension(0, 0), horizontal.preferredSize)
+                assertFalse(realState.hideEditorVScrollbar)
+                assertFalse(realState.hideEditorHScrollbar)
+
+                checkpoint.restore()
+                checkpoint.restore()
+                checkpoint.releaseResources()
+
+                beforeVertical.assertCurrent(vertical)
+                beforeHorizontal.assertCurrent(horizontal)
+                assertFalse(vertical.isPreferredSizeSet)
+                assertTrue(horizontal.isPreferredSizeSet)
+                assertFalse(checkpoint.hasPending)
+                assertFalse(realState.hideEditorVScrollbar)
+                assertFalse(realState.hideEditorHScrollbar)
+            } finally {
+                manager.dispose()
+            }
+
+            for (isVertical in listOf(true, false)) {
+                for (isAccepted in listOf(false, true)) {
+                    val selected = RecordingScrollBar(if (isVertical) JScrollBar.VERTICAL else JScrollBar.HORIZONTAL)
+                    val foreign = RecordingScrollBar(if (isVertical) JScrollBar.HORIZONTAL else JScrollBar.VERTICAL)
+                    scrollPane.verticalScrollBar = if (isVertical) selected else foreign
+                    scrollPane.horizontalScrollBar = if (isVertical) foreign else selected
+                    foreign.preferredSize = Dimension(39, 113)
+                    foreign.putClientProperty("ayuIslands.originalPreferredSize", Any())
+                    val selectedBefore = ScrollbarObservation(selected)
+                    val selectedManager = createManager()
+                    try {
+                        val checkpoint =
+                            selectedManager.capture(
+                                hideVertical = if (isVertical) true else null,
+                                hideHorizontal = if (isVertical) null else true,
+                            )
+                        assertSame(selected, checkpoint.records.single().bar)
+                        // Unselected fields may change even after capture without invalidating this operation.
+                        foreign.preferredSize = Dimension(47, 131)
+                        foreign.putClientProperty("ayuIslands.originalPreferredSize", Any())
+                        val foreignBefore = ScrollbarObservation(foreign)
+                        val foreignWrites = foreign.sizeWrites
+                        var baselineWrites = 0
+                        foreign.addPropertyChangeListener("ayuIslands.originalPreferredSize") { baselineWrites++ }
+
+                        assertTrue(checkpoint.apply())
+                        assertEquals(Dimension(0, 0), selected.preferredSize)
+                        foreignBefore.assertCurrent(foreign)
+                        if (isAccepted) checkpoint.commit() else checkpoint.restore()
+                        checkpoint.releaseResources()
+                        checkpoint.releaseResources()
+                        foreignBefore.assertCurrent(foreign)
+                        assertEquals(foreignWrites, foreign.sizeWrites)
+                        assertEquals(0, baselineWrites)
+                        if (!isAccepted) selectedBefore.assertCurrent(selected)
+
+                        selectedManager.dispose()
+                        selectedBefore.assertCurrent(selected)
+                        foreignBefore.assertCurrent(foreign)
+                        assertEquals(foreignWrites, foreign.sizeWrites)
+                        assertEquals(0, baselineWrites)
+                    } finally {
+                        selectedManager.dispose()
+                    }
+                }
+            }
+        }
+
+    @Test
+    fun `mutation then throw keeps rollback retryable and restores the other axis independently`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = RecordingScrollBar(JScrollBar.VERTICAL)
+            val horizontal = RecordingScrollBar(JScrollBar.HORIZONTAL)
+            scrollPane.verticalScrollBar = vertical
+            scrollPane.horizontalScrollBar = horizontal
+            val beforeVertical = ScrollbarObservation(vertical)
+            val beforeHorizontal = ScrollbarObservation(horizontal)
+            val manager = createManager()
+            try {
+                val checkpoint = manager.capture(hideVertical = true, hideHorizontal = true)
+                horizontal.shouldFailWrite = true
+                assertFailsWith<IllegalStateException> { checkpoint.apply() }
+                assertEquals(Dimension(0, 0), vertical.preferredSize)
+                assertEquals(Dimension(0, 0), horizontal.preferredSize)
+                assertTrue(checkpoint.hasPending)
+
+                horizontal.shouldFailWrite = true
+                assertFailsWith<IllegalStateException> { checkpoint.restore() }
+                beforeVertical.assertCurrent(vertical)
+                assertTrue(checkpoint.hasPending)
+                val restoreWrites = horizontal.sizeWrites
+                checkpoint.restore()
+                checkpoint.releaseResources()
+
+                beforeVertical.assertCurrent(vertical)
+                beforeHorizontal.assertCurrent(horizontal)
+                assertEquals(restoreWrites, horizontal.sizeWrites)
+                assertFalse(checkpoint.hasPending)
+            } finally {
+                manager.dispose()
+            }
+        }
+
+    @Test
+    fun `rollback preserves a foreign size and replacement scrollbar through cleanup`() =
+        SwingUtilities.invokeAndWait {
+            for (changedBeforeCapture in listOf(false, true)) {
+                val vertical = RecordingScrollBar(JScrollBar.VERTICAL)
+                val horizontal = RecordingScrollBar(JScrollBar.HORIZONTAL)
+                scrollPane.verticalScrollBar = vertical
+                scrollPane.horizontalScrollBar = horizontal
+                realState.hideEditorVScrollbar = true
+                val manager = createManager()
+                try {
+                    manager.apply()
+                    val foreignSize = Dimension(37, 121)
+                    if (changedBeforeCapture) vertical.preferredSize = foreignSize
+                    val checkpoint = manager.capture(hideVertical = false, hideHorizontal = true)
+                    assertTrue(checkpoint.apply())
+                    if (changedBeforeCapture) assertEquals(foreignSize, vertical.preferredSize)
+                    vertical.preferredSize = foreignSize
+                    val foreignVertical = ScrollbarObservation(vertical)
+                    val replacement = RecordingScrollBar(JScrollBar.HORIZONTAL)
+                    replacement.preferredSize = Dimension(233, 19)
+                    scrollPane.horizontalScrollBar = replacement
+                    val foreignHorizontal = ScrollbarObservation(replacement)
+                    val detachedWrites = horizontal.sizeWrites
+                    val foreignWrites = vertical.sizeWrites
+
+                    checkpoint.restore()
+                    checkpoint.releaseResources()
+                    checkpoint.releaseResources()
+                    manager.dispose()
+
+                    foreignVertical.assertCurrent(vertical)
+                    foreignHorizontal.assertCurrent(replacement)
+                    assertSame(replacement, scrollPane.horizontalScrollBar)
+                    assertEquals(foreignWrites, vertical.sizeWrites)
+                    assertEquals(detachedWrites, horizontal.sizeWrites)
+                    assertFalse(checkpoint.hasPending)
+                } finally {
+                    manager.dispose()
+                }
+            }
+        }
+
+    @Test
+    fun `commit holds callbacks until release without replaying setters on captured editors`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = RecordingScrollBar(JScrollBar.VERTICAL)
+            val horizontal = RecordingScrollBar(JScrollBar.HORIZONTAL)
+            scrollPane.verticalScrollBar = vertical
+            scrollPane.horizontalScrollBar = horizontal
+            val beforeVertical = ScrollbarObservation(vertical)
+            val beforeHorizontal = ScrollbarObservation(horizontal)
+            val manager = createManager()
+            try {
+                val checkpoint = manager.capture(hideVertical = true, hideHorizontal = true)
+                assertTrue(checkpoint.apply())
+                val appliedVertical = ScrollbarObservation(vertical)
+                val appliedHorizontal = ScrollbarObservation(horizontal)
+                val openedPane = JScrollPane()
+                val openedBar = RecordingScrollBar(JScrollBar.VERTICAL)
+                openedPane.verticalScrollBar = openedBar
+                val openedEditor =
+                    mockk<EditorEx>(relaxed = true) {
+                        every { project } returns this@EditorScrollbarManagerTest.project
+                        every { scrollPane } returns openedPane
+                    }
+                val event =
+                    mockk<com.intellij.openapi.editor.event.EditorFactoryEvent> {
+                        every { editor } returns openedEditor
+                    }
+                val openedVertical = ScrollbarObservation(openedPane.verticalScrollBar)
+                every { editorFactory.allEditors } returns arrayOf(editorEx, openedEditor)
+
+                manager.apply()
+                listenerSlot.captured.editorCreated(event)
+                refreshListenerSlot.captured.afterRefresh(project)
+                appliedVertical.assertCurrent(vertical)
+                appliedHorizontal.assertCurrent(horizontal)
+                openedVertical.assertCurrent(openedPane.verticalScrollBar)
+                assertFalse(realState.hideEditorVScrollbar)
+                assertFalse(realState.hideEditorHScrollbar)
+
+                // The outer transaction persists preferences before accepting native resources.
+                realState.hideEditorVScrollbar = true
+                realState.hideEditorHScrollbar = true
+                val verticalWrites = vertical.sizeWrites
+                val horizontalWrites = horizontal.sizeWrites
+                checkpoint.commit()
+                listenerSlot.captured.editorCreated(event)
+                openedVertical.assertCurrent(openedPane.verticalScrollBar)
+                openedBar.shouldFailWrite = true
+                checkpoint.releaseResources()
+                checkpoint.releaseResources()
+                assertEquals(0, openedBar.sizeWrites)
+                assertEquals(verticalWrites, vertical.sizeWrites)
+                assertEquals(horizontalWrites, horizontal.sizeWrites)
+                assertFalse(checkpoint.hasPending)
+
+                openedBar.shouldFailWrite = false
+                listenerSlot.captured.editorCreated(event)
+                assertEquals(Dimension(0, 0), openedPane.verticalScrollBar.preferredSize)
+                realState.hideEditorVScrollbar = false
+                realState.hideEditorHScrollbar = false
+                manager.apply()
+                beforeVertical.assertCurrent(vertical)
+                beforeHorizontal.assertCurrent(horizontal)
+                openedVertical.assertCurrent(openedPane.verticalScrollBar)
+            } finally {
+                manager.dispose()
+            }
+        }
+}
+
+private class ScrollbarObservation(
+    scrollBar: JScrollBar,
+) {
+    private val isExplicit = scrollBar.isPreferredSizeSet
+    private val size = Dimension(scrollBar.preferredSize)
+    private val baselineProperty = scrollBar.getClientProperty("ayuIslands.originalPreferredSize")
+
+    fun assertCurrent(current: JScrollBar) {
+        assertEquals(isExplicit, current.isPreferredSizeSet)
+        assertEquals(size, current.preferredSize)
+        assertSame(baselineProperty, current.getClientProperty("ayuIslands.originalPreferredSize"))
+    }
+}
+
+private class RecordingScrollBar(
+    orientation: Int,
+) : JScrollBar(orientation) {
+    var sizeWrites = 0
+        private set
+    var shouldFailWrite = false
+
+    override fun setPreferredSize(preferredSize: Dimension?) {
+        super.setPreferredSize(preferredSize)
+        sizeWrites++
+        if (shouldFailWrite) {
+            shouldFailWrite = false
+            error("Preferred size changed before setter failure")
+        }
     }
 }

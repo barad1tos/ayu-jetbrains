@@ -1,557 +1,128 @@
 package dev.ayuislands.accent.toolbar
 
-import com.intellij.openapi.progress.ProcessCanceledException
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
-import dev.ayuislands.accent.AccentApplyParticipation
-import dev.ayuislands.accent.AccentApplyScope
+import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentContext
-import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AccentResolver
-import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.toolbar.popup.Density
 import dev.ayuislands.accent.toolbar.popup.ToggleTile
-import dev.ayuislands.glow.GlowOverlayManager
-import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.rotation.AccentRotationService
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
-import io.mockk.verify
+import dev.ayuislands.settings.AccentPanelEvent
+import dev.ayuislands.studio.model.AcceptanceResult
+import dev.ayuislands.studio.session.ImmediateExecutionResult
+import dev.ayuislands.studio.session.StudioQuickCommand
 import java.awt.Container
 import java.awt.GridLayout
 import java.awt.image.BufferedImage
-import java.util.concurrent.CancellationException
 import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.SwingUtilities
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * Related-toggles section coverage:
- *   - layout is a 2 × 2 [GridLayout] of [ToggleTile] composites,
- *   - tile labels in fixed top-to-bottom / left-to-right order,
- *   - Chrome tinting gates the user's configured chrome surfaces without rewriting them,
- *   - tile clicks drive the runtime side-effects users expect immediately.
- */
 class QuickSwitcherRelatedTogglesSectionTest {
-    @BeforeTest
-    fun setUp() {
-        mockkStatic(SwingUtilities::class)
-        every { SwingUtilities.isEventDispatchThread() } returns true
-        val state = AyuIslandsState()
-        val settings = mockk<AyuIslandsSettings>(relaxed = true)
-        every { settings.state } returns state
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.resolveFocusedProject() } returns null
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFB454"
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFB454"
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.detect() } returns AyuVariant.DARK
-        mockkObject(AccentContext.Companion)
-        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.DARK)
-        mockkObject(LicenseChecker)
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-    }
-
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
-    }
-
-    @Test
-    fun `layout is 2x2 GridLayout`() {
-        val section = QuickSwitcherRelatedTogglesSection()
-        val layout = (section.component as JPanel).layout as GridLayout
-        assertEquals(2, layout.rows)
-        assertEquals(2, layout.columns)
-    }
-
-    @Test
-    fun `grid contains exactly 4 ToggleTile children`() {
-        val section = QuickSwitcherRelatedTogglesSection()
-        val tiles = (section.component as JPanel).components.filterIsInstance<ToggleTile>()
-        assertEquals(4, tiles.size, "Expected exactly 4 ToggleTile children")
-    }
-
-    @Test
-    fun `free mode contains only Follow system accent`() {
-        val section = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
-        val tiles = (section.component as JPanel).components.filterIsInstance<ToggleTile>()
-
-        assertEquals(1, tiles.size)
-        assertEquals("Follow system accent", labelOf(tiles.single()))
-    }
-
-    @Test
-    fun `tile labels in fixed order Chrome tinting Glow Accent rotation Follow system`() {
-        val section = QuickSwitcherRelatedTogglesSection()
-        val labels = collectLabelTexts(section.component as Container)
-        val expected = listOf("Chrome tinting", "Glow", "Accent rotation", "Follow system accent")
-        assertTrue(labels.containsAll(expected), "Tile labels drifted; got=$labels expected to include $expected")
-        // Preserve the visual tile order.
-        assertEquals(
-            expected,
-            labels.filter { it in expected },
-            "Tile order drifted",
-        )
-    }
-
-    @Test
-    fun `clicking Chrome tinting off preserves chrome surface choices and reapplies focused accent`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeStatusBar = true
-        state.chromeMainToolbar = false
-        state.chromeToolWindowStripe = false
-        state.chromeNavBar = false
-        state.chromePanelBorder = false
-        state.chromeTintingEnabled = true
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } answers {
-            acceptAccent("#FFB454", secondArg())
+    @Test fun `native tile order geometry and free section remain unchanged`() {
+        QuickSwitcherFixture().use {
+            val component = QuickSwitcherRelatedTogglesSection().component as JPanel
+            val layout = component.layout as GridLayout
+            assertEquals(2, layout.rows)
+            assertEquals(2, layout.columns)
+            assertEquals(JBUI.scale(Density.TILE_GAP), layout.hgap)
+            assertEquals(layout.hgap, layout.vgap)
+            assertEquals(
+                listOf("Chrome tinting", "Glow", "Accent rotation", "Follow system accent"),
+                tiles(component).map(::label),
+            )
+            assertEquals(
+                listOf("Follow system accent"),
+                tiles(QuickSwitcherRelatedTogglesSection(showPremiumToggles = false).component as JPanel).map(::label),
+            )
         }
-
-        val section = QuickSwitcherRelatedTogglesSection()
-        val chromeTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .first { tile -> labelOf(tile) == "Chrome tinting" }
-
-        chromeTile.toggleSwitch.flip()
-
-        assertEquals(false, state.chromeTintingEnabled, "Chrome tile must disable only the runtime chrome gate")
-        assertEquals(true, state.chromeStatusBar, "Chrome tile must preserve status-bar chrome preference")
-        assertEquals(false, state.chromeMainToolbar, "Chrome tile must preserve main-toolbar chrome preference")
-        assertEquals(
-            false,
-            state.chromeToolWindowStripe,
-            "Chrome tile must preserve tool-window stripe chrome preference",
-        )
-        assertEquals(false, state.chromeNavBar, "Chrome tile must preserve nav-bar chrome preference")
-        assertEquals(false, state.chromePanelBorder, "Chrome tile must preserve panel-border chrome preference")
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK), any()) }
     }
 
-    @Test
-    fun `clicking Chrome tinting on restores the existing chrome surface choices`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeStatusBar = true
-        state.chromeMainToolbar = false
-        state.chromeToolWindowStripe = false
-        state.chromeNavBar = false
-        state.chromePanelBorder = false
-        state.chromeTintingEnabled = false
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } answers {
-            acceptAccent("#FFB454", secondArg())
+    @Test fun `each toggle dispatches one exact command without rewriting granular choices`() {
+        QuickSwitcherFixture().use { fixture ->
+            fixture.state.chromeTintingEnabled = true
+            fixture.state.chromeStatusBar = true
+            fixture.state.chromeMainToolbar = false
+            fixture.state.glowEnabled = true
+            fixture.state.accentRotationEnabled = true
+            fixture.state.followSystemAccent = false
+            val controls = tiles(QuickSwitcherRelatedTogglesSection().component as JPanel)
+            controls.forEach { it.toggleSwitch.flip() }
+            assertEquals(
+                listOf(
+                    StudioQuickCommand.Accent(AccentPanelEvent.ChromeEnabled(false)),
+                    StudioQuickCommand.GlowEnabled(false),
+                    StudioQuickCommand.Accent(AccentPanelEvent.RotationEnabled(false)),
+                    StudioQuickCommand.Accent(AccentPanelEvent.FollowSystem(true)),
+                ),
+                fixture.requests.map { it.second },
+            )
+            assertTrue(fixture.state.chromeTintingEnabled)
+            assertTrue(fixture.state.chromeStatusBar)
+            assertFalse(fixture.state.chromeMainToolbar)
+            assertTrue(fixture.state.accentRotationEnabled)
+            assertFalse(fixture.state.followSystemAccent)
         }
-
-        val section = QuickSwitcherRelatedTogglesSection()
-        val chromeTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .first { tile -> labelOf(tile) == "Chrome tinting" }
-
-        chromeTile.toggleSwitch.flip()
-
-        assertEquals(true, state.chromeTintingEnabled, "Chrome tile must re-enable only the runtime chrome gate")
-        assertEquals(true, state.chromeStatusBar, "Chrome tile must restore the user's status-bar-only setup")
-        assertEquals(false, state.chromeMainToolbar, "Chrome tile must not promote main-toolbar chrome")
-        assertEquals(false, state.chromeToolWindowStripe, "Chrome tile must not promote tool-window stripe chrome")
-        assertEquals(false, state.chromeNavBar, "Chrome tile must not promote nav-bar chrome")
-        assertEquals(false, state.chromePanelBorder, "Chrome tile must not promote panel-border chrome")
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK), any()) }
     }
 
-    @Test
-    fun `rejected chrome apply restores the saved gate and visible switch`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeTintingEnabled = true
-        state.chromeStatusBar = true
-        state.chromeMainToolbar = false
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } returns
-            AccentApplyOutcome.Rejected("invalid accent")
-        val tile = tileNamed("Chrome tinting")
-
-        tile.toggleSwitch.flip()
-
-        assertTrue(state.chromeTintingEnabled)
-        assertTrue(tile.toggleSwitch.isSelected)
-        assertTrue(state.chromeStatusBar)
-        assertFalse(state.chromeMainToolbar)
-    }
-
-    @Test
-    fun `throwing chrome apply restores the saved gate`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeTintingEnabled = true
-        state.chromeStatusBar = true
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } throws
-            IllegalStateException("accent resolution interrupted")
-
-        tileNamed("Chrome tinting").toggleSwitch.flip()
-
-        assertTrue(state.chromeTintingEnabled)
-    }
-
-    @Test
-    fun `cancelled chrome apply restores the gate and propagates cancellation`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeTintingEnabled = true
-        state.chromeStatusBar = true
-        val cancelled = CancellationException("accent cancelled")
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } throws cancelled
-        val tile = tileNamed("Chrome tinting")
-
-        assertSame(cancelled, assertFailsWith<CancellationException> { tile.toggleSwitch.flip() })
-
-        assertTrue(state.chromeTintingEnabled)
-        assertTrue(tile.toggleSwitch.isSelected)
-    }
-
-    @Test
-    fun `platform cancellation restores chrome gate before propagation`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeTintingEnabled = true
-        state.chromeStatusBar = true
-        val cancelled = ProcessCanceledException()
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } throws cancelled
-
-        val tile = tileNamed("Chrome tinting")
-        assertSame(cancelled, assertFailsWith<ProcessCanceledException> { tile.toggleSwitch.flip() })
-
-        assertTrue(state.chromeTintingEnabled)
-    }
-
-    @Test
-    fun `missing accent context leaves chrome preference unchanged`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeTintingEnabled = true
-        state.chromeStatusBar = true
-        every { AccentContext.detectQuickSwitcher() } returns null
-        every { AccentContext.detect() } returns null
-        val tile = tileNamed("Chrome tinting")
-
-        tile.toggleSwitch.flip()
-
-        assertTrue(state.chromeTintingEnabled)
-        assertTrue(tile.toggleSwitch.isSelected)
-    }
-
-    @Test
-    fun `rejected follow system apply keeps the existing rotation schedule`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.followSystemAccent = false
-        state.accentRotationEnabled = true
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        mockkObject(AccentRotationService.Companion)
-        every { AccentRotationService.getInstance() } returns rotationService
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } returns
-            AccentApplyOutcome.Rejected("invalid accent")
-        val tile = tileNamed("Follow system accent")
-
-        tile.toggleSwitch.flip()
-
-        assertFalse(state.followSystemAccent)
-        assertFalse(tile.toggleSwitch.isSelected)
-        assertTrue(state.accentRotationEnabled)
-        verify(exactly = 0) { rotationService.stopRotation() }
-        verify(exactly = 0) { rotationService.startRotation() }
-    }
-
-    @Test
-    fun `clicking Glow off persists state and syncs overlays immediately`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.glowEnabled = true
-        mockkObject(GlowOverlayManager.Companion)
-        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
-
-        val section = QuickSwitcherRelatedTogglesSection()
-        val glowTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .first { tile -> labelOf(tile) == "Glow" }
-
-        glowTile.toggleSwitch.flip()
-
-        assertEquals(false, state.glowEnabled, "Glow tile must persist disabled state")
-        verify(exactly = 1) { GlowOverlayManager.syncGlowForAllProjects() }
-    }
-
-    @Test
-    fun `queued toggle click after license loss leaves state and runtime services untouched`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.glowEnabled = true
-        mockkObject(GlowOverlayManager.Companion)
-        every { GlowOverlayManager.syncGlowForAllProjects() } returns Unit
-        val section = QuickSwitcherRelatedTogglesSection()
-        val glowTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .first { tile -> labelOf(tile) == "Glow" }
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-
-        glowTile.toggleSwitch.flip()
-
-        assertTrue(state.glowEnabled, "A stale click must not mutate the saved preference")
-        verify(exactly = 0) { GlowOverlayManager.syncGlowForAllProjects() }
-    }
-
-    @Test
-    fun `clicking Accent rotation off stops rotation service immediately`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.accentRotationEnabled = true
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        mockkObject(AccentRotationService.Companion)
-        every { AccentRotationService.getInstance() } returns rotationService
-
-        val section = QuickSwitcherRelatedTogglesSection()
-        val rotationTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .first { tile -> labelOf(tile) == "Accent rotation" }
-
-        rotationTile.toggleSwitch.flip()
-
-        assertEquals(false, state.accentRotationEnabled, "Rotation tile must persist disabled state")
-        verify(exactly = 1) { rotationService.stopRotation() }
-    }
-
-    @Test
-    fun `clicking Follow system accent on suspends rotation without changing its saved preference`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.followSystemAccent = false
-        state.accentRotationEnabled = true
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        mockkObject(AccentRotationService.Companion)
-        every { AccentRotationService.getInstance() } returns rotationService
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } answers {
-            acceptAccent("#7DCFFF", secondArg())
+    @Test fun `async completion mirrors the accepted gate and rejected requests keep the old indicator`() {
+        QuickSwitcherFixture().use { fixture ->
+            fixture.state.glowEnabled = true
+            val control = tiles(QuickSwitcherRelatedTogglesSection().component as JPanel)[1].toggleSwitch
+            control.flip()
+            assertTrue(control.isSelected)
+            fixture.state.glowEnabled = false
+            fixture.completions.single()(ImmediateExecutionResult.Complete(AcceptanceResult.NoChanges))
+            assertFalse(control.isSelected)
         }
-
-        val section = QuickSwitcherRelatedTogglesSection()
-        val followTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .first { tile -> labelOf(tile) == "Follow system accent" }
-
-        followTile.toggleSwitch.flip()
-
-        assertEquals(true, state.followSystemAccent, "Follow tile must persist enabled state")
-        assertEquals(true, state.accentRotationEnabled, "Follow system accent must preserve the rotation preference")
-        verify(exactly = 1) { rotationService.stopRotation() }
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK), any()) }
     }
 
-    @Test
-    fun `free Follow system accent remains interactive after license loss`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.followSystemAccent = false
-        state.accentRotationEnabled = true
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        mockkObject(AccentRotationService.Companion)
-        every { AccentRotationService.getInstance() } returns rotationService
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } answers {
-            acceptAccent("#7DCFFF", secondArg())
+    @Test fun `queued premium clicks after license loss are inert but Follow remains free`() {
+        QuickSwitcherFixture().use { fixture ->
+            val controls = tiles(QuickSwitcherRelatedTogglesSection().component as JPanel)
+            fixture.licensed = false
+            controls.forEach { it.toggleSwitch.flip() }
+            assertEquals(
+                listOf(
+                    StudioQuickCommand.Accent(AccentPanelEvent.FollowSystem(!fixture.state.followSystemAccent)),
+                ),
+                fixture.requests.map {
+                    it.second
+                },
+            )
         }
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-
-        val section = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
-        val followTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .single()
-
-        followTile.toggleSwitch.flip()
-
-        assertEquals(true, state.followSystemAccent)
-        assertEquals(true, state.accentRotationEnabled, "The free toggle must preserve the premium preference")
-        verify(exactly = 1) { rotationService.stopRotation() }
-        verify(exactly = 1) { AccentApplicator.applyForFocusedProject(AccentContext.Ayu(AyuVariant.DARK), any()) }
     }
 
-    @Test
-    fun `turning Follow system accent off resumes saved rotation only while licensed`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.followSystemAccent = true
-        state.accentRotationEnabled = true
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        mockkObject(AccentRotationService.Companion)
-        every { AccentRotationService.getInstance() } returns rotationService
-        every { AccentApplicator.applyForFocusedProject(any<AccentContext>(), any()) } answers {
-            acceptAccent("#7DCFFF", secondArg())
-        }
-
-        val licensedSection = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
-        val licensedFollowTile =
-            (licensedSection.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .single()
-
-        licensedFollowTile.toggleSwitch.flip()
-
-        assertEquals(false, state.followSystemAccent)
-        verify(exactly = 1) { rotationService.startRotation() }
-
-        state.followSystemAccent = true
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        val freeSection = QuickSwitcherRelatedTogglesSection(showPremiumToggles = false)
-        val freeFollowTile =
-            (freeSection.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .single()
-
-        freeFollowTile.toggleSwitch.flip()
-
-        assertEquals(false, state.followSystemAccent)
-        verify(exactly = 1) { rotationService.startRotation() }
-    }
-
-    @Test
-    fun `enabling saved rotation while following system does not start runtime rotation`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.followSystemAccent = true
-        state.accentRotationEnabled = false
-        val rotationService = mockk<AccentRotationService>(relaxed = true)
-        mockkObject(AccentRotationService.Companion)
-        every { AccentRotationService.getInstance() } returns rotationService
-
-        val section = QuickSwitcherRelatedTogglesSection()
-        val rotationTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .first { tile -> labelOf(tile) == "Accent rotation" }
-
-        rotationTile.toggleSwitch.flip()
-
-        assertEquals(true, state.accentRotationEnabled)
-        assertEquals(true, state.followSystemAccent)
-        verify(exactly = 0) { rotationService.startRotation() }
-    }
-
-    @Test
-    fun `bindSelected reads back the matching state field at construction time`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeTintingEnabled = false
-        state.chromeStatusBar = true
-        state.glowEnabled = true
-        state.accentRotationEnabled = false
-        state.followSystemAccent = true
-
-        val section = QuickSwitcherRelatedTogglesSection()
-        val tiles = (section.component as JPanel).components.filterIsInstance<ToggleTile>()
-        val byLabel = tiles.associateBy { label -> findLabelText(label) }
-        assertEquals(false, byLabel["Chrome tinting"]?.toggleSwitch?.isSelected)
-        assertEquals(true, byLabel["Glow"]?.toggleSwitch?.isSelected)
-        assertEquals(false, byLabel["Accent rotation"]?.toggleSwitch?.isSelected)
-        assertEquals(true, byLabel["Follow system accent"]?.toggleSwitch?.isSelected)
-    }
-
-    @Test
-    fun `density grid gap matches Density TILE_GAP`() {
-        val section = QuickSwitcherRelatedTogglesSection()
-        val layout = (section.component as JPanel).layout as GridLayout
-        val expected =
-            com.intellij.util.ui.JBUI
-                .scale(Density.TILE_GAP)
-        assertEquals(expected, layout.hgap)
-        assertEquals(expected, layout.vgap)
-    }
-
-    @Test
-    fun `selected toggle paint resolves accent through external context`() {
-        val state = AyuIslandsSettings.getInstance().state
-        state.chromeStatusBar = true
-        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
-        every { AccentResolver.resolve(any(), AccentContext.External) } returns "#5CCFE6"
-
-        val section = QuickSwitcherRelatedTogglesSection()
-        val chromeTile =
-            (section.component as JPanel)
-                .components
-                .filterIsInstance<ToggleTile>()
-                .first { tile -> labelOf(tile) == "Chrome tinting" }
-
-        chromeTile.toggleSwitch.setSize(32, 16)
-        val image = BufferedImage(32, 16, BufferedImage.TYPE_INT_ARGB)
-        val graphics = image.createGraphics()
-        try {
-            chromeTile.toggleSwitch.paintForTest(graphics)
-        } finally {
-            graphics.dispose()
-        }
-
-        verify(exactly = 1) { AccentResolver.resolve(any(), AccentContext.External) }
-    }
-
-    private fun acceptAccent(
-        hex: String,
-        participation: AccentApplyParticipation,
-    ): AccentApplyOutcome {
-        val outcome = AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(hex)))
-        val scope = AccentApplyScope()
-        scope.open()
-        return try {
-            scope.record(participation.checkpoint)
-            participation.beforeAcceptance(outcome)
+    @Test fun `external accent remains paintable and disappearance is sent to app admission`() {
+        QuickSwitcherFixture().use { fixture ->
+            fixture.context = AccentContext.External
+            fixture.state.glowEnabled = true
+            val control = tiles(QuickSwitcherRelatedTogglesSection().component as JPanel)[1].toggleSwitch
+            control.size = control.preferredSize
+            val graphics = BufferedImage(control.width, control.height, BufferedImage.TYPE_INT_ARGB).createGraphics()
             try {
-                scope.commit()
+                control.paintForTest(graphics)
             } finally {
-                participation.recordAcceptance(scope)
+                graphics.dispose()
             }
-            outcome
-        } finally {
-            scope.close()
+            fixture.available = false
+            control.flip()
+            // The captured target is still submitted; app admission owns disappearance and must reject it.
+            assertEquals(1, fixture.requests.size)
+            assertFalse(control.isSelected)
         }
     }
 
-    private fun tileNamed(label: String): ToggleTile =
-        (QuickSwitcherRelatedTogglesSection().component as JPanel)
-            .components
-            .filterIsInstance<ToggleTile>()
-            .first { labelOf(it) == label }
+    private fun tiles(panel: JPanel): List<ToggleTile> = panel.components.filterIsInstance<ToggleTile>()
 
-    private fun labelOf(tile: ToggleTile): String = findLabelText(tile)
+    private fun label(component: Container): String = requireNotNull(findLabel(component))
 
-    private fun findLabelText(tile: ToggleTile): String {
-        val labels = collectLabelTexts(tile)
-        // Labels include any leading icon JLabel (text empty) — keep the non-empty.
-        return labels.firstOrNull { it.isNotEmpty() }.orEmpty()
-    }
-
-    private fun collectLabelTexts(
-        root: Container,
-        out: MutableList<String> = mutableListOf(),
-    ): List<String> {
-        for (child in root.components) {
-            if (child is JLabel) {
-                val text = child.text
-                if (!text.isNullOrEmpty()) out.add(text)
+    private fun findLabel(component: Container): String? =
+        component.components.firstNotNullOfOrNull { child ->
+            when (child) {
+                is JLabel -> child.text?.takeIf { it.isNotEmpty() }
+                is Container -> findLabel(child)
+                else -> null
             }
-            if (child is Container) collectLabelTexts(child, out)
         }
-        return out
-    }
 }

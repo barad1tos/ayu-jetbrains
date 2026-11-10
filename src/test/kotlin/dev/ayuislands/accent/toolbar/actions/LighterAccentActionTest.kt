@@ -1,258 +1,93 @@
 package dev.ayuislands.accent.toolbar.actions
 
 import com.intellij.openapi.actionSystem.ActionUpdateThread
-import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.Presentation
-import com.intellij.openapi.actionSystem.ex.ActionManagerEx
-import com.intellij.openapi.actionSystem.ex.ActionUtil
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.openapi.project.Project
-import dev.ayuislands.accent.AccentApplicator
-import dev.ayuislands.accent.AccentApplyOutcome
 import dev.ayuislands.accent.AccentContext
 import dev.ayuislands.accent.AccentHex
-import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
-import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.color.AccentHsl
-import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.rotation.HslColor
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.mappings.ProjectAccentSwapService
+import dev.ayuislands.accent.toolbar.QuickSwitcherCommands
+import dev.ayuislands.accent.toolbar.QuickSwitcherFixture
+import dev.ayuislands.settings.AccentPanelEvent
+import dev.ayuislands.studio.session.StudioQuickCommand
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
-import io.mockk.verify
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.test.AfterTest
-import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
-/**
- * Locks [LighterAccentAction]: Pattern J gate, BGT thread, [AccentHsl.lighten]
- * + apply chain (Pattern D), and the no-op-at-clamp branch (still apply, do
- * not skip — the balloon hint is a future deliverable).
- */
 class LighterAccentActionTest {
-    private val mockApp = mockk<Application>(relaxed = true)
-    private val mockSwap = mockk<ProjectAccentSwapService>(relaxed = true)
-    private val mockProject = mockk<Project>(relaxed = true)
-
-    @BeforeTest
-    fun setUp() {
-        mockkObject(AyuVariant.Companion)
-        every { AyuVariant.isAyuActive() } returns true
-        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
-        mockkObject(AccentContext.Companion)
-        every { AccentContext.isQuickSwitcherActive() } returns true
-        every { AccentContext.detectQuickSwitcher() } returns AccentContext.Ayu(AyuVariant.MIRAGE)
-
-        mockkObject(LicenseChecker)
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-
-        mockkObject(AccentApplicator)
-        every { AccentApplicator.resolveFocusedProject() } returns mockProject
-        every { AccentApplicator.applyFromHexString(any()) } answers
-            {
-                AccentHex.of(firstArg<String>())?.let { validatedHex -> AccentApplyOutcome.Applied(validatedHex) }
-                    ?: AccentApplyOutcome.Rejected(firstArg())
+    @Test fun `updates use the existing context and license gate on BGT`() {
+        QuickSwitcherFixture().use { fixture ->
+            val action = LighterAccentAction()
+            assertEquals(ActionUpdateThread.BGT, action.getActionUpdateThread())
+            for (active in listOf(false, true)) {
+                for (licensed in listOf(false, true)) {
+                    fixture.context = if (active) AccentContext.Ayu(AyuVariant.MIRAGE) else null
+                    fixture.licensed = licensed
+                    val event = event()
+                    action.update(event)
+                    assertEquals(active && licensed, event.presentation.isEnabledAndVisible)
+                }
             }
-
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns "#FFCC66"
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns "#FFCC66"
-
-        mockkStatic(ApplicationManager::class)
-        every { ApplicationManager.getApplication() } returns mockApp
-        every { mockApp.getService(ProjectAccentSwapService::class.java) } returns mockSwap
-    }
-
-    @AfterTest
-    fun tearDown() {
-        unmockkAll()
-    }
-
-    private fun newEvent(): AnActionEvent {
-        val event = mockk<AnActionEvent>(relaxed = true)
-        every { event.presentation } returns Presentation()
-        return event
-    }
-
-    @Test
-    fun `getActionUpdateThread is BGT`() {
-        assertEquals(ActionUpdateThread.BGT, LighterAccentAction().getActionUpdateThread())
-    }
-
-    @Test
-    fun `update Pattern J two-level gate exhaustive (T,T) (F,T) (T,F) (F,F)`() {
-        // Full 4-case truth table; (F,F) locks AND-not-OR.
-        val action = LighterAccentAction()
-        val event = newEvent()
-
-        every { AccentContext.isQuickSwitcherActive() } returns true
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        action.update(event)
-        assertTrue(event.presentation.isEnabledAndVisible, "(T,T) must enable")
-
-        every { AccentContext.isQuickSwitcherActive() } returns false
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-        action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible, "(F,T) inactive variant must disable")
-
-        every { AccentContext.isQuickSwitcherActive() } returns true
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible, "(T,F) unlicensed must disable")
-
-        every { AccentContext.isQuickSwitcherActive() } returns false
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-        action.update(event)
-        assertFalse(event.presentation.isEnabledAndVisible, "(F,F) both off must disable — locks AND vs OR")
-    }
-
-    @Test
-    fun `update is visible in external accent context`() {
-        val event = newEvent()
-        every { AyuVariant.isAyuActive() } returns false
-        every { AccentContext.isQuickSwitcherActive() } returns true
-        every { LicenseChecker.isLicensedOrGrace() } returns true
-
-        LighterAccentAction().update(event)
-
-        assertTrue(event.presentation.isEnabledAndVisible)
-    }
-
-    @Test
-    fun `actionPerformed feeds AccentHsl lighten output into applyFromHexString (Pattern D gated)`() {
-        // `lighten` takes/returns `AccentHex`; unwrap via `.value` to match the
-        // String-typed apply boundary.
-        val expected = AccentHsl.lighten(AccentHex.unsafeOf("#FFCC66")).value
-        LighterAccentAction().actionPerformed(newEvent())
-        verify(exactly = 1) { AccentApplicator.applyFromHexString(expected) }
-        verify(
-            exactly = 1,
-        ) { mockSwap.notifyExternalApply(AccentApplyOutcome.Applied(requireNotNull(AccentHex.of(expected)))) }
-    }
-
-    @Test
-    fun `actionPerformed after license loss does not resolve or apply`() {
-        every { LicenseChecker.isLicensedOrGrace() } returns false
-
-        LighterAccentAction().actionPerformed(newEvent())
-
-        verify(exactly = 0) { AccentResolver.resolve(any(), any<AccentContext>()) }
-        verify(exactly = 0) { AccentApplicator.applyFromHexString(any()) }
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `actionPerformed in external context persists manual external accent`() {
-        every { AccentContext.detectQuickSwitcher() } returns AccentContext.External
-        val state = AyuIslandsState()
-        val settings = mockk<AyuIslandsSettings>(relaxed = true)
-        every { settings.state } returns state
-        mockkObject(AyuIslandsSettings.Companion)
-        every { AyuIslandsSettings.getInstance() } returns settings
-
-        val expected = AccentHsl.lighten(AccentHex.unsafeOf("#FFCC66")).value
-        LighterAccentAction().actionPerformed(newEvent())
-
-        assertEquals(expected, state.externalThemeAccent)
-        assertEquals(ExternalAccentSource.MANUAL.name, state.externalThemeAccentSource)
-    }
-
-    @Test
-    fun `actionPerformed at MAX_LIGHTNESS clamp still calls applyFromHexString with the unchanged hex`() {
-        // At the clamp the action runs; the balloon hint is a future
-        // deliverable, not in scope here.
-        val ceilingHex = HslColor.toHex(0f, 0f, AccentHsl.MAX_LIGHTNESS)
-        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns ceilingHex
-        LighterAccentAction().actionPerformed(newEvent())
-        // AccentHsl.lighten at the ceiling returns the input unchanged.
-        verify(exactly = 1) { AccentApplicator.applyFromHexString(ceilingHex) }
-    }
-
-    @Test
-    fun `action propagates platform cancellation from resolve`() {
-        val cancelled = ProcessCanceledException()
-        every { AccentResolver.resolve(any(), any<AccentContext>()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { LighterAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `action propagates platform cancellation from apply`() {
-        val cancelled = ProcessCanceledException()
-        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { LighterAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `action propagates platform cancellation from cache sync`() {
-        val cancelled = ProcessCanceledException()
-        every { mockSwap.notifyExternalApply(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { LighterAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-    }
-
-    @Test
-    fun `action propagates coroutine cancellation from resolve`() {
-        val cancelled = CancellationException("cancelled accent")
-        every { AccentResolver.resolve(any(), any<AccentContext>()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { LighterAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `action propagates coroutine cancellation from apply`() {
-        val cancelled = CancellationException("cancelled accent")
-        every { AccentApplicator.applyFromHexString(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { LighterAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-        verify(exactly = 0) { mockSwap.notifyExternalApply(any()) }
-    }
-
-    @Test
-    fun `action propagates coroutine cancellation from cache sync`() {
-        val cancelled = CancellationException("cancelled accent")
-        every { mockSwap.notifyExternalApply(any()) } throws cancelled
-
-        val thrown = assertFailsWith<RuntimeException> { LighterAccentAction().performInTest(newEvent()) }
-
-        assertSame(cancelled, thrown)
-    }
-
-    private fun AnAction.performInTest(event: AnActionEvent) {
-        val actionManager = mockk<ActionManagerEx>(relaxed = true)
-        every { event.actionManager } returns actionManager
-        every { actionManager.performWithActionCallbacks(any(), any(), any()) } answers {
-            thirdArg<Runnable>().run()
         }
-        ActionUtil.performActionDumbAwareWithCallbacks(this, event)
     }
+
+    @Test fun `one invocation sends the existing HSL step to the captured target`() {
+        QuickSwitcherFixture().use { fixture ->
+            LighterAccentAction().actionPerformed(event())
+            assertEquals(
+                listOf<Pair<dev.ayuislands.studio.model.TargetObservation, StudioQuickCommand>>(
+                    fixture.target to
+                        StudioQuickCommand.Accent(
+                            AccentPanelEvent.Color(
+                                AyuVariant.MIRAGE,
+                                AccentHsl.lighten(AccentHex.unsafeOf(fixture.hex)).value,
+                            ),
+                        ),
+                ),
+                fixture.requests,
+            )
+        }
+    }
+
+    @Test fun `external and clamped colors keep the same command route`() {
+        QuickSwitcherFixture().use { fixture ->
+            fixture.context = AccentContext.External
+            for (hex in listOf("#000000", "#FFFFFF")) {
+                fixture.hex = hex
+                LighterAccentAction().actionPerformed(event())
+                assertEquals(
+                    StudioQuickCommand.ExternalAccent(AccentHsl.lighten(AccentHex.unsafeOf(hex)).value),
+                    fixture.requests.last().second,
+                )
+            }
+        }
+    }
+
+    @Test fun `a captured popup target does not follow a later window focus`() {
+        QuickSwitcherFixture().use { fixture ->
+            val commands = QuickSwitcherCommands.capture()!!
+            every { fixture.service.capture(any()) } returns fixture.target.copy(generation = 99)
+            LighterAccentAction(commands).actionPerformed(event())
+            assertEquals(fixture.target, fixture.requests.single().first)
+        }
+    }
+
+    @Test fun `license loss or unavailable authority cannot submit a color`() {
+        QuickSwitcherFixture().use { fixture ->
+            fixture.licensed = false
+            LighterAccentAction().actionPerformed(event())
+            fixture.licensed = true
+            fixture.available = false
+            LighterAccentAction().actionPerformed(event())
+            assertTrue(fixture.requests.isEmpty())
+        }
+    }
+
+    private fun event(): AnActionEvent =
+        mockk<AnActionEvent>(relaxed = true).also {
+            every { it.presentation } returns Presentation()
+        }
 }

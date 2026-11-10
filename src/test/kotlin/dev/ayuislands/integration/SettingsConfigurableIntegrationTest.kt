@@ -1,155 +1,138 @@
 package dev.ayuislands.integration
 
-import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import com.intellij.testFramework.ApplicationRule
+import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.settings.AyuIslandsConfigurable
-import dev.ayuislands.settings.AyuIslandsEffectsPanel
-import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.SettingsOpenContext
-import io.mockk.every
-import io.mockk.mockkConstructor
-import io.mockk.unmockkConstructor
-import io.mockk.verify
-import java.awt.Container
-import javax.swing.JCheckBox
+import dev.ayuislands.studio.model.FieldAddress
+import dev.ayuislands.studio.model.FieldValue
+import dev.ayuislands.studio.model.LegacyFieldKey
+import dev.ayuislands.studio.model.LegacyStore
+import dev.ayuislands.studio.model.RawValue
+import dev.ayuislands.studio.model.SessionEvent
+import dev.ayuislands.studio.model.SessionIntent
+import dev.ayuislands.studio.model.SessionPhase
+import dev.ayuislands.studio.model.StudioSettingsSection
+import dev.ayuislands.studio.ui.StudioIdeSettings
+import dev.ayuislands.studio.ui.StudioSettingsAccess
+import dev.ayuislands.studio.ui.StudioSettingsBinding
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import org.junit.After
+import org.junit.Rule
+import org.junit.Test
 import javax.swing.JTabbedPane
+import kotlin.coroutines.CoroutineContext
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotSame
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
-class SettingsConfigurableIntegrationTest : BasePlatformTestCase() {
-    fun testConfigurableCreatesComponent() {
-        val configurable = AyuIslandsConfigurable()
-        try {
-            val component = configurable.createComponent()
-            assertNotNull("Configurable must produce a non-null component", component)
-        } finally {
-            configurable.disposeUIResources()
-        }
-    }
+class SettingsConfigurableIntegrationTest {
+    @get:Rule val applicationRule = ApplicationRule()
 
-    fun testConfigurableIsNotModifiedByDefault() {
-        val configurable = AyuIslandsConfigurable()
-        try {
-            configurable.createComponent()
-            assertFalse(
-                "Fresh configurable must not report modified",
-                configurable.isModified,
-            )
-        } finally {
-            configurable.disposeUIResources()
-        }
-    }
+    @get:Rule val temporary = org.junit.rules.TemporaryFolder()
+    private val scope = appScope()
 
-    fun testConfigurableExposesPluginsTabByDefault() {
-        val configurable = AyuIslandsConfigurable()
-        try {
-            val component = configurable.createComponent()
-            val tabTitles =
-                collectTabbedPanes(component)
-                    .flatMap { tabbedPane ->
-                        (0 until tabbedPane.tabCount).map(tabbedPane::getTitleAt)
-                    }
+    @After
+    fun closeScope() = scope.cancel()
 
-            assertTrue(
-                "Plugins tab must stay reachable when Settings opens outside an Ayu theme",
-                tabTitles.contains("Plugins"),
-            )
-        } finally {
-            configurable.disposeUIResources()
-        }
-    }
+    @Test
+    fun `registered Settings adapter exposes every native section and accepts through the shared binding`() =
+        onHostEdt {
+            StudioHostFixture(temporary.newFolder().toPath()).use { fixture ->
+                val configurable = configurable(fixture)
+                try {
+                    val component = requireNotNull(configurable.createComponent())
+                    configurable.reset()
+                    assertEquals("Ayu Islands", configurable.displayName)
+                    assertSame(component, configurable.createComponent())
+                    val tabs = hostDescendants(component).filterIsInstance<JTabbedPane>().single()
+                    assertEquals(
+                        StudioSettingsSection.entries.map { it.title },
+                        (0 until tabs.tabCount).map(tabs::getTitleAt),
+                    )
+                    assertFalse(configurable.isModified())
 
-    fun testConfigurableDelegatesModifiedResetAndApplyToItsSession() {
-        val settings = AyuIslandsSettings.getInstance()
-        val storedIgnoreSetting = settings.state.ignorePluginSyntaxColorsEnabled
-        val configurable = AyuIslandsConfigurable()
-        try {
-            val component = configurable.createComponent()
-            val checkbox =
-                descendants(component, JCheckBox::class.java)
-                    .single { it.text == ".ignore syntax colors" }
+                    editGlow(fixture)
+                    assertTrue(configurable.isModified())
+                    configurable.reset()
+                    assertFalse(configurable.isModified())
+                    assertEquals(fixture.document.currents.global.appearance, fixture.selectedDraft().appearance)
 
-            assertEquals(storedIgnoreSetting, checkbox.isSelected)
-            checkbox.doClick()
-            assertTrue(configurable.isModified)
+                    editGlow(fixture)
+                    val requested = fixture.selectedDraft().appearance
+                    configurable.apply()
+                    fixture.readStoredDocument()
 
-            configurable.reset()
-            assertEquals(storedIgnoreSetting, checkbox.isSelected)
-            assertFalse(configurable.isModified)
-
-            checkbox.doClick()
-            configurable.apply()
-            assertEquals(!storedIgnoreSetting, settings.state.ignorePluginSyntaxColorsEnabled)
-            assertFalse(configurable.isModified)
-        } finally {
-            settings.state.ignorePluginSyntaxColorsEnabled = storedIgnoreSetting
-            configurable.disposeUIResources()
-        }
-    }
-
-    fun testConfigurableClosesReplacedAndDisposedSessions() {
-        mockkConstructor(AyuIslandsEffectsPanel::class)
-        val configurable = AyuIslandsConfigurable()
-        try {
-            configurable.createPanel()
-            configurable.createPanel()
-
-            verify(exactly = 1) { anyConstructed<AyuIslandsEffectsPanel>().dispose() }
-
-            configurable.disposeUIResources()
-
-            verify(exactly = 2) { anyConstructed<AyuIslandsEffectsPanel>().dispose() }
-        } finally {
-            configurable.disposeUIResources()
-            unmockkConstructor(AyuIslandsEffectsPanel::class)
-        }
-    }
-
-    fun testConfigurableCapturesEditorContextBeforeCancellingThePreviousSession() {
-        val events = mutableListOf<String>()
-        mockkConstructor(AyuIslandsEffectsPanel::class)
-        every { anyConstructed<AyuIslandsEffectsPanel>().cancel() } answers {
-            events += "cancel"
-        }
-        val configurable =
-            AyuIslandsConfigurable {
-                events += "capture"
-                SettingsOpenContext(project = null, activeFile = null)
+                    assertEquals(requested, fixture.document.currents.global.appearance)
+                    assertFalse(configurable.isModified())
+                    assertEquals(1, fixture.coordinators.size)
+                } finally {
+                    configurable.disposeUIResources()
+                }
             }
-        try {
-            configurable.createPanel()
-            events.clear()
-
-            configurable.createPanel()
-
-            assertEquals(listOf("capture", "cancel"), events.take(2))
-        } finally {
-            configurable.disposeUIResources()
-            unmockkConstructor(AyuIslandsEffectsPanel::class)
         }
+
+    @Test
+    fun `registered Settings adapter detaches only its view and Cancel retires its retained draft`() =
+        onHostEdt {
+            StudioHostFixture(temporary.newFolder().toPath()).use { fixture ->
+                val configurable = configurable(fixture)
+                try {
+                    val original = requireNotNull(configurable.createComponent())
+                    configurable.reset()
+                    editGlow(fixture)
+                    val pending = fixture.binding.controller.state.record
+                    val accepted = fixture.document.currents
+
+                    configurable.disposeUIResources()
+                    val reopened = requireNotNull(configurable.createComponent())
+                    configurable.reset()
+
+                    assertNotSame(original, reopened)
+                    assertEquals(pending, fixture.binding.controller.state.record)
+                    assertTrue(configurable.isModified())
+                    configurable.cancel()
+                    fixture.readStoredDocument()
+                    assertEquals(SessionPhase.Retired, fixture.binding.controller.state.phase)
+                    assertEquals(accepted, fixture.document.currents)
+                    assertTrue(fixture.apply.effects.all { it.writes == 0 })
+                } finally {
+                    configurable.disposeUIResources()
+                }
+            }
+        }
+
+    private fun configurable(fixture: StudioHostFixture) =
+        AyuIslandsConfigurable(
+            StudioIdeSettings(
+                provider = {
+                    StudioSettingsAccess.Ready(
+                        StudioSettingsBinding(fixture.binding, {}, scope) { LicenseEntitlement.LICENSED },
+                    )
+                },
+                capture = { SettingsOpenContext.EMPTY },
+            ),
+        )
+
+    private fun editGlow(fixture: StudioHostFixture) {
+        val draft = fixture.selectedDraft()
+        val address = FieldAddress(LegacyFieldKey(LegacyStore.SETTINGS, "glowEnabled"))
+        val original =
+            draft.appearance.glow.records
+                .single { it.key == address.field }
+                .value as RawValue.BooleanValue
+        fixture.binding.controller.dispatch(
+            SessionEvent.Intent(
+                SessionIntent.EditField(draft.id, address, FieldValue.Present(RawValue.BooleanValue(!original.value))),
+            ),
+        )
     }
 
-    private fun collectTabbedPanes(
-        root: java.awt.Component,
-        found: MutableList<JTabbedPane> = mutableListOf(),
-    ): List<JTabbedPane> {
-        if (root is JTabbedPane) {
-            found += root
-        }
-        if (root is Container) {
-            root.components.forEach { collectTabbedPanes(it, found) }
-        }
-        return found
-    }
-
-    private fun <T : java.awt.Component> descendants(
-        root: java.awt.Component,
-        type: Class<T>,
-        found: MutableList<T> = mutableListOf(),
-    ): List<T> {
-        if (type.isInstance(root)) {
-            found += type.cast(root)
-        }
-        if (root is Container) {
-            root.components.forEach { descendants(it, type, found) }
-        }
-        return found
-    }
+    private fun appScope(context: CoroutineContext = Dispatchers.Default): CoroutineScope =
+        CoroutineScope(SupervisorJob() + context)
 }

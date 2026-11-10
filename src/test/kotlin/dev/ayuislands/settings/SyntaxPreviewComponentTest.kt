@@ -58,7 +58,8 @@ class SyntaxPreviewComponentTest {
     @Test
     fun `component embeds a native editor text field for syntax highlighting`() {
         val previewFile = mockk<VirtualFile>(relaxed = true)
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val component =
+            SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true)) { _, _, _ -> previewFile }
 
         val editor = findEditorTextField(component)
 
@@ -79,7 +80,7 @@ class SyntaxPreviewComponentTest {
 
     @Test
     fun `variant is stored after updatePreview`() {
-        val component = SyntaxPreviewComponent(AyuVariant.DARK)
+        val component = SyntaxPreviewComponent(AyuVariant.DARK, scheme = mockk(relaxed = true))
 
         component.updatePreview(AyuVariant.MIRAGE)
 
@@ -87,23 +88,13 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
-    fun `updatePreview refreshes the existing native editor color scheme`() {
-        val colorsManager = mockk<EditorColorsManager>()
+    fun `updatePreview uses the supplied scheme instead of live editor colors`() {
         val currentScheme = mockk<EditorColorsScheme>()
-        val globalScheme = mockk<EditorColorsScheme>(relaxed = true)
+        val requestedScheme = mockk<EditorColorsScheme>()
         val previewScheme = mockk<EditorColorsScheme>(relaxed = true)
-        val fontPreferences = mockk<FontPreferences>(relaxed = true)
-        mockkStatic(EditorColorsManager::class)
-        every { EditorColorsManager.getInstance() } returns colorsManager
-        every { colorsManager.globalScheme } returns globalScheme
-        every { globalScheme.clone() } returns previewScheme
-        every { currentScheme.fontPreferences } returns fontPreferences
-        every { currentScheme.editorFontName } returns "Preview Font"
-        every { currentScheme.editorFontSize } returns 12
-        every { currentScheme.lineSpacing } returns 1.1f
-        every { currentScheme.isUseLigatures } returns true
         val previewFile = mockk<VirtualFile>(relaxed = true)
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        every { requestedScheme.clone() } returns previewScheme
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = requestedScheme) { _, _, _ -> previewFile }
         val editorField = findEditorTextField(component)
         val editor = mockk<EditorEx>(relaxed = true)
         every { editor.colorsScheme } returns currentScheme
@@ -118,18 +109,15 @@ class SyntaxPreviewComponentTest {
 
         component.updatePreview(AyuVariant.MIRAGE)
 
-        verify(exactly = 1) { previewScheme.fontPreferences = fontPreferences }
-        verify(exactly = 1) { previewScheme.editorFontName = "Preview Font" }
-        verify(exactly = 1) { previewScheme.editorFontSize = 12 }
-        verify(exactly = 1) { previewScheme.lineSpacing = 1.1f }
-        verify(exactly = 1) { previewScheme.isUseLigatures = true }
+        verify(exactly = 1) { requestedScheme.clone() }
         verify(exactly = 1) { editor.colorsScheme = previewScheme }
+        verify(exactly = 0) { currentScheme.clone() }
         verify(exactly = 0) { editor.reinitSettings() }
     }
 
     @Test
     fun `updatePreview switches the native editor file type when language changes`() {
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
 
         component.updatePreview(AyuVariant.MIRAGE, "Java")
 
@@ -140,11 +128,33 @@ class SyntaxPreviewComponentTest {
     }
 
     @Test
+    fun `explicit scheme refresh preserves the selected alternate primitive sample until language changes`() {
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, "TIL", scheme = mockk(relaxed = true))
+        try {
+            assertEquals("preview.hil", component.sampleFileNameForTest())
+            component.showPrimitive(PrimitiveCategory.TYPE_REF)
+            assertEquals("preview.tf", component.sampleFileNameForTest())
+            val selectedCode = component.sampleCodeForTest()
+
+            component.updatePreview(AyuVariant.DARK, "TIL", mockk(relaxed = true))
+
+            assertEquals("preview.tf", component.sampleFileNameForTest())
+            assertEquals(selectedCode, component.sampleCodeForTest())
+            component.updatePreview(AyuVariant.DARK, "Java", mockk(relaxed = true))
+            assertEquals("PresetPreview.java", component.sampleFileNameForTest())
+        } finally {
+            com.intellij.openapi.util.Disposer
+                .dispose(component)
+        }
+    }
+
+    @Test
     fun `primitive navigation reads each bundled sample at most once per component`() {
         var loadCount = 0
         val component =
             SyntaxPreviewComponent(
                 variant = AyuVariant.MIRAGE,
+                scheme = mockk(relaxed = true),
                 previewCodeLoader = {
                     loadCount += 1
                     "fun cachedPreview() = 42"
@@ -164,7 +174,7 @@ class SyntaxPreviewComponentTest {
             editorFixture.mockFileType("NotSwift", "txt")
         every { editorFixture.fileTypeManager.getFileTypeByFileName("Preview.swift") } returns noctuleSwift
 
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, "Swift")
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, "Swift", scheme = mockk(relaxed = true))
 
         val editor = assertNotNull(findEditorTextField(component))
         assertSame(noctuleSwift, editor.fileType)
@@ -201,7 +211,7 @@ class SyntaxPreviewComponentTest {
         every { previewFile.name } returns "Preview.swift"
         every { previewFile.fileType } returns swiftFileType
         val component =
-            SyntaxPreviewComponent(AyuVariant.MIRAGE, "Swift") { name, fileType, _ ->
+            SyntaxPreviewComponent(AyuVariant.MIRAGE, "Swift", scheme = globalScheme) { name, fileType, _ ->
                 assertEquals("Preview.swift", name)
                 assertSame(swiftFileType, fileType)
                 previewFile
@@ -254,7 +264,7 @@ class SyntaxPreviewComponentTest {
                 editorFixture.previewProject,
             )
         } returns plainHighlighter
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = globalScheme) { _, _, _ -> previewFile }
         val editorField = findEditorTextField(component)
         val editor = mockk<EditorEx>(relaxed = true)
         every { editor.colorsScheme } returns currentScheme
@@ -284,7 +294,7 @@ class SyntaxPreviewComponentTest {
             ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
         } throws RuntimeException("highlighter service unavailable")
         val previewFile = mockk<VirtualFile>(relaxed = true)
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = globalScheme) { _, _, _ -> previewFile }
         val editorField = findEditorTextField(component)
         val editor = mockk<EditorEx>(relaxed = true)
         every { editor.colorsScheme } returns currentScheme
@@ -314,7 +324,7 @@ class SyntaxPreviewComponentTest {
             ApplicationManager.getApplication().getService(EditorHighlighterFactory::class.java)
         } throws ProcessCanceledException()
         val previewFile = mockk<VirtualFile>(relaxed = true)
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = globalScheme) { _, _, _ -> previewFile }
         val editorField = findEditorTextField(component)
         val editor = mockk<EditorEx>(relaxed = true)
         every { editor.colorsScheme } returns currentScheme
@@ -355,7 +365,7 @@ class SyntaxPreviewComponentTest {
                 editorFixture.previewProject,
             )
         } returns mockk(relaxed = true)
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = globalScheme) { _, _, _ -> previewFile }
         val editorField = findEditorTextField(component)
         val editor = mockk<EditorEx>(relaxed = true)
         every { editor.colorsScheme } returns currentScheme
@@ -395,7 +405,7 @@ class SyntaxPreviewComponentTest {
         every {
             highlighterFactory.createEditorHighlighter(previewFile, previewScheme, editorFixture.previewProject)
         } throws ProcessCanceledException()
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = globalScheme) { _, _, _ -> previewFile }
         val editorField = findEditorTextField(component)
         val editor = mockk<EditorEx>(relaxed = true)
         every { editor.colorsScheme } returns currentScheme
@@ -425,7 +435,7 @@ class SyntaxPreviewComponentTest {
         every {
             highlighterFactory.createEditorHighlighter(previewFile, previewScheme, editorFixture.previewProject)
         } returns highlighter
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE) { _, _, _ -> previewFile }
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = globalScheme) { _, _, _ -> previewFile }
         val editorField = assertNotNull(findEditorTextField(component))
         val editor = mockk<EditorEx>(relaxed = true)
         every { editor.colorsScheme } returns currentScheme
@@ -444,7 +454,7 @@ class SyntaxPreviewComponentTest {
     fun `updatePreview uses curated sample for non-Kotlin languages`() {
         val pythonFileType = editorFixture.mockFileType("Python", "py")
         every { editorFixture.fileTypeManager.getStdFileType("Python") } returns pythonFileType
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
 
         component.updatePreview(AyuVariant.MIRAGE, "Python")
 
@@ -483,7 +493,7 @@ class SyntaxPreviewComponentTest {
             )
         assertTrue(SyntaxPreviewComponent.catalogLanguagesForTest().containsAll(expected))
 
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
         component.updatePreview(AyuVariant.MIRAGE, "Swift")
 
         assertEquals("Preview.swift", component.sampleFileNameForTest())
@@ -545,7 +555,7 @@ class SyntaxPreviewComponentTest {
 
     @Test
     fun `every declared language preserves its native sample through fallback`() {
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
         val sampleAssertions: List<() -> Unit> =
             SyntaxPreviewComponent.catalogLanguagesForTest().map { language ->
                 {
@@ -566,7 +576,7 @@ class SyntaxPreviewComponentTest {
         every { editorFixture.fileTypeManager.getStdFileType("Swift") } returns
             editorFixture.mockFileType("NotSwift", "txt")
 
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
         component.updatePreview(AyuVariant.MIRAGE, "Swift")
 
         val editor = findEditorTextField(component)
@@ -584,7 +594,7 @@ class SyntaxPreviewComponentTest {
         every { editorFixture.fileTypeManager.getStdFileType("Swift") } throws
             RuntimeException("missing Swift plugin")
 
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
         component.updatePreview(AyuVariant.MIRAGE, "Swift")
 
         val editor = findEditorTextField(component)
@@ -599,7 +609,7 @@ class SyntaxPreviewComponentTest {
 
     @Test
     fun `preferred size is non-zero`() {
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
         val preferred = component.preferredSize
 
         assertTrue(preferred.width > 0, "Preferred width must be positive")
@@ -608,7 +618,7 @@ class SyntaxPreviewComponentTest {
 
     @Test
     fun `minimum size is smaller than preferred size`() {
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
         val min = component.minimumSize
         val pref = component.preferredSize
 
@@ -620,7 +630,7 @@ class SyntaxPreviewComponentTest {
 
     @Test
     fun `paintComponent renders without exception`() {
-        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE)
+        val component = SyntaxPreviewComponent(AyuVariant.MIRAGE, scheme = mockk(relaxed = true))
         component.updatePreview(AyuVariant.MIRAGE)
         component.size = Dimension(560, 220)
         component.doLayout()

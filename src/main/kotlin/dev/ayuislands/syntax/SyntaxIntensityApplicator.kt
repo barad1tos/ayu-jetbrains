@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.markup.TextAttributes
 import dev.ayuislands.accent.color.AccentHsl
 import dev.ayuislands.rotation.HslColor
 import java.awt.Color
+import java.awt.Font
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
@@ -103,6 +104,35 @@ object SyntaxIntensityApplicator {
         val customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
         val fallbacks: Map<String, String> = emptyMap(),
     )
+
+    /** Computes the explicit semantic replacement layer without changing the user's sparse style maps. */
+    internal fun replacementFonts(
+        preset: SyntaxPreset,
+        styles: Map<String, Map<String, Int>>,
+        emphasis: Map<String, Map<String, Int>>,
+    ): Map<String, Map<String, Int>> {
+        if (preset != SyntaxPreset.CUSTOM) return emptyMap()
+        return styles.mapValues { (language, categories) ->
+            categories.mapValues { (category, style) ->
+                style or (emphasis[language]?.get(category) ?: Font.PLAIN)
+            }
+        }
+    }
+
+    /** Projects the existing Custom entitlement gate without rewriting the requested preset. */
+    internal fun effectivePreset(
+        preset: SyntaxPreset,
+        isLicensed: Boolean,
+    ): SyntaxPreset = if (preset == SyntaxPreset.CUSTOM && !isLicensed) SyntaxPreset.AMBIENT else preset
+
+    /** Projects runtime capability without rewriting the requested readability choices. */
+    internal fun effectiveReadability(
+        options: SyntaxReadabilityOptions,
+        isLicensed: Boolean,
+    ): SyntaxReadabilityOptions {
+        if (options == SyntaxReadabilityOptions.DEFAULT) return options
+        return if (isLicensed) options else SyntaxReadabilityOptions.DEFAULT
+    }
 
     fun compute(request: Request): Map<TextAttributesKey, TextAttributes> {
         val preset = request.preset
@@ -449,30 +479,40 @@ object SyntaxIntensityApplicator {
         editorBg: Color,
     ): Color =
         when (category) {
-            PrimitiveCategory.COMMENT ->
+            PrimitiveCategory.COMMENT -> {
                 if (options.dimComments) {
                     RgbBlend.blend(color, editorBg, DIM_COMMENTS_INTENSITY)
                 } else {
                     color
                 }
-            PrimitiveCategory.DOCUMENTATION ->
+            }
+
+            PrimitiveCategory.DOCUMENTATION -> {
                 if (options.softenDocumentation) {
                     RgbBlend.blend(color, editorBg, SOFTEN_DOCUMENTATION_INTENSITY)
                 } else {
                     color
                 }
-            PrimitiveCategory.OPERATOR ->
+            }
+
+            PrimitiveCategory.OPERATOR -> {
                 if (options.quietOperators) {
                     RgbBlend.blend(color, editorBg, QUIET_OPERATORS_INTENSITY)
                 } else {
                     color
                 }
+            }
+
             PrimitiveCategory.FUNCTION_DECL,
             PrimitiveCategory.CLASS_DECL,
             PrimitiveCategory.INTERFACE_DECL,
-            ->
+            -> {
                 if (options.emphasizeDeclarations) transformForeground(color, EMPHASIZE_DECLARATIONS_CURVE) else color
-            else -> color
+            }
+
+            else -> {
+                color
+            }
         }
 
     private fun warnOnceIfWhiteBgOnDarkVariant(

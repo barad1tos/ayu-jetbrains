@@ -22,6 +22,7 @@ import dev.ayuislands.accent.AccentApplyScope
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockk
@@ -40,6 +41,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -86,7 +88,7 @@ class BracketFadeManagerTest {
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
-        every { mockSettings.state } returns state
+        every { mockSettings.state } answers { StudioFixtures.legacyView(state).settings }
         state.bracketScopeEnabled = true
 
         mockkStatic(PsiDocumentManager::class)
@@ -158,6 +160,62 @@ class BracketFadeManagerTest {
         val field = BracketFadeManager::class.java.getDeclaredField(fieldName)
         field.isAccessible = true
         field.set(BracketFadeManager, value)
+    }
+
+    @Test
+    fun `stale prepared bracket retains pending evidence until detached cleanup succeeds`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val prepared = BracketFadeManager.prepare(Color.RED)
+        val plannedParent = assertNotNull(prepared.planned.parent)
+        BracketFadeManager.activate(Color.GREEN)
+        val foreignParent = getPrivateField<Disposable>("disposable")
+        assertFalse(prepared.apply())
+        every { Disposer.dispose(plannedParent) } throws IllegalStateException("listener cleanup failed")
+
+        try {
+            assertFailsWith<IllegalStateException> { prepared.restore(emptyList()) }
+            assertTrue(prepared.hasPending)
+            assertEquals(dev.ayuislands.accent.AccentWriteState.OWNED, prepared.state)
+            assertSame(Color.GREEN, getPrivateField("currentColor"))
+            assertSame(foreignParent, getPrivateField("disposable"))
+        } finally {
+            every { Disposer.dispose(plannedParent) } answers { disposedParents += plannedParent }
+            prepared.restore(emptyList())
+        }
+
+        assertFalse(prepared.hasPending)
+        assertEquals(dev.ayuislands.accent.AccentWriteState.RELINQUISHED, prepared.state)
+        assertSame(Color.GREEN, getPrivateField("currentColor"))
+        assertSame(foreignParent, getPrivateField("disposable"))
+    }
+
+    @Test
+    fun `detached bracket capture leaves listeners and markup intact until explicit apply`() {
+        BracketFadeManager.activate(Color.BLUE)
+        val previousParent = getPrivateField<Disposable>("disposable")
+        val markup = trackedMarkup()
+
+        val prepared = BracketFadeManager.prepare(Color.RED)
+
+        assertSame(Color.BLUE, getPrivateField("currentColor"))
+        assertSame(previousParent, getPrivateField("disposable"))
+        assertTrue(markup.isValid)
+        assertTrue(disposedParents.isEmpty())
+
+        prepared.apply()
+        val createdParent = getPrivateField<Disposable>("disposable")
+        assertSame(Color.RED, getPrivateField("currentColor"))
+        assertNotSame(previousParent, createdParent)
+        assertTrue(markup.isValid)
+        assertTrue(disposedParents.isEmpty())
+
+        prepared.restore(emptyList())
+
+        assertSame(Color.BLUE, getPrivateField("currentColor"))
+        assertSame(previousParent, getPrivateField("disposable"))
+        assertTrue(markup.isValid)
+        assertSame(markup.originalRenderer, markup.renderer)
+        assertEquals(setOf(createdParent), disposedParents)
     }
 
     @Test

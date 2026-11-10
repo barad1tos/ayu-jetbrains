@@ -11,9 +11,12 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
+import com.intellij.util.ui.WrapLayout
+import dev.ayuislands.studio.ui.StudioResponsiveLayout
 import dev.ayuislands.syntax.PrimitiveCategory
 import dev.ayuislands.syntax.PrimitiveGroup
 import java.awt.Dimension
+import java.awt.FlowLayout
 import java.awt.GridLayout
 import javax.swing.JComponent
 import javax.swing.JLabel
@@ -40,17 +43,19 @@ internal class SyntaxControlGrid(
     private val groupRows: MutableMap<PrimitiveGroup, Row> = mutableMapOf()
     private val labelColumnWidth: Int by lazy(::computeLabelColumnWidth)
 
-    fun build(panel: Panel): Row =
-        with(panel) {
+    fun build(container: Panel): Row {
+        val columns = COLUMN_GROUPS.map { groups -> panel { groups.forEach { buildGroup(it) } } }
+        return with(container) {
             row {
-                panel {
-                    COLUMN_GROUPS.first().forEach { buildGroup(it) }
-                }.align(AlignX.FILL)
-                panel {
-                    COLUMN_GROUPS.last().forEach { buildGroup(it) }
-                }.align(AlignX.FILL)
+                cell(
+                    JPanel(WrapLayout(FlowLayout.LEADING, 0, 0).apply { fillWidth = true }).apply {
+                        isOpaque = false
+                        columns.forEach { add(it) }
+                    },
+                ).resizableColumn().align(AlignX.FILL)
             }
         }
+    }
 
     fun show(categories: Set<PrimitiveCategory>) {
         categoryRows.forEach { (category, row) -> row.visible(category in categories) }
@@ -67,16 +72,28 @@ internal class SyntaxControlGrid(
     }
 
     private fun Panel.buildCategory(category: PrimitiveCategory) {
+        val categoryLabel =
+            JLabel(category.displayName).apply {
+                preferredSize = Dimension(labelColumnWidth, preferredSize.height)
+                minimumSize = Dimension(labelColumnWidth, preferredSize.height)
+            }
+        categoryLabels[category] = categoryLabel
+        val controls = categoryControls(category)
         categoryRows[category] =
             row {
-                val categoryLabel =
-                    JLabel(category.displayName).apply {
-                        preferredSize = Dimension(labelColumnWidth, preferredSize.height)
-                        minimumSize = Dimension(labelColumnWidth, preferredSize.height)
-                    }
-                categoryLabels[category] = categoryLabel
-                cell(categoryLabel).gap(RightGap.SMALL)
+                cell(
+                    JPanel(StudioResponsiveLayout()).apply {
+                        isOpaque = false
+                        add(categoryLabel)
+                        add(controls)
+                    },
+                ).resizableColumn().align(AlignX.FILL)
+            }
+    }
 
+    private fun categoryControls(category: PrimitiveCategory): JPanel =
+        panel {
+            row {
                 val styleControl = createStyleControl(category)
                 styleControls[category] = styleControl
                 val sliderAndStyle = sliderStylePair(styleControl)
@@ -109,7 +126,7 @@ internal class SyntaxControlGrid(
                 sliders[category] = intensitySlider
                 sliderLabels[category] = valueLabel
             }
-    }
+        }
 
     private fun resetSlot(resetButton: InplaceButton): JPanel =
         JPanel(GridLayout(1, TRAILING_SLOT_COUNT, 0, 0)).apply {

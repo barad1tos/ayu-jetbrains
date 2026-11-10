@@ -9,6 +9,7 @@ import java.util.WeakHashMap
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JTextField
+import javax.swing.SwingUtilities
 
 /**
  * Manages focus-ring glow borders on text input components.
@@ -22,6 +23,115 @@ class FocusRingManager {
     private val log = logger<FocusRingManager>()
     private val focusListeners = mutableMapOf<JComponent, GlowFocusListener>()
     private val processedWindows = WeakHashMap<Window, Unit>()
+    private var callbackHold: CallbackHold? = null
+
+    internal fun holdCallbacks(): CallbackHold {
+        check(SwingUtilities.isEventDispatchThread()) { "Glow focus holds must run on EDT" }
+        check(callbackHold == null) { "Glow focus callbacks are already held" }
+        return CallbackHold().also { callbackHold = it }
+    }
+
+    internal inner class CallbackHold {
+        val components: List<JComponent> = java.util.List.copyOf(focusListeners.keys)
+        val listeners: List<GlowFocusListener> = java.util.List.copyOf(focusListeners.values)
+        private var sharedBorders: Map<JComponent, GlowFocusBorderPlan>? = null
+
+        val isActive: Boolean
+            get() = !isReleased && callbackHold === this
+
+        fun selectBorderWriters(plans: Map<JComponent, GlowFocusBorderPlan>) {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow focus selection must run on EDT" }
+            check(isActive && sharedBorders == null) { "Glow focus selection is no longer available" }
+            sharedBorders = java.util.Collections.unmodifiableMap(java.util.IdentityHashMap(plans))
+        }
+
+        fun captureShared(
+            peers: Map<GlowFocusListener, GlowFocusPeer>,
+            plans: Map<JComponent, GlowFocusBorderPlan>,
+            isAvailable: () -> Boolean,
+        ): List<GlowFocusListener.Checkpoint> {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow focus capture must run on EDT" }
+            check(isActive && isAvailable()) { "Glow focus hold is unavailable" }
+            return listeners.mapNotNull { listener ->
+                plans[listener.component]?.let { plan ->
+                    listener.captureShared(peers.getValue(listener).planned, plan) {
+                        isActive && isAvailable() && focusListeners[listener.component] === listener
+                    }
+                }
+            }
+        }
+
+        fun capture(
+            isAvailable: () -> Boolean,
+            transform: (GlowFocusAppearance) -> GlowFocusAppearance,
+        ): List<GlowFocusListener.Checkpoint> {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow focus capture must run on EDT" }
+            val isCurrent = { !isReleased && callbackHold === this && isAvailable() }
+            check(isCurrent()) { "Glow focus hold is unavailable" }
+            return this@FocusRingManager.capture(isCurrent, transform)
+        }
+
+        fun prepare(
+            planned: GlowFocusAppearance,
+            excluded: Collection<JComponent>,
+            isAvailable: () -> Boolean,
+        ): List<GlowFocusAttachment> {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow focus preparation must run on EDT" }
+            check(!isReleased && callbackHold === this && isAvailable()) { "Glow focus hold is unavailable" }
+            if (!planned.enabled) return emptyList()
+            val attachments = mutableListOf<GlowFocusAttachment>()
+            for (window in Window.getWindows()) {
+                visitInputs(window) { component ->
+                    if (!focusListeners.containsKey(component) && excluded.none { it === component }) {
+                        val listener = createListener(component, planned)
+                        val attachment =
+                            GlowFocusAttachment(component, listener, focusListeners) {
+                                !isReleased && callbackHold === this && isAvailable()
+                            }
+                        captures.add(attachment.callbacks)
+                        attachments.add(attachment)
+                    }
+                }
+            }
+            return java.util.List.copyOf(attachments)
+        }
+
+        private val captures =
+            focusListeners
+                .map { (component, listener) ->
+                    listener.captureCallbacks { focusListeners[component] === listener }
+                }.toMutableList()
+        private var isReleased = false
+
+        fun release() {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow focus holds must run on EDT" }
+            if (isReleased) return
+            check(callbackHold === this) { "Glow focus hold was replaced" }
+            val failures = mutableListOf<RuntimeException>()
+            for (capture in captures) {
+                try {
+                    val writer = sharedBorders?.get(capture.listener.component)?.writer
+                    capture.reconcile(writer == null || writer === capture.listener)
+                } catch (exception: RuntimeException) {
+                    failures.add(exception)
+                }
+            }
+            failures.firstOrNull()?.let { first ->
+                failures.drop(1).filterNot { it === first }.forEach(first::addSuppressed)
+                throw first
+            }
+            callbackHold = null
+            isReleased = true
+        }
+    }
+
+    internal fun capture(
+        isAvailable: () -> Boolean = { true },
+        transform: (GlowFocusAppearance) -> GlowFocusAppearance,
+    ): List<GlowFocusListener.Checkpoint> =
+        focusListeners.mapNotNull { (component, listener) ->
+            listener.capture(transform) { focusListeners[component] === listener && isAvailable() }
+        }
 
     fun isTextInputComponent(component: Component): Boolean =
         component is JTextField ||
@@ -38,6 +148,7 @@ class FocusRingManager {
         style: GlowStyle,
         intensity: Int,
     ) {
+        if (callbackHold != null) return
         for (window in Window.getWindows()) {
             if (processedWindows.containsKey(window)) continue
             installFocusListenersRecursively(window, accent, style, intensity)
@@ -59,6 +170,7 @@ class FocusRingManager {
         intensity: Int,
         enabled: Boolean,
     ) {
+        if (callbackHold != null) return
         removeFocusListeners()
         processedWindows.clear()
         if (enabled) {
@@ -87,14 +199,43 @@ class FocusRingManager {
         style: GlowStyle,
         intensity: Int,
     ) {
-        if (isTextInputComponent(component) && component is JComponent && !focusListeners.containsKey(component)) {
-            val listener = GlowFocusListener(component, accent, style, intensity) { focusListeners.remove(component) }
-            focusListeners[component] = listener
-            listener.attach()
+        val appearance = GlowFocusAppearance(accent, style, intensity, enabled = true)
+        visitInputs(component) { input ->
+            if (!focusListeners.containsKey(input)) {
+                val listener = createListener(input, appearance)
+                focusListeners[input] = listener
+                listener.attach()
+            }
         }
+    }
+
+    private fun createListener(
+        component: JComponent,
+        appearance: GlowFocusAppearance,
+    ): GlowFocusListener {
+        lateinit var listener: GlowFocusListener
+        listener =
+            GlowFocusListener(
+                component,
+                appearance.color,
+                appearance.style,
+                appearance.intensity,
+                callbacksAllowed = { callbackHold == null },
+                ownsComponent = { focusListeners[component] === listener },
+            ) { detached ->
+                if (focusListeners[component] === detached) focusListeners.remove(component)
+            }
+        return listener
+    }
+
+    private fun visitInputs(
+        component: Component,
+        visit: (JComponent) -> Unit,
+    ) {
+        if (isTextInputComponent(component) && component is JComponent) visit(component)
         if (component is Container) {
             for (child in component.components) {
-                installFocusListenersRecursively(child, accent, style, intensity)
+                visitInputs(child, visit)
             }
         }
     }

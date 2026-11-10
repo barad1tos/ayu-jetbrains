@@ -4,7 +4,6 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory
@@ -48,6 +47,7 @@ import javax.swing.SwingConstants
 internal class SyntaxPreviewComponent(
     private var variant: AyuVariant,
     private var language: String = DEFAULT_LANGUAGE,
+    private var scheme: EditorColorsScheme,
     private val previewCodeLoader: (String) -> String = ::loadPreviewCode,
     private val previewResolver: NativePreviewResolver = NativePreviewResolver(),
     private val previewFileFactory: (String, FileType, CharSequence) -> VirtualFile = ::createPreviewFile,
@@ -79,12 +79,13 @@ internal class SyntaxPreviewComponent(
     fun updatePreview(
         variant: AyuVariant,
         language: String = this.language,
+        scheme: EditorColorsScheme = this.scheme,
     ) {
         this.variant = variant
+        this.scheme = scheme
         val nextLanguage = normalizeLanguage(language)
-        val nextSample = sampleFor(nextLanguage)
-        if (nextLanguage != this.language || nextSample != previewSample) {
-            selectSample(nextLanguage, nextSample)
+        if (nextLanguage != this.language) {
+            selectSample(nextLanguage, sampleFor(nextLanguage))
         }
         refreshEditor()
         editorField.background = surfacePalette().editor
@@ -144,7 +145,7 @@ internal class SyntaxPreviewComponent(
 
     private fun refreshEditor(editor: EditorEx? = editorField.getEditor(false)) {
         editor ?: return
-        val previewScheme = previewColorsScheme(editor.colorsScheme)
+        val previewScheme = scheme.clone() as EditorColorsScheme
         editor.colorsScheme = previewScheme
         installPreviewHighlighter(editor, previewScheme)
     }
@@ -189,16 +190,6 @@ internal class SyntaxPreviewComponent(
                 }
             }
         editor.highlighter = highlighter
-    }
-
-    private fun previewColorsScheme(currentScheme: EditorColorsScheme): EditorColorsScheme {
-        val previewScheme = EditorColorsManager.getInstance().globalScheme.clone() as EditorColorsScheme
-        previewScheme.fontPreferences = currentScheme.fontPreferences
-        previewScheme.editorFontName = currentScheme.editorFontName
-        previewScheme.editorFontSize = currentScheme.editorFontSize
-        previewScheme.lineSpacing = currentScheme.lineSpacing
-        previewScheme.isUseLigatures = currentScheme.isUseLigatures
-        return previewScheme
     }
 
     override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(PREVIEW_WIDTH), JBUI.scale(PREVIEW_HEIGHT))
@@ -444,9 +435,14 @@ internal class SyntaxPreviewComponent(
     private fun resolvePreviewFileType(sample: PreviewSample): PreviewFileType {
         val profile = sample.profile ?: return PLAIN_TEXT_PREVIEW
         return when (val resolution = previewResolver.resolve(sample.fileName, profile)) {
-            is NativePreviewResolution.Resolved ->
+            is NativePreviewResolution.Resolved -> {
                 PreviewFileType(resolution.fileType, isPlainTextFallback = false)
-            is NativePreviewResolution.Unavailable -> PLAIN_TEXT_PREVIEW
+            }
+
+            is NativePreviewResolution.Unavailable -> {
+                PLAIN_TEXT_PREVIEW
+            }
+
             is NativePreviewResolution.LookupFailed -> {
                 if (failedResolutionLanguages.add(language)) {
                     LOG.warn("Native file type lookup failed for preview language '$language'", resolution.failure)
@@ -456,5 +452,11 @@ internal class SyntaxPreviewComponent(
         }
     }
 }
+
+/** Native sample input, separate from raw requested settings and owned only by the observing adapter. */
+internal data class SyntaxPreviewInput(
+    val variant: AyuVariant,
+    val scheme: EditorColorsScheme,
+)
 
 private fun propagateCancellation(failure: RuntimeException) = rethrowPreviewCancellation(failure)

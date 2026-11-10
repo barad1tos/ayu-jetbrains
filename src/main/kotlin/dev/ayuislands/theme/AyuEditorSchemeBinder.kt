@@ -87,7 +87,7 @@ internal object AyuEditorSchemeBinder {
             log.debug("Editor scheme '$current' is our editable copy for $variant; leaving in place")
             return false
         }
-        if (current !in NEUTRAL_SCHEMES && !isAyuScheme(current)) {
+        if (!canBind(current)) {
             log.info("Skipping editor-scheme bind for $variant — current scheme '$current' is user-custom")
             return false
         }
@@ -123,4 +123,7 @@ internal object AyuEditorSchemeBinder {
     ): Boolean = schemeName.removePrefix(EDITABLE_COPY_PREFIX) == targetSchemeName(variant)
 
     internal fun isAyuScheme(schemeName: String): Boolean = AyuVariant.entries.any { matchesVariant(schemeName, it) }
+
+    /** Only platform defaults and canonical Ayu schemes participate in automatic synchronization. */
+    internal fun canBind(schemeName: String): Boolean = schemeName in NEUTRAL_SCHEMES || isAyuScheme(schemeName)
 }

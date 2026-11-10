@@ -3,6 +3,7 @@ package dev.ayuislands.settings
 import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.font.FontDetector
+import dev.ayuislands.font.FontPanelPreview
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontWeight
 import java.awt.Color
@@ -34,6 +35,19 @@ class FontPreviewComponent : JComponent() {
     private var lineSpacing: Float = FontPreset.AMBIENT.lineSpacing
     private var enableLigatures: Boolean = FontPreset.AMBIENT.enableLigatures
     private var fontWeight: FontWeight = FontPreset.AMBIENT.defaultWeight
+
+    /** Renders an already-observed local sample without consulting native font discovery. */
+    internal fun updatePreview(preview: FontPanelPreview) {
+        currentPreset = preview.settings.preset
+        resolvedFontFamily = preview.family
+        fontInstalled = preview.isAvailable
+        updateSettings(
+            preview.settings.fontSize,
+            preview.settings.lineSpacing,
+            preview.settings.enableLigatures,
+            preview.settings.weight,
+        )
+    }
 
     fun updatePreset(
         preset: FontPreset,
@@ -149,16 +163,16 @@ class FontPreviewComponent : JComponent() {
         g2.font = JBUI.Fonts.smallFont()
         val rowHeight = JBUI.scale(PROJECT_ROW_HEIGHT)
         var rowY = y + JBUI.scale(PROJECT_TOP_PADDING)
-        for (row in PROJECT_ROWS) {
+        for ((text, color) in PROJECT_ROWS) {
             val baseline = rowY + (rowHeight - g2.fontMetrics.height) / 2 + g2.fontMetrics.ascent
-            g2.color = row.color
+            g2.color = color
             g2.fillRect(
                 x + JBUI.scale(FILE_DOT_X),
                 rowY + JBUI.scale(FILE_DOT_Y),
                 JBUI.scale(FILE_DOT),
                 JBUI.scale(FILE_DOT),
             )
-            g2.drawString(row.text, x + JBUI.scale(FILE_TEXT_X), baseline)
+            g2.drawString(text, x + JBUI.scale(FILE_TEXT_X), baseline)
             rowY += rowHeight
         }
     }
@@ -320,7 +334,6 @@ class FontPreviewComponent : JComponent() {
         const val GUTTER_WIDTH = 42
         const val LINE_NUMBER_X = 12
         const val CODE_FIRST_LINE = 12
-        const val CODE_ROW_HEIGHT = 22
         const val CODE_TOP_PADDING = 8
         const val CODE_LEFT_PADDING = 14
         const val SHADOW_OFFSET = 2

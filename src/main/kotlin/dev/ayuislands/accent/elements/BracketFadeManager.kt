@@ -19,6 +19,8 @@ import com.intellij.psi.PsiDocumentManager
 import dev.ayuislands.accent.AccentApplyPlanRunner
 import dev.ayuislands.accent.AccentApplyScope
 import dev.ayuislands.accent.AccentCheckpoint
+import dev.ayuislands.accent.AccentWriteCheckpoint
+import dev.ayuislands.accent.AccentWriteState
 import dev.ayuislands.accent.UiDefaultsTarget
 import dev.ayuislands.accent.combineUiFailures
 import dev.ayuislands.accent.restoreAccentCheckpoints
@@ -27,18 +29,31 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import java.awt.Color
 import javax.swing.SwingUtilities
 
+internal data class BracketFadeAppearance(
+    val enabled: Boolean,
+)
+
+internal data class BracketFadeState(
+    val parent: Disposable?,
+    val color: Color?,
+    val appearance: BracketFadeAppearance?,
+)
+
 object BracketFadeManager {
     private val LOG = logger<BracketFadeManager>()
 
     @Volatile private var disposable: Disposable? = null
 
     @Volatile private var currentColor: Color? = null
+    private var currentAppearance: BracketFadeAppearance? = null
+    private var held: FadeCheckpoint? = null
     private val activeHighlighters = mutableMapOf<Editor, List<RangeHighlighter>>()
     private val pending = mutableListOf<FadeCheckpoint>()
 
     fun activate(color: Color) {
         if (checkpointChange(color)) return
         currentColor = color
+        currentAppearance = null
         // Always reinstall listeners: early calls (appFrameCreated) may land on an
         // incompletely initialized EditorFactory; later calls provide valid listeners.
         disposable?.let {
@@ -57,9 +72,20 @@ object BracketFadeManager {
         disposable?.let { Disposer.dispose(it) }
         disposable = null
         currentColor = null
+        currentAppearance = null
+    }
+
+    /** Captures retained native objects without replacing listeners, colors, or live markup. */
+    internal fun prepare(
+        color: Color?,
+        appearance: BracketFadeAppearance? = null,
+    ): FadeCheckpoint {
+        check(held == null && pending.none { it.hasPending }) { "Bracket recovery must settle before preparation" }
+        return FadeCheckpoint(color, appearance, true)
     }
 
     private fun checkpointChange(color: Color?): Boolean {
+        check(held == null) { "Bracket listeners are retained by an appearance transaction" }
         val scope =
             if (SwingUtilities.isEventDispatchThread()) AccentApplyScope.active?.takeUnless { it.isCommitted } else null
         if (scope == null) {
@@ -68,13 +94,13 @@ object BracketFadeManager {
         }
         scope.checkWritable()
         scope.recover { restoreAccentCheckpoints(pending) }
-        val checkpoint = FadeCheckpoint()
+        val checkpoint = FadeCheckpoint(color, null, false)
         scope.record(checkpoint)
-        checkpoint.apply(color)
+        check(checkpoint.apply()) { "Bracket state changed during preparation" }
         return true
     }
 
-    private enum class FadePhase { RECORDING, RESTORING, RETIRING, DONE }
+    private enum class FadePhase { PREPARED, RECORDING, RESTORING, RETIRING, DONE }
 
     private class MarkerSnapshot(
         val highlighter: RangeHighlighter,
@@ -89,46 +115,89 @@ object BracketFadeManager {
     }
 
     /** Keeps old native objects alive until rollback is no longer possible. */
-    private class FadeCheckpoint : AccentCheckpoint {
+    internal class FadeCheckpoint(
+        color: Color?,
+        appearance: BracketFadeAppearance?,
+        private val holdsCallbacks: Boolean,
+    ) : AccentWriteCheckpoint {
         private val target = UiDefaultsTarget()
         private val previousParent = disposable
         private val previousColor = currentColor
+        private val previousAppearance = currentAppearance
+        val before = BracketFadeState(previousParent, previousColor, previousAppearance)
+        val planned = BracketFadeState(color?.let { Disposer.newDisposable("BracketFadeManager") }, color, appearance)
         private val markup = activeHighlighters.map { (editor, markers) -> MarkupSnapshot(editor, markers) }
-        private var expectedParent = previousParent
-        private var expectedColor = previousColor
         private var createdParent: Disposable? = null
-        private var phase = FadePhase.RECORDING
+        private var phase = FadePhase.PREPARED
+        private var relinquished = false
         private val retiringParents = mutableListOf<Disposable>()
+        private val deferred = linkedSetOf<Editor>()
+
+        override val state: AccentWriteState
+            get() =
+                when (phase) {
+                    FadePhase.DONE -> if (relinquished) AccentWriteState.RELINQUISHED else AccentWriteState.RESTORED
+                    FadePhase.PREPARED -> AccentWriteState.PREPARED
+                    else -> AccentWriteState.OWNED
+                }
 
         override val hasPending: Boolean
             get() = phase != FadePhase.DONE
 
-        fun apply(color: Color?) {
-            val next = if (color == null) null else Disposer.newDisposable("BracketFadeManager")
+        override fun apply(): Boolean {
+            check(phase == FadePhase.PREPARED) { "Bracket state was already applied" }
+            if (!target.isCurrent() || !matchesCurrent(before) || held != null) {
+                relinquished = true
+                return false
+            }
+            val next = planned.parent
             createdParent = next
-            expectedParent = next
-            expectedColor = color
+            phase = FadePhase.RECORDING
+            if (holdsCallbacks) held = this
             disposable = next
-            currentColor = color
+            currentColor = planned.color
+            currentAppearance = planned.appearance
             if (next != null) installListeners(next)
+            return true
+        }
+
+        private fun matchesCurrent(snapshot: BracketFadeState): Boolean =
+            disposable === snapshot.parent &&
+                currentColor === snapshot.color &&
+                currentAppearance === snapshot.appearance
+
+        fun defer(editor: Editor) {
+            deferred += editor
         }
 
         override fun restore(blockedBy: List<AccentCheckpoint>) {
             if (phase == FadePhase.DONE) return
+            if (phase == FadePhase.PREPARED) {
+                planned.parent?.let(retiringParents::add)
+                phase = FadePhase.RESTORING
+            }
             if (phase == FadePhase.RECORDING) {
-                val sameTarget = target.isCurrent()
-                if (disposable === expectedParent && currentColor === expectedColor) {
-                    disposable = if (sameTarget) previousParent else null
-                    currentColor = if (sameTarget) previousColor else null
-                }
-                createdParent?.let(retiringParents::add)
-                if (!sameTarget) previousParent?.let(retiringParents::add)
-                phase = if (sameTarget) FadePhase.RESTORING else FadePhase.RETIRING
+                restoreRecordedState()
             }
             releaseResources()
         }
 
+        private fun restoreRecordedState() {
+            val sameTarget = target.isCurrent()
+            if (matchesCurrent(planned)) {
+                disposable = if (sameTarget) previousParent else null
+                currentColor = if (sameTarget) previousColor else null
+                currentAppearance = if (sameTarget) previousAppearance else null
+            } else {
+                relinquished = true
+            }
+            createdParent?.let(retiringParents::add)
+            if (!sameTarget) previousParent?.let(retiringParents::add)
+            phase = if (sameTarget) FadePhase.RESTORING else FadePhase.RETIRING
+        }
+
         override fun commit() {
+            if (phase == FadePhase.RETIRING || phase == FadePhase.DONE) return
             check(phase == FadePhase.RECORDING)
             previousParent?.let(retiringParents::add)
             phase = FadePhase.RETIRING
@@ -144,7 +213,14 @@ object BracketFadeManager {
                     failure = combineUiFailures(failure, exception)
                 }
             }
-            if (failure == null) phase = FadePhase.DONE
+            if (failure == null) {
+                phase = FadePhase.DONE
+                if (held === this) held = null
+                for (editor in deferred) {
+                    AccentApplyPlanRunner.post { if (!editor.isDisposed) handleCaretMove(editor) }
+                }
+                deferred.clear()
+            }
             failure?.let { throw it }
         }
 
@@ -198,8 +274,11 @@ object BracketFadeManager {
         )
     }
 
-    @Suppress("TooGenericExceptionCaught")
     private fun handleCaretMove(editor: Editor) {
+        held?.let {
+            it.defer(editor)
+            return
+        }
         val scope = AccentApplyScope.active
         if (scope != null) {
             scope.onClose {
@@ -207,41 +286,19 @@ object BracketFadeManager {
             }
             return
         }
+        val enabled =
+            currentAppearance?.enabled ?: AyuIslandsSettings.getInstance().state?.bracketScopeEnabled ?: return
         removeHighlighters(editor)
         if (!LicenseChecker.isLicensedOrGrace()) {
             LOG.debug("BracketFade: blocked by license check")
             return
         }
-        if (!AyuIslandsSettings.getInstance().state.bracketScopeEnabled) {
+        if (!enabled) {
             LOG.debug("BracketFade: bracketScopeEnabled=false")
             return
         }
         val color = currentColor ?: return
-
-        val project = editor.project ?: return
-
-        // PSI access requires a read action (EDT alone is not enough since 2025.1 threading model)
-        val bracketRange =
-            try {
-                ApplicationManager.getApplication().runReadAction<IntArray?> {
-                    val psiFile =
-                        PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
-                            ?: return@runReadAction null
-                    val context =
-                        BraceMatchingUtil.computeHighlightingAndNavigationContext(editor, psiFile)
-                            ?: return@runReadAction null
-                    val currentOffset = context.currentBraceOffset()
-                    val matchOffset = context.navigationOffset()
-                    if (currentOffset == matchOffset) return@runReadAction null
-                    intArrayOf(
-                        minOf(currentOffset, matchOffset),
-                        maxOf(currentOffset, matchOffset),
-                    )
-                }
-            } catch (exception: RuntimeException) {
-                LOG.warn("BracketFade: BraceMatchingUtil threw", exception)
-                null
-            } ?: return
+        val bracketRange = readBracketRange(editor) ?: return
 
         val startOffset = bracketRange[0]
         val endOffset = bracketRange[1]
@@ -259,6 +316,31 @@ object BracketFadeManager {
         highlighter.lineMarkerRenderer = BracketScopeRenderer(color, startLine, endLine)
         activeHighlighters[editor] = listOf(highlighter)
         LOG.debug("BracketFade: scope rendered lines $startLine..$endLine")
+    }
+
+    private fun readBracketRange(editor: Editor): IntArray? {
+        val project = editor.project ?: return null
+        // PSI access requires a read action (EDT alone is not enough since 2025.1 threading model)
+        return try {
+            ApplicationManager.getApplication().runReadAction<IntArray?> {
+                val psiFile =
+                    PsiDocumentManager.getInstance(project).getPsiFile(editor.document)
+                        ?: return@runReadAction null
+                val context =
+                    BraceMatchingUtil.computeHighlightingAndNavigationContext(editor, psiFile)
+                        ?: return@runReadAction null
+                val currentOffset = context.currentBraceOffset()
+                val matchOffset = context.navigationOffset()
+                if (currentOffset == matchOffset) return@runReadAction null
+                intArrayOf(
+                    minOf(currentOffset, matchOffset),
+                    maxOf(currentOffset, matchOffset),
+                )
+            }
+        } catch (exception: RuntimeException) {
+            LOG.warn("BracketFade: BraceMatchingUtil threw", exception)
+            null
+        }
     }
 
     private fun removeHighlighters(editor: Editor) {

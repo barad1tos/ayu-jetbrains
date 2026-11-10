@@ -5,11 +5,28 @@ import java.awt.Container
 import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
-/** Journals only peer properties touched by the current synchronous apply. */
+/** Retains exact peer backgrounds for immediate and acknowledged accent applies. */
 internal object ChromePeerOverrides {
     private val pending = mutableListOf<PeerCheckpoint>()
     private val receipts = mutableListOf<PeerCheckpoint>()
     private var boundScope: AccentApplyScope? = null
+
+    /** Observes one exact peer without running pending recovery or changing its background. */
+    fun prepare(
+        component: JComponent,
+        color: Color?,
+    ): PeerCheckpoint {
+        check(SwingUtilities.isEventDispatchThread()) { "Chrome peer preparation must run on EDT" }
+        AccentApplyScope.active?.takeUnless { it.isCommitted }?.checkWritable()
+        checkNoPending(component)
+        return PeerCheckpoint(component, color)
+    }
+
+    private fun checkNoPending(component: JComponent) {
+        check(pending.none { it.component === component && it.hasPending }) {
+            "Chrome peer has unresolved recovery"
+        }
+    }
 
     fun put(
         component: JComponent,
@@ -34,10 +51,10 @@ internal object ChromePeerOverrides {
         }
         val previous = receipts.lastOrNull { it.component === component && it.isUnsettled }
         if (previous?.permitsWrite() == false) return
-        val checkpoint = PeerCheckpoint(component)
+        val checkpoint = prepare(component, color)
         receipts += checkpoint
         scope.record(checkpoint)
-        checkpoint.write(color)
+        checkpoint.apply()
     }
 
     private fun restorePending(component: JComponent) {
@@ -52,32 +69,47 @@ internal object ChromePeerOverrides {
         }
     }
 
-    private class PeerCheckpoint(
+    class PeerCheckpoint internal constructor(
         val component: JComponent,
-    ) : AccentCheckpoint {
-        private enum class State { OWNED, RELINQUISHED, RESTORED }
-
-        private val target = UiDefaultsTarget()
+        val planned: Color?,
+    ) : AccentWriteCheckpoint {
+        val target = UiDefaultsTarget()
         private val attachment: List<Container> = parents()
-        private val original: Color? = rawBackground()
-        private var expected: Color? = original
-        private var state = State.OWNED
+        val before: Color? = rawBackground()
+        private var expected: Color? = before
+        override var state = AccentWriteState.PREPARED
+            private set
 
         override val hasPending: Boolean
-            get() = state == State.OWNED
+            get() = state == AccentWriteState.OWNED
 
         val isUnsettled: Boolean
-            get() = state != State.RESTORED
+            get() = state != AccentWriteState.RESTORED
 
-        fun permitsWrite(): Boolean {
-            if (state != State.OWNED) return false
-            if (!target.isCurrent() || !isAttached() || rawBackground() !== expected) {
-                state = State.RELINQUISHED
+        /** Applies the captured value once, after checking raw identity, attachment and theme. */
+        override fun apply(): Boolean {
+            check(SwingUtilities.isEventDispatchThread()) { "Chrome peer writes must run on EDT" }
+            if (state != AccentWriteState.PREPARED) return false
+            AccentApplyScope.active?.takeUnless { it.isCommitted }?.checkWritable()
+            checkNoPending(component)
+            if (!target.isCurrent() || !isAttached() || rawBackground() !== before) {
+                state = AccentWriteState.RELINQUISHED
+                return false
             }
-            return state == State.OWNED
+            state = AccentWriteState.OWNED
+            write(planned)
+            return permitsWrite() && expected === planned
         }
 
-        fun write(color: Color?) {
+        fun permitsWrite(): Boolean {
+            if (state != AccentWriteState.OWNED) return false
+            if (!target.isCurrent() || !isAttached() || rawBackground() !== expected) {
+                state = AccentWriteState.RELINQUISHED
+            }
+            return state == AccentWriteState.OWNED
+        }
+
+        private fun write(color: Color?) {
             val previous = expected
             expected = color
             try {
@@ -87,24 +119,25 @@ internal object ChromePeerOverrides {
                 when {
                     observed === expected -> Unit
                     observed === previous -> expected = previous
-                    else -> state = State.RELINQUISHED
+                    else -> state = AccentWriteState.RELINQUISHED
                 }
             }
         }
 
         override fun restore(blockedBy: List<AccentCheckpoint>) {
+            if (state == AccentWriteState.PREPARED) commit()
             if (!hasPending) return
             check(blockedBy.none { it is PeerCheckpoint && it.component === component && it.hasPending }) {
                 "Chrome peer restoration blocked by a newer write"
             }
             if (!permitsWrite()) return
-            if (expected !== original) write(original)
+            if (expected !== before) write(before)
             component.repaint()
             commit()
         }
 
         override fun commit() {
-            if (state != State.RELINQUISHED) state = State.RESTORED
+            if (state != AccentWriteState.RELINQUISHED) state = AccentWriteState.RESTORED
         }
 
         override fun retain() {

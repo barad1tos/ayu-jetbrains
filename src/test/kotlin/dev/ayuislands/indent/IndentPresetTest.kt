@@ -7,6 +7,31 @@ import org.junit.jupiter.api.Test
 
 class IndentPresetTest {
     @Test
+    fun `effective named alpha does not use the dormant Custom value`() {
+        assertEquals(26, IndentPreset.resolveAlpha("WHISPER", 217))
+        assertEquals(46, IndentPreset.resolveAlpha("AMBIENT", 217))
+        assertEquals(77, IndentPreset.resolveAlpha("NEON", 13))
+        assertEquals(115, IndentPreset.resolveAlpha("CYBERPUNK", 217))
+    }
+
+    @Test
+    fun `effective alpha uses Ambient for null and Custom for future names`() {
+        assertEquals(46, IndentPreset.resolveAlpha(null, 217))
+        assertEquals(217, IndentPreset.resolveAlpha("FUTURE_PRESET", 217))
+        assertEquals(91, IndentPreset.resolveAlpha("", 91))
+    }
+
+    @Test
+    fun `effective Custom alpha follows runtime bounds without altering the requested value`() {
+        assertEquals(1, IndentPreset.resolveAlpha("CUSTOM", -8))
+        assertEquals(1, IndentPreset.resolveAlpha("CUSTOM", 1))
+        assertEquals(91, IndentPreset.resolveAlpha("CUSTOM", 91))
+        assertEquals(255, IndentPreset.resolveAlpha("CUSTOM", 255))
+        assertEquals(255, IndentPreset.resolveAlpha("CUSTOM", 400))
+        assertEquals(255, IndentPreset.resolveAlpha("FUTURE_PRESET", 400))
+    }
+
+    @Test
     fun `all named presets have non-null alpha`() {
         for (preset in IndentPreset.entries.filter { it != IndentPreset.CUSTOM }) {
             assertNotNull(preset.alpha, "${preset.name} should have non-null alpha")

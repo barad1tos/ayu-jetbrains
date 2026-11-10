@@ -12,6 +12,7 @@ import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -58,7 +59,7 @@ class PanelBorderElementTest {
 
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns mockSettings
-        every { mockSettings.state } returns state
+        every { mockSettings.state } answers { StudioFixtures.legacyView(state).settings }
 
         mockkStatic(UIManager::class)
         every { UIManager.put(any<String>(), any()) } returns null

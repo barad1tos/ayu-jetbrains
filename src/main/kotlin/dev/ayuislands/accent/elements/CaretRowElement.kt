@@ -20,11 +20,17 @@ class CaretRowElement : AccentElement {
 
     override fun apply(color: Color) {
         val scheme = AyuEditorSchemeScope.activeScheme() ?: return
-        val caretRowColor = ColorUtil.toAlpha(color, CARET_ROW_ALPHA)
-        AyuEditorSchemeScope.writeColor(scheme, schemeOwner, caretRowKey, caretRowColor)
-        AyuEditorSchemeScope.writeColor(scheme, schemeOwner, caretKey, color)
-        AyuEditorSchemeScope.writeColor(scheme, schemeOwner, lineNumberKey, color)
+        for ((key, value) in editorColors(color)) {
+            AyuEditorSchemeScope.writeColor(scheme, schemeOwner, key, value)
+        }
     }
+
+    internal fun editorColors(color: Color): Map<ColorKey, Color> =
+        linkedMapOf(
+            caretRowKey to ColorUtil.toAlpha(color, CARET_ROW_ALPHA),
+            caretKey to color,
+            lineNumberKey to color,
+        )
 
     override fun applyNeutral(variant: AyuVariant) {
         AyuEditorSchemeScope.restore(schemeOwner)

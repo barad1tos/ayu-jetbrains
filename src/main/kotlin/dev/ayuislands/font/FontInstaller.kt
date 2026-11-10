@@ -13,8 +13,6 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.util.io.HttpRequests
 import dev.ayuislands.licensing.LicenseChecker
-import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
 import java.awt.Font
 import java.awt.GraphicsEnvironment
@@ -32,11 +30,11 @@ import javax.net.ssl.SSLException
  * Runtime font installer. Downloads a font archive from GitHub (or a direct URL),
  * extracts the required TTF/OTF file, copies it into the platform user-level
  * font directory, registers it with the JVM so the editor can use it without a
- * restart, persists the family name in [AyuIslandsSettings] state, and delegates
- * the actual "apply" to [FontPresetApplicator].
+ * restart. The Studio resource owner records the result and an explicit command applies
+ * the preset; [installResource] returns the exact files for the Studio writer.
  *
  * The entire pipeline (download + extract + copy + register) runs on a
- * [Task.Backgroundable] pool thread. Only the final apply step hops to the EDT.
+ * [Task.Backgroundable] pool thread. Completion and the optional apply step run on EDT.
  *
  * Runtime pipeline failures map to distinct notifications. Invalid caller
  * preconditions, such as a non-canonical catalog entry or mismatched install
@@ -65,7 +63,13 @@ object FontInstaller {
     sealed class InstallResult {
         data class Success(
             val familyName: String,
+            /** Whether the JVM font picker already observes the registered family. */
+            val availableInJvm: Boolean = true,
+            /** Exact files copied by this installation, for the admitted inventory writer. */
+            val installedPaths: List<String> = emptyList(),
         ) : InstallResult()
+
+        data object Cancelled : InstallResult()
 
         data class Failure(
             val kind: FailureKind,
@@ -74,15 +78,13 @@ object FontInstaller {
     }
 
     /**
-     * Full install pipeline. Shows background progress, runs off-EDT, fires
-     * the [onComplete] callback on the EDT with either a [InstallResult.Success]
-     * or [InstallResult.Failure].
+     * Install files without writing preferences, inventory or editor schemes.
+     * Completion runs on EDT, including cancellation; the application resource owner
+     * records the exact successful result independently of the originating view.
      *
-     * @throws IllegalArgumentException before dispatch when [entry] is not the
-     *   canonical catalog entry for its preset, or [consent] was not granted for
-     *   that exact entry
+     * @throws IllegalArgumentException for a non-canonical [entry] or mismatched [consent]
      */
-    fun install(
+    fun installResource(
         entry: FontCatalog.Entry,
         consent: FontInstallConsent.InstallConsent,
         project: Project?,
@@ -98,49 +100,18 @@ object FontInstaller {
         }
         val task =
             object : Task.Backgroundable(project, "Installing ${entry.displayName}…", true) {
+                @Volatile private var isResultQueued = false
+
                 override fun run(indicator: ProgressIndicator) {
                     runPipeline(entry, entry.preset, project, indicator, onComplete)
+                    isResultQueued = true
+                }
+
+                override fun onCancel() {
+                    if (!isResultQueued) onComplete(InstallResult.Cancelled)
                 }
             }
         ProgressManager.getInstance().run(task)
-    }
-
-    /** Apply a preset without any download work — used when the font is already installed. */
-    fun applyOnly(
-        preset: FontPreset,
-        project: Project?,
-    ) {
-        // applyOnly does not need install metadata: FontSettings.decode +
-        // FontPresetApplicator can run for any preset — for CUSTOM the family
-        // is read from `preset.fontFamily` (default) or the encoded settings
-        // string when one is supplied. The catalog lookup only supplies the
-        // displayName for the rich failure notification. When the lookup is
-        // null and the applicator throws, we emit a generic notification so
-        // the user gets feedback instead of a silent log line.
-        val entry = FontCatalog.forPreset(preset)
-        ApplicationManager.getApplication().invokeLater {
-            try {
-                FontPresetApplicator.applyInstalled(FontSettings.decode(null, preset))
-            } catch (exception: RuntimeException) {
-                LOG.warn("FontPresetApplicator.apply failed (applyOnly, preset=${preset.name})", exception)
-                if (entry != null) {
-                    notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
-                } else {
-                    // No catalog entry — give the user a generic notification
-                    // pointing at Settings → Editor → Font, the manual recovery path.
-                    Notifications.Bus.notify(
-                        Notification(
-                            NOTIFICATION_GROUP,
-                            NOTIFICATION_TITLE,
-                            "Couldn't apply ${preset.fontFamily}. " +
-                                "Open Settings → Editor → Font to set it manually.",
-                            NotificationType.WARNING,
-                        ),
-                        project,
-                    )
-                }
-            }
-        }
     }
 
     private fun runPipeline(
@@ -192,7 +163,7 @@ object FontInstaller {
         }
 
         LOG.info("Font installed: $canonicalFamily (preset=${preset.name})")
-        persistAndApply(entry, project, canonicalFamily, installedFiles, onComplete)
+        completeInstallation(entry, project, canonicalFamily, installedFiles, onComplete)
     }
 
     @TestOnly
@@ -311,7 +282,7 @@ object FontInstaller {
         }
     }
 
-    private fun persistAndApply(
+    private fun completeInstallation(
         entry: FontCatalog.Entry,
         project: Project?,
         canonicalFamily: String,
@@ -325,54 +296,17 @@ object FontInstaller {
 
         if (dropdownStale) {
             notify(entry, project, FailureKind.DROPDOWN_STALE, NotificationType.WARNING)
-            ApplicationManager.getApplication().invokeLater {
-                persistFontState(canonicalFamily, installedFiles)
-                onComplete(InstallResult.Success(canonicalFamily))
-            }
-            return
         }
 
         ApplicationManager.getApplication().invokeLater {
-            try {
-                persistFontState(canonicalFamily, installedFiles)
-                FontPresetApplicator.applyInstalled(FontSettings.decode(null, entry.preset))
-                verifyApplied(entry, canonicalFamily, project)
-                onComplete(InstallResult.Success(canonicalFamily))
-            } catch (e: RuntimeException) {
-                LOG.warn("FontPresetApplicator.apply failed", e)
-                notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
-                onComplete(InstallResult.Success(canonicalFamily))
-            }
-        }
-    }
-
-    @TestOnly
-    internal fun persistFontState(
-        canonicalFamily: String,
-        installedFiles: List<File>,
-    ) {
-        val state = AyuIslandsSettings.getInstance().state
-        state.installedFonts.add(canonicalFamily)
-        state.installedFontFiles[canonicalFamily] =
-            AyuIslandsState.encodeFontPaths(installedFiles)
-        // Reinstalling a previously-deleted font clears the guard so future
-        // seeder runs treat this family as first-class again.
-        state.explicitlyUninstalledFonts.remove(canonicalFamily)
-        FontDetector.invalidateCache()
-    }
-
-    private fun verifyApplied(
-        entry: FontCatalog.Entry,
-        canonicalFamily: String,
-        project: Project?,
-    ) {
-        val active =
-            com.intellij.openapi.editor.colors.EditorColorsManager
-                .getInstance()
-                .globalScheme
-                .editorFontName
-        if (active != entry.familyName && active != canonicalFamily) {
-            notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
+            FontDetector.invalidateCache()
+            onComplete(
+                InstallResult.Success(
+                    canonicalFamily,
+                    availableInJvm = !dropdownStale,
+                    installedPaths = installedFiles.map { it.absolutePath },
+                ),
+            )
         }
     }
 

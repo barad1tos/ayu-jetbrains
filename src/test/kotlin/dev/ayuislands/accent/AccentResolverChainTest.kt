@@ -6,6 +6,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.mappings.AccentMappingsSettings
 import dev.ayuislands.settings.mappings.AccentMappingsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -31,7 +32,7 @@ import kotlin.test.assertTrue
  *
  * ### Step-count notes
  *
- * The GLOBAL winner is appended to [steps] only when no [StepOutcome.WON]
+ * The GLOBAL winner is appended to [AccentResolutionChain.steps] only when no [StepOutcome.WON]
  * step exists among the overrides (i.e. GLOBAL is the actual winner). So the
  * step count varies:
  * - No active project / unlicensed: 4 premium steps + 1 GLOBAL = **5**
@@ -56,7 +57,8 @@ class AccentResolverChainTest {
         every { AyuIslandsSettings.getInstance() } returns globalSettings
 
         val mappingsSettings = mockk<AccentMappingsSettings>()
-        every { mappingsSettings.state } returns mappingsState
+        every { mappingsSettings.state } answers
+            { StudioFixtures.legacyView(AyuIslandsState(), mappings = mappingsState).mappings }
         mockkObject(AccentMappingsSettings.Companion)
         every { AccentMappingsSettings.getInstance() } returns mappingsSettings
 
@@ -82,7 +84,7 @@ class AccentResolverChainTest {
 
     @Test
     fun `resolveChain returns global winner with NOT_APPLICABLE premium steps when project is null`() {
-        val chain = AccentResolver.resolveChain(null, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(null, AyuVariant.MIRAGE))
 
         // 4 NOT_APPLICABLE premium steps + 1 GLOBAL step
         assertEquals(5, chain.steps.size)
@@ -118,7 +120,7 @@ class AccentResolverChainTest {
         every { project.basePath } returns File(stubsDir, "default-proj").path
         every { project.name } returns "default-proj"
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(5, chain.steps.size)
         chain.steps.take(4).forEach { step ->
@@ -136,7 +138,7 @@ class AccentResolverChainTest {
         every { project.basePath } returns File(stubsDir, "disposed-proj").path
         every { project.name } returns "disposed-proj"
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(5, chain.steps.size)
         chain.steps.take(4).forEach { step ->
@@ -152,7 +154,7 @@ class AccentResolverChainTest {
     fun `resolveChain returns global winner when unlicensed`() {
         every { LicenseChecker.isLicensedOrGrace() } returns false
 
-        val chain = AccentResolver.resolveChain(null, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(null, AyuVariant.MIRAGE))
 
         // 4 LICENSE_BLOCKED premium steps + 1 GLOBAL step
         assertEquals(5, chain.steps.size)
@@ -178,7 +180,7 @@ class AccentResolverChainTest {
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(project) } returns "kotlin"
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(5, chain.steps.size)
         chain.steps.take(4).forEach { step ->
@@ -196,7 +198,7 @@ class AccentResolverChainTest {
         mappingsState.projectAccents[tmp] = "#123456"
         val project = stubProject(File(tmp))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(1, chain.steps.size, "Only PROJECT_OVERRIDE step should exist (short-circuit)")
 
@@ -216,7 +218,7 @@ class AccentResolverChainTest {
         mappingsState.projectAccents[tmp] = "not-a-hex"
         val project = stubProject(File(tmp))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         // PROJECT_OVERRIDE step has NOT_SET (invalid hex), then GLOBAL wins
         val projectStep = chain.steps.first()
@@ -238,7 +240,7 @@ class AccentResolverChainTest {
         mappingsState.languageAccents["typescript"] = "#3178C6"
         val project = stubProject(File(tmp))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(2, chain.steps.size, "Should short-circuit after forced language wins")
 
@@ -264,7 +266,7 @@ class AccentResolverChainTest {
         // No languageAccent for "typescript"
         val project = stubProject(File(tmp))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         // PROJECT_OVERRIDE NOT_SET, FORCED_LANGUAGE_OVERRIDE NO_MAPPING,
         // LANGUAGE_OVERRIDE NOT_APPLICABLE, then GLOBAL wins
@@ -291,7 +293,7 @@ class AccentResolverChainTest {
         every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
         every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(AccentResolver.Source.PROJECT_FALLBACK, chain.winner.source)
         assertEquals("#5CCFE6", chain.winner.hex)
@@ -306,7 +308,7 @@ class AccentResolverChainTest {
         mappingsState.languageFallbackAccent = "#73D0FF"
         val project = stubProject(File(tmp))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals("#73D0FF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, AccentResolver.source(project))
@@ -331,7 +333,7 @@ class AccentResolverChainTest {
         val project = stubProject(File(tmp))
         every { ProjectLanguageDetector.dominant(any()) } returns "javascript"
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         // Only 2 steps — language-override step was never collected (short-circuit)
         assertEquals(2, chain.steps.size)
@@ -355,7 +357,7 @@ class AccentResolverChainTest {
             )
         every { ProjectLanguageDetector.verdict(project) } returns verdict
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(3, chain.steps.size, "Should short-circuit after language override wins")
 
@@ -383,7 +385,7 @@ class AccentResolverChainTest {
         every { ProjectLanguageDetector.verdict(project) } returns
             ProjectLanguageVerdict.Detected("python", mapOf("python" to 1_000L))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         // 4 premium steps + 1 GLOBAL = 5
         assertEquals(5, chain.steps.size)
@@ -406,7 +408,7 @@ class AccentResolverChainTest {
         val verdict = ProjectLanguageVerdict.Detected("python", mapOf("python" to 1_000L))
         every { ProjectLanguageDetector.verdict(project) } returns verdict
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals("#73D0FF", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.LANGUAGE_FALLBACK_OVERRIDE, AccentResolver.source(project))
@@ -429,7 +431,7 @@ class AccentResolverChainTest {
         every { ProjectLanguageDetector.dominant(project) } returns null
         every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(5, chain.steps.size)
 
@@ -459,7 +461,7 @@ class AccentResolverChainTest {
         every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
         every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals(4, chain.steps.size)
 
@@ -493,7 +495,7 @@ class AccentResolverChainTest {
         every { ProjectLanguageDetector.verdict(project) } returns noWinnerVerdict
         every { ProjectLanguageDetector.verdict(project, warmCache = true) } returns noWinnerVerdict
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         assertEquals("#5CCFE6", AccentResolver.resolve(project, AyuVariant.MIRAGE))
         assertEquals(AccentResolver.Source.PROJECT_FALLBACK, AccentResolver.source(project))
@@ -512,7 +514,7 @@ class AccentResolverChainTest {
 
         every { ProjectLanguageDetector.verdict(project) } returns ProjectLanguageVerdict.Cold
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         // 4 premium steps + 1 GLOBAL = 5
         assertEquals(5, chain.steps.size)
@@ -537,7 +539,7 @@ class AccentResolverChainTest {
         every { ProjectLanguageDetector.verdict(project) } returns
             ProjectLanguageVerdict.Detected("kotlin", mapOf("kotlin" to 1_000L))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         // Language wins, short-circuits at step 2
         assertEquals(3, chain.steps.size)
@@ -557,7 +559,7 @@ class AccentResolverChainTest {
         every { ProjectLanguageDetector.verdict(project) } returns
             ProjectLanguageVerdict.NoWinner(mapOf("typescript" to 500L, "javascript" to 500L))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         val fallbackStep = chain.steps[3]
         assertEquals(AccentResolver.Source.PROJECT_FALLBACK, fallbackStep.source)
@@ -573,7 +575,7 @@ class AccentResolverChainTest {
     fun `resolveChain global wins when no overrides configured and no language mappings`() {
         val project = stubProject(File(stubsDir, "no-overrides"))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.MIRAGE)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.MIRAGE))
 
         // Empty state: 3 premium NOT_SET steps + 1 GLOBAL = 4
         assertEquals(4, chain.steps.size)
@@ -599,7 +601,7 @@ class AccentResolverChainTest {
     fun `resolveChain global uses correct variant accent`() {
         val project = stubProject(File(stubsDir, "dark-variant"))
 
-        val chain = AccentResolver.resolveChain(project, AyuVariant.DARK)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AyuVariant.DARK))
 
         val globalStep = chain.steps.last()
         assertEquals(AccentResolver.Source.GLOBAL, globalStep.source)
@@ -616,12 +618,12 @@ class AccentResolverChainTest {
         state.externalThemeAccent = "#13579B"
 
         val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
         every { settings.getAccentForVariant(any()) } returns globalMirageAccent
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
 
-        val chain = AccentResolver.resolveChain(null, AccentContext.External)
+        val chain = assertNotNull(AccentResolver.resolveChain(null, AccentContext.External))
 
         assertEquals(1, chain.steps.size, "Only the manual external step should exist")
 
@@ -640,7 +642,7 @@ class AccentResolverChainTest {
         state.externalThemeAccent = "#97531B"
 
         val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
         every { settings.getAccentForVariant(any()) } returns globalMirageAccent
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
@@ -649,7 +651,7 @@ class AccentResolverChainTest {
         mappingsState.projectAccents[tmp] = "#111111"
         val project = stubProject(File(tmp))
 
-        val chain = AccentResolver.resolveChain(project, AccentContext.External)
+        val chain = assertNotNull(AccentResolver.resolveChain(project, AccentContext.External))
 
         assertEquals(1, chain.steps.size)
         assertEquals(AccentResolver.Source.EXTERNAL_ACCENT, chain.winner.source)
@@ -663,12 +665,12 @@ class AccentResolverChainTest {
         state.externalThemeAccent = "not-a-hex"
 
         val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
         every { settings.getAccentForVariant(any()) } returns globalMirageAccent
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
 
-        val chain = AccentResolver.resolveChain(null, AccentContext.External)
+        val chain = assertNotNull(AccentResolver.resolveChain(null, AccentContext.External))
 
         assertEquals(1, chain.steps.size)
         assertEquals(AyuVariant.MIRAGE.defaultAccent, chain.winner.hex)
@@ -683,7 +685,7 @@ class AccentResolverChainTest {
         state.externalThemeAccent = "#445566"
 
         val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
         every { settings.getAccentForVariant(any()) } returns globalMirageAccent
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
@@ -693,7 +695,7 @@ class AccentResolverChainTest {
         val project = stubProject(File(tmp))
 
         AccentResolver.withUiColorProviderForTest({ null }) {
-            val chain = AccentResolver.resolveChain(project, AccentContext.External)
+            val chain = assertNotNull(AccentResolver.resolveChain(project, AccentContext.External))
 
             val projectStep = chain.steps[0]
             assertEquals(AccentResolver.Source.PROJECT_OVERRIDE, projectStep.source)
@@ -710,7 +712,7 @@ class AccentResolverChainTest {
         state.externalThemeAccent = "#445566"
 
         val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
         every { settings.getAccentForVariant(any()) } returns globalMirageAccent
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
@@ -724,7 +726,7 @@ class AccentResolverChainTest {
                 }
             },
         ) {
-            val chain = AccentResolver.resolveChain(null, AccentContext.External)
+            val chain = assertNotNull(AccentResolver.resolveChain(null, AccentContext.External))
 
             assertEquals("#0A141E", AccentResolver.resolve(null, AccentContext.External))
             assertEquals(
@@ -744,7 +746,7 @@ class AccentResolverChainTest {
         state.externalThemeAccent = "#445566"
 
         val settings = mockk<AyuIslandsSettings>()
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
         every { settings.getAccentForVariant(any()) } returns globalMirageAccent
         mockkObject(AyuIslandsSettings.Companion)
         every { AyuIslandsSettings.getInstance() } returns settings
@@ -758,7 +760,7 @@ class AccentResolverChainTest {
                 }
             },
         ) {
-            val chain = AccentResolver.resolveChain(null, AccentContext.External)
+            val chain = assertNotNull(AccentResolver.resolveChain(null, AccentContext.External))
 
             assertEquals("#C86432", AccentResolver.resolve(null, AccentContext.External))
             assertEquals(

@@ -4,13 +4,13 @@ import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationActivationListener
 import com.intellij.openapi.application.ApplicationManager
-import com.intellij.openapi.project.Project
 import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.accent.AccentChangedTopic
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentResolutionChainBuilder
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import io.mockk.every
@@ -39,16 +39,19 @@ import kotlin.test.assertTrue
  * and `dispose` disconnect and null the connection. `mousePressed` left-routes to the
  * popup; right-click routes to the context menu.
  *
- * Mirrors `AccentChangedPublishTest`'s [mockkStatic]([ApplicationManager.Companion])
+ * Mirrors `AccentChangedPublishTest`'s [mockkStatic] with [ApplicationManager]
  * harness so the suite runs headless without booting the IntelliJ application.
  */
 class QuickSwitcherChipComponentTest {
+    private lateinit var fixture: QuickSwitcherFixture
+
     private val mockApplication = mockk<Application>(relaxed = true)
     private val mockMessageBus = mockk<MessageBus>(relaxed = true)
     private val mockConnection = mockk<MessageBusConnection>(relaxed = true)
 
     @BeforeTest
     fun setUp() {
+        fixture = QuickSwitcherFixture()
         mockkStatic(ApplicationManager::class)
         every { ApplicationManager.getApplication() } returns mockApplication
         every { mockApplication.messageBus } returns mockMessageBus
@@ -151,7 +154,7 @@ class QuickSwitcherChipComponentTest {
         stubAyuActive(true)
         mockkObject(AccentResolver)
         every {
-            AccentResolver.resolve(any(), any<AccentContext>())
+            AccentResolutionChainBuilder.resolve(any(), any(), any())
         } throws RuntimeException("transient mid-LAF-swap")
         mockkObject(AccentApplicator)
         every { AccentApplicator.resolveFocusedProject() } returns null
@@ -165,16 +168,13 @@ class QuickSwitcherChipComponentTest {
     }
 
     @Test
-    fun `refreshFromFocusedProject is a no-op when AyuVariant detect returns null`() {
+    fun `refreshFromFocusedProject clears stale appearance when captured context is unavailable`() {
         stubAyuActive(false)
         val chip = QuickSwitcherChipComponent()
-        val initialIcon = chip.icon
-        val initialTooltip = chip.toolTipText
-
         chip.refreshFromFocusedProject()
 
-        assertEquals(initialIcon, chip.icon, "Icon must not change when LAF is non-Ayu")
-        assertEquals(initialTooltip, chip.toolTipText)
+        assertNull(chip.icon)
+        assertEquals("Ayu Islands settings are unavailable", chip.toolTipText)
     }
 
     @Test
@@ -344,21 +344,8 @@ class QuickSwitcherChipComponentTest {
         hex: String,
         source: AccentResolver.Source,
     ) {
-        mockkObject(AccentApplicator)
-        val mockProject = mockk<Project>(relaxed = true)
-        every { AccentApplicator.resolveFocusedProject() } returns mockProject
-        mockkObject(AccentResolver)
-        every { AccentResolver.resolve(any(), any<AccentContext>()) } returns hex
-        every { AccentResolver.resolve(any(), any<AyuVariant>()) } returns hex
-        every { AccentResolver.source(any(), any<AccentContext>()) } returns source
-        every { AccentResolver.source(any()) } returns source
-        every { AccentResolver.sourceLabel(AccentResolver.Source.PROJECT_OVERRIDE) } returns "Project override"
-        every {
-            AccentResolver.sourceLabel(AccentResolver.Source.FORCED_LANGUAGE_OVERRIDE)
-        } returns "Forced language override"
-        every { AccentResolver.sourceLabel(AccentResolver.Source.LANGUAGE_OVERRIDE) } returns "Language override"
-        every { AccentResolver.sourceLabel(AccentResolver.Source.PROJECT_FALLBACK) } returns "Project fallback"
-        every { AccentResolver.sourceLabel(AccentResolver.Source.GLOBAL) } returns "Global"
+        fixture.hex = hex
+        fixture.source = source
     }
 
     private fun leftClick(source: javax.swing.JComponent) =

@@ -40,6 +40,7 @@ internal sealed interface AccentDetectorLookup {
     // One read-only verdict backs the whole pending Settings preview, including winner detail.
     class SnapshotLookup(
         private val shouldReadFallbackEarly: Boolean,
+        private val readSnapshot: (Project) -> ProjectLanguageVerdict = { ProjectLanguageDetector.verdict(it) },
     ) : AccentDetectorLookup {
         var consultedVerdict: ProjectLanguageVerdict? = null
             private set
@@ -64,9 +65,7 @@ internal sealed interface AccentDetectorLookup {
 
         private fun readVerdict(project: Project): ProjectLanguageVerdict {
             consultedVerdict?.let { return it }
-            return ProjectLanguageDetector
-                .verdict(project)
-                .also { consultedVerdict = it }
+            return readSnapshot(project).also { consultedVerdict = it }
         }
     }
 

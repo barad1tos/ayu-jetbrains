@@ -11,6 +11,7 @@ import dev.ayuislands.accent.LiveChromeRefresher
 import dev.ayuislands.accent.WcagForeground
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.studio.StudioFixtures
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -46,7 +47,7 @@ class AbstractChromeElementTest {
         every { UIManager.put(any<String>(), any()) } returns Unit
 
         mockkObject(ChromeBaseColors)
-        every { ChromeBaseColors.get(any()) } returns stockBase
+        every { ChromeBaseColors[any()] } returns stockBase
 
         mockkObject(ChromeTintBlender)
         every { ChromeTintBlender.blend(any(), any<Color>(), any()) } returns blended
@@ -60,7 +61,7 @@ class AbstractChromeElementTest {
 
         val state = AyuIslandsState().apply { chromeTintIntensity = 30 }
         val settings = mockk<AyuIslandsSettings>(relaxed = true)
-        every { settings.state } returns state
+        every { settings.state } answers { StudioFixtures.legacyView(state).settings }
 
         val application = mockk<Application>(relaxed = true)
         every { application.getService(AyuIslandsSettings::class.java) } returns settings
@@ -253,8 +254,8 @@ class AbstractChromeElementTest {
                 foregroundKeys = emptyList(),
                 peerTarget = null,
             )
-        every { ChromeBaseColors.get("Fake.resolvable") } returns stockBase
-        every { ChromeBaseColors.get("Fake.missing") } returns null
+        every { ChromeBaseColors["Fake.resolvable"] } returns stockBase
+        every { ChromeBaseColors["Fake.missing"] } returns null
 
         element.apply(accent)
 
