@@ -12,6 +12,7 @@ import dev.ayuislands.studio.model.StudioFields
 import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.persistence.StudioValueXml
 import dev.ayuislands.studio.persistence.StudioXml
+import dev.ayuislands.studio.persistence.StudioXmlNode
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -62,12 +63,20 @@ class StudioValueXmlTest {
     }
 
     @Test
-    fun `read rejects wrong known value shapes and unknown field identities`() {
+    fun `field codec rejects wrong known value shapes and unknown identities`() {
         val origin = FieldOrigin(SourcePresence.ABSENT)
         val wrong = field("lightAccent", RawValue.Integer(1), origin)
         val unknown = field("unknown", RawValue.Null, origin)
+        val valid = StudioValueXml.writeField(field("lightAccent", RawValue.Null, origin))
         for (record in listOf(wrong, unknown)) {
-            assertFailsWith<IllegalArgumentException> { StudioValueXml.readField(StudioValueXml.writeField(record)) }
+            assertFailsWith<IllegalArgumentException> { StudioValueXml.writeField(record) }
+            val encoded =
+                StudioXmlNode(
+                    "field",
+                    valid.attributes + ("key" to StudioXml.encodeText(record.key.name)),
+                    listOf(StudioValueXml.writeValue(record.value)),
+                )
+            assertFailsWith<IllegalArgumentException> { StudioValueXml.readField(encoded) }
         }
     }
 
@@ -88,8 +97,23 @@ class StudioValueXmlTest {
             assertFailsWith<IllegalArgumentException> { StudioValueXml.readValue(node) }
         }
         val extension = OpaqueRecord("duplicate", StudioBytes(byteArrayOf(1)))
-        val duplicate = StudioValueXml.writeExtensions(StudioList(listOf(extension, extension)))
+        val child = StudioValueXml.writeExtensions(StudioList(listOf(extension))).child("extension")
+        val duplicate = StudioXmlNode("extensions", children = listOf(child, child))
         assertFailsWith<IllegalArgumentException> { StudioValueXml.readExtensions(duplicate) }
+    }
+
+    @Test
+    fun `writer rejects duplicate map set and extension identities before serialization`() {
+        val entry = RawValue.Entry("duplicate", RawValue.Text("value"))
+        val map = RawValue.OrderedMap(StudioList(listOf(entry, entry)))
+        val set = RawValue.OrderedSet(StudioList(listOf("duplicate", "duplicate")))
+        val extension = OpaqueRecord("duplicate", StudioBytes(byteArrayOf(1)))
+
+        assertFailsWith<IllegalArgumentException> { StudioValueXml.writeValue(map) }
+        assertFailsWith<IllegalArgumentException> { StudioValueXml.writeValue(set) }
+        assertFailsWith<IllegalArgumentException> {
+            StudioValueXml.writeExtensions(StudioList(listOf(extension, extension)))
+        }
     }
 
     @Test
