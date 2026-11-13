@@ -89,6 +89,13 @@ internal class UiDefaultsCheckpoint(
         checkWritable()
         if (!prepared.containsKey(observation)) return false
         val capturedChange = prepared.remove(observation)
+        return confirmCurrent(observation, capturedChange)
+    }
+
+    private fun confirmCurrent(
+        observation: UiDefaultObservation,
+        capturedChange: Change?,
+    ): Boolean {
         if (changes[observation.key] !== capturedChange) return false
         if (readRawUiDefault(defaults, observation.key) !== observation.before) {
             changes[observation.key] = Change.Relinquished
@@ -108,7 +115,10 @@ internal class UiDefaultsCheckpoint(
         onAdmitted: () -> Unit = {},
     ): Boolean {
         if (!confirm(write)) return false
+        val capturedChange = changes[write.key]
         onAdmitted()
+        checkWritable()
+        if (!confirmCurrent(write, capturedChange)) return false
         // A property listener can throw after the table has already changed.
         changes[write.key] = Change.Written(write.baseline, write.planned)
         UIManager.put(write.key, write.planned)
@@ -120,7 +130,12 @@ internal class UiDefaultsCheckpoint(
         check(SwingUtilities.isEventDispatchThread()) { "UI defaults observations must run on EDT" }
         require(observation.target === target) { "UI defaults observation belongs to another target" }
         if (!isCurrentLookAndFeel()) return AccentWriteState.RELINQUISHED
-        if (prepared.containsKey(observation)) return AccentWriteState.PREPARED
+        if (prepared.containsKey(observation)) {
+            val isCurrent =
+                changes[observation.key] === prepared[observation] &&
+                    readRawUiDefault(defaults, observation.key) === observation.before
+            return if (isCurrent) AccentWriteState.PREPARED else AccentWriteState.RELINQUISHED
+        }
         return when (val change = changes[observation.key]) {
             is Change.Written ->
                 if (readRawUiDefault(defaults, observation.key) === change.expected) {
@@ -171,7 +186,7 @@ internal class UiDefaultsCheckpoint(
         blockedBy: List<AccentCheckpoint>,
         blockedKeys: Set<String>,
     ): Throwable? {
-        if (change is Change.Finished) return null
+        if (changes[key] !== change || change is Change.Finished) return null
         if (key in blockedKeys || isBlocked(key, blockedBy)) {
             return IllegalStateException("UI restoration blocked by a newer write: $key")
         }
@@ -195,21 +210,24 @@ internal class UiDefaultsCheckpoint(
         key: String,
         change: Change.Written,
     ): Throwable? {
+        val restoration = Change.Written(change.previous, change.previous)
         val recovery =
             runCatching {
-                changes[key] = Change.Written(change.previous, change.previous)
+                changes[key] = restoration
                 UIManager.put(key, change.previous)
-                val state =
-                    if (readRawUiDefault(defaults, key) === change.previous) {
-                        AccentWriteState.RESTORED
-                    } else {
-                        AccentWriteState.RELINQUISHED
-                    }
-                changes[key] = Change.Finished(state)
+                if (changes[key] === restoration) {
+                    val state =
+                        if (readRawUiDefault(defaults, key) === change.previous) {
+                            AccentWriteState.RESTORED
+                        } else {
+                            AccentWriteState.RELINQUISHED
+                        }
+                    changes[key] = Change.Finished(state)
+                }
             }.exceptionOrNull()
         if (recovery is VirtualMachineError) throw recovery
         // A listener can throw after the table already holds the previous value.
-        if (recovery != null && readRawUiDefault(defaults, key) === change.previous) {
+        if (recovery != null && changes[key] === restoration && readRawUiDefault(defaults, key) === change.previous) {
             changes[key] = Change.Finished(AccentWriteState.RESTORED)
         }
         return recovery

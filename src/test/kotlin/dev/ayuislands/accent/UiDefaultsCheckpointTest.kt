@@ -18,6 +18,153 @@ import kotlin.test.assertTrue
 
 class UiDefaultsCheckpointTest {
     @Test
+    fun `no write observations confirm once and discard without native effects`() =
+        onEdt {
+            val raw = UIDefaults.LazyValue { error("Observation evaluated a lazy value") }
+            UIManager.put(FOCUS_KEY, raw)
+            val checkpoint = UiDefaultsCheckpoint()
+            var events = 0
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == FOCUS_KEY) events++
+                }
+            withListener(listener) {
+                val accepted = checkpoint.observe(FOCUS_KEY)
+                assertTrue(checkpoint.confirm(accepted))
+                assertFalse(checkpoint.confirm(accepted))
+                assertEquals(AccentWriteState.RESTORED, checkpoint.stateOf(accepted))
+                val discarded = checkpoint.observe(FOCUS_KEY)
+                checkpoint.discard(discarded)
+                assertFalse(checkpoint.confirm(discarded))
+                assertFalse(checkpoint.hasPending)
+                checkpoint.restore()
+                checkpoint.commit()
+                assertSame(raw, readRawUiDefault(UIManager.getDefaults(), FOCUS_KEY))
+                assertEquals(0, events)
+                assertFalse(checkpoint.hasPending)
+            }
+        }
+
+    @Test
+    fun `admission callback cannot overwrite a foreign raw value`() =
+        onEdt {
+            UIManager.put(FOCUS_KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            val write = assertNotNull(checkpoint.prepare(FOCUS_KEY, Color.RED))
+            assertFalse(checkpoint.apply(write) { UIManager.put(FOCUS_KEY, Color.GREEN) })
+            assertEquals(AccentWriteState.RELINQUISHED, checkpoint.stateOf(write))
+            checkpoint.restore()
+            assertSame(Color.GREEN, UIManager.get(FOCUS_KEY))
+        }
+
+    @Test
+    fun `admission callback preserves a newer receipt even when the raw value is unchanged`() =
+        onEdt {
+            UIManager.put(FOCUS_KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            val write = assertNotNull(checkpoint.prepare(FOCUS_KEY, Color.RED))
+            assertFalse(checkpoint.apply(write) { checkpoint.put(FOCUS_KEY, Color.BLUE) })
+            assertSame(Color.BLUE, UIManager.get(FOCUS_KEY))
+            assertTrue(checkpoint.hasPending)
+            checkpoint.restore()
+            assertFalse(checkpoint.hasPending)
+        }
+
+    @Test
+    fun `admission callback cannot write into a replacement look and feel`() =
+        onEdt {
+            val original = UIManager.getLookAndFeel()
+            val checkpoint = UiDefaultsCheckpoint()
+            val write = assertNotNull(checkpoint.prepare(FOCUS_KEY, Color.RED))
+            try {
+                assertFailsWith<IllegalStateException> {
+                    checkpoint.apply(write) {
+                        UIManager.setLookAndFeel(MetalLookAndFeel())
+                        UIManager.put(FOCUS_KEY, Color.GREEN)
+                    }
+                }
+                assertSame(Color.GREEN, UIManager.get(FOCUS_KEY))
+            } finally {
+                UIManager.setLookAndFeel(original)
+            }
+        }
+
+    @Test
+    fun `restoration preserves a newer receipt created by its property listener`() =
+        onEdt {
+            UIManager.put(FOCUS_KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            checkpoint.put(FOCUS_KEY, Color.RED)
+            var replaceOnce = true
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == FOCUS_KEY && event.newValue === Color.BLUE && replaceOnce) {
+                        replaceOnce = false
+                        checkpoint.put(FOCUS_KEY, Color.GREEN)
+                    }
+                }
+            withListener(listener) {
+                checkpoint.restore()
+                assertSame(Color.GREEN, UIManager.get(FOCUS_KEY))
+                assertTrue(checkpoint.hasPending)
+                checkpoint.restore()
+            }
+            assertSame(Color.BLUE, UIManager.get(FOCUS_KEY))
+            assertFalse(checkpoint.hasPending)
+        }
+
+    @Test
+    fun `restoration failure preserves a newer receipt that writes the same raw value`() =
+        onEdt {
+            UIManager.put(FOCUS_KEY, Color.BLUE)
+            val checkpoint = UiDefaultsCheckpoint()
+            checkpoint.put(FOCUS_KEY, Color.RED)
+            var restored = false
+            checkpoint.onRestore { restored = true }
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == FOCUS_KEY && event.newValue === Color.BLUE) {
+                        checkpoint.put(FOCUS_KEY, Color.BLUE)
+                        error("listener failed after a newer receipt")
+                    }
+                }
+            withListener(listener) {
+                assertFailsWith<IllegalStateException> { checkpoint.restore() }
+            }
+            assertTrue(checkpoint.hasPending)
+            assertFalse(restored)
+            checkpoint.restore()
+            assertSame(Color.BLUE, UIManager.get(FOCUS_KEY))
+            assertFalse(checkpoint.hasPending)
+            assertTrue(restored)
+        }
+
+    @Test
+    fun `restoration preserves a newer receipt for a not yet visited key`() =
+        onEdt {
+            UIManager.put(FOCUS_KEY, Color.BLUE)
+            UIManager.put(BORDER_KEY, Color.GREEN)
+            val checkpoint = UiDefaultsCheckpoint()
+            checkpoint.put(FOCUS_KEY, Color.RED)
+            checkpoint.put(BORDER_KEY, Color.YELLOW)
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.propertyName == BORDER_KEY && event.newValue === Color.GREEN) {
+                        checkpoint.put(FOCUS_KEY, Color.MAGENTA)
+                    }
+                }
+            withListener(listener) {
+                checkpoint.restore()
+                assertSame(Color.MAGENTA, UIManager.get(FOCUS_KEY))
+                assertSame(Color.GREEN, UIManager.get(BORDER_KEY))
+                assertTrue(checkpoint.hasPending)
+                checkpoint.restore()
+            }
+            assertSame(Color.BLUE, UIManager.get(FOCUS_KEY))
+            assertFalse(checkpoint.hasPending)
+        }
+
+    @Test
     fun `portable field blockers preserve the newer key while unrelated fields restore`() =
         onEdt {
             UIManager.put(FOCUS_KEY, Color.BLUE)
@@ -161,7 +308,9 @@ class UiDefaultsCheckpointTest {
             val checkpoint = UiDefaultsCheckpoint()
             val first = assertNotNull(checkpoint.prepare(FOCUS_KEY, Color.RED))
             val stale = assertNotNull(checkpoint.prepare(FOCUS_KEY, Color.GREEN))
+            assertEquals(AccentWriteState.PREPARED, checkpoint.stateOf(first))
             assertTrue(checkpoint.apply(first))
+            assertEquals(AccentWriteState.RELINQUISHED, checkpoint.stateOf(stale))
             assertFalse(checkpoint.apply(stale))
             assertSame(Color.RED, UIManager.get(FOCUS_KEY))
             checkpoint.restore()
@@ -177,6 +326,7 @@ class UiDefaultsCheckpointTest {
             val write = assertNotNull(checkpoint.prepare(FOCUS_KEY, Color.GREEN))
             val foreign = Color(255, 0, 0)
             UIManager.put(FOCUS_KEY, foreign)
+            assertEquals(AccentWriteState.RELINQUISHED, checkpoint.stateOf(write))
             assertFalse(checkpoint.apply(write))
             assertNull(checkpoint.prepare(FOCUS_KEY, Color.YELLOW))
             checkpoint.restore()
