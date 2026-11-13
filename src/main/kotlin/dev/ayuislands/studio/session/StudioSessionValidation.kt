@@ -7,16 +7,20 @@ import dev.ayuislands.studio.model.DraftRecord
 import dev.ayuislands.studio.model.FieldAddress
 import dev.ayuislands.studio.model.FieldPart
 import dev.ayuislands.studio.model.ProfileDefinition
+import dev.ayuislands.studio.model.ProfileReference
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.SharedIntent
 import dev.ayuislands.studio.model.StudioFieldCatalog
 import dev.ayuislands.studio.model.StudioFieldOwner
+import dev.ayuislands.studio.model.StudioFields
 import dev.ayuislands.studio.model.StudioSessionRecord
+import dev.ayuislands.studio.model.StudioTarget
 import dev.ayuislands.studio.model.requireKnownType
 
 internal object StudioSessionValidation {
     fun validate(session: StudioSessionRecord) {
         require(session.id.isNotBlank() && session.generation >= 0 && session.baseDocumentRevision >= 0)
+        (session.target as? StudioTarget.Project)?.let { require(it.key.value.isNotBlank()) }
         session.work.drafts.forEach(::validateDraft)
         validateShared(session.work.shared)
         session.work.catalog.forEach(::validateCatalog)
@@ -24,6 +28,7 @@ internal object StudioSessionValidation {
 
     private fun validateDraft(draft: DraftRecord) {
         require(draft.id.value.isNotBlank())
+        draft.source?.let(::validateReference)
         validateAccepted(draft.base)
         validateAddresses(draft.appearance, draft.tracking.touched)
         validateAddresses(draft.appearance, draft.tracking.reapply)
@@ -32,19 +37,24 @@ internal object StudioSessionValidation {
     fun validateAddresses(
         appearance: AppearanceSnapshot,
         addresses: List<FieldAddress>,
+        shared: List<StudioFields> = emptyList(),
     ) {
         require(addresses.distinct().size == addresses.size) { "Duplicate field address" }
         val domains = listOf(appearance.accent, appearance.font, appearance.glow, appearance.syntax, appearance.vcs)
-        val fields = domains.flatMap { it.records }.associateBy { it.key }
+        val fields = (domains + shared).flatMap { it.records }.associateBy { it.key }
         for ((key, part) in addresses) {
-            val field = requireNotNull(fields[key]) { "Unknown appearance address" }
+            val field = requireNotNull(fields[key]) { "Unknown field address" }
             require(part == FieldPart.Value || field.value is RawValue.OrderedMap) { "Map address on scalar field" }
         }
     }
 
     fun validateAccepted(current: AcceptedAppearance) {
         require(current.revision >= 0)
-        current.source?.let { reference -> require(reference.id.value.isNotBlank() && reference.revision >= 0) }
+        current.source?.let(::validateReference)
+    }
+
+    private fun validateReference(reference: ProfileReference) {
+        require(reference.id.value.isNotBlank() && reference.revision >= 0)
     }
 
     fun validateShared(intents: List<SharedIntent>) {

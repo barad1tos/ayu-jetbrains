@@ -63,6 +63,18 @@ internal object StudioDocumentValidation {
         validateOwner(document.auxiliary.resources, StudioFieldOwner.RESOURCES)
         validateOwner(document.auxiliary.legacyMarkers, StudioFieldOwner.MIGRATION)
         validateOwner(document.runtime.legacy, StudioFieldOwner.RUNTIME)
+        validateContinuation(document)
+    }
+
+    private fun validateContinuation(document: StudioDocument) {
+        val continuation = document.runtime.effectiveContinuation ?: return
+        val dependencies = continuation.accent?.dependencies ?: return
+        val shared = document.shared
+        StudioSessionValidation.validateAddresses(
+            continuation.requested,
+            dependencies.map { it.address },
+            listOf(shared.mappings, shared.plugins, shared.system),
+        )
     }
 
     private fun validateOwner(
