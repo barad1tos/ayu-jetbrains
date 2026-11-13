@@ -74,6 +74,63 @@ class StudioSessionXmlTest {
         assertFailsWith<IllegalArgumentException> { StudioDraftXml.readAddress(address.copy(name = "wrong")) }
     }
 
+    @Test
+    fun `session rejects duplicate drafts and references to missing drafts`() {
+        val node = StudioSessionXml.writeSession(session())
+        val drafts = node.child("drafts")
+        val duplicate = StudioXmlNode("drafts", children = drafts.children + drafts.children.first())
+        val missing = StudioXml.encodeText("missing")
+        val invalidSelection = node.copy(attributes = node.attributes + ("selected" to missing))
+        val catalog = node.child("catalog-intents")
+        val invalidIntents =
+            catalog.children.map { intent ->
+                if ("draft" in intent.attributes) {
+                    intent.copy(attributes = intent.attributes + ("draft" to missing))
+                } else {
+                    intent
+                }
+            }
+        val missingDraft = StudioXmlNode("catalog-intents", children = invalidIntents)
+
+        for (invalid in listOf(replaceChild(node, duplicate), invalidSelection, replaceChild(node, missingDraft))) {
+            assertFailsWith<IllegalArgumentException> { StudioSessionXml.readSession(invalid) }
+        }
+    }
+
+    @Test
+    fun `session rejects intent changes that target a different identity`() {
+        val node = StudioSessionXml.writeSession(session())
+        val cases =
+            listOf(
+                Triple("catalog-intents", "update", "profile" to ("id" to "different")),
+                Triple("shared-intents", "field", "field" to ("key" to "externalThemeGlowEnabled")),
+            )
+        for ((name, kind, identity) in cases) {
+            val container = node.child(name)
+            val intent = container.children.single { it.attribute("kind") == kind }
+            val after = intent.child("after")
+            val (tag, attribute) = identity
+            val (key, value) = attribute
+            val record = after.child(tag)
+            val changed = record.copy(attributes = record.attributes + (key to StudioXml.encodeText(value)))
+            val invalid = replaceChild(intent, replaceChild(after, changed))
+            val intents = StudioXmlNode(name, children = container.children.map { if (it == intent) invalid else it })
+            assertFailsWith<IllegalArgumentException> {
+                StudioSessionXml.readSession(replaceChild(node, intents))
+            }
+        }
+    }
+
+    private fun replaceChild(
+        parent: StudioXmlNode,
+        replacement: StudioXmlNode,
+    ): StudioXmlNode =
+        StudioXmlNode(
+            parent.name,
+            parent.attributes,
+            parent.children.map { if (it.name == replacement.name) replacement else it },
+        )
+
     private fun session(): StudioSessionRecord {
         val fields =
             StudioLegacyFields.capture(
