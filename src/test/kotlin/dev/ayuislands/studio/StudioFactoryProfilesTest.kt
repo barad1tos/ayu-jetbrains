@@ -14,7 +14,13 @@ import kotlin.test.assertIs
 class StudioFactoryProfilesTest {
     @Test
     fun `starter recipes cover complete accent glow syntax font and vcs defaults`() {
-        val fresh = StudioLegacyFields.capture(freshSettingsState(), SyntaxIntensityBaseState(), AccentMappingsState())
+        val fresh =
+            StudioLegacyFields.capture(
+                freshSettingsState(),
+                SyntaxIntensityBaseState(),
+                AccentMappingsState(),
+                origins = emptyMap(),
+            )
         val profiles = StudioFactoryProfiles.create(fresh)
         assertEquals(listOf("Whisper", "Ambient", "Neon", "Cyberpunk"), profiles.map { it.name })
         val ids = listOf("factory:whisper", "factory:ambient", "factory:neon", "factory:cyberpunk")

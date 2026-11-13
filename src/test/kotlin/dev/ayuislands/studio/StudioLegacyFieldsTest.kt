@@ -18,17 +18,22 @@ import kotlin.test.assertIs
 class StudioLegacyFieldsTest {
     @Test
     fun `legacy capture keeps source defaults distinct from source presence`() {
-        val settings = AyuIslandsState()
+        val settings = AyuIslandsState().apply { lightAccent = "#AABBCC" }
         val key = LegacyFieldKey(LegacyStore.MAPPINGS, "languageFallbackAccent")
         val origin = FieldOrigin(SourcePresence.NULL, StudioBytes(byteArrayOf(32, 9)))
+        val accentKey = LegacyFieldKey(LegacyStore.SETTINGS, "lightAccent")
+        val accentOrigin = FieldOrigin(SourcePresence.VALUE, StudioBytes(byteArrayOf(35, 65)))
+        val origins = mapOf(key to origin, accentKey to accentOrigin)
         val records =
             StudioLegacyFields
-                .capture(settings, SyntaxIntensityBaseState(), AccentMappingsState(), mapOf(key to origin))
+                .capture(settings, SyntaxIntensityBaseState(), AccentMappingsState(), origins)
                 .records
 
         val counts = mapOf(LegacyStore.SETTINGS to 177, LegacyStore.SYNTAX to 10, LegacyStore.MAPPINGS to 10)
         assertEquals(counts, records.groupingBy { it.key.source }.eachCount())
         assertEquals(StudioField(key, RawValue.Null, origin), records.single { it.key == key })
+        val accent = records.single { it.key == accentKey }
+        assertEquals(StudioField(accentKey, RawValue.Text("#AABBCC"), accentOrigin), accent)
         val loop = records.single { it.key.name == "waveformLoopSeconds" }
         assertEquals(RawValue.FloatBits(settings.waveformLoopSeconds.toRawBits()), loop.value)
         assertEquals(FieldOrigin(SourcePresence.ABSENT), loop.origin)
@@ -42,7 +47,7 @@ class StudioLegacyFieldsTest {
         val overrideOrder = syntax.customOverrides.keys.toList()
         val forceOrder = settings.forceOverrides.toList()
 
-        val captured = StudioLegacyFields.capture(settings, syntax, mappings)
+        val captured = StudioLegacyFields.capture(settings, syntax, mappings, origins = emptyMap())
         settings.forceOverrides.clear()
         syntax.customOverrides.clear()
         mappings.dominanceThreshold = 0.0f
