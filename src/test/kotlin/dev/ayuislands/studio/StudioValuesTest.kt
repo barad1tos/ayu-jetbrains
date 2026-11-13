@@ -4,6 +4,7 @@ import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.StudioBytes
 import dev.ayuislands.studio.model.StudioList
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
@@ -56,6 +57,8 @@ class StudioValuesTest {
         input[0] = 9
         accepted.toByteArray()[1] = 8
 
+        assertContentEquals(byteArrayOf(1, 2, 3), accepted.toByteArray())
+        assertNotEquals(StudioBytes(byteArrayOf(1, 2, 4)), accepted)
         assertEquals(expected, accepted)
         assertEquals(expected.hashCode(), accepted.hashCode())
     }
