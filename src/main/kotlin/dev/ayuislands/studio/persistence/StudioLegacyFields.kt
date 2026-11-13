@@ -17,11 +17,12 @@ import kotlin.reflect.KProperty1
 
 /** Typed reads of the original beans; the field catalog owns types and the beans own defaults. */
 internal object StudioLegacyFields {
+    /** [origins] comes from the source XML. Use an empty map for beans created without a file. */
     fun capture(
         settings: AyuIslandsState,
         syntax: SyntaxIntensityBaseState,
         mappings: AccentMappingsState,
-        origins: Map<LegacyFieldKey, FieldOrigin> = emptyMap(),
+        origins: Map<LegacyFieldKey, FieldOrigin>,
     ): StudioFields {
         val sources =
             mapOf(
