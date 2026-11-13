@@ -1,5 +1,7 @@
 package dev.ayuislands.studio
 
+import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.ResolvedAccent
 import dev.ayuislands.rotation.RotationResume
 import dev.ayuislands.rotation.RotationRuntimeCheckpoint
 import dev.ayuislands.rotation.RuntimeOwner
@@ -14,7 +16,9 @@ import dev.ayuislands.studio.model.DraftId
 import dev.ayuislands.studio.model.DraftRecord
 import dev.ayuislands.studio.model.FieldAddress
 import dev.ayuislands.studio.model.FieldPart
+import dev.ayuislands.studio.model.FieldValue
 import dev.ayuislands.studio.model.LegacyArchive
+import dev.ayuislands.studio.model.LegacyFieldKey
 import dev.ayuislands.studio.model.LegacyFile
 import dev.ayuislands.studio.model.LegacyStore
 import dev.ayuislands.studio.model.MigrationSource
@@ -26,6 +30,8 @@ import dev.ayuislands.studio.model.SessionAvailability
 import dev.ayuislands.studio.model.SessionWork
 import dev.ayuislands.studio.model.SharedIntent
 import dev.ayuislands.studio.model.SharedPreferences
+import dev.ayuislands.studio.model.StudioAccentContinuation
+import dev.ayuislands.studio.model.StudioAcceptedInput
 import dev.ayuislands.studio.model.StudioBytes
 import dev.ayuislands.studio.model.StudioCurrents
 import dev.ayuislands.studio.model.StudioDocument
@@ -128,6 +134,51 @@ class StudioStateCodecTest {
     }
 
     @Test
+    fun `blank project targets and malformed draft sources cannot be recovered`() {
+        val original = document()
+        val session = original.sessions.single()
+        val draft = session.work.drafts[0]
+        for (source in listOf(ProfileReference(ProfileId(""), 1), ProfileReference(ProfileId("custom"), -1))) {
+            val work =
+                session.work.copy(
+                    drafts = StudioList(listOf(draft.copy(source = source), session.work.drafts[1])),
+                )
+            assertInvalid(original.copy(sessions = StudioList(listOf(session.copy(work = work)))))
+        }
+        val blank = session.copy(target = StudioTarget.Project(StudioProjectKey(" ")))
+        assertInvalid(original.copy(sessions = StudioList(listOf(blank))))
+    }
+
+    @Test
+    fun `continuation accepts shared mapping entries but rejects invalid addresses`() {
+        val original = document()
+        val continuation = requireNotNull(original.runtime.effectiveContinuation)
+        val key = LegacyFieldKey(LegacyStore.MAPPINGS, "projectAccents")
+        val entry = FieldAddress(key, FieldPart.MapEntry("/work/missing"))
+
+        fun withAddress(address: FieldAddress): StudioDocument {
+            val accent =
+                StudioAccentContinuation(
+                    null,
+                    ResolvedAccent(AccentResolver.Source.GLOBAL, "#FFCD66"),
+                    StudioList(listOf(StudioAcceptedInput(address, FieldValue.Absent))),
+                )
+            return original.copy(
+                runtime = original.runtime.copy(effectiveContinuation = continuation.copy(accent = accent)),
+            )
+        }
+
+        val valid = withAddress(entry)
+        assertEquals(
+            valid,
+            assertIs<DecodeResult.Ready>(StudioStateCodec.decode(StudioStateCodec.encode(valid))).document,
+        )
+        assertInvalid(withAddress(entry.copy(field = key.copy(name = "missing"))))
+        val scalar = LegacyFieldKey(LegacyStore.MAPPINGS, "languageFallbackAccent")
+        assertInvalid(withAddress(entry.copy(field = scalar)))
+    }
+
+    @Test
     fun `malformed framing and document type declarations cannot load`() {
         for (xml in listOf("<ayu-studio>", "<!DOCTYPE ayu-studio><ayu-studio/>")) {
             assertEquals(DecodeResult.Invalid(DecodeIssue.MALFORMED), StudioStateCodec.decode(xml.encodeToByteArray()))
@@ -180,7 +231,7 @@ class StudioStateCodecTest {
         return StudioDocument(
             DocumentHeader(1, 3, $$"save-$ID$", MigrationSource("migration", StudioList(archives))),
             StudioList(factories + profile),
-            StudioCurrents(current, StudioList(projects)),
+            StudioCurrents(current.copy(source = ProfileReference(ProfileId("unavailable"), 1)), StudioList(projects)),
             SharedPreferences(
                 owned(StudioFieldOwner.PLUGINS),
                 owned(StudioFieldOwner.WORKSPACE),
