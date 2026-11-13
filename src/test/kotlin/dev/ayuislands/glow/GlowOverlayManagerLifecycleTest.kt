@@ -946,18 +946,25 @@ class GlowOverlayManagerLifecycleTest {
         markManagerWarm(manager)
         every { AyuVariant.detect() } returns AyuVariant.MIRAGE
 
-        try {
-            manager.updateGlow()
-            rebuildRouteGraph(manager)
-            val before = readRouteState(manager)
+        EventQueue.invokeAndWait {
+            try {
+                manager.updateGlow()
+                rebuildRouteGraph(manager)
+                val controller = readRouteController(manager)
+                assertTrue(controller.handle(RouteEvent.Tick(0L)))
+                assertTrue(controller.handle(RouteEvent.Tick(100L)))
+                val before = readRouteState(manager)
+                assertTrue(before.distanceOnLeg > 0f)
 
-            invokeMoveGlowFocus(manager, from = "Editor", to = "Commit")
+                invokeMoveGlowFocus(manager, from = "Editor", to = "Commit")
 
-            assertEquals(before.currentSurfaceId, readRouteState(manager).currentSurfaceId)
-            assertEquals(before.distanceOnLeg, readRouteState(manager).distanceOnLeg, 0.001f)
-        } finally {
-            manager.dispose()
-            stopOverlayAnimations(manager)
+                val after = readRouteState(manager)
+                assertEquals(before.currentSurfaceId, after.currentSurfaceId)
+                assertEquals(before.distanceOnLeg, after.distanceOnLeg, 0.001f)
+            } finally {
+                manager.dispose()
+                stopOverlayAnimations(manager)
+            }
         }
     }
 
