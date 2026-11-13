@@ -1,5 +1,7 @@
 package dev.ayuislands.studio.persistence
 
+import org.xml.sax.ContentHandler
+import org.xml.sax.helpers.AttributesImpl
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -9,10 +11,12 @@ import java.nio.charset.CodingErrorAction
 import java.security.MessageDigest
 import java.util.Base64
 import javax.xml.stream.XMLInputFactory
-import javax.xml.stream.XMLOutputFactory
 import javax.xml.stream.XMLStreamConstants
 import javax.xml.stream.XMLStreamException
-import javax.xml.stream.XMLStreamWriter
+import javax.xml.transform.OutputKeys
+import javax.xml.transform.TransformerFactory
+import javax.xml.transform.sax.SAXTransformerFactory
+import javax.xml.transform.stream.StreamResult
 
 internal sealed interface StudioXmlContent {
     data class Text(
@@ -91,18 +95,19 @@ internal class CheckedXmlPayload private constructor(
 
 internal object StudioXml {
     private const val MAX_DEPTH = 128
+    private const val TEXT_BUFFER_SIZE = 4096
 
     fun parse(bytes: ByteArray): StudioXmlNode = parseChildren(bytes, emptyList()) {}
 
-    /** Reads envelope text incrementally; callers still validate schema, shape, and checksum. */
+    /** Reads payload text incrementally, exposing only metadata until the payload is verified. */
     fun parseEnvelope(
         bytes: ByteArray,
         name: String,
         maxSchema: Int = 1,
     ): StudioXmlEnvelope {
-        val payload = StudioXmlPayload(name, bytes.size / BASE64_QUARTET * BASE64_BYTES, maxSchema)
+        val payload = StudioXmlPayload(name, maxSchema)
         val node = parseContent(ByteArrayInputStream(bytes), emptyList(), {}, payload)
-        return StudioXmlEnvelope(node, payload.finish())
+        return StudioXmlEnvelope(node, payload.finish(), maxSchema)
     }
 
     /** Consumes direct children at one exact path while retaining their parent in the returned tree. */
@@ -112,7 +117,7 @@ internal object StudioXml {
         consume: (StudioXmlNode) -> Unit,
     ): StudioXmlNode = parseChildren(ByteArrayInputStream(bytes), parentPath, consume)
 
-    /** The caller owns the input; only one consumed child is retained at a time. */
+    /** The caller owns the input. Stage consumed children locally until the entire parse succeeds. */
     fun parseChildren(
         input: InputStream,
         parentPath: List<String>,
@@ -184,15 +189,15 @@ internal object StudioXml {
         output: OutputStream,
         extraChildren: (StudioXmlNode) -> Sequence<StudioXmlNode> = { emptySequence() },
     ) {
-        val writer = XMLOutputFactory.newFactory().createXMLStreamWriter(output, "UTF-8")
-        try {
-            writer.writeStartDocument("UTF-8", "1.0")
-            writeNode(writer, node, extraChildren)
-            writer.writeEndDocument()
-            writer.flush()
-        } finally {
-            writer.close()
-        }
+        // Unlike the JDK StAX writer, the SAX serializer escapes normalization-sensitive whitespace.
+        val factory = TransformerFactory.newDefaultInstance() as SAXTransformerFactory
+        val writer = factory.newTransformerHandler()
+        writer.transformer.setOutputProperty(OutputKeys.METHOD, "xml")
+        writer.transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8")
+        writer.setResult(StreamResult(output))
+        writer.startDocument()
+        writeNode(writer, node, extraChildren, CharArray(TEXT_BUFFER_SIZE))
+        writer.endDocument()
     }
 
     fun envelope(
@@ -206,20 +211,6 @@ internal object StudioXml {
             attributes,
             listOf(StudioXmlNode("payload", mapOf("sha256" to hashBytes(bytes)), text = encodeBytes(bytes))),
         )
-    }
-
-    /** Null identifies a checksum mismatch; malformed structure still fails validation. */
-    fun readCheckedPayload(
-        envelope: StudioXmlNode,
-        decoded: ByteArray? = null,
-        encoding: String? = null,
-    ): CheckedXmlPayload? {
-        envelope.requireShape(setOf("schema", "revision", "transaction"), setOf("payload"))
-        val attributes = if (encoding == null) setOf("sha256") else setOf("sha256", "encoding")
-        val content = envelope.child("payload").requireShape(attributes, allowsText = true)
-        if (encoding != null) require(content.attribute("encoding") == encoding)
-        val bytes = decoded ?: decodeBytes(content.text)
-        return CheckedXmlPayload.verify(bytes, content.attribute("sha256"))
     }
 
     fun encodeBytes(value: ByteArray): String = Base64.getEncoder().encodeToString(value)
@@ -240,20 +231,37 @@ internal object StudioXml {
         MessageDigest.getInstance("SHA-256").digest(value).joinToString("") { "%02x".format(it) }
 
     private fun writeNode(
-        writer: XMLStreamWriter,
+        writer: ContentHandler,
         node: StudioXmlNode,
         extraChildren: (StudioXmlNode) -> Sequence<StudioXmlNode>,
+        textBuffer: CharArray,
     ) {
-        writer.writeStartElement(node.name)
-        for ((key, value) in node.attributes) writer.writeAttribute(key, value)
+        val attributes = AttributesImpl()
+        for ((key, value) in node.attributes) attributes.addAttribute("", key, key, "CDATA", value)
+        writer.startElement("", node.name, node.name, attributes)
         for (item in node.content) {
             when (item) {
-                is StudioXmlContent.Text -> writer.writeCharacters(item.value)
-                is StudioXmlContent.Child -> writeNode(writer, item.node, extraChildren)
+                is StudioXmlContent.Text -> writeText(writer, item.value, textBuffer)
+                is StudioXmlContent.Child -> writeNode(writer, item.node, extraChildren, textBuffer)
             }
         }
-        for (child in extraChildren(node)) writeNode(writer, child, extraChildren)
-        writer.writeEndElement()
+        for (child in extraChildren(node)) writeNode(writer, child, extraChildren, textBuffer)
+        writer.endElement("", node.name, node.name)
+    }
+
+    private fun writeText(
+        writer: ContentHandler,
+        text: String,
+        buffer: CharArray,
+    ) {
+        var start = 0
+        while (start < text.length) {
+            var end = start + minOf(buffer.size, text.length - start)
+            if (end < text.length && text[end - 1].isHighSurrogate()) end--
+            text.toCharArray(buffer, startIndex = start, endIndex = end)
+            writer.characters(buffer, 0, end - start)
+            start = end
+        }
     }
 
     private class Frame(
@@ -292,7 +300,4 @@ internal object StudioXml {
             }
         }
     }
-
-    private const val BASE64_QUARTET = 4
-    private const val BASE64_BYTES = 3
 }

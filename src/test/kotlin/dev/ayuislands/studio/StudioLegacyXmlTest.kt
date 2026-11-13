@@ -6,7 +6,6 @@ import org.jdom.Element
 import org.jdom.Text
 import javax.xml.stream.XMLStreamException
 import kotlin.test.Test
-import kotlin.test.assertContains
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -49,16 +48,32 @@ class StudioLegacyXmlTest {
         val mixed = "<component name='Settings'>head<a/>tail<b/>end</component>"
         val source = "<application>$mixed</application>".encodeToByteArray()
         val parsed = StudioLegacyXml.component(source, "Settings")
-        val xml = StudioXml.write(parsed.node).decodeToString()
+        val roundTrip = StudioXml.parse(StudioXml.write(parsed.node))
         val native = parsed.toElement().content
 
-        assertContains(xml, "head<a/>tail<b/>end")
+        assertEquals(parsed.node, roundTrip)
         assertEquals(5, native.size)
         assertEquals("head", assertIs<Text>(native[0]).text)
         assertEquals("a", assertIs<Element>(native[1]).name)
         assertEquals("tail", assertIs<Text>(native[2]).text)
         assertEquals("b", assertIs<Element>(native[3]).name)
         assertEquals("end", assertIs<Text>(native[4]).text)
+    }
+
+    @Test
+    fun `legacy XML preserves escaped whitespace through serialization`() {
+        val prefix = "x".repeat(4095) + "🏝"
+        val source =
+            "<application><component name='Settings'>" +
+                "<option name='installedFontFiles' value='a&#10;&#9;&#13;b'/>" +
+                "<future>$prefix&#13;&amp;&#9;&#10;<child/>right</future>" +
+                "</component></application>"
+        val parsed = StudioLegacyXml.component(source.encodeToByteArray(), "Settings")
+        val decoded = StudioXml.parse(StudioXml.write(parsed.node))
+
+        assertEquals("a\n\t\rb", decoded.child("option").attribute("value"))
+        assertEquals("$prefix\r&\t\nright", decoded.child("future").text)
+        assertEquals(parsed.node, decoded)
     }
 
     @Test

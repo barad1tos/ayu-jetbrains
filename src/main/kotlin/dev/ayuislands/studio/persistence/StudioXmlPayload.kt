@@ -1,22 +1,32 @@
 package dev.ayuislands.studio.persistence
 
-import dev.ayuislands.studio.model.StudioBytes
 import java.io.ByteArrayOutputStream
 import java.util.Base64
 
-/** Envelope metadata and decoded bytes; the existing checksum and shape checks still qualify them. */
+/** Read-only metadata. Future schemas must retain the original file instead of rewriting it. */
 internal class StudioXmlEnvelope(
-    val node: StudioXmlNode,
-    payload: ByteArray?,
+    private val node: StudioXmlNode,
+    private val decoded: ByteArray?,
+    private val maxSchema: Int,
 ) {
-    private val stored = payload?.let(::StudioBytes)
-    val payload: ByteArray? get() = stored?.toByteArray()
+    val name: String get() = node.name
+
+    fun attribute(key: String): String = node.attribute(key)
+
+    /** Null for an unsupported schema or checksum mismatch. Invalid shape fails validation. */
+    fun checkedPayload(encoding: String? = null): CheckedXmlPayload? {
+        if (attribute("schema").toIntOrNull() !in 1..maxSchema) return null
+        node.requireShape(setOf("schema", "revision", "transaction"), setOf("payload"))
+        val attributes = if (encoding == null) setOf("sha256") else setOf("sha256", "encoding")
+        val content = node.child("payload").requireShape(attributes, allowsText = true)
+        if (encoding != null) require(content.attribute("encoding") == encoding)
+        return CheckedXmlPayload.verify(requireNotNull(decoded), content.attribute("sha256"))
+    }
 }
 
 /** Consumes only the named envelope's direct payload, without retaining its Base64 text. */
 internal class StudioXmlPayload(
     private val rootName: String,
-    private val capacity: Int,
     private val maxSchema: Int,
 ) {
     private var isSupported = false
@@ -32,7 +42,7 @@ internal class StudioXmlPayload(
         if (path != listOf(rootName, "payload")) return null
         if (!isSupported) return {}
         require(decoder == null) { "Duplicate payload" }
-        val selected = Base64Payload(capacity)
+        val selected = Base64Payload()
         decoder = selected
         return selected::append
     }
@@ -41,10 +51,8 @@ internal class StudioXmlPayload(
 }
 
 /** JDK Basic Base64 semantics, including strict padding, across arbitrary XML text boundaries. */
-private class Base64Payload(
-    capacity: Int,
-) {
-    private val output = ByteArrayOutputStream(capacity)
+private class Base64Payload {
+    private val output = ByteArrayOutputStream()
     private val decoder = Base64.getDecoder()
     private var remainder = ""
     private var isPadded = false
