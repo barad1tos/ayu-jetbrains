@@ -53,14 +53,14 @@ private fun requireDomain(
     fields: StudioFields,
     owner: StudioFieldOwner,
 ) {
-    val expected =
+    val typesByKey =
         StudioFieldCatalog.fields
             .filter { it.owner == owner }
-            .map {
-                LegacyFieldKey(
-                    it.source,
-                    it.name,
-                )
-            }.toSet()
-    require(fields.records.map { it.key }.toSet() == expected) { "Incomplete or misplaced $owner fields" }
+            .associate { LegacyFieldKey(it.source, it.name) to it.type }
+    require(fields.records.map { it.key }.toSet() == typesByKey.keys) { "Incomplete or misplaced $owner fields" }
+    for ((key, value) in fields.records) {
+        require(value.matchesLegacyType(typesByKey.getValue(key))) {
+            "Incorrect value type for ${key.source}/${key.name}"
+        }
+    }
 }

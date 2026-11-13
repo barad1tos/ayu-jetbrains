@@ -10,6 +10,7 @@ import dev.ayuislands.studio.model.StudioList
 internal object StudioFieldMapping {
     private val owners = StudioFieldCatalog.fields.associate { LegacyFieldKey(it.source, it.name) to it.owner }
 
+    /** Projects known records by owner. Opaque extensions stay with their original container. */
     fun select(
         fields: StudioFields,
         owner: StudioFieldOwner,
