@@ -26,7 +26,8 @@ internal object StudioValueXml {
             is RawValue.LongValue -> scalar("long", value.value.toString())
             is RawValue.FloatBits -> scalar("float-bits", value.bits.toString())
             is RawValue.Bytes -> scalar("bytes", StudioXml.encodeBytes(value.value.toByteArray()))
-            is RawValue.OrderedMap ->
+            is RawValue.OrderedMap -> {
+                value.entries.requireUnique(RawValue.Entry::key) { "Duplicate map key" }
                 StudioXmlNode(
                     "value",
                     mapOf("type" to ORDERED_MAP),
@@ -38,7 +39,9 @@ internal object StudioValueXml {
                         )
                     },
                 )
-            is RawValue.OrderedSet ->
+            }
+            is RawValue.OrderedSet -> {
+                value.values.requireUnique({ it }) { "Duplicate set member" }
                 StudioXmlNode(
                     "value",
                     mapOf("type" to ORDERED_SET),
@@ -46,6 +49,7 @@ internal object StudioValueXml {
                         StudioXmlNode("item", text = StudioXml.encodeText(item))
                     },
                 )
+            }
             is RawValue.OrderedList ->
                 StudioXmlNode("value", mapOf("type" to ORDERED_LIST), value.values.map(::writeValue))
         }
@@ -86,8 +90,9 @@ internal object StudioValueXml {
         )
     }
 
-    fun writeField(field: StudioField): StudioXmlNode =
-        StudioXmlNode(
+    fun writeField(field: StudioField): StudioXmlNode {
+        field.requireKnownType()
+        return StudioXmlNode(
             "field",
             mapOf(
                 "store" to field.key.source.name,
@@ -103,6 +108,7 @@ internal object StudioValueXml {
                     },
                 ),
         )
+    }
 
     fun readField(node: StudioXmlNode): StudioField {
         require(node.name == "field") { "Expected field element" }
@@ -120,8 +126,9 @@ internal object StudioValueXml {
         ).also(StudioField::requireKnownType)
     }
 
-    fun writeExtensions(records: StudioList<OpaqueRecord>): StudioXmlNode =
-        StudioXmlNode(
+    fun writeExtensions(records: StudioList<OpaqueRecord>): StudioXmlNode {
+        records.requireUnique(OpaqueRecord::key) { "Duplicate extension identity" }
+        return StudioXmlNode(
             "extensions",
             children =
                 records.map { (key, bytes) ->
@@ -132,6 +139,7 @@ internal object StudioValueXml {
                     )
                 },
         )
+    }
 
     fun readExtensions(node: StudioXmlNode): StudioList<OpaqueRecord> {
         require(node.name == "extensions") { "Expected extensions element" }
@@ -144,7 +152,7 @@ internal object StudioValueXml {
                     StudioBytes(StudioXml.decodeBytes(child.text)),
                 )
             }
-        require(records.map { it.key }.distinct().size == records.size) { "Duplicate extension identity" }
+        records.requireUnique(OpaqueRecord::key) { "Duplicate extension identity" }
         return StudioList(records)
     }
 
@@ -173,13 +181,21 @@ internal object StudioValueXml {
                 child.requireShape(setOf("key"), setOf("value"))
                 RawValue.Entry(StudioXml.decodeText(child.attribute("key")), readValue(child.child("value")))
             }
-        require(entries.map { it.key }.distinct().size == entries.size) { "Duplicate map key" }
+        entries.requireUnique(RawValue.Entry::key) { "Duplicate map key" }
         return RawValue.OrderedMap(StudioList(entries))
     }
 
     private fun readSet(node: StudioXmlNode): RawValue.OrderedSet {
         val items = node.children.map { child -> StudioXml.decodeText(child.requireShape(allowsText = true).text) }
-        require(items.distinct().size == items.size) { "Duplicate set member" }
+        items.requireUnique({ it }) { "Duplicate set member" }
         return RawValue.OrderedSet(StudioList(items))
+    }
+
+    private inline fun <T> List<T>.requireUnique(
+        identity: (T) -> String,
+        message: () -> String,
+    ) {
+        val seen = HashSet<String>()
+        require(all { seen.add(identity(it)) }, message)
     }
 }
