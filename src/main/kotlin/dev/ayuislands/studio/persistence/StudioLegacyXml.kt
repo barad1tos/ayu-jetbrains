@@ -6,9 +6,13 @@ import org.jdom.Element
 /** Validated semantics and original spelling are independent migration evidence. */
 internal data class LegacyXmlElement(
     val node: StudioXmlNode,
-    val lexeme: StudioBytes,
+    private val source: String,
+    private val start: Int,
+    private val end: Int,
     val children: List<LegacyXmlElement>,
 ) {
+    val lexeme: StudioBytes get() = StudioBytes(source.substring(start, end).encodeToByteArray())
+
     fun toElement(): Element = node.toElement()
 }
 
@@ -49,7 +53,9 @@ internal object StudioLegacyXml {
         require(node.children.size == range.children.size) { "Mismatched XML evidence" }
         return LegacyXmlElement(
             node,
-            StudioBytes(source.substring(range.start, range.end).encodeToByteArray()),
+            source,
+            range.start,
+            range.end,
             node.children.zip(range.children).map { (child, childRange) -> combine(child, childRange, source) },
         )
     }

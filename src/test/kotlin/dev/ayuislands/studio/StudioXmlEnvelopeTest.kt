@@ -20,12 +20,11 @@ class StudioXmlEnvelopeTest {
             val text = encoded.take(split) + "<![CDATA[${encoded.drop(split)}]]>"
             val input = envelope(text, StudioXml.hashBytes(payload))
             val parsed = StudioXml.parseEnvelope(input, "journal")
-            assertEquals("journal", parsed.node.name)
-            assertEquals("1", parsed.node.attribute("schema"))
-            assertContentEquals(payload, parsed.payload)
+            assertEquals("journal", parsed.name)
+            assertEquals("1", parsed.attribute("schema"))
             assertContentEquals(
                 payload,
-                assertNotNull(StudioXml.readCheckedPayload(parsed.node, parsed.payload)).bytes,
+                assertNotNull(parsed.checkedPayload()).bytes,
             )
         }
     }
@@ -40,18 +39,18 @@ class StudioXmlEnvelopeTest {
         for (valid in listOf("AQ", "AQI")) {
             val expected = StudioXml.decodeBytes(valid)
             val parsed = StudioXml.parseEnvelope(envelope(valid, StudioXml.hashBytes(expected)), "journal")
-            assertContentEquals(expected, parsed.payload)
+            assertContentEquals(expected, assertNotNull(parsed.checkedPayload()).bytes)
         }
     }
 
     @Test
     fun `decoded payload still requires its original checksum and exact envelope shape`() {
         val parsed = StudioXml.parseEnvelope(envelope("AQ==", "wrong"), "journal")
-        assertNull(StudioXml.readCheckedPayload(parsed.node, parsed.payload))
+        assertNull(parsed.checkedPayload())
         val extra = envelope("AQ==", "wrong").decodeToString().replace("</payload>", "<extra/></payload>")
         val malformed = StudioXml.parseEnvelope(extra.encodeToByteArray(), "journal")
         assertFailsWith<IllegalArgumentException> {
-            StudioXml.readCheckedPayload(malformed.node, malformed.payload)
+            malformed.checkedPayload()
         }
     }
 
@@ -64,16 +63,20 @@ class StudioXmlEnvelopeTest {
                     .replace("schema=\"1\"", "schema=\"$schema\"")
                     .encodeToByteArray()
             val parsed = StudioXml.parseEnvelope(input, "journal")
-            assertContentEquals(byteArrayOf(1), parsed.payload)
+            assertContentEquals(byteArrayOf(1), assertNotNull(parsed.checkedPayload()).bytes)
         }
     }
 
     @Test
     fun `unknown envelope schema does not reinterpret its payload encoding`() {
-        val input = "<journal schema=\"3\"><payload>not-base64</payload></journal>".encodeToByteArray()
+        val input =
+            envelope("not-base64", StudioXml.hashBytes(byteArrayOf()))
+                .decodeToString()
+                .replace("schema=\"1\"", "schema=\"3\"")
+                .encodeToByteArray()
         val parsed = StudioXml.parseEnvelope(input, "journal")
-        assertEquals("3", parsed.node.attribute("schema"))
-        assertNull(parsed.payload)
+        assertEquals("3", parsed.attribute("schema"))
+        assertNull(parsed.checkedPayload())
     }
 
     @Test
@@ -84,13 +87,15 @@ class StudioXmlEnvelopeTest {
         val envelope = StudioXml.envelope("ayu-studio", metadata, payload)
 
         val decoded = StudioXml.parseEnvelope(StudioXml.write(envelope), "ayu-studio")
-        val checked = assertNotNull(StudioXml.readCheckedPayload(decoded.node, decoded.payload))
+        val checked = assertNotNull(decoded.checkedPayload())
 
-        assertEquals(literal, StudioXml.decodeText(decoded.node.attribute("transaction")))
+        assertEquals(literal, StudioXml.decodeText(decoded.attribute("transaction")))
         assertEquals(payload, StudioXml.parse(checked.bytes))
         assertEquals(StudioXml.hashBytes(checked.bytes), checked.digest)
-        val changed = StudioXml.write(StudioXmlNode("settings", text = "changed"))
-        assertNull(StudioXml.readCheckedPayload(decoded.node, changed))
+        val changed = StudioXml.encodeText("changed")
+        val serialized = StudioXml.write(envelope).decodeToString()
+        val corrupted = serialized.replace(StudioXml.encodeBytes(checked.bytes), changed)
+        assertNull(StudioXml.parseEnvelope(corrupted.encodeToByteArray(), "ayu-studio").checkedPayload())
     }
 
     @Test
@@ -116,13 +121,11 @@ class StudioXmlEnvelopeTest {
         val original = byteArrayOf(0, 1, -1)
         val encoded = envelope(StudioXml.encodeBytes(original), StudioXml.hashBytes(original))
         val parsed = StudioXml.parseEnvelope(encoded, "journal")
-        val supplied = assertNotNull(parsed.payload)
-        val checked = assertNotNull(StudioXml.readCheckedPayload(parsed.node, supplied))
+        val checked = assertNotNull(parsed.checkedPayload())
 
-        supplied.fill(42)
         checked.bytes.fill(12)
 
-        assertContentEquals(original, parsed.payload)
+        assertContentEquals(original, assertNotNull(parsed.checkedPayload()).bytes)
         assertContentEquals(original, checked.bytes)
         assertEquals(StudioXml.hashBytes(checked.bytes), checked.digest)
     }
