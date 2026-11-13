@@ -1,9 +1,26 @@
 package dev.ayuislands.accent
 
+import java.util.IdentityHashMap
 import java.util.function.BiConsumer
 import javax.swing.SwingUtilities
 import javax.swing.UIDefaults
 import javax.swing.UIManager
+
+/** Raw references captured without evaluating native lazy values; identity makes each preparation one-shot. */
+internal open class UiDefaultObservation(
+    val target: UiDefaultsTarget,
+    val key: String,
+    val before: Any?,
+)
+
+/** A native setter intent, distinct from confirming an observation without a property event. */
+internal class UiDefaultWrite(
+    target: UiDefaultsTarget,
+    key: String,
+    before: Any?,
+    val planned: Any?,
+    val baseline: Any?,
+) : UiDefaultObservation(target, key, before)
 
 /**
  * An EDT-local checkpoint for explicitly recorded developer-default writes.
@@ -15,10 +32,11 @@ internal class UiDefaultsCheckpoint(
 ) : AccentCheckpoint {
     private val defaults = target.defaults
     private val changes = linkedMapOf<String, Change>()
+    private val prepared = IdentityHashMap<UiDefaultObservation, Change?>()
     private val restoreActions = mutableListOf<() -> Unit>()
 
     override val hasPending: Boolean
-        get() = isCurrentLookAndFeel() && (changes.isNotEmpty() || restoreActions.isNotEmpty())
+        get() = isCurrentLookAndFeel() && (changes.values.any { it !is Change.Finished } || restoreActions.isNotEmpty())
 
     private sealed interface Change {
         // UI defaults are a native heterogeneous object table, not just colors.
@@ -28,51 +46,149 @@ internal class UiDefaultsCheckpoint(
         ) : Change
 
         data object Relinquished : Change
+
+        data class Finished(
+            val state: AccentWriteState,
+        ) : Change
     }
 
     fun put(
         key: String,
         value: Any?,
     ) {
-        check(SwingUtilities.isEventDispatchThread()) { "UI defaults writes must run on EDT" }
-        AccentApplyScope.active?.takeUnless { it.isCommitted }?.checkWritable()
-        check(isCurrentLookAndFeel()) { "Look and feel changed during accent application" }
+        prepare(key, value)?.let(::apply)
+    }
+
+    /** Preparation observes raw state only; the returned handle must be acknowledged before apply. */
+    fun prepare(
+        key: String,
+        value: Any?,
+    ): UiDefaultWrite? {
+        checkWritable()
         val change = changes[key]
-        if (change == Change.Relinquished) return
+        if (change == Change.Relinquished) return null
         val current = readRawUiDefault(defaults, key)
         if (change is Change.Written && current !== change.expected) {
             changes[key] = Change.Relinquished
-            return
+            return null
         }
         val previous = if (change is Change.Written) change.previous else current
+        return UiDefaultWrite(target, key, current, value, previous).also { prepared[it] = change }
+    }
+
+    /** Captures a no-write transition, including release of an already relinquished key. */
+    fun observe(key: String): UiDefaultObservation {
+        checkWritable()
+        return UiDefaultObservation(target, key, readRawUiDefault(defaults, key)).also {
+            prepared[it] = changes[key]
+        }
+    }
+
+    /** Consumes an observation without claiming a native write or invoking a property listener. */
+    fun confirm(observation: UiDefaultObservation): Boolean {
+        checkWritable()
+        if (!prepared.containsKey(observation)) return false
+        val capturedChange = prepared.remove(observation)
+        if (changes[observation.key] !== capturedChange) return false
+        if (readRawUiDefault(defaults, observation.key) !== observation.before) {
+            changes[observation.key] = Change.Relinquished
+            return false
+        }
+        return true
+    }
+
+    /** Rejects an obsolete higher-level claim without observing or changing the native value. */
+    fun discard(observation: UiDefaultObservation) {
+        prepared.remove(observation)
+    }
+
+    /** Publishes in-memory provenance after admission, before the native setter can call listeners. */
+    fun apply(
+        write: UiDefaultWrite,
+        onAdmitted: () -> Unit = {},
+    ): Boolean {
+        if (!confirm(write)) return false
+        onAdmitted()
         // A property listener can throw after the table has already changed.
-        changes[key] = Change.Written(previous, value)
-        UIManager.put(key, value)
+        changes[write.key] = Change.Written(write.baseline, write.planned)
+        UIManager.put(write.key, write.planned)
+        return isCurrentLookAndFeel() && readRawUiDefault(defaults, write.key) === write.planned
+    }
+
+    /** Current field outcome; reading it never evaluates lazy values or changes ownership. */
+    fun stateOf(observation: UiDefaultObservation): AccentWriteState {
+        check(SwingUtilities.isEventDispatchThread()) { "UI defaults observations must run on EDT" }
+        require(observation.target === target) { "UI defaults observation belongs to another target" }
+        if (!isCurrentLookAndFeel()) return AccentWriteState.RELINQUISHED
+        if (prepared.containsKey(observation)) return AccentWriteState.PREPARED
+        return when (val change = changes[observation.key]) {
+            is Change.Written ->
+                if (readRawUiDefault(defaults, observation.key) === change.expected) {
+                    AccentWriteState.OWNED
+                } else {
+                    AccentWriteState.RELINQUISHED
+                }
+            Change.Relinquished -> AccentWriteState.RELINQUISHED
+            is Change.Finished -> change.state
+            null -> AccentWriteState.RESTORED
+        }
+    }
+
+    private fun checkWritable() {
+        check(SwingUtilities.isEventDispatchThread()) { "UI defaults writes must run on EDT" }
+        AccentApplyScope.active?.takeUnless { it.isCommitted }?.checkWritable()
+        check(isCurrentLookAndFeel()) { "Look and feel changed during accent application" }
     }
 
     /** Attempts every surviving write; failures remain retryable on this checkpoint. */
-    override fun restore(blockedBy: List<AccentCheckpoint>) {
+    override fun restore(blockedBy: List<AccentCheckpoint>) = restore(blockedBy, emptySet())
+
+    /** Journal blockers need no live native handle; unrelated keys still get a restoration attempt. */
+    fun restoreFields(blockedKeys: Set<String>) = restore(emptyList(), blockedKeys)
+
+    private fun restore(
+        blockedBy: List<AccentCheckpoint>,
+        blockedKeys: Set<String>,
+    ) {
         check(SwingUtilities.isEventDispatchThread()) { "UI defaults restoration must run on EDT" }
+        prepared.clear()
         var failure: Throwable? = null
         for ((key, change) in changes.toList().asReversed()) {
             if (!isCurrentLookAndFeel()) break
-            if (isBlocked(key, blockedBy)) {
-                failure =
-                    combineUiFailures(failure, IllegalStateException("UI restoration blocked by a newer write: $key"))
-                continue
-            }
-            if (change !is Change.Written || readRawUiDefault(defaults, key) !== change.expected) {
-                changes.remove(key)
-                continue
-            }
-            val recovery = restoreWrite(key, change)
+            val recovery = restoreField(key, change, blockedBy, blockedKeys)
             if (recovery != null) failure = combineUiFailures(failure, recovery)
         }
-        if (changes.isEmpty()) {
-            restoreActions.asReversed().forEach { action -> action() }
-            restoreActions.clear()
+        if (changes.values.all { it is Change.Finished }) {
+            val recovery = restoreProvenance(blockedKeys)
+            if (recovery != null) failure = combineUiFailures(failure, recovery)
         }
         failure?.let { throw it }
+    }
+
+    private fun restoreField(
+        key: String,
+        change: Change,
+        blockedBy: List<AccentCheckpoint>,
+        blockedKeys: Set<String>,
+    ): Throwable? {
+        if (change is Change.Finished) return null
+        if (key in blockedKeys || isBlocked(key, blockedBy)) {
+            return IllegalStateException("UI restoration blocked by a newer write: $key")
+        }
+        if (change !is Change.Written || readRawUiDefault(defaults, key) !== change.expected) {
+            changes[key] = Change.Finished(AccentWriteState.RELINQUISHED)
+            return null
+        }
+        return restoreWrite(key, change)
+    }
+
+    private fun restoreProvenance(blockedKeys: Set<String>): Throwable? {
+        if (blockedKeys.isNotEmpty() && restoreActions.isNotEmpty()) {
+            return IllegalStateException("UI ownership restoration blocked by newer writes")
+        }
+        restoreActions.asReversed().forEach { action -> action() }
+        restoreActions.clear()
+        return null
     }
 
     private fun restoreWrite(
@@ -83,11 +199,19 @@ internal class UiDefaultsCheckpoint(
             runCatching {
                 changes[key] = Change.Written(change.previous, change.previous)
                 UIManager.put(key, change.previous)
-                changes.remove(key)
+                val state =
+                    if (readRawUiDefault(defaults, key) === change.previous) {
+                        AccentWriteState.RESTORED
+                    } else {
+                        AccentWriteState.RELINQUISHED
+                    }
+                changes[key] = Change.Finished(state)
             }.exceptionOrNull()
         if (recovery is VirtualMachineError) throw recovery
         // A listener can throw after the table already holds the previous value.
-        if (recovery != null && readRawUiDefault(defaults, key) === change.previous) changes.remove(key)
+        if (recovery != null && readRawUiDefault(defaults, key) === change.previous) {
+            changes[key] = Change.Finished(AccentWriteState.RESTORED)
+        }
         return recovery
     }
 
@@ -98,6 +222,7 @@ internal class UiDefaultsCheckpoint(
 
     /** Releases recovery records once the visual apply has completed. */
     override fun commit() {
+        prepared.clear()
         changes.clear()
         restoreActions.clear()
     }
@@ -111,6 +236,7 @@ internal class UiDefaultsCheckpoint(
     /** Null means this segment has not touched the key; false permanently yields to a foreign writer. */
     fun permitsWrite(key: String): Boolean? {
         val change = changes[key] ?: return null
+        if (change is Change.Finished) return null
         if (change !is Change.Written) return false
         if (!isCurrentLookAndFeel() || readRawUiDefault(defaults, key) !== change.expected) {
             changes[key] = Change.Relinquished
