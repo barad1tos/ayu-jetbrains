@@ -24,7 +24,11 @@ internal sealed interface CatalogIntent {
         val before: ProfileDefinition.User,
         val after: ProfileDefinition.User,
         val draft: DraftId,
-    ) : CatalogIntent
+    ) : CatalogIntent {
+        init {
+            require(before.id == after.id) { "Update cannot change profile identity" }
+        }
+    }
 
     data class Rename(
         val before: ProfileDefinition.User,
@@ -40,7 +44,11 @@ internal sealed interface SharedIntent {
     data class Field(
         val before: StudioField,
         val after: StudioField,
-    ) : SharedIntent
+    ) : SharedIntent {
+        init {
+            require(before.key == after.key) { "Shared field identity cannot change" }
+        }
+    }
 
     data class SystemPolicy(
         val before: SystemAccentPolicy,
@@ -53,7 +61,20 @@ internal data class SessionWork(
     val selected: DraftId,
     val catalog: StudioList<CatalogIntent>,
     val shared: StudioList<SharedIntent>,
-)
+) {
+    init {
+        val draftIds = drafts.map { it.id }.toSet()
+        require(draftIds.size == drafts.size) { "Duplicate draft identity" }
+        require(selected in draftIds) { "Selected draft is missing" }
+        for (intent in catalog) {
+            when (intent) {
+                is CatalogIntent.Create -> require(intent.draft in draftIds) { "Create intent draft is missing" }
+                is CatalogIntent.Update -> require(intent.draft in draftIds) { "Update intent draft is missing" }
+                is CatalogIntent.Rename, is CatalogIntent.Delete -> Unit
+            }
+        }
+    }
+}
 
 internal enum class SessionAvailability { LIVE, RECOVERED, RETIRED }
 
