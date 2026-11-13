@@ -43,6 +43,11 @@ enum class PanelWidthMode {
     }
 }
 
+internal fun migratePanelWidthMode(
+    autoFit: Boolean,
+    rawMode: String?,
+): String? = if (autoFit && rawMode == PanelWidthMode.DEFAULT.name) PanelWidthMode.AUTO_FIT.name else rawMode
+
 enum class CommitPathDisplayMode {
     INLINE,
     TOOLTIP,
@@ -662,12 +667,10 @@ class AyuIslandsState : BaseState() {
     }
 
     fun migrateWidthModes() {
-        if (autoFitProjectPanelWidth && projectPanelWidthMode == PanelWidthMode.DEFAULT.name) {
-            projectPanelWidthMode = PanelWidthMode.AUTO_FIT.name
-        }
-        if (autoFitCommitPanelWidth && commitPanelWidthMode == PanelWidthMode.DEFAULT.name) {
-            commitPanelWidthMode = PanelWidthMode.AUTO_FIT.name
-        }
+        val projectMode = migratePanelWidthMode(autoFitProjectPanelWidth, projectPanelWidthMode)
+        if (projectMode != projectPanelWidthMode) projectPanelWidthMode = projectMode
+        val commitMode = migratePanelWidthMode(autoFitCommitPanelWidth, commitPanelWidthMode)
+        if (commitMode != commitPanelWidthMode) commitPanelWidthMode = commitMode
     }
 
     fun isExternalQuickSwitcherAllowed(): Boolean = externalAllowed(externalThemeQuickSwitcherEnabled)
