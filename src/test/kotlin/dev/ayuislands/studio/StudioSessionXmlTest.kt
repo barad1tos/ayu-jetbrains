@@ -121,6 +121,19 @@ class StudioSessionXmlTest {
         }
     }
 
+    @Test
+    fun `session refuses two staged edits of the same kind for one profile`() {
+        val node = StudioSessionXml.writeSession(session())
+        val catalog = node.child("catalog-intents")
+        val rename = catalog.children.single { it.attribute("kind") == "rename" }
+        val changed = rename.copy(attributes = rename.attributes + ("name" to StudioXml.encodeText("Second label")))
+        val duplicate = StudioXmlNode("catalog-intents", children = catalog.children + changed)
+
+        assertFailsWith<IllegalArgumentException> {
+            StudioSessionXml.readSession(replaceChild(node, duplicate))
+        }
+    }
+
     private fun replaceChild(
         parent: StudioXmlNode,
         replacement: StudioXmlNode,
