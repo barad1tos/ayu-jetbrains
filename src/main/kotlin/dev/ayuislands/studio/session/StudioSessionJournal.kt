@@ -44,7 +44,7 @@ internal class StudioSessionJournal(
         if (record.availability != SessionAvailability.LIVE || problem(record) != null) return
         if (writing?.record == record || acknowledged?.record == record || queued?.record == record) return
         latest = record
-        replaceQueued(Queued(record, Readiness.WAITING))
+        val superseded = replaceQueued(Queued(record, Readiness.WAITING))
         cancelTimer()
         val generation = timerGeneration
         timer =
@@ -54,6 +54,7 @@ internal class StudioSessionJournal(
                     pump()
                 }
             }
+        notifySuperseded(superseded)
     }
 
     fun flush(
@@ -76,8 +77,9 @@ internal class StudioSessionJournal(
         }
         cancelTimer()
         val callbacks = queued?.takeIf { it.record == record }?.completions.orEmpty() + completion
-        replaceQueued(Queued(record, Readiness.READY, callbacks))
+        val superseded = replaceQueued(Queued(record, Readiness.READY, callbacks))
         pump()
+        notifySuperseded(superseded)
     }
 
     fun retire(record: StudioSessionRecord) {
@@ -86,8 +88,9 @@ internal class StudioSessionJournal(
         latest = record
         cancelTimer()
         if (writing?.record == record || acknowledged?.record == record) return
-        replaceQueued(Queued(record, Readiness.READY))
+        val superseded = replaceQueued(Queued(record, Readiness.READY))
         pump()
+        notifySuperseded(superseded)
     }
 
     private fun problem(record: StudioSessionRecord): String? {
@@ -102,12 +105,14 @@ internal class StudioSessionJournal(
         }
     }
 
-    private fun replaceQueued(next: Queued) {
+    private fun replaceQueued(next: Queued): List<(DraftWriteResult) -> Unit> {
         val previous = queued
         queued = next
-        if (previous != null && previous.record != next.record) {
-            previous.completions.forEach { it(DraftWriteResult.Failed("superseded")) }
-        }
+        return previous?.takeIf { it.record != next.record }?.completions.orEmpty()
+    }
+
+    private fun notifySuperseded(completions: List<(DraftWriteResult) -> Unit>) {
+        completions.forEach { it(DraftWriteResult.Failed("superseded")) }
     }
 
     private fun pump() {

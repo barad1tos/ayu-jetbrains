@@ -114,6 +114,29 @@ class StudioSessionJournalTest {
         assertIs<DraftWriteResult.Failed>(stale.single())
     }
 
+    @Test
+    fun `superseded flush can schedule a newer draft without losing its timer`() {
+        val fixture = journalFixture()
+        val first = journalRecord(catalogTestDocument())
+        val waiting = first.copy(generation = 1)
+        val intermediate = first.copy(generation = 2)
+        val latest = first.copy(generation = 3)
+        fixture.journal.schedule(first)
+        fixture.scheduler.advance(250)
+        fixture.journal.flush(waiting) { result ->
+            assertEquals(DraftWriteResult.Failed("superseded"), result)
+            fixture.journal.schedule(latest)
+        }
+
+        fixture.journal.schedule(intermediate)
+        fixture.writer.complete(0, DraftWriteResult.Saved(7))
+        fixture.scheduler.advance(249)
+        assertEquals(listOf(first), fixture.writer.requests.map { it.record })
+        fixture.scheduler.advance(1)
+
+        assertEquals(listOf(first, latest), fixture.writer.requests.map { it.record })
+    }
+
     private fun journalFixture(): JournalFixture {
         val scheduler = ManualSessionScheduler()
         val writer = ManualSessionWriter()
