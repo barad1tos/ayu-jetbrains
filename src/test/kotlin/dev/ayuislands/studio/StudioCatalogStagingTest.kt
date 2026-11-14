@@ -27,8 +27,8 @@ import kotlin.test.assertIs
 class StudioCatalogStagingTest {
     @Test
     fun `create copies a full draft without selecting or altering it and permits duplicate names`() {
-        val document = document()
-        val initial = work(document)
+        val document = catalogTestDocument()
+        val initial = catalogTestWork(document)
         val first = CatalogCommand.Create(initial.selected, ProfileId("new-one"), "  Custom  ")
         val second = CatalogCommand.Create(initial.selected, ProfileId("new-two"), "Custom")
         val staged = stage(document, stage(document, initial, first), second)
@@ -43,8 +43,8 @@ class StudioCatalogStagingTest {
 
     @Test
     fun `editing a draft leaves the staged snapshot unchanged until an explicit update`() {
-        val document = document()
-        val initial = work(document)
+        val document = catalogTestDocument()
+        val initial = catalogTestWork(document)
         val id = ProfileId("new")
         val staged = stage(document, initial, CatalogCommand.Create(initial.selected, id, "Saved"))
         val changed = initial.drafts.single().copy(appearance = document.catalog.first().appearance)
@@ -62,8 +62,8 @@ class StudioCatalogStagingTest {
 
     @Test
     fun `factories are immutable and invalid names are rejected without changing the draft`() {
-        val document = document()
-        val initial = work(document)
+        val document = catalogTestDocument()
+        val initial = catalogTestWork(document)
         val factory = document.catalog.filterIsInstance<ProfileDefinition.Factory>().first()
         val factoryEdits =
             listOf(
@@ -91,8 +91,8 @@ class StudioCatalogStagingTest {
 
     @Test
     fun `replacing a staged rename preserves intent order and deleting a saved profile retains its other intents`() {
-        val document = document()
-        val initial = work(document)
+        val document = catalogTestDocument()
+        val initial = catalogTestWork(document)
         val user = document.catalog.filterIsInstance<ProfileDefinition.User>().single()
         val renamed = stage(document, initial, CatalogCommand.Rename(user.id, "First"))
         val updated = stage(document, renamed, CatalogCommand.Update(initial.selected, user.id))
@@ -107,8 +107,8 @@ class StudioCatalogStagingTest {
 
     @Test
     fun `undo removes only the exact staged edit even if the same action repeats`() {
-        val document = document()
-        val initial = work(document)
+        val document = catalogTestDocument()
+        val initial = catalogTestWork(document)
         val user = document.catalog.filterIsInstance<ProfileDefinition.User>().single()
         val renamed = stage(document, initial, CatalogCommand.Rename(user.id, "First"))
         val staged = stage(document, renamed, CatalogCommand.Update(initial.selected, user.id))
@@ -127,8 +127,8 @@ class StudioCatalogStagingTest {
 
     @Test
     fun `profile names reject unpaired surrogates but accept emoji`() {
-        val document = document()
-        val initial = work(document)
+        val document = catalogTestDocument()
+        val initial = catalogTestWork(document)
         val id = ProfileId("work")
         val created = stage(document, initial, CatalogCommand.Create(initial.selected, id, "Робота 🌿"))
         assertEquals("Робота 🌿", assertIs<CatalogIntent.Create>(created.catalog.single()).definition.name)
@@ -144,19 +144,19 @@ class StudioCatalogStagingTest {
         work: SessionWork,
         command: CatalogCommand,
     ): SessionWork = assertIs<CatalogStage.Staged>(StudioCatalogStaging.stage(document, work, command)).work
+}
 
-    private fun document(): StudioDocument {
-        val source =
-            MigrationSource("catalog", StudioList(LegacyStore.entries.map { LegacyArchive(it, LegacyFile.Absent) }))
-        val snapshot = assertIs<LegacyCapture.Ready>(StudioLegacyCapture.read(source, "initial", "/work")).snapshot
-        val fresh = assertIs<MigrationResult.Ready>(StudioLegacyMigration.plan(snapshot)).document
-        val custom = ProfileDefinition.User(ProfileId("custom"), "Custom", fresh.currents.global.appearance, 1)
-        return fresh.copy(catalog = StudioList(fresh.catalog + custom))
-    }
+internal fun catalogTestDocument(): StudioDocument {
+    val source =
+        MigrationSource("catalog", StudioList(LegacyStore.entries.map { LegacyArchive(it, LegacyFile.Absent) }))
+    val snapshot = assertIs<LegacyCapture.Ready>(StudioLegacyCapture.read(source, "initial", "/work")).snapshot
+    val fresh = assertIs<MigrationResult.Ready>(StudioLegacyMigration.plan(snapshot)).document
+    val custom = ProfileDefinition.User(ProfileId("custom"), "Custom", fresh.currents.global.appearance, 1)
+    return fresh.copy(catalog = StudioList(fresh.catalog + custom))
+}
 
-    private fun work(document: StudioDocument): SessionWork {
-        val current = document.currents.global
-        val draft = DraftRecord(DraftId("selected"), current.source, current, current.appearance)
-        return SessionWork(StudioList(listOf(draft)), draft.id, StudioList(emptyList()), StudioList(emptyList()))
-    }
+internal fun catalogTestWork(document: StudioDocument): SessionWork {
+    val current = document.currents.global
+    val draft = DraftRecord(DraftId("selected"), current.source, current, current.appearance)
+    return SessionWork(StudioList(listOf(draft)), draft.id, StudioList(emptyList()), StudioList(emptyList()))
 }
