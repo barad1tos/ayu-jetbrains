@@ -32,4 +32,4 @@ class AccentMappingsState : BaseState() {
         )
 }
 
-private fun Float.toStoredDouble(): Double = toString().toDouble()
+internal fun Float.toStoredDouble(): Double = toString().toDouble()
