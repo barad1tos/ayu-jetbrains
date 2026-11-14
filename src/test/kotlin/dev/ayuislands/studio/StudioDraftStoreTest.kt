@@ -156,6 +156,41 @@ class StudioDraftStoreTest {
     }
 
     @Test
+    fun `Restore survives a state read failure after journal cleanup`() {
+        val document = catalogTestDocument()
+        val orphan = editedJournalRecord(document)
+        val files = FaultingStudioFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            initialize(store, document)
+            val drafts = StudioDraftStore(store)
+            val saved = assertIs<DraftWriteResult.Saved>(drafts.save(orphan, "orphan"))
+            val request =
+                DraftRestore(
+                    orphan.id,
+                    "restored",
+                    "restore",
+                    TargetObservation(orphan.target, 1, TargetPresence.ACTIVE),
+                )
+            files.arm(
+                IoEvent(IoOperation.REPLACE, "state.xml", IoBoundary.AFTER),
+                IoEvent(IoOperation.READ, "state.xml", IoBoundary.BEFORE),
+            )
+            files.armAfter(
+                IoEvent(IoOperation.REMOVE, "pending.xml", IoBoundary.AFTER),
+                IoEvent(IoOperation.READ, "state.xml", IoBoundary.BEFORE),
+            )
+
+            assertEquals(DraftWriteResult.Failed("save-unconfirmed"), drafts.restore(request, emptySet()))
+            assertEquals(DraftWriteResult.Failed("store-io"), drafts.restore(request, emptySet()))
+            assertEquals(DraftWriteResult.Saved(saved.revision + 1), drafts.restore(request, emptySet()))
+            val accepted = assertIs<StoreLoad.Ready>(store.load()).document
+            assertEquals(listOf(orphan.id, request.session), accepted.sessions.map { it.id })
+            assertEquals(orphan.work, accepted.sessions.last().work)
+            assertEquals(document.currents, accepted.currents)
+        }
+    }
+
+    @Test
     fun `autosave cannot settle another operation with native effect owners`() {
         val document = catalogTestDocument()
         val record = editedJournalRecord(document)
@@ -367,10 +402,19 @@ private class FaultingStudioFiles(
     private val actual: StudioFiles,
 ) : StudioFiles by actual {
     private val failures = ArrayDeque<IoEvent>()
+    private var deferredFailure: Pair<IoEvent, IoEvent>? = null
 
     fun arm(vararg events: IoEvent) {
         check(failures.isEmpty())
         failures.addAll(events)
+    }
+
+    fun armAfter(
+        trigger: IoEvent,
+        failure: IoEvent,
+    ) {
+        check(deferredFailure == null)
+        deferredFailure = trigger to failure
     }
 
     override fun read(name: String): ByteArray? = around(IoOperation.READ, name) { actual.read(name) }
@@ -397,6 +441,12 @@ private class FaultingStudioFiles(
         if (event == failures.firstOrNull()) {
             failures.removeFirst()
             throw IOException("Injected ${event.operation} failure for ${event.name}")
+        }
+        deferredFailure?.let { (trigger, failure) ->
+            if (event == trigger) {
+                deferredFailure = null
+                failures.addLast(failure)
+            }
         }
     }
 }

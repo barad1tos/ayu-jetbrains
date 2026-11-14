@@ -185,7 +185,7 @@ internal class StudioDraftStore(
         }
     }
 
-    /** Null means this writer's prior operation settled; caller must reread the latest aggregate. */
+    /** Null means cleanup settled; keep write evidence until the caller reads a Ready document. */
     private fun settleOwnWrite(
         pending: StoreLoad.Recovering,
         requested: StudioSessionRecord?,
@@ -201,10 +201,7 @@ internal class StudioDraftStore(
                 CommitResolution.NotCommitted -> store.finishRollback(journal.token)
                 CommitResolution.Unknown -> return DraftWriteResult.Failed("save-unconfirmed")
             }
-        if (cleanup == JournalResult.Acknowledged) {
-            pendingWrite = null
-            return null
-        }
+        if (cleanup == JournalResult.Acknowledged) return null
         val current = pending.document
         if (resolution == CommitResolution.Committed &&
             requested != null &&
