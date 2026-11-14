@@ -28,6 +28,7 @@ internal data class AcceptanceChoices(
     val policy: PolicyResolution? = null,
     val extensions: StudioList<ExtensionResolution> = StudioList(emptyList()),
     val catalog: CatalogApprovals = CatalogApprovals(),
+    val native: StudioList<NativeResolution> = StudioList(emptyList()),
 )
 
 internal sealed interface AcceptanceReview {
@@ -53,5 +54,9 @@ internal sealed interface AcceptanceReview {
 
     data class Extensions(
         val conflict: ExtensionConflict,
+    ) : AcceptanceReview
+
+    data class Native(
+        val change: NativeSurfaceChange,
     ) : AcceptanceReview
 }
