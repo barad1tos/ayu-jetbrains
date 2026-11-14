@@ -14,6 +14,7 @@ import dev.ayuislands.studio.model.FieldPart
 import dev.ayuislands.studio.model.FieldValue
 import dev.ayuislands.studio.model.ProfileDefinition
 import dev.ayuislands.studio.model.ProfileReference
+import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.SessionWork
 import dev.ayuislands.studio.model.StudioList
 
@@ -43,6 +44,7 @@ internal object StudioDraftPolicy {
                 StudioAppearanceFields.value(draft.tracking.initial, address) &&
                 touches.none { it.field == address.field && it.part == FieldPart.Value } -> touches.add(address)
         }
+        trackEntryOrder(address, original.value, edited.value, touches)
         val origin =
             when {
                 draft.tracking.intent == DraftIntent.FULL_PROFILE -> {
@@ -70,6 +72,26 @@ internal object StudioDraftPolicy {
 
     fun isDirty(draft: DraftRecord): Boolean =
         draft.appearance != draft.tracking.initial || draft.tracking.reapply.isNotEmpty()
+
+    private fun trackEntryOrder(
+        address: FieldAddress,
+        original: RawValue,
+        edited: RawValue,
+        touches: MutableList<FieldAddress>,
+    ) {
+        if (address.part !is FieldPart.MapEntry) return
+        if (original !is RawValue.OrderedMap || edited !is RawValue.OrderedMap) return
+        val order = FieldAddress(address.field, FieldPart.MapOrder)
+        if (FieldAddress(address.field, FieldPart.Value) in touches) return
+        val before = original.entries.map { it.key }
+        val after = edited.entries.map { it.key }
+        val defaultOrder = before.filter { it in after } + after.filterNot { it in before }
+        if (after == defaultOrder) {
+            touches.remove(order)
+        } else if (order !in touches) {
+            touches.add(order)
+        }
+    }
 
     fun hiddenDirty(work: SessionWork): List<DraftRecord> = work.drafts.filter { it.id != work.selected && isDirty(it) }
 
