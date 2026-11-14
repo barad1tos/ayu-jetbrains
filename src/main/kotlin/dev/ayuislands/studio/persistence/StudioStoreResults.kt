@@ -22,8 +22,10 @@ internal sealed interface StoreLoad {
 
 internal sealed interface PrepareResult {
     data class Prepared(
-        val token: PreparedToken,
-    ) : PrepareResult
+        val journal: PendingJournal,
+    ) : PrepareResult {
+        val token: PreparedToken get() = journal.token
+    }
 
     data class Rejected(
         val issue: StoreIssue,
