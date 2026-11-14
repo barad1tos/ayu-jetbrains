@@ -87,9 +87,13 @@ class StudioApplyPreflightTest {
         )
 
         val glow = ApplyRequest(editedJournalRecord(document), 1)
-        val ready = assertIs<ApplyPreflight.Ready>(plan(glow, document, missing))
+        val ready = assertIs<ApplyPreflight.Ready>(plan(glow, document, EffectObservation(7)))
         assertEquals(listOf(EffectOwner.GLOW), ready.route.owners.toList())
         assertTrue(ready.limitations.isEmpty())
+        assertEquals(
+            ApplyPreflight.Blocked(AcceptanceBlock.FONT_REFRESH),
+            plan(request, document, EffectObservation(7)),
+        )
     }
 
     @Test
