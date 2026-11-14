@@ -1,6 +1,8 @@
 package dev.ayuislands.studio
 
+import dev.ayuislands.studio.fields.StudioAppearanceFields
 import dev.ayuislands.studio.model.DraftId
+import dev.ayuislands.studio.model.DraftRecord
 import dev.ayuislands.studio.model.DraftTracking
 import dev.ayuislands.studio.model.FieldAddress
 import dev.ayuislands.studio.model.FieldPart
@@ -117,6 +119,61 @@ class StudioDraftPolicyTest {
     }
 
     @Test
+    fun `an external reorder still requires review after repeated rebases`() {
+        val draft = syntaxDraft()
+        val requested = FieldValue.Present(RawValue.Text("#FFCD66"))
+        val edited =
+            StudioDraftPolicy.edit(
+                draft,
+                syntaxAddress(FieldPart.MapEntry("KOTLIN_FUNCTION_DECLARATION")),
+                requested,
+            )
+        val order = RawValue.OrderedSet(StudioList(listOf("JAVA_CLASS_NAME", "KOTLIN_FUNCTION_DECLARATION")))
+        val external = StudioDraftPolicy.edit(draft, syntaxAddress(FieldPart.MapOrder), FieldValue.Present(order))
+        val latest = draft.base.copy(appearance = external.appearance, revision = draft.base.revision + 1)
+
+        val rebased = StudioDraftRebase.rebase(edited, latest)
+        val again = StudioDraftRebase.rebase(rebased, latest)
+
+        assertEquals(edited.appearance, again.appearance)
+        assertEquals(draft.base.appearance, again.base.appearance)
+        assertEquals(rebased, again)
+    }
+
+    @Test
+    fun `readding an entry with the same color keeps the resulting order change`() {
+        val draft = syntaxDraft()
+        val address = syntaxAddress(FieldPart.MapEntry("KOTLIN_FUNCTION_DECLARATION"))
+        val before = StudioAppearanceFields.value(draft.appearance, address)
+        val removed = StudioDraftPolicy.edit(draft, address, FieldValue.Absent)
+        val readded = StudioDraftPolicy.edit(removed, address, before)
+
+        assertEquals(listOf(syntaxAddress(FieldPart.MapOrder)), readded.tracking.touched)
+        assertEquals(readded.appearance, StudioDraftRebase.rebase(readded, draft.base).appearance)
+    }
+
+    @Test
+    fun `restoring the original order leaves only the changed entry touched`() {
+        val draft = syntaxDraft()
+        val first = syntaxAddress(FieldPart.MapEntry("KOTLIN_FUNCTION_DECLARATION"))
+        val second = syntaxAddress(FieldPart.MapEntry("JAVA_CLASS_NAME"))
+        val firstColor = StudioAppearanceFields.value(draft.appearance, first)
+        val secondColor = FieldValue.Present(RawValue.Text("#B8CC52"))
+        val edited = StudioDraftPolicy.edit(draft, second, secondColor)
+        val movedFirst =
+            StudioDraftPolicy.edit(
+                StudioDraftPolicy.edit(edited, first, FieldValue.Absent),
+                first,
+                firstColor,
+            )
+        val restored =
+            StudioDraftPolicy.edit(StudioDraftPolicy.edit(movedFirst, second, FieldValue.Absent), second, secondColor)
+
+        assertEquals(listOf(second), restored.tracking.touched)
+        assertEquals(edited.appearance, restored.appearance)
+    }
+
+    @Test
     fun `explicit discard restores the exact session baseline`() {
         val document = catalogTestDocument()
         val initial = document.catalog.first().appearance
@@ -130,4 +187,28 @@ class StudioDraftPolicyTest {
         assertEquals(original, discarded)
         assertFalse(StudioDraftPolicy.isDirty(discarded))
     }
+
+    private fun syntaxDraft(): DraftRecord {
+        val work = catalogTestWork(catalogTestDocument())
+        val first = work.drafts.single()
+        val address = syntaxAddress(FieldPart.Value)
+        val overrides =
+            RawValue.OrderedMap(
+                StudioList(
+                    listOf(
+                        RawValue.Entry("KOTLIN_FUNCTION_DECLARATION", RawValue.Text("#73D0FF")),
+                        RawValue.Entry("JAVA_CLASS_NAME", RawValue.Text("#5CCFE6")),
+                    ),
+                ),
+            )
+        val appearance = StudioDraftPolicy.edit(first, address, FieldValue.Present(overrides)).appearance
+        return first.copy(
+            base = first.base.copy(appearance = appearance),
+            appearance = appearance,
+            tracking = DraftTracking(appearance),
+        )
+    }
+
+    private fun syntaxAddress(part: FieldPart): FieldAddress =
+        FieldAddress(LegacyFieldKey(LegacyStore.SYNTAX, "customOverrides"), part)
 }
