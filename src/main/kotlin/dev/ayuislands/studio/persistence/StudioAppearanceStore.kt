@@ -1,5 +1,6 @@
 package dev.ayuislands.studio.persistence
 
+import dev.ayuislands.studio.model.AcceptancePlan
 import dev.ayuislands.studio.model.LegacyArchive
 import dev.ayuislands.studio.model.MigrationSource
 import dev.ayuislands.studio.model.StudioDocument
@@ -43,6 +44,14 @@ internal class StudioAppearanceStore(
         return journalChange { io.preserveSource(source) }
     }
 
+    /** Journals the admitted plan before the coordinator can write any of its native effects. */
+    fun prepare(plan: AcceptancePlan.Commit): PrepareResult =
+        prepare(
+            plan.lease.documentRevision,
+            plan.document,
+            RecoveryPlan(plan.target, plan.route.owners, plan.limitations),
+        )
+
     @Synchronized
     fun prepare(
         expectedRevision: Long,
@@ -73,7 +82,7 @@ internal class StudioAppearanceStore(
             io.writeJournal(journal)
             phase = StorePhase.Loaded(StoreLoad.Recovering(current?.document, journal), current)
             finished = null
-            PrepareResult.Prepared(token)
+            PrepareResult.Prepared(journal)
         } catch (failure: IOException) {
             phase = StorePhase.Unloaded
             PrepareResult.Rejected(storeIssue(failure))
