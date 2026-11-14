@@ -22,9 +22,10 @@ internal object StudioJournalPolicy {
         if (record.id.isBlank() || record.generation < 0 || record.baseDocumentRevision > latest.header.revision) {
             return DraftWritePlan.Rejected(DraftWriteIssue.INVALID)
         }
+        val reconciled = reconcileCatalog(latest, record, previous)
         if (previous != null) {
-            compare(previous, record)?.let { return DraftWritePlan.Rejected(it) }
-            if (previous == record) return DraftWritePlan.Unchanged(latest.header.revision)
+            compare(previous, reconciled)?.let { return DraftWritePlan.Rejected(it) }
+            if (previous == reconciled) return DraftWritePlan.Unchanged(latest.header.revision)
         }
         if (transactionId.isBlank() || transactionId == latest.header.transactionId) {
             return DraftWritePlan.Rejected(DraftWriteIssue.INVALID)
@@ -33,9 +34,9 @@ internal object StudioJournalPolicy {
             if (previous ==
                 null
             ) {
-                latest.sessions + record
+                latest.sessions + reconciled
             } else {
-                latest.sessions.map { if (it.id == record.id) record else it }
+                latest.sessions.map { if (it.id == record.id) reconciled else it }
             }
         return DraftWritePlan.Write(
             latest.copy(
@@ -43,6 +44,35 @@ internal object StudioJournalPolicy {
                 sessions = StudioList(sessions),
             ),
         )
+    }
+
+    private fun reconcileCatalog(
+        latest: StudioDocument,
+        record: StudioSessionRecord,
+        previous: StudioSessionRecord?,
+    ): StudioSessionRecord {
+        if (previous?.availability == SessionAvailability.RETIRED) return record
+        val work = StudioCatalogPolicy.rebaseWork(latest, record.work)
+        val linkedIds =
+            record.work.drafts
+                .filter { it.source != null }
+                .map { it.id }
+                .toSet()
+        val detachedNames =
+            previous?.work?.drafts.orEmpty().filter { it.source == null }.associate {
+                it.id to
+                    it.sourceName
+            }
+        val drafts =
+            work.drafts.map { draft ->
+                val retainedName = detachedNames[draft.id]
+                if (draft.source == null && draft.id in linkedIds && retainedName != null) {
+                    draft.copy(sourceName = retainedName)
+                } else {
+                    draft
+                }
+            }
+        return record.copy(work = work.copy(drafts = StudioList(drafts)))
     }
 
     private fun compare(

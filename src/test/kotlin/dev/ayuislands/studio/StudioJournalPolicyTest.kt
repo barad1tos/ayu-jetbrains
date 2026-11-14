@@ -7,6 +7,8 @@ import dev.ayuislands.studio.model.FieldAddress
 import dev.ayuislands.studio.model.FieldValue
 import dev.ayuislands.studio.model.LegacyFieldKey
 import dev.ayuislands.studio.model.LegacyStore
+import dev.ayuislands.studio.model.ProfileDefinition
+import dev.ayuislands.studio.model.ProfileReference
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.SessionAvailability
 import dev.ayuislands.studio.model.StudioDocument
@@ -15,6 +17,7 @@ import dev.ayuislands.studio.model.StudioSessionRecord
 import dev.ayuislands.studio.model.StudioTarget
 import dev.ayuislands.studio.persistence.DecodeResult
 import dev.ayuislands.studio.persistence.StudioStateCodec
+import dev.ayuislands.studio.session.StudioCatalogDeletion
 import dev.ayuislands.studio.session.StudioDraftPolicy
 import dev.ayuislands.studio.session.StudioJournalPolicy
 import dev.ayuislands.studio.session.StudioSessionRecords
@@ -95,6 +98,34 @@ class StudioJournalPolicyTest {
             candidate,
             assertIs<DecodeResult.Ready>(StudioStateCodec.decode(StudioStateCodec.encode(candidate))).document,
         )
+    }
+
+    @Test
+    fun `autosave cannot restore a deleted profile link or undo its last display name`() {
+        val initial = catalogTestDocument()
+        val profile = initial.catalog.filterIsInstance<ProfileDefinition.User>().single()
+        val reference = ProfileReference(profile.id, profile.revision)
+        val record = editedJournalRecord(initial)
+        val draft = record.work.drafts.single()
+        val linked =
+            draft.copy(
+                source = reference,
+                sourceName = profile.name,
+                base = draft.base.copy(source = reference),
+            )
+        val old = record.copy(work = record.work.copy(drafts = StudioList(listOf(linked))))
+        val renamed = profile.copy(name = "Renamed before deletion")
+        val withoutProfile =
+            initial.copy(
+                catalog = StudioList(initial.catalog - profile),
+                sessions = StudioList(listOf(old)),
+            )
+        val latest = StudioCatalogDeletion.detach(withoutProfile, renamed)
+
+        assertEquals(DraftWritePlan.Unchanged(latest.header.revision), StudioJournalPolicy.save(latest, old, "retry"))
+        val saved = assertIs<DraftWritePlan.Write>(StudioJournalPolicy.save(latest, old.copy(generation = 2), "save"))
+        val retained = latest.sessions.single().copy(generation = 2)
+        assertEquals(retained, saved.candidate.sessions.single())
     }
 }
 
