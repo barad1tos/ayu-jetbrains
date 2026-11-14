@@ -31,21 +31,24 @@ class StudioDraftStoreTest {
 
     @Test
     fun `real store saves and retires only its session while preserving accepted data across reopen`() {
-        val document = catalogTestDocument()
-        val record = editedJournalRecord(document)
+        val initial = catalogTestDocument()
+        val record = editedJournalRecord(initial)
+        val sibling = record.copy(id = "sibling")
+        val document = initial.copy(sessions = StudioList(listOf(sibling)))
         StudioAppearanceStore(openStudioFiles(directory)).use { store ->
             initialize(store, document)
             val journal = StudioDraftStore(store)
             assertIs<DraftWriteResult.Saved>(journal.save(record, "draft-1"))
             val retired = record.copy(generation = 2, availability = SessionAvailability.RETIRED)
             assertIs<DraftWriteResult.Saved>(journal.save(retired, "retire-1"))
-            assertIs<DraftWriteResult.Failed>(journal.save(record, "late-save"))
+            assertEquals(DraftWriteResult.Failed("draft-retired"), journal.save(record, "late-save"))
         }
         StudioAppearanceStore(openStudioFiles(directory)).use { reopened ->
             val latest = assertIs<StoreLoad.Ready>(reopened.load()).document
-            assertEquals(SessionAvailability.RETIRED, latest.sessions.single().availability)
-            assertEquals(record.work, latest.sessions.single().work)
-            assertEquals(document, latest.copy(header = document.header, sessions = document.sessions))
+            val retired = record.copy(generation = 2, availability = SessionAvailability.RETIRED)
+            assertEquals(listOf(sibling, retired), latest.sessions)
+            val expected = document.copy(header = document.header.copy(revision = 2, transactionId = "retire-1"))
+            assertEquals(expected, latest.copy(sessions = document.sessions))
         }
     }
 
@@ -79,7 +82,7 @@ class StudioDraftStoreTest {
                 IoEvent(IoOperation.READ, "state.xml", IoBoundary.BEFORE),
             )
             val journal = StudioDraftStore(store)
-            assertIs<DraftWriteResult.Failed>(journal.save(record, "uncertain"))
+            assertEquals(DraftWriteResult.Failed("save-unconfirmed"), journal.save(record, "uncertain"))
             assertIs<DraftWriteResult.Saved>(journal.save(record, "retry"))
             val latest = assertIs<StoreLoad.Ready>(store.load()).document
             assertEquals(record, latest.sessions.single())
@@ -122,6 +125,36 @@ class StudioDraftStoreTest {
     }
 
     @Test
+    fun `Restore retry survives lost cleanup acknowledgement after the journal was removed`() {
+        val document = catalogTestDocument()
+        val orphan = editedJournalRecord(document)
+        val files = FaultingStudioFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            initialize(store, document)
+            val journal = StudioDraftStore(store)
+            assertIs<DraftWriteResult.Saved>(journal.save(orphan, "orphan"))
+            val request =
+                DraftRestore(
+                    orphan.id,
+                    "restored",
+                    "restore",
+                    TargetObservation(orphan.target, 1, TargetPresence.ACTIVE),
+                )
+            files.arm(
+                IoEvent(IoOperation.REPLACE, "state.xml", IoBoundary.AFTER),
+                IoEvent(IoOperation.READ, "state.xml", IoBoundary.BEFORE),
+                IoEvent(IoOperation.REMOVE, "pending.xml", IoBoundary.AFTER),
+            )
+            assertEquals(DraftWriteResult.Failed("save-unconfirmed"), journal.restore(request, emptySet()))
+            assertEquals(DraftWriteResult.Failed("cleanup-required"), journal.restore(request, emptySet()))
+            val accepted = assertIs<StoreLoad.Ready>(store.load()).document
+            assertEquals(DraftWriteResult.Saved(accepted.header.revision), journal.restore(request, emptySet()))
+            assertEquals(listOf(orphan.id, request.session), accepted.sessions.map { it.id })
+            assertEquals(StoreLoad.Ready(accepted), store.load())
+        }
+    }
+
+    @Test
     fun `autosave cannot settle another operation with native effect owners`() {
         val document = catalogTestDocument()
         val record = editedJournalRecord(document)
@@ -130,7 +163,7 @@ class StudioDraftStoreTest {
             val candidate = document.copy(header = document.header.copy(revision = 1, transactionId = "outer"))
             val recovery = RecoveryPlan(StudioTarget.Global, StudioList(listOf(EffectOwner.GLOW)))
             val prepared = assertIs<PrepareResult.Prepared>(store.prepare(0, candidate, recovery))
-            assertIs<DraftWriteResult.Failed>(StudioDraftStore(store).save(record, "draft"))
+            assertEquals(DraftWriteResult.Failed("recovery-required"), StudioDraftStore(store).save(record, "draft"))
             assertEquals(prepared.token, assertIs<StoreLoad.Recovering>(store.load()).journal.token)
         }
     }
@@ -145,7 +178,7 @@ class StudioDraftStoreTest {
             val recovery = RecoveryPlan(StudioTarget.Global, StudioList(emptyList()))
             val prepared = assertIs<PrepareResult.Prepared>(store.prepare(0, candidate, recovery))
             assertIs<CommitResult.Committed>(store.commit(prepared.token, candidate.runtime))
-            assertIs<DraftWriteResult.Failed>(StudioDraftStore(store).save(record, "draft"))
+            assertEquals(DraftWriteResult.Failed("recovery-required"), StudioDraftStore(store).save(record, "draft"))
             assertEquals(prepared.token, assertIs<StoreLoad.Recovering>(store.load()).journal.token)
         }
     }
