@@ -156,6 +156,14 @@ internal object StudioDraftPolicy {
     fun discard(draft: DraftRecord): DraftRecord =
         draft.copy(
             appearance = draft.tracking.initial,
+            base =
+                if (draft.tracking.intent ==
+                    DraftIntent.EDITS
+                ) {
+                    draft.base.copy(appearance = draft.tracking.initial)
+                } else {
+                    draft.base
+                },
             tracking =
                 draft.tracking.copy(
                     touched = StudioList(emptyList()),

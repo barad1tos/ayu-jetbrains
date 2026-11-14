@@ -174,17 +174,35 @@ class StudioDraftPolicyTest {
     }
 
     @Test
-    fun `explicit discard restores the exact session baseline`() {
+    fun `discard restores the selected profile without changing its accepted baseline`() {
         val document = catalogTestDocument()
-        val initial = document.catalog.first().appearance
+        val selected = DraftId("profile-draft")
+        val work = catalogTestWork(document)
         val original =
-            catalogTestWork(document).drafts.single().copy(
-                appearance = initial,
-                tracking = DraftTracking(initial),
-            )
+            StudioDraftPolicy
+                .select(work, document.catalog.first(), selected, document.currents.global)
+                .drafts
+                .single { it.id == selected }
         val changed = original.copy(appearance = document.catalog[1].appearance)
         val discarded = StudioDraftPolicy.discard(changed)
-        assertEquals(original, discarded)
+        assertEquals(original.appearance, discarded.appearance)
+        assertEquals(original.base, discarded.base)
+        assertFalse(StudioDraftPolicy.isDirty(discarded))
+    }
+
+    @Test
+    fun `discard after an external conflict restores the latest accepted value`() {
+        val draft = syntaxDraft()
+        val entry = syntaxAddress(FieldPart.MapEntry("JAVA_CLASS_NAME"))
+        val mine = StudioDraftPolicy.edit(draft, entry, FieldValue.Present(RawValue.Text("#FFCD66")))
+        val external = StudioDraftPolicy.edit(draft, entry, FieldValue.Present(RawValue.Text("#B8CC52")))
+        val latest = draft.base.copy(appearance = external.appearance, revision = draft.base.revision + 1)
+        val rebased = StudioDraftRebase.rebase(mine, latest)
+        val discarded = StudioDraftPolicy.discard(rebased)
+
+        assertEquals(mine.appearance, rebased.appearance)
+        assertEquals(latest.appearance, discarded.appearance)
+        assertEquals(latest.appearance, discarded.base.appearance)
         assertFalse(StudioDraftPolicy.isDirty(discarded))
     }
 
