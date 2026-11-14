@@ -6,6 +6,7 @@ import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.SessionAvailability
 import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioSessionRecord
 import dev.ayuislands.studio.model.StudioTarget
 import dev.ayuislands.studio.model.TargetObservation
 import dev.ayuislands.studio.model.TargetPresence
@@ -218,6 +219,122 @@ class StudioDraftStoreTest {
             assertIs<DraftWriteResult.Saved>(journal.save(record, "retry"))
             assertEquals(record, assertIs<StoreLoad.Ready>(store.load()).document.sessions.single())
         }
+    }
+
+    @Test
+    fun `closing Settings retires the latest durable draft without touching sibling work`() {
+        val initial = catalogTestDocument()
+        val edit = editedJournalRecord(initial)
+        val sibling = edit.copy(id = "sibling")
+        val document = initial.copy(sessions = StudioList(listOf(sibling)))
+        var revision = 0L
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            initialize(store, document)
+            val drafts = StudioDraftStore(store)
+            val first = assertIs<DraftWriteResult.Saved>(drafts.save(edit, "save"))
+            val latest = edit.copy(generation = edit.generation + 1)
+            assertIs<DraftWriteResult.Saved>(drafts.save(latest, "latest"))
+            val finished =
+                assertIs<DraftWriteResult.Saved>(drafts.finish(edit.id, SessionAvailability.RETIRED, "cancel"))
+            revision = finished.revision
+            assertEquals(first.revision + 2, revision)
+            assertEquals(finished, drafts.finish(edit.id, SessionAvailability.RETIRED, "repeat"))
+            assertEquals(finished, drafts.finish("never-saved", SessionAvailability.RETIRED, "empty"))
+        }
+        StudioAppearanceStore(openStudioFiles(directory)).use { reopened ->
+            val accepted = assertIs<StoreLoad.Ready>(reopened.load()).document
+            assertEquals(revision, accepted.header.revision)
+            assertEquals(
+                listOf(
+                    sibling,
+                    edit.copy(generation = edit.generation + 2, availability = SessionAvailability.RETIRED),
+                ),
+                accepted.sessions,
+            )
+            assertEquals(document.currents, accepted.currents)
+        }
+    }
+
+    @Test
+    fun `Discard preserves the detached payload but cannot discard an attached draft`() {
+        val document = catalogTestDocument()
+        val orphan = editedJournalRecord(document)
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            initialize(store, document)
+            val drafts = StudioDraftStore(store)
+            assertIs<DraftWriteResult.Saved>(drafts.save(orphan, "orphan"))
+            val before = store.load()
+            assertEquals(
+                DraftWriteResult.Failed("draft-conflict"),
+                drafts.discard(orphan.id, "blocked", setOf(orphan.id)),
+            )
+            assertEquals(DraftWriteResult.Failed("draft-missing"), drafts.discard("missing", "missing", emptySet()))
+            assertEquals(before, store.load())
+            val discarded = assertIs<DraftWriteResult.Saved>(drafts.discard(orphan.id, "discard", emptySet()))
+            assertEquals(discarded, drafts.discard(orphan.id, "repeat", emptySet()))
+            val request =
+                DraftRestore(orphan.id, "new", "restore", TargetObservation(orphan.target, 1, TargetPresence.ACTIVE))
+            assertEquals(DraftWriteResult.Failed("draft-retired"), drafts.restore(request, emptySet()))
+            val latest = assertIs<StoreLoad.Ready>(store.load()).document
+            assertEquals(
+                orphan.copy(generation = orphan.generation + 1, availability = SessionAvailability.RETIRED),
+                latest.sessions.single(),
+            )
+            assertEquals(document.currents, latest.currents)
+        }
+    }
+
+    @Test
+    fun `draft commands respect empty locked and foreign-recovery states without writing`() {
+        val document = catalogTestDocument()
+        val work = editedJournalRecord(document)
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            assertCannotWrite(StudioDraftStore(store), work, "store-not-initialized")
+            assertEquals(StoreLoad.Empty, store.load())
+            initialize(store, document)
+            StudioAppearanceStore(openStudioFiles(directory)).use { locked ->
+                assertCannotWrite(StudioDraftStore(locked), work, "store-locked")
+            }
+            assertEquals(StoreLoad.Ready(document), store.load())
+            val candidate = document.copy(header = document.header.copy(revision = 1, transactionId = "foreign"))
+            val recovery = RecoveryPlan(StudioTarget.Global, StudioList(listOf(EffectOwner.GLOW)))
+            val pending = assertIs<PrepareResult.Prepared>(store.prepare(0, candidate, recovery))
+            assertCannotWrite(StudioDraftStore(store), work, "recovery-required")
+            assertEquals(pending.token, assertIs<StoreLoad.Recovering>(store.load()).journal.token)
+        }
+    }
+
+    @Test
+    fun `failed state publication retains the previously acknowledged draft before retry`() {
+        val initial = catalogTestDocument()
+        val edit = editedJournalRecord(initial)
+        val files = FaultingStudioFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            initialize(store, initial)
+            val drafts = StudioDraftStore(store)
+            assertIs<DraftWriteResult.Saved>(drafts.save(edit, "previous"))
+            val before = store.load()
+            val next = edit.copy(generation = edit.generation + 1)
+            files.arm(IoEvent(IoOperation.REPLACE, "state.xml", IoBoundary.BEFORE))
+            assertEquals(DraftWriteResult.Failed("commit-io"), drafts.save(next, "failed"))
+            assertEquals(before, store.load())
+            assertIs<DraftWriteResult.Saved>(drafts.save(next, "retry"))
+            assertEquals(next, assertIs<StoreLoad.Ready>(store.load()).document.sessions.single())
+        }
+    }
+
+    private fun assertCannotWrite(
+        drafts: StudioDraftStore,
+        work: StudioSessionRecord,
+        issue: String,
+    ) {
+        val expected = DraftWriteResult.Failed(issue)
+        val target = TargetObservation(work.target, 1, TargetPresence.ACTIVE)
+        val restore = DraftRestore(work.id, "new", "restore", target)
+        assertEquals(expected, drafts.save(work, "save"))
+        assertEquals(expected, drafts.finish(work.id, SessionAvailability.RETIRED, "finish"))
+        assertEquals(expected, drafts.restore(restore, emptySet()))
+        assertEquals(expected, drafts.discard(work.id, "discard", emptySet()))
     }
 
     private fun initialize(
