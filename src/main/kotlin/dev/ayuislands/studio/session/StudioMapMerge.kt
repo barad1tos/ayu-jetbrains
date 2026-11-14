@@ -56,6 +56,7 @@ internal object StudioMapMerge {
         val old = (base.value as RawValue.OrderedMap).entries.map { it.key }
         val requested = (mine.value as RawValue.OrderedMap).entries.map { it.key }
         val current = (latest.value as RawValue.OrderedMap).entries.map { it.key }
+        if (requested == current) return current
         val localOrder = addresses.any { it.part == FieldPart.MapOrder }
         val externalOrder = old.filter { it in current } != current.filter { it in old }
         val concurrentOrder = (externalOrder && mine.value != base.value) || (localOrder && latest.value != base.value)

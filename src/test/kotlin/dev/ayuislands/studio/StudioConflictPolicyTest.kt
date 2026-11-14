@@ -47,17 +47,19 @@ class StudioConflictPolicyTest {
         val mine = fields(RawValue.Integer(20))
         val equal = mine.copy(records = StudioList(listOf(mine.records.single().copy(origin = origin))))
         val touch = StudioList(listOf(FieldAddress(key)))
-        assertEquals(equal, StudioConflictPolicy.merge(base, mine, equal, touch).fields)
+        val aligned = StudioConflictPolicy.merge(base, mine, equal, touch)
+        assertEquals(equal, aligned.fields)
+        assertTrue(aligned.conflicts.isEmpty())
         val latest = fields(RawValue.Integer(30))
         val conflicted = StudioConflictPolicy.merge(base, mine, latest, touch)
         val conflict = conflicted.conflicts.single()
         assertEquals(latest, conflicted.fields)
         val choices = StudioList(listOf(FieldResolution(conflict, ConflictChoice.USE_MINE)))
         assertEquals(mine, StudioConflictPolicy.merge(base, mine, latest, touch, choices).fields)
-        assertEquals(
-            1,
-            StudioConflictPolicy.merge(base, mine, fields(RawValue.Integer(40)), touch, choices).conflicts.size,
-        )
+        val newer = fields(RawValue.Integer(40))
+        val stale = StudioConflictPolicy.merge(base, mine, newer, touch, choices)
+        assertEquals(1, stale.conflicts.size)
+        assertEquals(newer, stale.fields)
         val keep = StudioList(listOf(FieldResolution(conflict, ConflictChoice.KEEP_LATEST)))
         val kept = StudioConflictPolicy.merge(base, mine, latest, touch, keep)
         assertEquals(latest, kept.fields)
@@ -141,7 +143,8 @@ class StudioConflictPolicyTest {
             ).entries.last().value,
         )
         val reordered = fields(map("external" to RawValue.Null, "b" to RawValue.Text("2"), "a" to RawValue.Text("1")))
-        val stale = StudioConflictPolicy.merge(base, mine, reordered, touches, choices)
+        val oldOverride = StudioList(listOf(FieldResolution(conflict, ConflictChoice.USE_MINE)))
+        val stale = StudioConflictPolicy.merge(base, mine, reordered, touches, oldOverride)
         val newConflict = stale.conflicts.single()
         assertEquals(FieldPart.MapOrder, newConflict.address.part)
         assertEquals(
@@ -150,6 +153,20 @@ class StudioConflictPolicyTest {
             ),
             newConflict.latest,
         )
+        val field = stale.fields.records.single()
+        val entries = (field.value as RawValue.OrderedMap).entries
+        assertEquals(listOf("external", "b", "a"), entries.map { it.key })
+        assertEquals(RawValue.Text("mine"), entries.last().value)
+    }
+
+    @Test
+    fun `both sides choosing the same order needs no conflict review`() {
+        val base = fields(map("a" to RawValue.Text("one"), "b" to RawValue.Text("two")))
+        val reordered = fields(map("b" to RawValue.Text("two"), "a" to RawValue.Text("one")))
+        val touched = StudioList(listOf(FieldAddress(key, FieldPart.MapOrder)))
+        val merged = StudioConflictPolicy.merge(base, reordered, reordered, touched)
+        assertEquals(reordered, merged.fields)
+        assertTrue(merged.conflicts.isEmpty())
     }
 
     private fun fields(value: RawValue): StudioFields =
