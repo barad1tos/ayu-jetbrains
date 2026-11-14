@@ -27,9 +27,22 @@ internal data class AcceptanceChoices(
     val fields: StudioList<FieldResolution> = StudioList(emptyList()),
     val policy: PolicyResolution? = null,
     val extensions: StudioList<ExtensionResolution> = StudioList(emptyList()),
+    val catalog: CatalogApprovals = CatalogApprovals(),
 )
 
 internal sealed interface AcceptanceReview {
+    data class LiveSession(
+        val session: String,
+    ) : AcceptanceReview
+
+    data class HiddenDraft(
+        val draft: DraftId,
+    ) : AcceptanceReview
+
+    data class Catalog(
+        val item: CatalogReview,
+    ) : AcceptanceReview
+
     data class Field(
         val conflict: FieldConflict,
     ) : AcceptanceReview
