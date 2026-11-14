@@ -7,6 +7,16 @@ import dev.ayuislands.studio.model.StudioField
 import dev.ayuislands.studio.model.StudioList
 
 internal object StudioFieldValues {
+    fun hasExplicitOrder(
+        original: RawValue.OrderedMap,
+        edited: RawValue.OrderedMap,
+    ): Boolean {
+        val before = original.entries.map { it.key }
+        val after = edited.entries.map { it.key }
+        val defaultOrder = before.filter { it in after } + after.filterNot { it in before }
+        return after != defaultOrder
+    }
+
     fun value(
         field: StudioField,
         part: FieldPart,
