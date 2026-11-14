@@ -4,7 +4,6 @@ import dev.ayuislands.studio.model.AcceptanceBlock
 import dev.ayuislands.studio.model.AcceptanceObservation
 import dev.ayuislands.studio.model.AcceptancePlan
 import dev.ayuislands.studio.model.ApplyContext
-import dev.ayuislands.studio.model.ApplyInputs
 import dev.ayuislands.studio.model.ApplyRequest
 import dev.ayuislands.studio.model.AuthorityStatus
 import dev.ayuislands.studio.model.DraftWriteResult
@@ -13,23 +12,26 @@ import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.model.StudioSessionRecord
 import dev.ayuislands.studio.model.StudioTarget
-import dev.ayuislands.studio.model.Submission
 import dev.ayuislands.studio.model.TargetObservation
 import dev.ayuislands.studio.model.TargetPresence
 import dev.ayuislands.studio.persistence.CommitResult
 import dev.ayuislands.studio.persistence.JournalResult
 import dev.ayuislands.studio.persistence.PrepareResult
 import dev.ayuislands.studio.persistence.RecoveryPlan
+import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioDraftStore
 import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.session.ApplyInputs
 import dev.ayuislands.studio.session.StudioSubmitAdmission
+import dev.ayuislands.studio.session.Submission
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.Test
@@ -156,6 +158,40 @@ class StudioSubmitAdmissionTest {
     }
 
     @Test
+    fun `a failed flush reports the foreign journal that prevented its save`() {
+        val initial = catalogTestDocument()
+        val edit = editedJournalRecord(initial)
+        open(initial).use { store ->
+            val queue = Mutex()
+            val drafts = StudioDraftStore(store)
+            assertIs<DraftWriteResult.Saved>(drafts.save(edit, "draft"))
+            val accepted = assertIs<StoreLoad.Ready>(store.load()).document
+            val stateFile = directory.resolve("state.xml")
+            val savedBytes = Files.readAllBytes(stateFile)
+            val newerEdit = edit.copy(generation = edit.generation + 1)
+            val revision = accepted.header.revision
+            val nextHeader = accepted.header.copy(revision = revision + 1, transactionId = "foreign")
+            val interrupted = accepted.copy(header = nextHeader)
+            val admission =
+                StudioSubmitAdmission(store, queue, { record ->
+                    queue.withLock {
+                        assertIs<PrepareResult.Prepared>(
+                            store.prepare(revision, interrupted, recovery()),
+                        )
+                        assertIs<DraftWriteResult.Failed>(drafts.save(record, "newer-draft"))
+                    }
+                }, { _, _ -> error("Observed pending work") })
+            assertEquals(
+                Submission.Recovery("foreign"),
+                submit(admission, newerEdit) { error("Prepared pending work") },
+            )
+            val recovering = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(StudioList(listOf(edit)), recovering.document?.sessions)
+            assertTrue(Files.readAllBytes(stateFile).contentEquals(savedBytes))
+        }
+    }
+
+    @Test
     fun `flush failure leaves current preferences untouched and never calls the effect boundary`() {
         val initial = catalogTestDocument()
         open(initial).use { store ->
@@ -168,6 +204,32 @@ class StudioSubmitAdmissionTest {
                 submit(admission, editedJournalRecord(initial)) { error("Prepared unsaved work") },
             )
             assertEquals(StoreLoad.Ready(initial), store.load())
+        }
+    }
+
+    @Test
+    fun `unreadable settings are distinguishable from an uninitialized store`() {
+        val edit = editedJournalRecord(catalogTestDocument())
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val admission =
+                StudioSubmitAdmission(
+                    store,
+                    Mutex(),
+                    { error("Flushed without readable settings") },
+                    { _, _ -> error("Observed without readable settings") },
+                )
+            assertEquals(
+                Submission.Blocked(AcceptanceBlock.READ_ONLY),
+                submit(admission, edit) { error("Prepared without settings") },
+            )
+            val corrupted = byteArrayOf(1)
+            val stateFile = directory.resolve("state.xml")
+            Files.write(stateFile, corrupted)
+            assertEquals(
+                Submission.StoreUnavailable(StoreIssue.INVALID_DATA),
+                submit(admission, edit) { error("Prepared unreadable settings") },
+            )
+            assertTrue(Files.readAllBytes(stateFile).contentEquals(corrupted))
         }
     }
 

@@ -2,12 +2,10 @@ package dev.ayuislands.studio.session
 
 import dev.ayuislands.studio.model.AcceptanceBlock
 import dev.ayuislands.studio.model.AcceptancePlan
-import dev.ayuislands.studio.model.ApplyInputs
 import dev.ayuislands.studio.model.ApplyRequest
 import dev.ayuislands.studio.model.DraftWriteResult
 import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioSessionRecord
-import dev.ayuislands.studio.model.Submission
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import kotlinx.coroutines.Dispatchers
@@ -34,12 +32,15 @@ internal class StudioSubmitAdmission(
         if (pending != null) return pending
 
         // The autosave writer may need the same queue to flush this exact record.
-        val saved = flush(request.session)
-        if (saved is DraftWriteResult.Failed) return Submission.FlushFailed(saved.code)
+        val flushed = flush(request.session)
 
         return queue.withLock {
             when (val loaded = load()) {
-                is StoreLoad.Ready -> admit(request, operation, loaded.document, consume)
+                is StoreLoad.Ready ->
+                    when (flushed) {
+                        is DraftWriteResult.Failed -> Submission.FlushFailed(flushed.code)
+                        is DraftWriteResult.Saved -> admit(request, operation, loaded.document, consume)
+                    }
                 else -> checkNotNull(blocked(loaded))
             }
         }
@@ -82,6 +83,7 @@ internal class StudioSubmitAdmission(
         when (loaded) {
             is StoreLoad.Ready -> null
             is StoreLoad.Recovering -> Submission.Recovery(loaded.journal.token.transactionId)
-            is StoreLoad.ReadOnly, StoreLoad.Empty -> Submission.Blocked(AcceptanceBlock.READ_ONLY)
+            is StoreLoad.ReadOnly -> Submission.StoreUnavailable(loaded.issue)
+            StoreLoad.Empty -> Submission.Blocked(AcceptanceBlock.READ_ONLY)
         }
 }
