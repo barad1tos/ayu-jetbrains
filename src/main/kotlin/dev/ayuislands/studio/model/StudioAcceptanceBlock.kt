@@ -15,4 +15,9 @@ internal enum class AcceptanceBlock {
     TARGET_REPLACED,
     ACTIVATE_TARGET,
     STALE_SESSION,
+    FONT_INSTALL,
+    FONT_SELECT,
+    FONT_REINSTALL,
+    FONT_RESTART,
+    FONT_REFRESH,
 }
