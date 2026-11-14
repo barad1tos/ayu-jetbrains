@@ -1,5 +1,6 @@
 package dev.ayuislands.studio
 
+import dev.ayuislands.rotation.RotationAcceptanceOrigin
 import dev.ayuislands.studio.model.AcceptanceObservation
 import dev.ayuislands.studio.model.AcceptancePlan
 import dev.ayuislands.studio.model.ApplyContext
@@ -11,8 +12,10 @@ import dev.ayuislands.studio.model.DraftId
 import dev.ayuislands.studio.model.DraftTracking
 import dev.ayuislands.studio.model.EffectObservation
 import dev.ayuislands.studio.model.EffectOwner
-import dev.ayuislands.studio.model.FontAvailability
-import dev.ayuislands.studio.model.FontObservation
+import dev.ayuislands.studio.model.FieldAddress
+import dev.ayuislands.studio.model.FieldValue
+import dev.ayuislands.studio.model.LegacyFieldKey
+import dev.ayuislands.studio.model.LegacyStore
 import dev.ayuislands.studio.model.ProfileId
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.SessionAvailability
@@ -142,6 +145,41 @@ class StudioAcceptancePlanTest {
     }
 
     @Test
+    fun `a reverted rotation edit does not tag a later workspace Apply`() {
+        val latest = catalogTestDocument()
+        val current = journalRecord(latest)
+        val draft = current.work.drafts.single()
+        val key = LegacyFieldKey(LegacyStore.SETTINGS, "accentRotationEnabled")
+        val rotation =
+            draft.appearance.accent.records
+                .single { it.key == key }
+                .value as RawValue.BooleanValue
+        val address = FieldAddress(key)
+        val changed =
+            StudioDraftPolicy.edit(
+                draft,
+                address,
+                FieldValue.Present(RawValue.BooleanValue(!rotation.value)),
+                RotationAcceptanceOrigin.LOCAL_ROTATION_EDIT,
+            )
+        val reverted = StudioDraftPolicy.edit(changed, address, FieldValue.Present(rotation))
+        assertFalse(StudioDraftPolicy.isDirty(reverted))
+        val width =
+            latest.shared.workspace.records
+                .single { it.key.name == "hideEditorVScrollbar" }
+        val after = width.copy(value = RawValue.BooleanValue(!(width.value as RawValue.BooleanValue).value))
+        val work =
+            current.work.copy(
+                drafts = StudioList(listOf(reverted)),
+                shared = StudioList(listOf(SharedIntent.Field(width, after))),
+            )
+
+        val accepted = assertIs<AcceptancePlan.Commit>(plan(latest, current.copy(work = work)))
+        assertEquals(null, accepted.rotationOrigin)
+        assertEquals(listOf(EffectOwner.WORKSPACE), accepted.route.owners)
+    }
+
+    @Test
     fun `pending review leaves the exact draft and staged work eligible for retry`() {
         val latest = catalogTestDocument()
         val edited = editedJournalRecord(latest)
@@ -175,7 +213,7 @@ class StudioAcceptancePlanTest {
                 ),
                 StudioList(emptyList()),
             ),
-            EffectObservation(1, FontObservation(latest.currents.global.appearance.font, FontAvailability.UNCONFIRMED)),
+            EffectObservation(1),
             transaction,
         )
 

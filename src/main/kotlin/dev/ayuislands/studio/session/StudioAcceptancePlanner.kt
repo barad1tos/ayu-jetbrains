@@ -80,7 +80,7 @@ internal object StudioAcceptancePlanner {
             limitations = ready.limitations,
             native = ready.native,
             lease = ready.lease,
-            rotationOrigin = ready.candidate.draft.tracking.rotationOrigin,
+            rotationOrigin = if (appliesAppearance) ready.candidate.draft.tracking.rotationOrigin else null,
         )
     }
 
