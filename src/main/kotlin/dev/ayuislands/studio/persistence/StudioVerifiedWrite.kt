@@ -2,7 +2,9 @@ package dev.ayuislands.studio.persistence
 
 import java.io.IOException
 
-private val transactionFileId = Regex("[A-Za-z0-9_-]{1,128}")
+internal val transactionFileId = Regex("[A-Za-z0-9_-]{1,128}")
+
+internal fun stagePrefix(name: String): String = "$name.tmp."
 
 /** The caller validates the payload before writing. Only exact staged and replaced bytes acknowledge it. */
 internal fun StudioFiles.writeVerified(
@@ -11,7 +13,8 @@ internal fun StudioFiles.writeVerified(
     transactionId: String,
 ) = whileWritable {
     require(transactionFileId.matches(transactionId)) { "Invalid transaction identifier" }
-    val temporary = "$name.tmp.$transactionId"
+    removeStages(name)
+    val temporary = stagePrefix(name) + transactionId
     writeStaged(temporary, bytes)
     replace(temporary, name)
     requireExact(name, bytes)
@@ -22,7 +25,7 @@ internal fun StudioFiles.createVerified(
     name: String,
     bytes: ByteArray,
 ) = whileWritable {
-    val temporary = "$name.tmp.archive"
+    val temporary = stagePrefix(name) + "archive"
     if (read(name) == null) {
         writeStaged(temporary, bytes)
         publishNew(temporary, name)

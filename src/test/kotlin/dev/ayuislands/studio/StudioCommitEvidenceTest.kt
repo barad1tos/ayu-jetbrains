@@ -6,6 +6,7 @@ import dev.ayuislands.studio.persistence.PreparedToken
 import dev.ayuislands.studio.persistence.resolveCommit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class StudioCommitEvidenceTest {
     @Test
@@ -30,5 +31,14 @@ class StudioCommitEvidenceTest {
         val first = PreparedToken("first", -1, null, 0)
         assertEquals(CommitResolution.NotCommitted, resolveCommit(first, "new", CommitEvidence.Absent))
         assertEquals(CommitResolution.Unknown, resolveCommit(first, "new", CommitEvidence.Unreadable))
+    }
+
+    @Test
+    fun `invalid token cannot acknowledge an unchanged generation`() {
+        assertFailsWith<IllegalArgumentException> { PreparedToken("tx", 4, "base", 4) }
+        assertFailsWith<IllegalArgumentException> { PreparedToken("tx", 4, "base", 6) }
+        assertFailsWith<IllegalArgumentException> { PreparedToken("tx", Long.MAX_VALUE, "base", Long.MIN_VALUE) }
+        assertFailsWith<IllegalArgumentException> { PreparedToken("tx", 4, null, 5) }
+        assertFailsWith<IllegalArgumentException> { PreparedToken("tx", -1, "base", 0) }
     }
 }

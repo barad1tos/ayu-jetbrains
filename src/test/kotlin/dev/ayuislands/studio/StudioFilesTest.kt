@@ -180,6 +180,25 @@ class StudioFilesTest {
     }
 
     @Test
+    fun `retry removes only abandoned staging files for the same destination`() {
+        openStudioFiles(directory).use { owner ->
+            owner.writeVerified("state.xml", byteArrayOf(1), "first")
+            val abandoned = listOf("state.xml.tmp.cancelled", "state.xml.tmp.interrupted")
+            for (name in abandoned) Files.write(directory.resolve(name), byteArrayOf(2))
+            val preserved = listOf("state.xml.tmp.legacy.bak", "pending.xml.tmp.other", "state.previous.xml")
+            for (name in preserved) Files.write(directory.resolve(name), byteArrayOf(3))
+            val stagingDirectory = Files.createDirectory(directory.resolve("state.xml.tmp.user"))
+
+            owner.writeVerified("state.xml", byteArrayOf(4), "retry")
+
+            assertContentEquals(byteArrayOf(4), owner.read("state.xml"))
+            for (name in abandoned) assertNull(owner.read(name))
+            for (name in preserved) assertContentEquals(byteArrayOf(3), owner.read(name))
+            assertTrue(Files.isDirectory(stagingDirectory))
+        }
+    }
+
+    @Test
     fun `file operations do not follow links or replace the ownership marker`() {
         val root = directory.resolve("store")
         val foreign = Files.createDirectory(directory.resolve("foreign"))
@@ -255,13 +274,37 @@ private object StoreFileProbe {
             check(owner.hasWriteLock)
             val bytes = byteArrayOf(2, -1)
             when (StoreFilePoint.valueOf(arguments[1])) {
-                StoreFilePoint.REPLACED -> owner.writeVerified("state.xml", bytes, "next")
-                StoreFilePoint.STAGED -> stage(owner, "state.xml.tmp.next", bytes)
-                StoreFilePoint.ARCHIVE_STAGED -> stage(owner, "archive.xml.tmp.archive", byteArrayOf(2))
+                StoreFilePoint.REPLACED -> stopAtReplace(owner, bytes, after = true)
+                StoreFilePoint.STAGED -> stopAtReplace(owner, bytes, after = false)
+                StoreFilePoint.ARCHIVE_STAGED -> {
+                    stage(owner, "archive.xml.tmp.archive", byteArrayOf(2))
+                    waitForExit()
+                }
             }
-            println("ready")
-            System.`in`.read()
         }
+    }
+
+    private fun stopAtReplace(
+        owner: StudioFiles,
+        bytes: ByteArray,
+        after: Boolean,
+    ) {
+        val probe =
+            object : StudioFiles by owner {
+                override fun replace(
+                    source: String,
+                    destination: String,
+                ) {
+                    if (after) owner.replace(source, destination)
+                    waitForExit()
+                }
+            }
+        probe.writeVerified("state.xml", bytes, "next")
+    }
+
+    private fun waitForExit() {
+        println("ready")
+        System.`in`.read()
     }
 
     private fun stage(

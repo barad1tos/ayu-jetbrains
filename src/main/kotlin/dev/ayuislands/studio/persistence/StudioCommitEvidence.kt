@@ -5,7 +5,17 @@ internal data class PreparedToken(
     val baseRevision: Long,
     val baseDigest: String?,
     val targetRevision: Long,
-)
+) {
+    init {
+        require(transactionId.isNotBlank()) { "Missing transaction identity" }
+        require(baseRevision >= -1 && targetRevision >= 0 && targetRevision == baseRevision + 1) {
+            "Transaction must advance one generation"
+        }
+        require(if (baseRevision == -1L) baseDigest == null else !baseDigest.isNullOrBlank()) {
+            "Base generation and digest do not agree"
+        }
+    }
+}
 
 internal sealed interface CommitResolution {
     data object Committed : CommitResolution

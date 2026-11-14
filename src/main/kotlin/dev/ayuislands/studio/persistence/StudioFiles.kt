@@ -26,6 +26,9 @@ internal interface StudioFiles : AutoCloseable {
 
     fun stage(name: String): StagedFile
 
+    /** Remove abandoned staging files for one destination while the write owner is held. */
+    fun removeStages(destination: String)
+
     fun publishNew(
         source: String,
         destination: String,
@@ -74,6 +77,28 @@ private class NioStudioFiles(
         } catch (_: NoSuchFileException) {
             emptyList()
         }
+
+    @Synchronized
+    override fun removeStages(destination: String) {
+        requireWriteLock()
+        val target = resolve(destination)
+        val prefix = stagePrefix(target.fileName.toString())
+        try {
+            Files.newDirectoryStream(target.parent).use { entries ->
+                for (entry in entries) {
+                    val name = entry.fileName.toString()
+                    if (name.startsWith(prefix) &&
+                        transactionFileId.matches(name.removePrefix(prefix)) &&
+                        Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS)
+                    ) {
+                        Files.deleteIfExists(entry)
+                    }
+                }
+            }
+        } catch (_: NoSuchFileException) {
+            // The destination's directory is created when the first write is staged.
+        }
+    }
 
     @Synchronized
     override fun stage(name: String): StagedFile {
