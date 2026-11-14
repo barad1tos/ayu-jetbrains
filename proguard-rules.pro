@@ -4,6 +4,9 @@
 -dontoptimize
 -dontshrink
 
+# JDK StAX classes used by Studio XML transport.
+-libraryjars <java.home>/jmods/java.xml.jmod(!**.jar;!module-info.class)
+
 # Kotlin metadata
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
