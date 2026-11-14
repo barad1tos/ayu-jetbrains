@@ -21,6 +21,7 @@ internal class StudioDraftStore(
         val candidate: StudioDocument,
         val recovery: RecoveryPlan,
         val token: PreparedToken? = null,
+        val restore: DraftRestore? = null,
     ) {
         fun matches(journal: PendingJournal): Boolean =
             journal.candidate == candidate && journal.recovery == recovery && (token == null || journal.token == token)
@@ -86,7 +87,7 @@ internal class StudioDraftStore(
         attached: Set<String>,
     ): DraftWriteResult {
         val loaded = store.load()
-        val isRetry = loaded is StoreLoad.Recovering && loaded.journal.token.transactionId == request.transaction
+        val attempted = pendingWrite?.takeIf { it.restore == request }
         if (loaded is StoreLoad.Recovering) {
             settleOwnWrite(loaded, null)?.let { return it }
         }
@@ -95,7 +96,7 @@ internal class StudioDraftStore(
             is StoreLoad.Ready -> {
                 pendingWrite = null
                 val document = ready.document
-                if (isRetry && isRestoreAccepted(document, request)) {
+                if (attempted?.candidate == document) {
                     DraftWriteResult.Saved(document.header.revision)
                 } else {
                     when (val plan = StudioDraftRecovery.restore(document, request, attached)) {
@@ -107,6 +108,7 @@ internal class StudioDraftStore(
                                     it.id ==
                                         request.session
                                 },
+                                restore = request,
                             )
                         is DraftWritePlan.Unchanged -> DraftWriteResult.Saved(plan.revision)
                         is DraftWritePlan.Rejected -> DraftWriteResult.Failed("draft-${plan.issue.name.lowercase()}")
@@ -118,13 +120,6 @@ internal class StudioDraftStore(
             StoreLoad.Empty -> DraftWriteResult.Failed(STORE_NOT_INITIALIZED)
         }
     }
-
-    private fun isRestoreAccepted(
-        document: StudioDocument,
-        request: DraftRestore,
-    ): Boolean =
-        document.header.transactionId == request.transaction &&
-            document.sessions.singleOrNull { it.id == request.session }?.target == request.target.target
 
     /** Retains the exact work as a retirement watermark; registered bindings cannot be discarded here. */
     fun discard(
@@ -164,9 +159,10 @@ internal class StudioDraftStore(
         latest: StudioDocument,
         candidate: StudioDocument,
         record: StudioSessionRecord,
+        restore: DraftRestore? = null,
     ): DraftWriteResult {
         val recovery = RecoveryPlan(record.target, StudioList(emptyList()))
-        val attempt = DraftWrite(candidate, recovery)
+        val attempt = DraftWrite(candidate, recovery, restore = restore)
         pendingWrite = attempt
         val prepared = store.prepare(latest.header.revision, candidate, recovery)
         if (prepared is PrepareResult.Rejected) {
