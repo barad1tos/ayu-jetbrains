@@ -5,9 +5,13 @@ import dev.ayuislands.studio.model.ApplyCandidate
 import dev.ayuislands.studio.model.ApplyContext
 import dev.ayuislands.studio.model.ApplyRequest
 import dev.ayuislands.studio.model.AuthorityStatus
+import dev.ayuislands.studio.model.DraftId
 import dev.ayuislands.studio.model.EffectOwner
+import dev.ayuislands.studio.model.FactoryRecipe
 import dev.ayuislands.studio.model.FieldAddress
 import dev.ayuislands.studio.model.FieldOrigin
+import dev.ayuislands.studio.model.FieldValue
+import dev.ayuislands.studio.model.GlowDependency
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.SharedIntent
 import dev.ayuislands.studio.model.SourcePresence
@@ -19,9 +23,11 @@ import dev.ayuislands.studio.model.StudioProjectKey
 import dev.ayuislands.studio.model.StudioProjectRecord
 import dev.ayuislands.studio.model.StudioSessionRecord
 import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.model.SystemAccentPolicy
 import dev.ayuislands.studio.model.TargetObservation
 import dev.ayuislands.studio.model.TargetPresence
 import dev.ayuislands.studio.session.StudioApplyCandidate
+import dev.ayuislands.studio.session.StudioDraftPolicy
 import dev.ayuislands.studio.session.StudioEffectPolicy
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,6 +35,59 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class StudioEffectRoutingTest {
+    @Test
+    fun `applying a starter profile routes every appearance section in order`() {
+        val document = catalogTestDocument()
+        val session = journalRecord(document)
+        val profile = document.catalog.single { it.id == FactoryRecipe.NEON.id }
+        val selection = StudioDraftPolicy.select(session.work, profile, DraftId("neon"), document.currents.global)
+
+        val route = plan(document, session.copy(work = selection))
+
+        assertEquals(
+            listOf(EffectOwner.ACCENT, EffectOwner.FONT, EffectOwner.SYNTAX, EffectOwner.VCS, EffectOwner.GLOW),
+            route.owners.toList(),
+        )
+        assertEquals(StudioIntegrationSelection(), route.integrations)
+    }
+
+    @Test
+    fun `editing one font setting routes only the font owner`() {
+        val document = catalogTestDocument()
+        val session = journalRecord(document)
+        val draft = session.work.drafts.single()
+        val fontToggle = toggled(draft.appearance.font, "fontPresetEnabled")
+        val address = FieldAddress(fontToggle.before.key)
+        val edited = StudioDraftPolicy.edit(draft, address, FieldValue.Present(fontToggle.after.value))
+
+        val route = plan(document, session.copy(work = session.work.copy(drafts = StudioList(listOf(edited)))))
+
+        assertEquals(listOf(EffectOwner.FONT), route.owners.toList())
+    }
+
+    @Test
+    fun `a shared system accent override reapplies Accent without rearming integrations`() {
+        val document = catalogTestDocument()
+        val policy = SharedIntent.SystemPolicy(document.shared.systemAccentPolicy, SystemAccentPolicy.FORCE_OFF)
+
+        val route = plan(document, withShared(document, listOf(policy)))
+
+        assertEquals(listOf(EffectOwner.ACCENT), route.owners.toList())
+        assertEquals(StudioIntegrationSelection(), route.integrations)
+    }
+
+    @Test
+    fun `enabling system appearance sync routes theme and dependent effects in order`() {
+        val document = catalogTestDocument()
+        val followAppearance = enabled(document.shared.system, "followSystemAppearance")
+
+        val route = plan(document, withShared(document, listOf(followAppearance)))
+
+        assertTrue(route.syncAppearance)
+        assertEquals(listOf(EffectOwner.SYSTEM, EffectOwner.ACCENT, EffectOwner.GLOW), route.owners.toList())
+        assertEquals(listOf(GlowDependency.ACCENT, GlowDependency.AVAILABILITY), route.glow.dependencies.toList())
+    }
+
     @Test
     fun `Ignore colors select Syntax and only a new integration enable rearms Accent`() {
         val document = catalogTestDocument().withPlugin("ignorePluginSyntaxColorsEnabled", false)
