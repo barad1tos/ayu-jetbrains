@@ -34,7 +34,8 @@ class StudioAcceptanceMergeTest {
         val original = catalogTestWork(catalogTestDocument()).drafts.single()
         val key =
             FieldAddress(LegacyFieldKey(LegacyStore.SYNTAX, "customOverrides"), FieldPart.MapEntry("JAVA_CLASS_NAME"))
-        val draft = StudioDraftPolicy.edit(original, key, FieldValue.Present(RawValue.Text("#FFCD66")))
+        val requested = FieldValue.Present(RawValue.Text("#FFCD66"))
+        val draft = StudioDraftPolicy.edit(original, key, requested)
         val other = StudioDraftPolicy.edit(original, key, FieldValue.Present(RawValue.Text("#5CCFE6")))
         val foreign = OpaqueRecord("future-glow", StudioBytes(byteArrayOf(-1)))
         val latest = other.appearance.copy(glow = other.appearance.glow.copy(extensions = StudioList(listOf(foreign))))
@@ -42,12 +43,13 @@ class StudioAcceptanceMergeTest {
 
         assertEquals(latest, StudioAcceptanceMerge.appearance(draft, latest, AcceptanceChoices(), review))
         val conflict = assertIs<AcceptanceReview.Field>(review.single()).conflict
+        assertEquals(requested, conflict.mine)
         val choices = AcceptanceChoices(fields = StudioList(listOf(FieldResolution(conflict, ConflictChoice.USE_MINE))))
         review.clear()
         val resolved = StudioAcceptanceMerge.appearance(draft, latest, choices, review)
 
         assertEquals(latest.glow, resolved.glow)
-        assertEquals(conflict.mine, StudioAppearanceFields.value(resolved, key))
+        assertEquals(requested, StudioAppearanceFields.value(resolved, key))
         assertTrue(review.isEmpty())
 
         val changedAgain =
@@ -163,6 +165,96 @@ class StudioAcceptanceMergeTest {
                 .value,
         )
         assertEquals(latest, result.copy(mappings = latest.mappings))
+        assertTrue(review.isEmpty())
+    }
+
+    @Test
+    fun `explicit project-map insertion keeps its requested position`() {
+        val document = catalogTestDocument()
+        val mappings = document.shared.mappings
+        val original = mappings.records.single { it.key.name == "projectAccents" }
+        val before = original.copy(value = accents("first" to "#73D0FF", "last" to "#FFCD66"))
+        val after = before.copy(value = accents("first" to "#73D0FF", "new" to "#5CCFE6", "last" to "#FFCD66"))
+        val latest =
+            document.shared.copy(
+                mappings =
+                    mappings.copy(
+                        records =
+                            StudioList(
+                                mappings.records.map {
+                                    if (it.key ==
+                                        before.key
+                                    ) {
+                                        before
+                                    } else {
+                                        it
+                                    }
+                                },
+                            ),
+                    ),
+            )
+        val review = mutableListOf<AcceptanceReview>()
+
+        val applied =
+            StudioSharedMerge.merge(
+                latest,
+                listOf(SharedIntent.Field(before, after)),
+                AcceptanceChoices(),
+                review,
+            )
+
+        assertEquals(
+            after.value,
+            applied.mappings.records
+                .single { it.key == before.key }
+                .value,
+        )
+        assertTrue(review.isEmpty())
+    }
+
+    @Test
+    fun `explicit insertion preserves an external color edit without asking about order`() {
+        val document = catalogTestDocument()
+        val mappings = document.shared.mappings
+        val original = mappings.records.single { it.key.name == "projectAccents" }
+        val before = original.copy(value = accents("first" to "#73D0FF", "last" to "#FFCD66"))
+        val after = before.copy(value = accents("first" to "#73D0FF", "new" to "#5CCFE6", "last" to "#FFCD66"))
+        val accepted = before.copy(value = accents("first" to "#B8CC52", "last" to "#FFCD66"))
+        val latest =
+            document.shared.copy(
+                mappings =
+                    mappings.copy(
+                        records =
+                            StudioList(
+                                mappings.records.map {
+                                    if (it.key ==
+                                        before.key
+                                    ) {
+                                        accepted
+                                    } else {
+                                        it
+                                    }
+                                },
+                            ),
+                    ),
+            )
+        val review = mutableListOf<AcceptanceReview>()
+
+        val applied =
+            StudioSharedMerge.merge(
+                latest,
+                listOf(SharedIntent.Field(before, after)),
+                AcceptanceChoices(),
+                review,
+            )
+
+        val expected = accents("first" to "#B8CC52", "new" to "#5CCFE6", "last" to "#FFCD66")
+        assertEquals(
+            expected,
+            applied.mappings.records
+                .single { it.key == before.key }
+                .value,
+        )
         assertTrue(review.isEmpty())
     }
 

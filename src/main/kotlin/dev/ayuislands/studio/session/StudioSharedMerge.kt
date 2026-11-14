@@ -1,5 +1,6 @@
 package dev.ayuislands.studio.session
 
+import dev.ayuislands.studio.fields.StudioFieldValues
 import dev.ayuislands.studio.model.AcceptanceChoices
 import dev.ayuislands.studio.model.AcceptanceReview
 import dev.ayuislands.studio.model.ConflictChoice
@@ -95,9 +96,11 @@ internal object StudioSharedMerge {
                     after.entries.singleOrNull { it.key == key }
             }
         val addresses = changed.map { FieldAddress(intent.before.key, FieldPart.MapEntry(it)) }
-        val oldOrder = before.entries.map { it.key }.filter { key -> after.entries.any { it.key == key } }
-        val newOrder = after.entries.map { it.key }.filter { key -> before.entries.any { it.key == key } }
-        return if (oldOrder == newOrder) addresses else addresses + FieldAddress(intent.before.key, FieldPart.MapOrder)
+        return if (StudioFieldValues.hasExplicitOrder(before, after)) {
+            addresses + FieldAddress(intent.before.key, FieldPart.MapOrder)
+        } else {
+            addresses
+        }
     }
 
     private fun replace(
