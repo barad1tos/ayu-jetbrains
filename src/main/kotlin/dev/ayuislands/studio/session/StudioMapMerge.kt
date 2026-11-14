@@ -59,7 +59,7 @@ internal object StudioMapMerge {
         if (requested == current) return current
         val localOrder = addresses.any { it.part == FieldPart.MapOrder }
         val externalOrder = old.filter { it in current } != current.filter { it in old }
-        val concurrentOrder = (externalOrder && mine.value != base.value) || (localOrder && latest.value != base.value)
+        val concurrentOrder = (externalOrder && mine.value != base.value) || (localOrder && current != old)
         if (!concurrentOrder) return if (localOrder) requested else current
         val conflict =
             FieldConflict(
