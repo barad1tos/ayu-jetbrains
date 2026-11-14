@@ -22,3 +22,13 @@ internal data class DraftRestore(
     val transaction: String,
     val target: TargetObservation,
 )
+
+internal sealed interface DraftWriteResult {
+    data class Saved(
+        val revision: Long,
+    ) : DraftWriteResult
+
+    data class Failed(
+        val code: String,
+    ) : DraftWriteResult
+}
