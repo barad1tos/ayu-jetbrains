@@ -173,6 +173,24 @@ class StudioStoreIoTest {
         }
     }
 
+    @Test
+    fun `a damaged older archive cannot stop reuse of an intact exact match`() {
+        val old = source("a-old", byteArrayOf(6))
+        val intact = source("b-intact", byteArrayOf(7))
+        val damaged = byteArrayOf(8)
+        openStudioFiles(directory).use { files ->
+            val store = StudioStoreIo(files)
+            store.preserveSource(old)
+            store.preserveSource(intact)
+            files.writeVerified("source-backup/a-old/settings.xml", damaged, "damage")
+
+            assertEquals(intact, store.findSource(intact.archives))
+            val unresolved = assertFailsWith<StoreDataException> { store.findSource(old.archives) }
+            assertEquals(StoreIssue.CONFLICT, unresolved.issue)
+            assertContentEquals(damaged, files.read("source-backup/a-old/settings.xml"))
+        }
+    }
+
     private fun nextJournal(
         first: PendingJournal,
         base: ByteArray,

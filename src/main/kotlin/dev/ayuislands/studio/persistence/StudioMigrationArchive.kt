@@ -22,13 +22,23 @@ internal val legacyFileNames: Map<LegacyStore, String> =
 internal class StudioMigrationArchive(
     private val files: StudioFiles,
 ) {
-    fun findSource(archives: StudioList<LegacyArchive>): MigrationSource? =
-        files
-            .directories(ROOT)
-            .sorted()
-            .asSequence()
-            .mapNotNull(::readSource)
-            .firstOrNull { it.archives == archives }
+    fun findSource(archives: StudioList<LegacyArchive>): MigrationSource? {
+        var damaged: StoreDataException? = null
+        for (id in files.directories(ROOT).sorted()) {
+            if (!transactionFileId.matches(id)) continue
+            val source =
+                try {
+                    readSource(id)
+                } catch (failure: StoreDataException) {
+                    if (damaged == null) damaged = failure
+                    continue
+                }
+            if (source?.archives == archives) return source
+        }
+        // A damaged archive is evidence of prior migration work, not an empty store.
+        damaged?.let { throw it }
+        return null
+    }
 
     fun preserve(source: MigrationSource) {
         val prefix = prefix(source.id)
