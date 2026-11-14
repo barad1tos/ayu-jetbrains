@@ -73,6 +73,12 @@ class StudioDraftRecoveryTest {
             DraftWriteIssue.CONFLICT,
             assertIs<DraftWritePlan.Rejected>(StudioDraftRecovery.restore(document, request, setOf(orphan.id))).issue,
         )
+        assertEquals(
+            DraftWriteIssue.CONFLICT,
+            assertIs<DraftWritePlan.Rejected>(
+                StudioDraftRecovery.restore(document, request, setOf(request.session)),
+            ).issue,
+        )
         val unavailable = request.copy(target = request.target.copy(presence = TargetPresence.UNAVAILABLE))
         assertEquals(
             DraftWriteIssue.TARGET_UNAVAILABLE,

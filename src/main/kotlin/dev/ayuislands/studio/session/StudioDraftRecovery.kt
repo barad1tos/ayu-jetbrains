@@ -25,7 +25,10 @@ internal object StudioDraftRecovery {
         val source =
             document.sessions.singleOrNull { it.id == request.source }
                 ?: return DraftWritePlan.Rejected(DraftWriteIssue.MISSING)
-        if (source.id in attached || document.sessions.any { it.id == request.session }) {
+        if (source.id in attached ||
+            request.session in attached ||
+            document.sessions.any { it.id == request.session }
+        ) {
             return DraftWritePlan.Rejected(DraftWriteIssue.CONFLICT)
         }
         if (source.availability == SessionAvailability.RETIRED) return DraftWritePlan.Rejected(DraftWriteIssue.RETIRED)
