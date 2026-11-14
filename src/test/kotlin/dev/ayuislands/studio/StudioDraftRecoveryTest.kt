@@ -109,4 +109,39 @@ class StudioDraftRecoveryTest {
         assertEquals(document.runtime, discarded.runtime)
         assertEquals(orphan.work, discarded.sessions.single().work)
     }
+
+    @Test
+    fun `stale recovery controls cannot replace an existing draft or revive discarded work`() {
+        val initial = catalogTestDocument()
+        val orphan = editedJournalRecord(initial)
+        val another = orphan.copy(id = "other")
+        val document = initial.copy(sessions = StudioList(listOf(orphan, another)))
+        val target = TargetObservation(orphan.target, 1, TargetPresence.ACTIVE)
+        val restore = DraftRestore(orphan.id, another.id, "restore", target)
+        assertEquals(
+            DraftWritePlan.Rejected(DraftWriteIssue.CONFLICT),
+            StudioDraftRecovery.restore(document, restore, emptySet()),
+        )
+        assertEquals(
+            DraftWritePlan.Rejected(DraftWriteIssue.CONFLICT),
+            StudioDraftRecovery.discard(document, orphan.id, "discard", setOf(orphan.id)),
+        )
+        assertEquals(
+            DraftWritePlan.Rejected(DraftWriteIssue.MISSING),
+            StudioDraftRecovery.discard(document, "removed", "discard", emptySet()),
+        )
+        val discarded =
+            assertIs<DraftWritePlan.Write>(
+                StudioDraftRecovery.discard(document, orphan.id, "discard", emptySet()),
+            ).candidate
+        assertEquals(
+            DraftWritePlan.Unchanged(discarded.header.revision),
+            StudioDraftRecovery.discard(discarded, orphan.id, "repeat-discard", emptySet()),
+        )
+        assertEquals(
+            DraftWritePlan.Rejected(DraftWriteIssue.RETIRED),
+            StudioDraftRecovery.restore(discarded, restore.copy(session = "new"), emptySet()),
+        )
+        assertEquals(another, discarded.sessions.last())
+    }
 }
