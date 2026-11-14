@@ -21,12 +21,11 @@ internal object StudioDraftRebase {
         val appearance =
             merge(draft.base.appearance, draft.appearance, latest.appearance, draft.tracking.touched, orders)
         val baselineTouches = StudioList((draft.tracking.touched + orders).distinct())
-        val initial = merge(draft.base.appearance, draft.tracking.initial, latest.appearance, baselineTouches)
         val base = merge(draft.base.appearance, draft.base.appearance, latest.appearance, baselineTouches)
         return draft.copy(
             appearance = appearance,
             base = draft.base.copy(appearance = base),
-            tracking = draft.tracking.copy(initial = initial),
+            tracking = draft.tracking.copy(initial = latest.appearance),
         )
     }
 
