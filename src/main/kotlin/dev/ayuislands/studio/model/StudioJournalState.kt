@@ -32,3 +32,8 @@ internal sealed interface DraftWriteResult {
         val code: String,
     ) : DraftWriteResult
 }
+
+internal data class JournalAcknowledgement(
+    val stamp: CallbackStamp,
+    val result: DraftWriteResult,
+)

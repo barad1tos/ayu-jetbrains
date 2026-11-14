@@ -1,0 +1,176 @@
+package dev.ayuislands.studio.session
+
+import dev.ayuislands.studio.model.CallbackStamp
+import dev.ayuislands.studio.model.DraftWriteResult
+import dev.ayuislands.studio.model.JournalAcknowledgement
+import dev.ayuislands.studio.model.OperationStamp
+import dev.ayuislands.studio.model.SessionAvailability
+import dev.ayuislands.studio.model.StudioSessionRecord
+import kotlin.coroutines.cancellation.CancellationException
+
+/** Owns one session's deferred writes; all entry points and completions share one dispatcher. */
+internal class StudioSessionJournal(
+    private val scheduler: SessionScheduler,
+    private val writer: SessionWriter,
+    private val acknowledge: (JournalAcknowledgement) -> Unit,
+) {
+    private enum class Readiness { WAITING, READY }
+
+    private data class Queued(
+        val record: StudioSessionRecord,
+        val readiness: Readiness,
+        val completions: List<(DraftWriteResult) -> Unit> = emptyList(),
+    )
+
+    private data class Writing(
+        val record: StudioSessionRecord,
+        val attempt: Long,
+        val completions: MutableList<(DraftWriteResult) -> Unit>,
+    )
+
+    private data class Acknowledged(
+        val record: StudioSessionRecord,
+        val revision: Long,
+    )
+
+    private var latest: StudioSessionRecord? = null
+    private var queued: Queued? = null
+    private var writing: Writing? = null
+    private var acknowledged: Acknowledged? = null
+    private var timer: ScheduledCall? = null
+    private var timerGeneration = 0L
+    private var attempt = 0L
+
+    fun schedule(record: StudioSessionRecord) {
+        if (record.availability != SessionAvailability.LIVE || problem(record) != null) return
+        if (writing?.record == record || acknowledged?.record == record || queued?.record == record) return
+        latest = record
+        val superseded = replaceQueued(Queued(record, Readiness.WAITING))
+        cancelTimer()
+        val generation = timerGeneration
+        timer =
+            scheduler.schedule(SAVE_DELAY_MILLIS) {
+                if (generation == timerGeneration && queued?.record == record) {
+                    queued = requireNotNull(queued).copy(readiness = Readiness.READY)
+                    pump()
+                }
+            }
+        notifySuperseded(superseded)
+    }
+
+    fun flush(
+        record: StudioSessionRecord,
+        completion: (DraftWriteResult) -> Unit,
+    ) {
+        val issue = problem(record)
+        if (issue != null || record.availability != SessionAvailability.LIVE) {
+            completion(DraftWriteResult.Failed(issue ?: "retired"))
+            return
+        }
+        latest = record
+        acknowledged?.takeIf { it.record == record }?.let {
+            completion(DraftWriteResult.Saved(it.revision))
+            return
+        }
+        writing?.takeIf { it.record == record }?.let {
+            it.completions.add(completion)
+            return
+        }
+        cancelTimer()
+        val callbacks = queued?.takeIf { it.record == record }?.completions.orEmpty() + completion
+        val superseded = replaceQueued(Queued(record, Readiness.READY, callbacks))
+        pump()
+        notifySuperseded(superseded)
+    }
+
+    fun retire(record: StudioSessionRecord) {
+        require(record.availability != SessionAvailability.LIVE)
+        if (problem(record) != null) return
+        latest = record
+        cancelTimer()
+        if (writing?.record == record || acknowledged?.record == record) return
+        val superseded = replaceQueued(Queued(record, Readiness.READY))
+        pump()
+        notifySuperseded(superseded)
+    }
+
+    private fun problem(record: StudioSessionRecord): String? {
+        val previous = latest ?: return null
+        return when {
+            previous.id != record.id || previous.target != record.target -> "foreign-session"
+            previous.availability != SessionAvailability.LIVE && record.availability == SessionAvailability.LIVE ->
+                "retired"
+            record.generation < previous.generation -> "stale-generation"
+            record.generation == previous.generation && record != previous -> "conflicting-generation"
+            else -> null
+        }
+    }
+
+    private fun replaceQueued(next: Queued): List<(DraftWriteResult) -> Unit> {
+        val previous = queued
+        queued = next
+        return previous?.takeIf { it.record != next.record }?.completions.orEmpty()
+    }
+
+    private fun notifySuperseded(completions: List<(DraftWriteResult) -> Unit>) {
+        notifyWaiters(completions, DraftWriteResult.Failed("superseded"))
+    }
+
+    private fun pump() {
+        if (writing != null) return
+        val next = queued?.takeIf { it.readiness == Readiness.READY } ?: return
+        queued = null
+        cancelTimer()
+        val active = Writing(next.record, ++attempt, next.completions.toMutableList())
+        writing = active
+        writer.write(active.record) { result -> complete(active, result) }
+    }
+
+    private fun complete(
+        active: Writing,
+        result: DraftWriteResult,
+    ) {
+        if (writing !== active) return
+        writing = null
+        if (result is DraftWriteResult.Saved) {
+            acknowledged = Acknowledged(active.record, result.revision)
+        }
+        val stamp = CallbackStamp(journalStamp(active.record), "save:${active.attempt}")
+        val publish: (DraftWriteResult) -> Unit = { acknowledge(JournalAcknowledgement(stamp, it)) }
+        try {
+            notifyWaiters(listOf(publish) + active.completions, result)
+        } finally {
+            pump()
+        }
+    }
+
+    private fun notifyWaiters(
+        waiters: List<(DraftWriteResult) -> Unit>,
+        result: DraftWriteResult,
+    ) {
+        val failures = mutableListOf<RuntimeException>()
+        for (notify in waiters) {
+            try {
+                notify(result)
+            } catch (failure: RuntimeException) {
+                failures.add(failure)
+            }
+        }
+        val primary = failures.firstOrNull { it is CancellationException } ?: failures.firstOrNull() ?: return
+        failures.filter { it !== primary }.forEach(primary::addSuppressed)
+        throw primary
+    }
+
+    private fun cancelTimer() {
+        timerGeneration++
+        timer?.cancel()
+        timer = null
+    }
+
+    private companion object {
+        const val SAVE_DELAY_MILLIS = 250L
+    }
+}
+
+internal fun journalStamp(record: StudioSessionRecord): OperationStamp =
+    OperationStamp(record.id, record.generation, "journal:${record.generation}")
