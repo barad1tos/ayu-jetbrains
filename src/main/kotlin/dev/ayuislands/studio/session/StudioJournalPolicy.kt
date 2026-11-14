@@ -8,6 +8,17 @@ import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.model.StudioSessionRecord
 
 internal object StudioJournalPolicy {
+    /** Only the acknowledged record may enter Apply; catalog name and link reconciliation also applies on save. */
+    fun acknowledgedDraft(
+        latest: StudioDocument,
+        request: StudioSessionRecord,
+    ): StudioSessionRecord? {
+        val saved = latest.sessions.singleOrNull { it.id == request.id }
+        return saved?.takeIf {
+            it.availability == SessionAvailability.LIVE && it == reconcileCatalog(latest, request, saved)
+        }
+    }
+
     fun save(
         latest: StudioDocument,
         record: StudioSessionRecord,
