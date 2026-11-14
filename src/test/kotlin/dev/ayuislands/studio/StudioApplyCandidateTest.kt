@@ -125,15 +125,15 @@ class StudioApplyCandidateTest {
         val latest = document.copy(sessions = StudioList(listOf(dirty)))
         val popup = journalRecord(document).copy(id = "popup")
         val request = ApplyRequest(popup, 1, origin = ApplyOrigin.QUICK_SWITCHER)
-        val context = context(popup)
+        val orphanContext = context(popup)
 
         val review =
             assertIs<ApplyCandidate.Review>(
-                StudioApplyCandidate.plan(request, latest, context.copy(liveSessions = StudioList(listOf(dirty)))),
+                StudioApplyCandidate.plan(request, latest, context(popup, liveSessions = listOf(dirty))),
             )
         assertEquals(listOf<AcceptanceReview>(AcceptanceReview.LiveSession(dirty.id)), review.items)
 
-        val result = assertIs<ApplyCandidate.Ready>(StudioApplyCandidate.plan(request, latest, context))
+        val result = assertIs<ApplyCandidate.Ready>(StudioApplyCandidate.plan(request, latest, orphanContext))
         assertFalse(result.hasWork)
         assertEquals(latest, result.document)
     }
@@ -208,6 +208,10 @@ class StudioApplyCandidateTest {
     private fun context(
         session: StudioSessionRecord,
         authority: AuthorityStatus = AuthorityStatus.READY,
+        liveSessions: List<StudioSessionRecord> = emptyList(),
     ): ApplyContext =
-        ApplyContext(AcceptanceObservation(authority, TargetObservation(session.target, 1, TargetPresence.ACTIVE)))
+        ApplyContext(
+            AcceptanceObservation(authority, TargetObservation(session.target, 1, TargetPresence.ACTIVE)),
+            StudioList(liveSessions),
+        )
 }
