@@ -15,6 +15,15 @@ internal data class DraftRecord(
 )
 
 internal sealed interface CatalogIntent {
+    val profileId: ProfileId
+        get() =
+            when (this) {
+                is Create -> definition.id
+                is Update -> before.id
+                is Rename -> before.id
+                is Delete -> before.id
+            }
+
     data class Create(
         val definition: ProfileDefinition.User,
         val draft: DraftId,
@@ -66,6 +75,8 @@ internal data class SessionWork(
         val draftIds = drafts.map { it.id }.toSet()
         require(draftIds.size == drafts.size) { "Duplicate draft identity" }
         require(selected in draftIds) { "Selected draft is missing" }
+        val intentKeys = catalog.map { it.profileId to it::class }
+        require(intentKeys.distinct().size == catalog.size) { "Duplicate catalog edit" }
         for (intent in catalog) {
             when (intent) {
                 is CatalogIntent.Create -> require(intent.draft in draftIds) { "Create intent draft is missing" }
