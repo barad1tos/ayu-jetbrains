@@ -46,7 +46,7 @@ internal object StudioApplyPreflight {
         val limitations = effects.limitations.filter { it.owner in requested.owners }
         val route = allowedRoute(requested, limitations)
         val font = requestedFont(candidate, route, target.target)
-        if (font != null && StudioAcceptanceMerge.changed(effects.font.requested, font)) {
+        if (font != null && (effects.font == null || StudioAcceptanceMerge.changed(effects.font.requested, font))) {
             return ApplyPreflight.Blocked(AcceptanceBlock.FONT_REFRESH)
         }
         val observed = effects.native.filter { it.owner in route.owners }
@@ -55,7 +55,7 @@ internal object StudioApplyPreflight {
         if (review.isNotEmpty()) return ApplyPreflight.Review(StudioList(review))
 
         if (font != null) {
-            fontRequirement(effects.font.availability)?.let { return ApplyPreflight.Blocked(it) }
+            fontRequirement(requireNotNull(effects.font).availability)?.let { return ApplyPreflight.Blocked(it) }
         }
 
         return ApplyPreflight.Ready(

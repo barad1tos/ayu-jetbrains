@@ -16,7 +16,7 @@ internal data class FontObservation(
 
 internal data class EffectObservation(
     val capabilityRevision: Long,
-    val font: FontObservation,
+    val font: FontObservation? = null,
     val limitations: StudioList<EffectLimitation> = StudioList(emptyList()),
     val native: StudioList<NativeSurfaceChange> = StudioList(emptyList()),
 )
