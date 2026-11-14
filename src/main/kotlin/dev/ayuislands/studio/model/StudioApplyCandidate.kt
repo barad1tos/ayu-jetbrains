@@ -11,7 +11,7 @@ internal data class ApplyRequest(
 
 internal data class ApplyContext(
     val observation: AcceptanceObservation,
-    val liveSessions: StudioList<StudioSessionRecord> = StudioList(emptyList()),
+    val liveSessions: StudioList<StudioSessionRecord>,
 )
 
 internal sealed interface ApplyCandidate {
