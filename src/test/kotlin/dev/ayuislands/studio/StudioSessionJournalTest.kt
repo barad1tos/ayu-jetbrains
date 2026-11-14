@@ -10,6 +10,7 @@ import dev.ayuislands.studio.session.SessionWriter
 import dev.ayuislands.studio.session.StudioSessionJournal
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -53,6 +54,29 @@ class StudioSessionJournalTest {
         assertEquals(listOf<DraftWriteResult>(DraftWriteResult.Saved(4)), results)
         fixture.scheduler.advance(250)
         assertEquals(2, fixture.writer.requests.size)
+    }
+
+    @Test
+    fun `a failing acknowledgement observer does not lose a durable result or strand the next save`() {
+        val writer = ManualSessionWriter()
+        val first = journalRecord(catalogTestDocument())
+        val next = first.copy(generation = 1)
+        val journal =
+            StudioSessionJournal(ManualSessionScheduler(), writer) { event ->
+                if (event.stamp.operation.generation == first.generation) error("view could not render")
+            }
+        val results = mutableListOf<DraftWriteResult>()
+
+        journal.flush(first, results::add)
+        journal.flush(next, results::add)
+        val failure = assertFailsWith<IllegalStateException> { writer.complete(0, DraftWriteResult.Saved(3)) }
+
+        assertEquals("view could not render", failure.message)
+        assertEquals(listOf<DraftWriteResult>(DraftWriteResult.Saved(3)), results)
+        assertEquals(listOf(first, next), writer.requests.map { it.record })
+
+        writer.complete(1, DraftWriteResult.Saved(4))
+        assertEquals(listOf<DraftWriteResult>(DraftWriteResult.Saved(3), DraftWriteResult.Saved(4)), results)
     }
 
     @Test

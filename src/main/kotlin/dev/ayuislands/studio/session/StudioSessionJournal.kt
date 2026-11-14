@@ -6,6 +6,7 @@ import dev.ayuislands.studio.model.JournalAcknowledgement
 import dev.ayuislands.studio.model.OperationStamp
 import dev.ayuislands.studio.model.SessionAvailability
 import dev.ayuislands.studio.model.StudioSessionRecord
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Owns one session's deferred writes; all entry points and completions share one dispatcher. */
 internal class StudioSessionJournal(
@@ -112,7 +113,7 @@ internal class StudioSessionJournal(
     }
 
     private fun notifySuperseded(completions: List<(DraftWriteResult) -> Unit>) {
-        completions.forEach { it(DraftWriteResult.Failed("superseded")) }
+        notifyWaiters(completions, DraftWriteResult.Failed("superseded"))
     }
 
     private fun pump() {
@@ -135,9 +136,29 @@ internal class StudioSessionJournal(
             acknowledged = Acknowledged(active.record, result.revision)
         }
         val stamp = CallbackStamp(journalStamp(active.record), "save:${active.attempt}")
-        acknowledge(JournalAcknowledgement(stamp, result))
-        active.completions.toList().forEach { it(result) }
-        pump()
+        val publish: (DraftWriteResult) -> Unit = { acknowledge(JournalAcknowledgement(stamp, it)) }
+        try {
+            notifyWaiters(listOf(publish) + active.completions, result)
+        } finally {
+            pump()
+        }
+    }
+
+    private fun notifyWaiters(
+        waiters: List<(DraftWriteResult) -> Unit>,
+        result: DraftWriteResult,
+    ) {
+        val failures = mutableListOf<RuntimeException>()
+        for (notify in waiters) {
+            try {
+                notify(result)
+            } catch (failure: RuntimeException) {
+                failures.add(failure)
+            }
+        }
+        val primary = failures.firstOrNull { it is CancellationException } ?: failures.firstOrNull() ?: return
+        failures.filter { it !== primary }.forEach(primary::addSuppressed)
+        throw primary
     }
 
     private fun cancelTimer() {
