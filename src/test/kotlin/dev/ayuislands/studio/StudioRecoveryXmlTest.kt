@@ -203,6 +203,33 @@ class StudioRecoveryXmlTest {
         assertFailsWith<IllegalArgumentException> { readPlan(plan) }
     }
 
+    @Test
+    fun `recovery cannot address a blank project identity`() {
+        val target = StudioTarget.Project(StudioProjectKey(" \t"))
+        val plan = RecoveryPlan(target, StudioList(emptyList()), purpose = RecoveryPurpose.Metadata)
+        assertFailsWith<IllegalArgumentException> { readPlan(plan) }
+    }
+
+    @Test
+    fun `rotation recovery rejects a frozen choice for another target`() {
+        val operation = UUID.fromString("99f80e27-50f6-4c28-8d21-c24f542531d2")
+        val other = StudioTarget.Project(StudioProjectKey("/work/other"))
+        val step =
+            RotationCandidate(
+                operation,
+                RuntimeOwner(other, 7),
+                RotationIntent(true, "PRESET", 2),
+                AccentRotationMode.PRESET,
+                AyuVariant.MIRAGE,
+                "#FFCD66",
+                3,
+            )
+        val plan = RecoveryPlan(StudioTarget.Global, StudioList(listOf(EffectOwner.ACCENT)), rotationStep = step)
+        assertFailsWith<IllegalArgumentException> { readPlan(plan) }
+        val automatic = plan.copy(purpose = RecoveryPurpose.RotationStep(operation))
+        assertFailsWith<IllegalArgumentException> { readPlan(automatic) }
+    }
+
     private fun readPlan(plan: RecoveryPlan): RecoveryPlan {
         val bytes = StudioXml.write(StudioRecoveryXml.write(plan))
         return StudioRecoveryXml.read(StudioXml.parse(bytes))

@@ -6,6 +6,7 @@ import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.LimitationReason
 import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.model.StudioNativeChange
+import dev.ayuislands.studio.model.StudioTarget
 import dev.ayuislands.studio.model.StudioThemeChange
 import java.util.UUID
 
@@ -42,12 +43,18 @@ internal object StudioRecoveryXml {
         require(owners == owners.distinct().sortedBy(EffectOwner::ordinal)) { "Invalid recovery owner order" }
         require(limitations.distinct().size == limitations.size) { "Duplicate effect limitation" }
         require(limitations.none { it.blocksEffect && it.owner in owners }) { "Recovery owner is blocked" }
+        val target = StudioAppearanceXml.readTarget(node.child("target"))
+        require(target !is StudioTarget.Project || target.key.value.isNotBlank()) {
+            "Missing recovery project identity"
+        }
+        val step = node.optionalChild(ROTATION_STEP)?.let(StudioRotationXml::readCandidate)
+        require(step == null || step.owner.target == target) { "Rotation candidate targets another context" }
         val plan =
             RecoveryPlan(
-                StudioAppearanceXml.readTarget(node.child("target")),
+                target,
                 StudioList(owners),
                 StudioList(limitations),
-                node.optionalChild(ROTATION_STEP)?.let(StudioRotationXml::readCandidate),
+                step,
                 readPurpose(node),
             )
         when (plan.purpose) {
