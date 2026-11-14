@@ -3,6 +3,7 @@ package dev.ayuislands.studio.session
 import dev.ayuislands.rotation.RotationAcceptanceOrigin
 import dev.ayuislands.studio.fields.StudioAppearanceFields
 import dev.ayuislands.studio.fields.StudioFieldEdits
+import dev.ayuislands.studio.fields.StudioFieldValues
 import dev.ayuislands.studio.migration.StudioFieldMapping
 import dev.ayuislands.studio.model.AcceptedAppearance
 import dev.ayuislands.studio.model.DraftId
@@ -83,10 +84,7 @@ internal object StudioDraftPolicy {
         if (original !is RawValue.OrderedMap || edited !is RawValue.OrderedMap) return
         val order = FieldAddress(address.field, FieldPart.MapOrder)
         if (FieldAddress(address.field, FieldPart.Value) in touches) return
-        val before = original.entries.map { it.key }
-        val after = edited.entries.map { it.key }
-        val defaultOrder = before.filter { it in after } + after.filterNot { it in before }
-        if (after == defaultOrder) {
+        if (!StudioFieldValues.hasExplicitOrder(original, edited)) {
             touches.remove(order)
         } else if (order !in touches) {
             touches.add(order)
