@@ -2,15 +2,29 @@ package dev.ayuislands.studio
 
 import dev.ayuislands.studio.migration.MigrationResult
 import dev.ayuislands.studio.migration.StudioLegacyMigration
+import dev.ayuislands.studio.model.AcceptanceObservation
+import dev.ayuislands.studio.model.AcceptancePlan
+import dev.ayuislands.studio.model.ApplyContext
+import dev.ayuislands.studio.model.ApplyRequest
+import dev.ayuislands.studio.model.AuthorityStatus
+import dev.ayuislands.studio.model.DraftWriteResult
+import dev.ayuislands.studio.model.EffectLimitation
+import dev.ayuislands.studio.model.EffectObservation
 import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.LegacyArchive
 import dev.ayuislands.studio.model.LegacyFile
 import dev.ayuislands.studio.model.LegacyStore
+import dev.ayuislands.studio.model.LimitationReason
 import dev.ayuislands.studio.model.MigrationSource
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioProjectKey
+import dev.ayuislands.studio.model.StudioProjectRecord
+import dev.ayuislands.studio.model.StudioSessionRecord
 import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.model.TargetObservation
+import dev.ayuislands.studio.model.TargetPresence
 import dev.ayuislands.studio.persistence.CommitResolution
 import dev.ayuislands.studio.persistence.CommitResult
 import dev.ayuislands.studio.persistence.JournalResult
@@ -21,27 +35,134 @@ import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.PrepareResult
 import dev.ayuislands.studio.persistence.PreparedToken
 import dev.ayuislands.studio.persistence.RecoveryPlan
+import dev.ayuislands.studio.persistence.RecoveryPurpose
 import dev.ayuislands.studio.persistence.RestoreStatus
 import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
+import dev.ayuislands.studio.persistence.StudioDraftStore
 import dev.ayuislands.studio.persistence.StudioFiles
 import dev.ayuislands.studio.persistence.StudioLegacyCapture
 import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.session.StudioAcceptancePlanner
+import dev.ayuislands.studio.session.StudioApplyCandidate
 import org.junit.jupiter.api.io.TempDir
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 
 class StudioAppearanceStoreTest {
     @TempDir
     lateinit var directory: Path
+
+    @Test
+    fun `prepared project Apply is recoverable before commit and reopens with its accepted draft baseline`() {
+        val initial = catalogTestDocument()
+        val project = StudioProjectRecord(StudioProjectKey("/ayu"), "Ayu", initial.currents.global)
+        val document = initial.copy(currents = initial.currents.copy(projects = StudioList(listOf(project))))
+        val edit = editedJournalRecord(document).copy(target = StudioTarget.Project(project.key))
+        val advisory = EffectLimitation(EffectOwner.GLOW, LimitationReason.PRO_REQUIRED, blocksEffect = false)
+        val accepted =
+            open().use { store ->
+                initialize(store, document)
+                assertIs<DraftWriteResult.Saved>(StudioDraftStore(store).save(edit, "edited-project"))
+                val latest = assertIs<StoreLoad.Ready>(store.load()).document
+                val plan = applyPlan(latest, edit, EffectObservation(1, limitations = StudioList(listOf(advisory))))
+                val prepared = assertIs<PrepareResult.Prepared>(store.prepare(plan))
+                val pending = assertIs<StoreLoad.Recovering>(store.load())
+                assertEquals(latest, pending.document)
+                assertEquals(prepared.journal, pending.journal)
+                assertEquals(edit.target, prepared.journal.recovery.target)
+                assertEquals(RecoveryPurpose.UserAcceptance, prepared.journal.recovery.purpose)
+                assertEquals(listOf(EffectOwner.GLOW), prepared.journal.recovery.owners)
+                assertEquals(listOf(advisory), prepared.journal.recovery.limitations)
+                assertEquals(CommitResolution.NotCommitted, store.resolveOutcome(prepared.token))
+                assertEquals(CommitResult.Committed(plan.document), store.commit(prepared.token, plan.document.runtime))
+                prepared.journal
+            }
+        open().use { reopened ->
+            val loaded = assertIs<StoreLoad.Recovering>(reopened.load())
+            assertEquals(CommitResolution.Committed, reopened.resolveOutcome(accepted.token))
+            val persisted = requireNotNull(loaded.document)
+            val selected = persisted.currents.projects.single()
+            val draft = persisted.sessions.single()
+            assertEquals(document.currents.global, persisted.currents.global)
+            assertEquals(
+                edit.work.drafts
+                    .single()
+                    .appearance.glow,
+                selected.current.appearance.glow,
+            )
+            assertEquals(
+                selected.current,
+                draft.work.drafts
+                    .single()
+                    .base,
+            )
+            assertFalse(StudioApplyCandidate.hasPending(draft.work))
+            assertEquals(JournalResult.Acknowledged, reopened.finishAccepted(accepted.token))
+            assertEquals(StoreLoad.Ready(persisted), reopened.load())
+        }
+    }
+
+    @Test
+    fun `a prepared acceptance cannot replace a newer durable draft generation`() {
+        val initial = catalogTestDocument()
+        val edit = editedJournalRecord(initial)
+        open().use { store ->
+            initialize(store, initial)
+            val plan = applyPlan(initial, edit)
+            val newer = edit.copy(generation = edit.generation + 1)
+            assertIs<DraftWriteResult.Saved>(StudioDraftStore(store).save(newer, "newer-draft"))
+            val latest = assertIs<StoreLoad.Ready>(store.load())
+            assertEquals(PrepareResult.Rejected(StoreIssue.STALE), store.prepare(plan))
+            assertEquals(latest, store.load())
+            assertEquals(newer, latest.document.sessions.single())
+        }
+    }
+
+    @Test
+    fun `lost prepared Apply acknowledgement leaves recoverable work but does not accept it`() {
+        val document = catalogTestDocument()
+        val files = openStudioFiles(directory)
+        var losePrepare = false
+        val fault =
+            object : StudioFiles by files {
+                override fun replace(
+                    source: String,
+                    destination: String,
+                ) {
+                    files.replace(source, destination)
+                    if (losePrepare && destination == "pending.xml") {
+                        losePrepare = false
+                        throw IOException("Lost Apply journal acknowledgement")
+                    }
+                }
+            }
+        StudioAppearanceStore(fault).use { store ->
+            initialize(store, document)
+            val edit = editedJournalRecord(document)
+            assertIs<DraftWriteResult.Saved>(StudioDraftStore(store).save(edit, "edited"))
+            val latest = assertIs<StoreLoad.Ready>(store.load()).document
+            val plan = applyPlan(latest, edit)
+            losePrepare = true
+            assertEquals(PrepareResult.Rejected(StoreIssue.IO), store.prepare(plan))
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(latest, pending.document)
+            assertEquals(plan.document, pending.journal.candidate)
+            assertEquals(CommitResolution.NotCommitted, store.resolveOutcome(pending.journal.token))
+            assertEquals(JournalResult.Acknowledged, store.finishRollback(pending.journal.token))
+            assertEquals(StoreLoad.Ready(latest), store.load())
+        }
+    }
 
     @Test
     fun `prepare keeps current untouched and accepted state survives reopen before cleanup`() {
@@ -233,6 +354,36 @@ class StudioAppearanceStoreTest {
     }
 
     private fun open(): StudioAppearanceStore = StudioAppearanceStore(openStudioFiles(directory))
+
+    private fun initialize(
+        store: StudioAppearanceStore,
+        document: StudioDocument,
+    ) {
+        val token = prepareFirst(store, document)
+        assertEquals(CommitResult.Committed(document), store.commit(token, document.runtime))
+        assertEquals(JournalResult.Acknowledged, store.finishAccepted(token))
+    }
+
+    private fun applyPlan(
+        latest: StudioDocument,
+        edit: StudioSessionRecord,
+        effects: EffectObservation = EffectObservation(1),
+    ): AcceptancePlan.Commit =
+        assertIs<AcceptancePlan.Commit>(
+            StudioAcceptancePlanner.plan(
+                ApplyRequest(edit, 1),
+                latest,
+                ApplyContext(
+                    AcceptanceObservation(
+                        AuthorityStatus.READY,
+                        TargetObservation(edit.target, 1, TargetPresence.ACTIVE),
+                    ),
+                    StudioList(emptyList()),
+                ),
+                effects,
+                UUID.fromString("9e1bbb9a-7376-451d-9f0f-4897c1142add"),
+            ),
+        )
 
     private fun recovery(owners: StudioList<EffectOwner> = StudioList(emptyList())): RecoveryPlan =
         RecoveryPlan(StudioTarget.Global, owners)
