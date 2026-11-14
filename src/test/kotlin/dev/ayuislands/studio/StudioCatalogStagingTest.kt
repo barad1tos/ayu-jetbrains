@@ -101,8 +101,42 @@ class StudioCatalogStagingTest {
         assertEquals(updated.catalog[1], moved.catalog[1])
         val deleted = stage(document, moved, CatalogCommand.Delete(user.id))
         assertEquals(moved.catalog + CatalogIntent.Delete(user), deleted.catalog)
-        assertEquals(moved.catalog, stage(document, deleted, CatalogCommand.Unstage(2)).catalog)
+        assertEquals(moved.catalog, stage(document, deleted, CatalogCommand.Unstage(deleted.catalog[2])).catalog)
         assertEquals(initial.drafts, deleted.drafts)
+    }
+
+    @Test
+    fun `undo removes only the exact staged edit even if the same action repeats`() {
+        val document = document()
+        val initial = work(document)
+        val user = document.catalog.filterIsInstance<ProfileDefinition.User>().single()
+        val renamed = stage(document, initial, CatalogCommand.Rename(user.id, "First"))
+        val staged = stage(document, renamed, CatalogCommand.Update(initial.selected, user.id))
+        val undo = CatalogCommand.Unstage(staged.catalog.first())
+        val afterUndo = stage(document, staged, undo)
+        assertEquals(staged.catalog.drop(1), afterUndo.catalog)
+        assertEquals(afterUndo, stage(document, afterUndo, undo))
+
+        val replacement = stage(document, staged, CatalogCommand.Rename(user.id, "Newer"))
+        assertEquals(replacement, stage(document, replacement, undo))
+
+        val reentered = stage(document, replacement, CatalogCommand.Rename(user.id, "First"))
+        assertEquals(staged.catalog, reentered.catalog)
+        assertEquals(reentered, stage(document, reentered, undo))
+    }
+
+    @Test
+    fun `profile names reject unpaired surrogates but accept emoji`() {
+        val document = document()
+        val initial = work(document)
+        val id = ProfileId("work")
+        val created = stage(document, initial, CatalogCommand.Create(initial.selected, id, "Робота 🌿"))
+        assertEquals("Робота 🌿", assertIs<CatalogIntent.Create>(created.catalog.single()).definition.name)
+        val invalid = CatalogCommand.Rename(id, "Broken " + 0xD800.toChar())
+        assertEquals(
+            CatalogStage.Rejected(CatalogError.INVALID_NAME),
+            StudioCatalogStaging.stage(document, created, invalid),
+        )
     }
 
     private fun stage(

@@ -5,7 +5,6 @@ import dev.ayuislands.studio.model.CatalogError
 import dev.ayuislands.studio.model.CatalogIntent
 import dev.ayuislands.studio.model.CatalogStage
 import dev.ayuislands.studio.model.ProfileDefinition
-import dev.ayuislands.studio.model.ProfileId
 import dev.ayuislands.studio.model.SessionWork
 import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
@@ -21,23 +20,20 @@ internal object StudioCatalogStaging {
             is CatalogCommand.Update -> update(document, work, command)
             is CatalogCommand.Rename -> rename(document, work, command)
             is CatalogCommand.Delete -> delete(document, work, command)
-            is CatalogCommand.Unstage ->
-                if (command.index in work.catalog.indices) {
-                    CatalogStage.Staged(
-                        work.copy(
-                            catalog =
-                                StudioList(
-                                    work.catalog.filterIndexed { index, _ ->
-                                        index !=
-                                            command.index
-                                    },
-                                ),
-                        ),
-                    )
-                } else {
-                    CatalogStage.Rejected(CatalogError.MISSING_INTENT)
-                }
+            is CatalogCommand.Unstage -> unstage(work, command.intent)
         }
+
+    private fun unstage(
+        work: SessionWork,
+        intent: CatalogIntent,
+    ): CatalogStage {
+        val retained = work.catalog.filterNot { it === intent }
+        return if (retained.size == work.catalog.size) {
+            CatalogStage.Staged(work)
+        } else {
+            CatalogStage.Staged(work.copy(catalog = StudioList(retained)))
+        }
+    }
 
     private fun create(
         document: StudioDocument,
@@ -51,7 +47,7 @@ internal object StudioCatalogStaging {
         val intent = CatalogIntent.Create(ProfileDefinition.User(command.id, name, draft.appearance, 1), draft.id)
         if (work.catalog.any { it == intent }) return CatalogStage.Staged(work)
         val invalidId = command.id.value.isBlank() || command.id.value.startsWith("factory:")
-        val collision = document.catalog.any { it.id == command.id } || work.catalog.any { profileId(it) == command.id }
+        val collision = document.catalog.any { it.id == command.id } || work.catalog.any { it.profileId == command.id }
         if (invalidId || collision) {
             return CatalogStage.Rejected(CatalogError.DUPLICATE_ID)
         }
@@ -163,14 +159,16 @@ internal object StudioCatalogStaging {
 
     private fun validName(entered: String): String? {
         if (entered.any { it.isISOControl() || it == '\u2028' || it == '\u2029' }) return null
+        if (!hasCompleteSurrogates(entered)) return null
         return entered.trim().takeIf { it.isNotEmpty() }
     }
 
-    fun profileId(intent: CatalogIntent): ProfileId =
-        when (intent) {
-            is CatalogIntent.Create -> intent.definition.id
-            is CatalogIntent.Update -> intent.before.id
-            is CatalogIntent.Rename -> intent.before.id
-            is CatalogIntent.Delete -> intent.before.id
+    private fun hasCompleteSurrogates(text: String): Boolean {
+        for (index in text.indices) {
+            val char = text[index]
+            if (char.isHighSurrogate() && text.getOrNull(index + 1)?.isLowSurrogate() != true) return false
+            if (char.isLowSurrogate() && text.getOrNull(index - 1)?.isHighSurrogate() != true) return false
         }
+        return true
+    }
 }

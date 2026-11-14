@@ -22,7 +22,7 @@ internal sealed interface CatalogCommand {
     ) : CatalogCommand
 
     data class Unstage(
-        val index: Int,
+        val intent: CatalogIntent,
     ) : CatalogCommand
 }
 
@@ -32,7 +32,6 @@ internal enum class CatalogError {
     MISSING_PROFILE,
     MISSING_DRAFT,
     DUPLICATE_ID,
-    MISSING_INTENT,
 }
 
 internal sealed interface CatalogStage {
