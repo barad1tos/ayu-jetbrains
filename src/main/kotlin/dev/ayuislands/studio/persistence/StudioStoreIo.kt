@@ -7,7 +7,20 @@ import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
 import java.io.IOException
 
-internal enum class StoreIssue { IO, INVALID_DATA, FUTURE_SCHEMA, INVALID_CANDIDATE, CONFLICT }
+internal enum class StoreIssue {
+    IO,
+    INVALID_DATA,
+    FUTURE_SCHEMA,
+    INVALID_CANDIDATE,
+    CONFLICT,
+    ATOMIC_MOVE_UNSUPPORTED,
+    LOCKED,
+    NOT_LOADED,
+    STALE,
+    BUSY,
+    RECOVERY_REQUIRED,
+    CLOSED,
+}
 
 internal class StoreDataException(
     val issue: StoreIssue,
