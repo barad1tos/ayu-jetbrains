@@ -1,0 +1,232 @@
+package dev.ayuislands.studio
+
+import dev.ayuislands.studio.fields.StudioAppearanceFields
+import dev.ayuislands.studio.model.DraftId
+import dev.ayuislands.studio.model.DraftRecord
+import dev.ayuislands.studio.model.DraftTracking
+import dev.ayuislands.studio.model.FieldAddress
+import dev.ayuislands.studio.model.FieldPart
+import dev.ayuislands.studio.model.FieldValue
+import dev.ayuislands.studio.model.LegacyFieldKey
+import dev.ayuislands.studio.model.LegacyStore
+import dev.ayuislands.studio.model.RawValue
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.session.StudioDraftPolicy
+import dev.ayuislands.studio.session.StudioDraftRebase
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class StudioDraftPolicyTest {
+    @Test
+    fun `master toggle touches only its own field and retains every hidden value`() {
+        val document = catalogTestDocument()
+        val draft = catalogTestWork(document).drafts.single()
+        val address = FieldAddress(LegacyFieldKey(LegacyStore.SETTINGS, "glowEnabled"))
+        val original =
+            draft.appearance.glow.records
+                .single { it.key == address.field }
+                .value as RawValue.BooleanValue
+        val changed = StudioDraftPolicy.edit(draft, address, FieldValue.Present(RawValue.BooleanValue(!original.value)))
+        assertEquals(listOf(address), changed.tracking.touched)
+        assertTrue(StudioDraftPolicy.isDirty(changed))
+        assertEquals(
+            draft.appearance.glow.records
+                .filterNot { it.key == address.field },
+            changed.appearance.glow.records.filterNot {
+                it.key ==
+                    address.field
+            },
+        )
+        assertEquals(draft.appearance.font, changed.appearance.font)
+        assertEquals(draft.appearance.accent, changed.appearance.accent)
+        val restored = StudioDraftPolicy.edit(changed, address, FieldValue.Present(original))
+        assertFalse(StudioDraftPolicy.isDirty(restored))
+        assertTrue(restored.tracking.touched.isEmpty())
+        assertEquals(draft.appearance, restored.appearance)
+    }
+
+    @Test
+    fun `browsing preserves hidden modified drafts but unedited browsing creates no hidden dirty work`() {
+        val document = catalogTestDocument()
+        val initial = catalogTestWork(document)
+        val first =
+            StudioDraftPolicy.select(
+                initial,
+                document.catalog.first(),
+                DraftId("first"),
+                document.currents.global,
+            )
+        assertEquals(DraftId("first"), first.selected)
+        assertEquals(document.catalog.first().appearance, first.drafts.last().appearance)
+        assertFalse(StudioDraftPolicy.isDirty(first.drafts.last()))
+        val second = StudioDraftPolicy.select(first, document.catalog[1], DraftId("second"), document.currents.global)
+        assertTrue(StudioDraftPolicy.hiddenDirty(second).isEmpty())
+        val firstDraft = first.drafts.last()
+        val address = FieldAddress(LegacyFieldKey(LegacyStore.SETTINGS, "glowEnabled"))
+        val wasEnabled =
+            firstDraft.appearance.glow.records
+                .single { it.key == address.field }
+                .value as RawValue.BooleanValue
+        val edited =
+            StudioDraftPolicy.edit(
+                firstDraft,
+                address,
+                FieldValue.Present(RawValue.BooleanValue(!wasEnabled.value)),
+            )
+        val withEdit = second.copy(drafts = StudioList(second.drafts.map { if (it.id == edited.id) edited else it }))
+        assertEquals(listOf(edited.id), StudioDraftPolicy.hiddenDirty(withEdit).map { it.id })
+        val returned =
+            StudioDraftPolicy.select(
+                withEdit,
+                document.catalog.first(),
+                DraftId("unused-allocation"),
+                document.currents.global,
+            )
+        assertEquals(edited.id, returned.selected)
+        assertEquals(edited, returned.drafts.single { it.id == edited.id })
+        assertEquals(withEdit.drafts.size, returned.drafts.size)
+    }
+
+    @Test
+    fun `disjoint external syntax edits preserve draft values and accepted key order`() {
+        val document = catalogTestDocument()
+        val base = catalogTestWork(document).drafts.single()
+        val key = LegacyFieldKey(LegacyStore.SYNTAX, "customOverrides")
+        val kotlinKey = "KOTLIN_FUNCTION_DECLARATION"
+        val javaKey = "JAVA_CLASS_NAME"
+        val ours = FieldAddress(key, FieldPart.MapEntry(kotlinKey))
+        val theirs = FieldAddress(key, FieldPart.MapEntry(javaKey))
+        val requested = FieldValue.Present(RawValue.Text("#FFCD66"))
+        val external = FieldValue.Present(RawValue.Text("#5CCFE6"))
+        val draft = StudioDraftPolicy.edit(base, ours, requested)
+        val accepted = StudioDraftPolicy.edit(base, theirs, external).appearance
+        val latest = base.base.copy(appearance = accepted, revision = base.base.revision + 1)
+
+        val rebased = StudioDraftRebase.rebase(draft, latest)
+        val overrides =
+            rebased.appearance.syntax.records
+                .single { it.key == key }
+                .value as RawValue.OrderedMap
+        val tail = overrides.entries.takeLast(2)
+
+        val expected = listOf(RawValue.Entry(javaKey, external.value), RawValue.Entry(kotlinKey, requested.value))
+        assertEquals(expected, tail)
+        assertEquals(listOf(ours), rebased.tracking.touched)
+        assertEquals(accepted, StudioDraftPolicy.discard(rebased).appearance)
+        assertEquals(base.id, rebased.id)
+    }
+
+    @Test
+    fun `an external reorder still requires review after repeated rebases`() {
+        val draft = syntaxDraft()
+        val requested = FieldValue.Present(RawValue.Text("#FFCD66"))
+        val edited =
+            StudioDraftPolicy.edit(
+                draft,
+                syntaxAddress(FieldPart.MapEntry("KOTLIN_FUNCTION_DECLARATION")),
+                requested,
+            )
+        val order = RawValue.OrderedSet(StudioList(listOf("JAVA_CLASS_NAME", "KOTLIN_FUNCTION_DECLARATION")))
+        val external = StudioDraftPolicy.edit(draft, syntaxAddress(FieldPart.MapOrder), FieldValue.Present(order))
+        val latest = draft.base.copy(appearance = external.appearance, revision = draft.base.revision + 1)
+
+        val rebased = StudioDraftRebase.rebase(edited, latest)
+        val again = StudioDraftRebase.rebase(rebased, latest)
+
+        assertEquals(edited.appearance, again.appearance)
+        assertEquals(draft.base.appearance, again.base.appearance)
+        assertEquals(rebased, again)
+    }
+
+    @Test
+    fun `readding an entry with the same color keeps the resulting order change`() {
+        val draft = syntaxDraft()
+        val address = syntaxAddress(FieldPart.MapEntry("KOTLIN_FUNCTION_DECLARATION"))
+        val before = StudioAppearanceFields.value(draft.appearance, address)
+        val removed = StudioDraftPolicy.edit(draft, address, FieldValue.Absent)
+        val readded = StudioDraftPolicy.edit(removed, address, before)
+
+        assertEquals(listOf(syntaxAddress(FieldPart.MapOrder)), readded.tracking.touched)
+        assertEquals(readded.appearance, StudioDraftRebase.rebase(readded, draft.base).appearance)
+    }
+
+    @Test
+    fun `restoring the original order leaves only the changed entry touched`() {
+        val draft = syntaxDraft()
+        val first = syntaxAddress(FieldPart.MapEntry("KOTLIN_FUNCTION_DECLARATION"))
+        val second = syntaxAddress(FieldPart.MapEntry("JAVA_CLASS_NAME"))
+        val firstColor = StudioAppearanceFields.value(draft.appearance, first)
+        val secondColor = FieldValue.Present(RawValue.Text("#B8CC52"))
+        val edited = StudioDraftPolicy.edit(draft, second, secondColor)
+        val movedFirst =
+            StudioDraftPolicy.edit(
+                StudioDraftPolicy.edit(edited, first, FieldValue.Absent),
+                first,
+                firstColor,
+            )
+        val restored =
+            StudioDraftPolicy.edit(StudioDraftPolicy.edit(movedFirst, second, FieldValue.Absent), second, secondColor)
+
+        assertEquals(listOf(second), restored.tracking.touched)
+        assertEquals(edited.appearance, restored.appearance)
+    }
+
+    @Test
+    fun `discard restores the selected profile without changing its accepted baseline`() {
+        val document = catalogTestDocument()
+        val selected = DraftId("profile-draft")
+        val work = catalogTestWork(document)
+        val original =
+            StudioDraftPolicy
+                .select(work, document.catalog.first(), selected, document.currents.global)
+                .drafts
+                .single { it.id == selected }
+        val changed = original.copy(appearance = document.catalog[1].appearance)
+        val discarded = StudioDraftPolicy.discard(changed)
+        assertEquals(original.appearance, discarded.appearance)
+        assertEquals(original.base, discarded.base)
+        assertFalse(StudioDraftPolicy.isDirty(discarded))
+    }
+
+    @Test
+    fun `discard after an external conflict restores the latest accepted value`() {
+        val draft = syntaxDraft()
+        val entry = syntaxAddress(FieldPart.MapEntry("JAVA_CLASS_NAME"))
+        val mine = StudioDraftPolicy.edit(draft, entry, FieldValue.Present(RawValue.Text("#FFCD66")))
+        val external = StudioDraftPolicy.edit(draft, entry, FieldValue.Present(RawValue.Text("#B8CC52")))
+        val latest = draft.base.copy(appearance = external.appearance, revision = draft.base.revision + 1)
+        val rebased = StudioDraftRebase.rebase(mine, latest)
+        val discarded = StudioDraftPolicy.discard(rebased)
+
+        assertEquals(mine.appearance, rebased.appearance)
+        assertEquals(latest.appearance, discarded.appearance)
+        assertEquals(latest.appearance, discarded.base.appearance)
+        assertFalse(StudioDraftPolicy.isDirty(discarded))
+    }
+
+    private fun syntaxDraft(): DraftRecord {
+        val work = catalogTestWork(catalogTestDocument())
+        val first = work.drafts.single()
+        val address = syntaxAddress(FieldPart.Value)
+        val overrides =
+            RawValue.OrderedMap(
+                StudioList(
+                    listOf(
+                        RawValue.Entry("KOTLIN_FUNCTION_DECLARATION", RawValue.Text("#73D0FF")),
+                        RawValue.Entry("JAVA_CLASS_NAME", RawValue.Text("#5CCFE6")),
+                    ),
+                ),
+            )
+        val appearance = StudioDraftPolicy.edit(first, address, FieldValue.Present(overrides)).appearance
+        return first.copy(
+            base = first.base.copy(appearance = appearance),
+            appearance = appearance,
+            tracking = DraftTracking(appearance),
+        )
+    }
+
+    private fun syntaxAddress(part: FieldPart): FieldAddress =
+        FieldAddress(LegacyFieldKey(LegacyStore.SYNTAX, "customOverrides"), part)
+}
