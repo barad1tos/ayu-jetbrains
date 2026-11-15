@@ -530,6 +530,46 @@ class StudioOwnerJournalTest {
     }
 
     @Test
+    fun `failed receipt save during cancellation keeps evidence available for retry`() {
+        val owner = EffectOwner.GLOW
+        val cancellation = CancellationException("Cancelled after restore")
+        val files = FailingJournalFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(owner)))
+            val runner = ownerJournal(store)
+            var writes = 0
+            runBlocking {
+                val applied =
+                    runner.apply(work, qualifies = { true }) {
+                        rollbackOperation(owner, restore = { receipts, _ ->
+                            val receipt = receipts.single()
+                            if (receipt.status == RestoreStatus.OWNED) {
+                                writes += 1
+                                receipts[0] = receipt.copy(status = RestoreStatus.RESTORED)
+                                files.failNextReplace = true
+                                throw cancellation
+                            }
+                            RestoreContinuation.COMPLETE
+                        })
+                    }
+                assertEquals(OwnerApply.Completed, applied)
+                val failure = assertFailsWith<CancellationException> { runner.rollback(work) }
+                assertSame(cancellation, failure)
+                val saveFailure = assertIs<IllegalStateException>(failure.suppressed.single())
+                assertTrue(saveFailure.message.orEmpty().endsWith(StoreIssue.IO.name))
+                val unfinished = assertIs<StoreLoad.Recovering>(store.load())
+                val unconfirmed = unfinished.journal.receipts.single()
+                assertEquals(RestoreStatus.OWNED, unconfirmed.status)
+                assertEquals(OwnerRollback.Settled, runner.rollback(work))
+            }
+            assertEquals(1, writes)
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            val receipt = pending.journal.receipts.single()
+            assertEquals(RestoreStatus.RESTORED, receipt.status)
+        }
+    }
+
+    @Test
     fun `a pending newer owner does not hide the earlier restore failure`() {
         val initial = catalogTestDocument()
         val older = EffectOwner.GLOW
