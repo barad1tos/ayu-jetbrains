@@ -768,17 +768,16 @@ class StudioOwnerJournalTest {
                 )
                 assertEquals(committed.document, assertIs<StoreLoad.Recovering>(store.load()).document)
 
-                files.loseNextRemovalAcknowledgement = true
-                assertEquals(
+                val cleanupPending =
                     ApplySettlement.AcceptedCleanupPending(
                         committed.document,
                         SettlementProblem.Journal(StoreIssue.IO),
-                    ),
-                    settlement.settle(),
-                )
+                    )
+                files.loseNextRemovalAcknowledgement = true
+                assertEquals(cleanupPending, settlement.settle())
                 assertEquals(committed.document, assertIs<StoreLoad.Ready>(store.load()).document)
                 files.failNextStateRead = true
-                assertEquals(StoreIssue.IO, assertIs<StoreLoad.ReadOnly>(store.load()).issue)
+                assertEquals(cleanupPending, settlement.settle())
                 assertEquals(ApplySettlement.Accepted(committed.document), settlement.settle())
                 assertEquals(2, releases)
                 assertEquals(1, acknowledgements)
