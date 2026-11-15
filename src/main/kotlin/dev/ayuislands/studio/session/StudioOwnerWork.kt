@@ -4,12 +4,22 @@ import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.persistence.PendingJournal
 import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.StoreIssue
+import kotlinx.coroutines.CoroutineDispatcher
+
+/** Qualifies Apply on the target dispatcher immediately before a synchronous native write. */
+internal fun interface StudioNativeWrite {
+    suspend fun execute(
+        dispatcher: CoroutineDispatcher,
+        write: () -> Unit,
+    ): Boolean
+}
 
 /** Capture at least one receipt before apply; update its ownership after verifying native writes. */
 internal interface StudioOwnerOperation {
     val receipts: List<PortableReceipt>
 
-    suspend fun apply()
+    /** Returns false if a native write was refused because qualification was lost. */
+    suspend fun apply(writes: StudioNativeWrite): Boolean
 }
 
 /** Retains prepared native handles even when a setter only partially applies. */

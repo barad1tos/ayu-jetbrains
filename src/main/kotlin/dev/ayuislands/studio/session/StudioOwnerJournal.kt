@@ -4,6 +4,8 @@ import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.persistence.JournalResult
 import dev.ayuislands.studio.persistence.PortableReceipt
+import dev.ayuislands.studio.persistence.RestoreStatus
+import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -37,21 +39,30 @@ internal class StudioOwnerJournal(
     ): OwnerApply? {
         if (!isQualified(qualifies)) return OwnerApply.LeaseLost
         val operation = capture(owner) ?: return null
-        val prepared = operation.receipts.toList()
-        require(prepared.isNotEmpty() && prepared.all { it.owner == owner })
+        val prepared = StudioList(operation.receipts)
+        require(prepared.isNotEmpty() && prepared.all { it.owner == owner && it.status == RestoreStatus.PENDING })
         work.retain(owner, operation)
         val previous = work.journal.receipts
         persist(work, owner, previous, prepared)?.let { return it }
-        if (!isQualified(qualifies)) return OwnerApply.LeaseLost
-        try {
-            operation.apply()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: RuntimeException) {
-            currentCoroutineContext().ensureActive()
-            return OwnerApply.OwnerFailed(owner, failure)
-        }
-        return persist(work, owner, previous, operation.receipts)
+        val applied =
+            try {
+                operation.apply { dispatcher, write ->
+                    withContext(dispatcher) {
+                        if (!isQualified(qualifies)) return@withContext false
+                        write()
+                        true
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: RuntimeException) {
+                currentCoroutineContext().ensureActive()
+                return OwnerApply.OwnerFailed(owner, failure)
+            }
+        if (!applied) return OwnerApply.LeaseLost
+        val observed = StudioList(operation.receipts)
+        if (observed.size != prepared.size) return OwnerApply.ReceiptFailed(owner, StoreIssue.CONFLICT)
+        return persist(work, owner, previous, observed)
     }
 
     private suspend fun persist(

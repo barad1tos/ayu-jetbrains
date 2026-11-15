@@ -20,6 +20,7 @@ import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioFiles
 import dev.ayuislands.studio.persistence.openStudioFiles
 import dev.ayuislands.studio.session.OwnerApply
+import dev.ayuislands.studio.session.StudioNativeWrite
 import dev.ayuislands.studio.session.StudioOwnerJournal
 import dev.ayuislands.studio.session.StudioOwnerOperation
 import dev.ayuislands.studio.session.StudioOwnerWork
@@ -30,11 +31,13 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.io.TempDir
 import java.io.IOException
 import java.nio.file.Path
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -149,7 +152,9 @@ class StudioOwnerJournalTest {
                         operation
                     }
                 }
-            assertEquals(OwnerApply.OwnerFailed(owner, failure), result)
+            val failed = assertIs<OwnerApply.OwnerFailed>(result)
+            assertEquals(owner, failed.owner)
+            assertTrue(generateSequence<Throwable>(failed.cause) { it.cause }.any { it === failure })
             assertTrue(native)
             assertEquals(mapOf(owner to operation), work.operations)
             val pending = assertIs<StoreLoad.Recovering>(store.load())
@@ -167,7 +172,7 @@ class StudioOwnerJournalTest {
                 object : StudioOwnerOperation {
                     override val receipts = emptyList<PortableReceipt>()
 
-                    override suspend fun apply() = error("Unrecorded setter ran")
+                    override suspend fun apply(writes: StudioNativeWrite): Boolean = error("Unrecorded setter ran")
                 }
 
             assertFailsWith<IllegalArgumentException> {
@@ -267,6 +272,84 @@ class StudioOwnerJournalTest {
         }
     }
 
+    @Test
+    fun `terminal prepared evidence never reaches the native setter`() {
+        val owner = EffectOwner.GLOW
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(owner)))
+            var wrote = false
+            val operation =
+                object : StudioOwnerOperation {
+                    override val receipts = listOf(nativeReceipt(owner).copy(status = RestoreStatus.RESTORED))
+
+                    override suspend fun apply(writes: StudioNativeWrite): Boolean =
+                        writes.execute(ioDispatcher) { wrote = true }
+                }
+            assertFailsWith<IllegalArgumentException> {
+                runBlocking { ownerJournal(store).apply(work, qualifies = { true }) { operation } }
+            }
+            assertFalse(wrote)
+            assertTrue(work.operations.isEmpty())
+            assertTrue(assertIs<StoreLoad.Recovering>(store.load()).journal.receipts.isEmpty())
+        }
+    }
+
+    @Test
+    fun `readback cannot append evidence after the native write`() {
+        val owner = EffectOwner.GLOW
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(owner)))
+            val prepared = nativeReceipt(owner)
+            val operation =
+                object : StudioOwnerOperation {
+                    override var receipts = listOf(prepared)
+                        private set
+
+                    override suspend fun apply(writes: StudioNativeWrite): Boolean =
+                        writes.execute(ioDispatcher) {
+                            receipts =
+                                listOf(
+                                    prepared.copy(status = RestoreStatus.OWNED),
+                                    prepared.copy(
+                                        id = "unexpected",
+                                        identity = prepared.identity.copy(field = "late-field"),
+                                    ),
+                                )
+                        }
+                }
+            val result = runBlocking { ownerJournal(store).apply(work, qualifies = { true }) { operation } }
+            assertEquals(OwnerApply.ReceiptFailed(owner, StoreIssue.CONFLICT), result)
+            assertEquals(listOf(prepared), assertIs<StoreLoad.Recovering>(store.load()).journal.receipts)
+            assertSame(operation, work.operations[owner])
+        }
+    }
+
+    @Test
+    fun `losing qualification on the native dispatcher prevents the setter`() {
+        val owner = EffectOwner.GLOW
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(owner)))
+            var qualified = true
+            var wrote = false
+            val nativeDispatcher =
+                Executor { command ->
+                    qualified = false
+                    command.run()
+                }.asCoroutineDispatcher()
+            val operation =
+                object : StudioOwnerOperation {
+                    override val receipts = listOf(nativeReceipt(owner))
+
+                    override suspend fun apply(writes: StudioNativeWrite): Boolean =
+                        writes.execute(nativeDispatcher) { wrote = true }
+                }
+            val result = runBlocking { ownerJournal(store).apply(work, qualifies = { qualified }) { operation } }
+            assertEquals(OwnerApply.LeaseLost, result)
+            assertFalse(wrote)
+            assertEquals(operation.receipts, assertIs<StoreLoad.Recovering>(store.load()).journal.receipts)
+        }
+    }
+
     private fun ownerJournal(store: StudioAppearanceStore): StudioOwnerJournal = StudioOwnerJournal(store, ioDispatcher)
 
     private fun prepare(
@@ -293,10 +376,11 @@ class StudioOwnerJournalTest {
             private var receipt = nativeReceipt(owner)
             override val receipts: List<PortableReceipt> get() = listOf(receipt)
 
-            override suspend fun apply() {
-                write()
-                receipt = receipt.copy(status = RestoreStatus.OWNED)
-            }
+            override suspend fun apply(writes: StudioNativeWrite): Boolean =
+                writes.execute(ioDispatcher) {
+                    write()
+                    receipt = receipt.copy(status = RestoreStatus.OWNED)
+                }
         }
 
     private fun nativeReceipt(owner: EffectOwner): PortableReceipt {
