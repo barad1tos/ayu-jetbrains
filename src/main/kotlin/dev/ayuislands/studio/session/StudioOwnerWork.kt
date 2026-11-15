@@ -1,6 +1,7 @@
 package dev.ayuislands.studio.session
 
 import dev.ayuislands.studio.model.EffectOwner
+import dev.ayuislands.studio.persistence.CommitResolution
 import dev.ayuislands.studio.persistence.PendingJournal
 import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.StoreIssue
@@ -20,7 +21,15 @@ internal interface StudioOwnerOperation {
 
     /** Returns false if a native write was refused because qualification was lost. */
     suspend fun apply(writes: StudioNativeWrite): Boolean
+
+    /** Capture any additional rollback evidence without mutating the native surface. */
+    suspend fun prepareRestore(blocked: List<PortableReceipt>) = Unit
+
+    /** Restore only fields still owned by this operation and respect unresolved newer writes. */
+    suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation
 }
+
+internal enum class RestoreContinuation { COMPLETE, REQUIRED }
 
 /** Retains prepared native handles even when a setter only partially applies. */
 internal class StudioOwnerWork(
@@ -61,4 +70,24 @@ internal sealed interface OwnerApply {
         val owner: EffectOwner,
         val issue: StoreIssue,
     ) : OwnerApply
+}
+
+internal sealed interface OwnerRollback {
+    data object Settled : OwnerRollback
+
+    data object Pending : OwnerRollback
+
+    data class Decision(
+        val resolution: CommitResolution,
+    ) : OwnerRollback
+
+    data class OwnerFailed(
+        val owner: EffectOwner,
+        val cause: RuntimeException,
+    ) : OwnerRollback
+
+    data class ReceiptFailed(
+        val owner: EffectOwner,
+        val issue: StoreIssue,
+    ) : OwnerRollback
 }

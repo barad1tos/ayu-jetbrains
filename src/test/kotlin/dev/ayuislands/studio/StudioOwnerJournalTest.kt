@@ -5,6 +5,7 @@ import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.persistence.CommitResolution
 import dev.ayuislands.studio.persistence.CommitResult
 import dev.ayuislands.studio.persistence.JournalResult
 import dev.ayuislands.studio.persistence.NativeFieldIdentity
@@ -20,6 +21,8 @@ import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioFiles
 import dev.ayuislands.studio.persistence.openStudioFiles
 import dev.ayuislands.studio.session.OwnerApply
+import dev.ayuislands.studio.session.OwnerRollback
+import dev.ayuislands.studio.session.RestoreContinuation
 import dev.ayuislands.studio.session.StudioNativeWrite
 import dev.ayuislands.studio.session.StudioOwnerJournal
 import dev.ayuislands.studio.session.StudioOwnerOperation
@@ -27,6 +30,8 @@ import dev.ayuislands.studio.session.StudioOwnerWork
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.io.TempDir
 import java.io.IOException
@@ -173,6 +178,8 @@ class StudioOwnerJournalTest {
                     override val receipts = emptyList<PortableReceipt>()
 
                     override suspend fun apply(writes: StudioNativeWrite): Boolean = error("Unrecorded setter ran")
+
+                    override suspend fun restore(blocked: List<PortableReceipt>) = error("Unexpected restore")
                 }
 
             assertFailsWith<IllegalArgumentException> {
@@ -284,6 +291,8 @@ class StudioOwnerJournalTest {
 
                     override suspend fun apply(writes: StudioNativeWrite): Boolean =
                         writes.execute(ioDispatcher) { wrote = true }
+
+                    override suspend fun restore(blocked: List<PortableReceipt>) = error("Unexpected restore")
                 }
             assertFailsWith<IllegalArgumentException> {
                 runBlocking { ownerJournal(store).apply(work, qualifies = { true }) { operation } }
@@ -316,6 +325,8 @@ class StudioOwnerJournalTest {
                                     ),
                                 )
                         }
+
+                    override suspend fun restore(blocked: List<PortableReceipt>) = error("Unexpected restore")
                 }
             val result = runBlocking { ownerJournal(store).apply(work, qualifies = { true }) { operation } }
             assertEquals(OwnerApply.ReceiptFailed(owner, StoreIssue.CONFLICT), result)
@@ -342,6 +353,8 @@ class StudioOwnerJournalTest {
 
                     override suspend fun apply(writes: StudioNativeWrite): Boolean =
                         writes.execute(nativeDispatcher) { wrote = true }
+
+                    override suspend fun restore(blocked: List<PortableReceipt>) = error("Unexpected restore")
                 }
             val result = runBlocking { ownerJournal(store).apply(work, qualifies = { qualified }) { operation } }
             assertEquals(OwnerApply.LeaseLost, result)
@@ -351,6 +364,279 @@ class StudioOwnerJournalTest {
     }
 
     private fun ownerJournal(store: StudioAppearanceStore): StudioOwnerJournal = StudioOwnerJournal(store, ioDispatcher)
+
+    @Test
+    fun `an interrupted Apply restores captured owners in reverse order and preserves foreign state`() {
+        val initial = catalogTestDocument()
+        val owners = listOf(EffectOwner.GLOW, EffectOwner.WORKSPACE)
+        val native = mutableMapOf<EffectOwner, Boolean?>(EffectOwner.GLOW to false, EffectOwner.WORKSPACE to false)
+        val restored = mutableListOf<EffectOwner>()
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, owners))
+            val runner = ownerJournal(store)
+            runBlocking {
+                val applied =
+                    runner.apply(work, qualifies = { true }) { owner ->
+                        effect(
+                            owner,
+                            restoreStatus = { blocked ->
+                                assertTrue(blocked.isEmpty())
+                                restored.add(owner)
+                                if (native[owner] == true) {
+                                    native[owner] = false
+                                    RestoreStatus.RESTORED
+                                } else {
+                                    RestoreStatus.FOREIGN
+                                }
+                            },
+                        ) { native[owner] = true }
+                    }
+                assertEquals(OwnerApply.Completed, applied)
+                native[EffectOwner.WORKSPACE] = null
+                assertEquals(OwnerRollback.Settled, runner.rollback(work))
+            }
+            assertEquals(owners.reversed(), restored)
+            assertEquals(mapOf(EffectOwner.GLOW to false, EffectOwner.WORKSPACE to null), native)
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(
+                listOf(RestoreStatus.RESTORED, RestoreStatus.FOREIGN),
+                pending.journal.receipts.map { it.status },
+            )
+            assertEquals(initial, pending.document)
+            assertEquals(JournalResult.Acknowledged, store.finishRollback(work.journal.token))
+        }
+    }
+
+    @Test
+    fun `a committed candidate cannot run a rollback setter`() {
+        val initial = catalogTestDocument()
+        val owner = EffectOwner.GLOW
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(owner)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                assertEquals(OwnerApply.Completed, runner.apply(work, qualifies = { true }) { effect(owner) {} })
+                val accepted = assertIs<CommitResult.Committed>(store.commit(work.journal.token, initial.runtime))
+                assertEquals(OwnerRollback.Decision(CommitResolution.Committed), runner.rollback(work))
+                val pending = assertIs<StoreLoad.Recovering>(store.load())
+                assertEquals(accepted.document, pending.document)
+                assertEquals(
+                    RestoreStatus.OWNED,
+                    pending.journal.receipts
+                        .single()
+                        .status,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `partial rollback preparation is journaled before an earlier owner runs`() {
+        val initial = catalogTestDocument()
+        val older = EffectOwner.GLOW
+        val newer = EffectOwner.WORKSPACE
+        val failure = IllegalStateException("Preparation failed after capture")
+        val evidence = nativeReceipt(newer).copy(id = "workspace-restore", identity = nativeReceipt(older).identity)
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(older, newer)))
+            val runner = ownerJournal(store)
+            val result =
+                runBlocking {
+                    runner
+                        .apply(work, qualifies = { true }) { owner ->
+                            if (owner == newer) {
+                                rollbackOperation(owner, prepare = {
+                                    it.add(evidence)
+                                    throw failure
+                                })
+                            } else {
+                                effect(owner, restoreStatus = { blocked ->
+                                    assertTrue(evidence in blocked)
+                                    assertTrue(
+                                        evidence in assertIs<StoreLoad.Recovering>(store.load()).journal.receipts,
+                                    )
+                                    RestoreStatus.UNAVAILABLE
+                                }) {}
+                            }
+                        }.also { assertEquals(OwnerApply.Completed, it) }
+                    runner.rollback(work)
+                }
+            assertEquals(OwnerRollback.OwnerFailed(newer, failure), result)
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(initial, pending.document)
+            assertTrue(evidence in pending.journal.receipts)
+        }
+    }
+
+    @Test
+    fun `a colliding rollback receipt stops restoration before any setter`() {
+        val initial = catalogTestDocument()
+        val older = EffectOwner.GLOW
+        val newer = EffectOwner.WORKSPACE
+        val restored = mutableListOf<EffectOwner>()
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(older, newer)))
+            val runner = ownerJournal(store)
+            val result =
+                runBlocking {
+                    val applied =
+                        runner.apply(work, qualifies = { true }) { owner ->
+                            rollbackOperation(
+                                owner,
+                                prepare = { receipts ->
+                                    if (owner == newer) receipts.add(nativeReceipt(newer).copy(id = older.name))
+                                },
+                                restore = { _, _ ->
+                                    restored.add(owner)
+                                    RestoreContinuation.COMPLETE
+                                },
+                            )
+                        }
+                    assertEquals(OwnerApply.Completed, applied)
+                    runner.rollback(work)
+                }
+            assertEquals(OwnerRollback.ReceiptFailed(newer, StoreIssue.CONFLICT), result)
+            assertTrue(restored.isEmpty())
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(listOf(older.name, newer.name), pending.journal.receipts.map { it.id })
+            assertEquals(initial, pending.document)
+        }
+    }
+
+    @Test
+    fun `cancellation after a native restore preserves its journal evidence`() {
+        val owner = EffectOwner.GLOW
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(owner)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                val applied =
+                    runner.apply(work, qualifies = { true }) {
+                        rollbackOperation(owner, restore = { receipts, _ ->
+                            receipts[0] = receipts.single().copy(status = RestoreStatus.RESTORED)
+                            currentCoroutineContext().cancel(CancellationException("Cancelled after restore"))
+                            RestoreContinuation.COMPLETE
+                        })
+                    }
+                assertEquals(OwnerApply.Completed, applied)
+                val rollback = launch { runner.rollback(work) }
+                rollback.join()
+                assertTrue(rollback.isCancelled)
+            }
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            val receipt = pending.journal.receipts.single()
+            assertEquals(RestoreStatus.RESTORED, receipt.status)
+        }
+    }
+
+    @Test
+    fun `failed receipt save during cancellation keeps evidence available for retry`() {
+        val owner = EffectOwner.GLOW
+        val cancellation = CancellationException("Cancelled after restore")
+        val files = FailingJournalFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(owner)))
+            val runner = ownerJournal(store)
+            var writes = 0
+            runBlocking {
+                val applied =
+                    runner.apply(work, qualifies = { true }) {
+                        rollbackOperation(owner, restore = { receipts, _ ->
+                            val receipt = receipts.single()
+                            if (receipt.status == RestoreStatus.OWNED) {
+                                writes += 1
+                                receipts[0] = receipt.copy(status = RestoreStatus.RESTORED)
+                                files.failNextReplace = true
+                                throw cancellation
+                            }
+                            RestoreContinuation.COMPLETE
+                        })
+                    }
+                assertEquals(OwnerApply.Completed, applied)
+                val failure = assertFailsWith<CancellationException> { runner.rollback(work) }
+                assertSame(cancellation, failure)
+                val saveFailure = assertIs<IllegalStateException>(failure.suppressed.single())
+                assertTrue(saveFailure.message.orEmpty().endsWith(StoreIssue.IO.name))
+                val unfinished = assertIs<StoreLoad.Recovering>(store.load())
+                val unconfirmed = unfinished.journal.receipts.single()
+                assertEquals(RestoreStatus.OWNED, unconfirmed.status)
+                assertEquals(OwnerRollback.Settled, runner.rollback(work))
+            }
+            assertEquals(1, writes)
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            val receipt = pending.journal.receipts.single()
+            assertEquals(RestoreStatus.RESTORED, receipt.status)
+        }
+    }
+
+    @Test
+    fun `a pending newer owner does not hide the earlier restore failure`() {
+        val initial = catalogTestDocument()
+        val older = EffectOwner.GLOW
+        val newer = EffectOwner.WORKSPACE
+        val failure = IllegalStateException("Could not restore earlier owner")
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(older, newer)))
+            val runner = ownerJournal(store)
+            val result =
+                runBlocking {
+                    val applied =
+                        runner.apply(work, qualifies = { true }) { owner ->
+                            rollbackOperation(owner, restore = { _, _ ->
+                                if (owner == older) throw failure
+                                RestoreContinuation.REQUIRED
+                            })
+                        }
+                    assertEquals(OwnerApply.Completed, applied)
+                    runner.rollback(work)
+                }
+            assertEquals(OwnerRollback.OwnerFailed(older, failure), result)
+        }
+    }
+
+    @Test
+    fun `a rejected rollback writeback can be retried without rewriting a restored field`() {
+        val initial = catalogTestDocument()
+        val owner = EffectOwner.GLOW
+        val files = FailingJournalFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(owner)))
+            val runner = ownerJournal(store)
+            var writes = 0
+            runBlocking {
+                val applied =
+                    runner.apply(work, qualifies = { true }) {
+                        rollbackOperation(owner, restore = { receipts, _ ->
+                            if (receipts.single().status == RestoreStatus.OWNED) {
+                                writes += 1
+                                receipts[0] = receipts[0].copy(status = RestoreStatus.RESTORED)
+                                files.failNextReplace = true
+                            }
+                            RestoreContinuation.COMPLETE
+                        })
+                    }
+                assertEquals(OwnerApply.Completed, applied)
+                assertEquals(OwnerRollback.ReceiptFailed(owner, StoreIssue.IO), runner.rollback(work))
+                val pending = assertIs<StoreLoad.Recovering>(store.load())
+                assertEquals(
+                    RestoreStatus.OWNED,
+                    pending.journal.receipts
+                        .single()
+                        .status,
+                )
+                assertEquals(OwnerRollback.Settled, runner.rollback(work))
+            }
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(
+                RestoreStatus.RESTORED,
+                pending.journal.receipts
+                    .single()
+                    .status,
+            )
+            assertEquals(1, writes)
+            assertEquals(initial, pending.document)
+        }
+    }
 
     private fun prepare(
         store: StudioAppearanceStore,
@@ -370,6 +656,7 @@ class StudioOwnerJournalTest {
 
     private fun effect(
         owner: EffectOwner,
+        restoreStatus: (List<PortableReceipt>) -> RestoreStatus = { error("Unexpected rollback setter") },
         write: () -> Unit,
     ): StudioOwnerOperation =
         object : StudioOwnerOperation {
@@ -381,6 +668,33 @@ class StudioOwnerJournalTest {
                     write()
                     receipt = receipt.copy(status = RestoreStatus.OWNED)
                 }
+
+            override suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation {
+                receipt = receipt.copy(status = restoreStatus(blocked))
+                return RestoreContinuation.COMPLETE
+            }
+        }
+
+    private fun rollbackOperation(
+        owner: EffectOwner,
+        prepare: (MutableList<PortableReceipt>) -> Unit = {},
+        restore: suspend (MutableList<PortableReceipt>, List<PortableReceipt>) -> RestoreContinuation = { _, _ ->
+            error("Unexpected rollback setter")
+        },
+    ): StudioOwnerOperation =
+        object : StudioOwnerOperation {
+            private val current = mutableListOf(nativeReceipt(owner))
+            override val receipts: List<PortableReceipt> get() = current.toList()
+
+            override suspend fun apply(writes: StudioNativeWrite): Boolean =
+                writes.execute(ioDispatcher) {
+                    current[0] = current[0].copy(status = RestoreStatus.OWNED)
+                }
+
+            override suspend fun prepareRestore(blocked: List<PortableReceipt>) = prepare(current)
+
+            override suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation =
+                restore(current, blocked)
         }
 
     private fun nativeReceipt(owner: EffectOwner): PortableReceipt {
