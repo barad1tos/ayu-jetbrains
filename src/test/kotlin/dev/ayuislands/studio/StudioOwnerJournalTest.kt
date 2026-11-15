@@ -30,6 +30,8 @@ import dev.ayuislands.studio.session.StudioOwnerWork
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.io.TempDir
 import java.io.IOException
@@ -471,6 +473,7 @@ class StudioOwnerJournalTest {
         val initial = catalogTestDocument()
         val older = EffectOwner.GLOW
         val newer = EffectOwner.WORKSPACE
+        val restored = mutableListOf<EffectOwner>()
         StudioAppearanceStore(openStudioFiles(directory)).use { store ->
             val work = StudioOwnerWork(prepare(store, initial, listOf(older, newer)))
             val runner = ownerJournal(store)
@@ -478,17 +481,51 @@ class StudioOwnerJournalTest {
                 runBlocking {
                     val applied =
                         runner.apply(work, qualifies = { true }) { owner ->
-                            rollbackOperation(owner, prepare = { receipts ->
-                                if (owner == newer) receipts.add(nativeReceipt(newer).copy(id = older.name))
-                            })
+                            rollbackOperation(
+                                owner,
+                                prepare = { receipts ->
+                                    if (owner == newer) receipts.add(nativeReceipt(newer).copy(id = older.name))
+                                },
+                                restore = { _, _ ->
+                                    restored.add(owner)
+                                    RestoreContinuation.COMPLETE
+                                },
+                            )
                         }
                     assertEquals(OwnerApply.Completed, applied)
                     runner.rollback(work)
                 }
             assertEquals(OwnerRollback.ReceiptFailed(newer, StoreIssue.CONFLICT), result)
+            assertTrue(restored.isEmpty())
             val pending = assertIs<StoreLoad.Recovering>(store.load())
             assertEquals(listOf(older.name, newer.name), pending.journal.receipts.map { it.id })
             assertEquals(initial, pending.document)
+        }
+    }
+
+    @Test
+    fun `cancellation after a native restore preserves its journal evidence`() {
+        val owner = EffectOwner.GLOW
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(owner)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                val applied =
+                    runner.apply(work, qualifies = { true }) {
+                        rollbackOperation(owner, restore = { receipts, _ ->
+                            receipts[0] = receipts.single().copy(status = RestoreStatus.RESTORED)
+                            currentCoroutineContext().cancel(CancellationException("Cancelled after restore"))
+                            RestoreContinuation.COMPLETE
+                        })
+                    }
+                assertEquals(OwnerApply.Completed, applied)
+                val rollback = launch { runner.rollback(work) }
+                rollback.join()
+                assertTrue(rollback.isCancelled)
+            }
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            val receipt = pending.journal.receipts.single()
+            assertEquals(RestoreStatus.RESTORED, receipt.status)
         }
     }
 
@@ -601,7 +638,7 @@ class StudioOwnerJournalTest {
     private fun rollbackOperation(
         owner: EffectOwner,
         prepare: (MutableList<PortableReceipt>) -> Unit = {},
-        restore: (MutableList<PortableReceipt>, List<PortableReceipt>) -> RestoreContinuation = { _, _ ->
+        restore: suspend (MutableList<PortableReceipt>, List<PortableReceipt>) -> RestoreContinuation = { _, _ ->
             error("Unexpected rollback setter")
         },
     ): StudioOwnerOperation =

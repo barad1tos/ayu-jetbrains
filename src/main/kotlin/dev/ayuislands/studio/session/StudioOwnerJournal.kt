@@ -12,6 +12,7 @@ import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioReceiptPolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -34,7 +35,7 @@ internal class StudioOwnerJournal(
         return OwnerApply.Completed
     }
 
-    /** Restore only after observing a durable NotCommitted decision; the caller still owns cleanup. */
+    /** The caller serializes commit, rollback, and cleanup for this transaction. */
     suspend fun rollback(work: StudioOwnerWork): OwnerRollback {
         val observed = withContext(ioDispatcher) { store.load() }
         val token = work.journal.token
@@ -106,6 +107,28 @@ internal class StudioOwnerJournal(
     }
 
     private suspend fun restoreOwner(
+        work: StudioOwnerWork,
+        owner: EffectOwner,
+        operation: StudioOwnerOperation,
+        blocked: List<PortableReceipt>,
+    ): OwnerRollback? =
+        try {
+            restoreSteps(work, owner, operation, blocked)
+        } catch (cancelled: CancellationException) {
+            try {
+                val rejected = withContext(NonCancellable) { persistRestore(work, owner, operation) }
+                if (rejected != null) {
+                    cancelled.addSuppressed(
+                        IllegalStateException("Could not save rollback evidence for $owner: ${rejected.issue}"),
+                    )
+                }
+            } catch (failure: RuntimeException) {
+                if (failure !== cancelled) cancelled.addSuppressed(failure)
+            }
+            throw cancelled
+        }
+
+    private suspend fun restoreSteps(
         work: StudioOwnerWork,
         owner: EffectOwner,
         operation: StudioOwnerOperation,
