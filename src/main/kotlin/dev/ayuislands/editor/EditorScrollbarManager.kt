@@ -13,6 +13,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.ui.ComponentTreeRefreshedListener
 import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import java.awt.Dimension
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import javax.swing.JScrollBar
 import javax.swing.JScrollPane
@@ -49,52 +50,12 @@ class EditorScrollbarManager(
         // LAF change) — that walk calls updateUI() on every JScrollBar descendant and
         // resets the preferredSize=0 trick this manager uses to hide scrollbars.
         //
-        // Drop the cached "original preferred size" client property before reapplying so the
-        // next hideScrollBar call captures the freshly-installed default. Without this, the
-        // first apply's original-size snapshot (captured under the previous LAF) would be what
-        // restore returns after a theme switch, silently drifting the restored scrollbar
-        // dimensions away from the new theme's default.
         project.messageBus
             .connect(this)
             .subscribe(
                 ComponentTreeRefreshedTopic.TOPIC,
-                ComponentTreeRefreshedListener {
-                    resetOriginalSizeCache()
-                    apply()
-                },
+                ComponentTreeRefreshedListener { apply() },
             )
-    }
-
-    /**
-     * Test-only entry point for [resetOriginalSizeCache]. The listener path that calls it
-     * goes through `project.messageBus.syncPublisher(...)` which is impractical to wire
-     * without a real Project; this seam lets unit tests verify the catch path directly.
-     */
-    @org.jetbrains.annotations.TestOnly
-    internal fun resetOriginalSizeCacheForTest() = resetOriginalSizeCache()
-
-    /**
-     * Clear `ORIGINAL_PREFERRED_SIZE_KEY` on every currently-patched scrollbar so the next
-     * [hideScrollBar] call captures the post-refresh default instead of serving a stale
-     * pre-LAF-change dimension.
-     *
-     * Iterates a snapshot of the keys, not the live view: [WeakHashMap]'s iterator can throw
-     * [ConcurrentModificationException] when GC-driven expunge mutates the map's modCount
-     * mid-iteration (the expunge runs during `keys.iterator().hasNext()` / `next()` calls,
-     * independent of any other mutator thread — relevant even with strict EDT serialization).
-     * The snapshot freezes the set we walk, and the per-pane try/catch keeps the listener
-     * alive if Swing throws from a downstream `putClientProperty`.
-     */
-    private fun resetOriginalSizeCache() {
-        val panes = patchedScrollPanes.keys.toList()
-        for (scrollPane in panes) {
-            try {
-                scrollPane.verticalScrollBar?.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
-                scrollPane.horizontalScrollBar?.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
-            } catch (exception: RuntimeException) {
-                LOG.warn("Failed to clear scrollbar original-size cache on refresh", exception)
-            }
-        }
     }
 
     fun apply() {
@@ -122,80 +83,112 @@ class EditorScrollbarManager(
             return
         }
 
-        // Apply is idempotent: we re-apply `hideScrollBar` every call without consulting
-        // `patched.verticalHidden` because the platform can silently restore the default
-        // preferred size during LAF changes and component-tree refreshes. The cached flag
-        // would still read "true" while the scrollbar is visible again, so a flag-gated
-        // call path would skip re-hiding. `hideScrollBar` preserves the original size only
-        // on the first call (client property is never overwritten), so repeated invocations
-        // are safe.
         val patched = patchedScrollPanes.getOrPut(scrollPane) { PatchedState() }
-        if (hideVertical) {
-            hideScrollBar(scrollPane.verticalScrollBar)
-            patched.verticalHidden = true
-        } else if (patched.verticalHidden) {
-            restoreScrollBar(scrollPane.verticalScrollBar)
-            patched.verticalHidden = false
-        }
-        if (hideHorizontal) {
-            hideScrollBar(scrollPane.horizontalScrollBar)
-            patched.horizontalHidden = true
-        } else if (patched.horizontalHidden) {
-            restoreScrollBar(scrollPane.horizontalScrollBar)
-            patched.horizontalHidden = false
-        }
+        patched.vertical = applyAxis(scrollPane.verticalScrollBar, patched.vertical, hideVertical)
+        patched.horizontal = applyAxis(scrollPane.horizontalScrollBar, patched.horizontal, hideHorizontal)
+        if (patched.isEmpty()) patchedScrollPanes.remove(scrollPane)
         scrollPane.revalidate()
     }
 
-    private fun hideScrollBar(scrollBar: JScrollBar) {
-        if (scrollBar.getClientProperty(ORIGINAL_PREFERRED_SIZE_KEY) == null) {
-            val originalSize = scrollBar.preferredSize?.let { Dimension(it) }
-            scrollBar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, originalSize)
+    private fun applyAxis(
+        bar: JScrollBar,
+        previous: Patch?,
+        hide: Boolean,
+    ): Patch? {
+        if (!hide) return restoreScrollBar(previous)
+        if (previous?.target() !== bar) {
+            restoreScrollBar(previous)?.let { return it }
         }
-        scrollBar.preferredSize = ZERO_SIZE
-        scrollBar.revalidate()
+        return hideScrollBar(bar, previous)
     }
 
-    private fun restoreScrollBar(scrollBar: JScrollBar) {
-        val originalSize = scrollBar.getClientProperty(ORIGINAL_PREFERRED_SIZE_KEY) as? Dimension
-        if (originalSize != null) {
-            scrollBar.preferredSize = originalSize
-            scrollBar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null)
+    private fun hideScrollBar(
+        bar: JScrollBar,
+        previous: Patch?,
+    ): Patch? {
+        var attempted = previous
+        try {
+            val owned = previous?.owns(bar) == true
+            if (!owned && bar.getClientProperty(ORIGINAL_PREFERRED_SIZE_KEY) != null) return null
+            val explicit = bar.isPreferredSizeSet
+            val current = bar.preferredSize
+            if (owned && explicit && current == ZERO_SIZE) return previous
+
+            val patch = Patch(WeakReference(bar), Dimension(current), explicit)
+            // Swing can notify listeners after storing a value, even when the setter throws.
+            attempted = patch
+            tryScrollbarWrite("baseline") { bar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, patch.baseline) }
+            if (patch.owns(bar) && (!explicit || current != ZERO_SIZE)) {
+                bar.preferredSize = Dimension(ZERO_SIZE)
+                bar.revalidate()
+            }
+        } catch (exception: RuntimeException) {
+            LOG.warn("Failed to hide editor scrollbar", exception)
         }
+        return attempted?.takeIf { it.owns(bar) } ?: previous?.takeIf { it.owns(bar) }
     }
+
+    private fun restoreScrollBar(patch: Patch?): Patch? {
+        val bar = patch?.target() ?: return null
+        if (!patch.owns(bar)) return null
+        try {
+            if (hasHiddenSize(bar)) {
+                val restored = if (patch.isExplicit) Dimension(patch.baseline) else null
+                val wrote = tryScrollbarWrite("preferred size") { bar.preferredSize = restored }
+                if (!wrote && hasHiddenSize(bar)) return patch.takeIf { it.owns(bar) }
+            }
+            if (patch.owns(bar)) {
+                tryScrollbarWrite("baseline") { bar.putClientProperty(ORIGINAL_PREFERRED_SIZE_KEY, null) }
+            }
+        } catch (exception: RuntimeException) {
+            LOG.warn("Failed to restore editor scrollbar", exception)
+        }
+        return patch.takeIf { it.owns(bar) }
+    }
+
+    private fun hasHiddenSize(bar: JScrollBar): Boolean = bar.isPreferredSizeSet && bar.preferredSize == ZERO_SIZE
+
+    private inline fun tryScrollbarWrite(
+        field: String,
+        write: () -> Unit,
+    ): Boolean =
+        try {
+            write()
+            true
+        } catch (exception: RuntimeException) {
+            LOG.warn("Failed to update editor scrollbar $field", exception)
+            false
+        }
 
     private fun restoreEditor(scrollPane: JScrollPane) {
-        val patched = patchedScrollPanes.remove(scrollPane) ?: return
-        if (patched.verticalHidden) {
-            restoreScrollBar(scrollPane.verticalScrollBar)
-        }
-        if (patched.horizontalHidden) {
-            restoreScrollBar(scrollPane.horizontalScrollBar)
-        }
+        val patched = patchedScrollPanes[scrollPane] ?: return
+        patched.vertical = restoreScrollBar(patched.vertical)
+        patched.horizontal = restoreScrollBar(patched.horizontal)
+        if (patched.isEmpty()) patchedScrollPanes.remove(scrollPane)
     }
 
     override fun dispose() {
-        for ((scrollPane, patched) in patchedScrollPanes) {
-            if (patched.verticalHidden) {
-                restoreScrollBar(scrollPane.verticalScrollBar)
-            }
-            if (patched.horizontalHidden) {
-                restoreScrollBar(scrollPane.horizontalScrollBar)
-            }
-        }
-        patchedScrollPanes.clear()
+        patchedScrollPanes.keys.toList().forEach(::restoreEditor)
     }
 
-    /**
-     * Mutable per-scrollPane patch state. Not a `data class` — we mutate flags in place on hot
-     * paths (every apply call), and the auto-generated equals/hashCode from `data class` would
-     * be a foot-gun if anything ever used PatchedState as a map key (we use it as a WeakHashMap
-     * *value*, not key). Plain class with `var` matches the imperative usage.
-     */
     private class PatchedState(
-        var verticalHidden: Boolean = false,
-        var horizontalHidden: Boolean = false,
-    )
+        var vertical: Patch? = null,
+        var horizontal: Patch? = null,
+    ) {
+        fun isEmpty(): Boolean = vertical == null && horizontal == null
+    }
+
+    private class Patch(
+        private val scrollbar: WeakReference<JScrollBar>,
+        val baseline: Dimension,
+        val isExplicit: Boolean,
+    ) {
+        // A strong reference to the bar would keep the weak map's parent pane alive.
+        fun target(): JScrollBar? = scrollbar.get()
+
+        fun owns(bar: JScrollBar): Boolean =
+            target() === bar && bar.getClientProperty(ORIGINAL_PREFERRED_SIZE_KEY) === baseline
+    }
 
     companion object {
         private val LOG = logger<EditorScrollbarManager>()

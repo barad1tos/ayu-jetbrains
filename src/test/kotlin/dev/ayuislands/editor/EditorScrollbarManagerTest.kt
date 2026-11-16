@@ -15,15 +15,20 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
-import io.mockk.verify
 import java.awt.Dimension
+import java.beans.PropertyChangeListener
+import javax.swing.JScrollBar
 import javax.swing.JScrollPane
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class EditorScrollbarManagerTest {
     private lateinit var project: Project
@@ -221,49 +226,6 @@ class EditorScrollbarManagerTest {
     }
 
     @Test
-    fun `resetOriginalSizeCache tolerates putClientProperty failures`() {
-        // Listener body is `resetOriginalSizeCacheForTest() then apply()`. If a downstream
-        // Swing layer throws from putClientProperty (platform regression, disposed
-        // component) the listener must survive — otherwise the MessageBus dispatcher
-        // catches it as SEVERE and the follow-up apply() never runs (scrollbars stay
-        // unhidden after LAF change). Mocked scrollbar that throws on the null-value
-        // clear proves the per-pane try/catch keeps iteration alive.
-        val throwingVBar = mockk<javax.swing.JScrollBar>(relaxed = true)
-        every {
-            throwingVBar.putClientProperty(eq("ayuIslands.originalPreferredSize"), null)
-        } throws IllegalStateException("simulated putClientProperty failure")
-
-        val mockScrollPane = mockk<JScrollPane>(relaxed = true)
-        every { mockScrollPane.verticalScrollBar } returns throwingVBar
-        every { mockScrollPane.horizontalScrollBar } returns mockk(relaxed = true)
-        every { editorEx.scrollPane } returns mockScrollPane
-
-        realState.hideEditorVScrollbar = true
-        val manager = createManager()
-        manager.apply() // populates patchedScrollPanes; hideScrollBar's
-        // putClientProperty (with non-null Dimension) is the relaxed-mock no-op.
-
-        // Reset path: the null-value put on the vertical bar throws; the iteration must
-        // continue (horizontal bar still gets cleared) and no exception escapes.
-        val suppressLoggedErrors =
-            object : LoggedErrorProcessor() {
-                override fun processWarn(
-                    category: String,
-                    message: String,
-                    throwable: Throwable?,
-                ): Boolean = false
-            }
-        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors) {
-            manager.resetOriginalSizeCacheForTest()
-        }
-
-        verify(atLeast = 1) {
-            throwingVBar.putClientProperty(eq("ayuIslands.originalPreferredSize"), null)
-        }
-        manager.dispose()
-    }
-
-    @Test
     fun `apply re-hides scrollbar after platform reset simulation`() {
         // Regression guard for the stale-flag bug (commit 64833a0): a previous version of
         // applyToEditor gated hideScrollBar on `!patched.verticalHidden`. After startup the
@@ -291,8 +253,252 @@ class EditorScrollbarManagerTest {
         manager.apply()
 
         assertEquals(Dimension(0, 0), vBar.preferredSize)
+        realState.hideEditorVScrollbar = false
+        manager.apply()
+        assertEquals(Dimension(12, 100), vBar.preferredSize)
+        assertTrue(vBar.isPreferredSizeSet)
         manager.dispose()
     }
+
+    @Test
+    fun `a Swing callback failure preserves the recorded size and does not interrupt the other axis`() =
+        SwingUtilities.invokeAndWait {
+            for (property in listOf("preferredSize", "ayuIslands.originalPreferredSize")) {
+                verifyCallbackFailure(property)
+            }
+        }
+
+    private fun verifyCallbackFailure(property: String) {
+        val vertical = scrollPane.verticalScrollBar
+        val horizontal = scrollPane.horizontalScrollBar
+        val verticalSize = Dimension(18, 104)
+        val horizontalSize = Dimension(142, 19)
+        vertical.preferredSize = verticalSize
+        horizontal.preferredSize = horizontalSize
+        realState.hideEditorVScrollbar = true
+        realState.hideEditorHScrollbar = true
+        val listener =
+            PropertyChangeListener { event ->
+                if (event.newValue != null) {
+                    error("scrollbar listener failed after the write")
+                }
+            }
+        val manager = createManager()
+        vertical.addPropertyChangeListener(property, listener)
+        try {
+            withExpectedScrollbarWarning { manager.apply() }
+            assertEquals(Dimension(0, 0), vertical.preferredSize)
+            assertEquals(Dimension(0, 0), horizontal.preferredSize)
+            vertical.removePropertyChangeListener(property, listener)
+            realState.hideEditorVScrollbar = false
+            realState.hideEditorHScrollbar = false
+            manager.apply()
+            assertEquals(verticalSize, vertical.preferredSize)
+            assertEquals(horizontalSize, horizontal.preferredSize)
+        } finally {
+            vertical.removePropertyChangeListener(property, listener)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `a replacement is hidden even when the detached scrollbar reports a restoration failure`() =
+        SwingUtilities.invokeAndWait {
+            val detached = scrollPane.verticalScrollBar
+            val original = Dimension(19, 108)
+            detached.preferredSize = original
+            realState.hideEditorVScrollbar = true
+            val manager = createManager()
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.newValue == original) error("scrollbar listener failed after restoration")
+                }
+            detached.addPropertyChangeListener("preferredSize", listener)
+            try {
+                manager.apply()
+                val replacement = JScrollBar(JScrollBar.VERTICAL)
+                val replacementSize = Dimension(14, 112)
+                replacement.preferredSize = replacementSize
+                scrollPane.verticalScrollBar = replacement
+                withExpectedScrollbarWarning { manager.apply() }
+                assertEquals(original, detached.preferredSize)
+                assertNull(detached.getClientProperty("ayuIslands.originalPreferredSize"))
+                assertEquals(Dimension(0, 0), replacement.preferredSize)
+
+                realState.hideEditorVScrollbar = false
+                manager.apply()
+                assertEquals(replacementSize, replacement.preferredSize)
+            } finally {
+                detached.removePropertyChangeListener("preferredSize", listener)
+                manager.dispose()
+            }
+        }
+
+    private fun withExpectedScrollbarWarning(action: () -> Unit) {
+        val log =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean = false
+            }
+        LoggedErrorProcessor.executeWith<Throwable>(log) { action() }
+    }
+
+    @Test
+    fun `showing scrollbars preserves newer ownership and an inherited sibling size`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = scrollPane.verticalScrollBar
+            val horizontal = scrollPane.horizontalScrollBar
+            val originalSize = Dimension(18, 104)
+            val newerSize = Dimension(21, 108)
+            val newerBaseline = Dimension(newerSize)
+            val key = "ayuIslands.originalPreferredSize"
+            vertical.preferredSize = originalSize
+            horizontal.preferredSize = Dimension(142, 19)
+            realState.hideEditorVScrollbar = true
+            realState.hideEditorHScrollbar = true
+            val manager = createManager()
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.newValue == originalSize) {
+                        vertical.putClientProperty(key, newerBaseline)
+                        vertical.preferredSize = newerSize
+                    }
+                }
+            try {
+                manager.apply()
+                assertEquals(Dimension(0, 0), vertical.preferredSize)
+                assertEquals(Dimension(0, 0), horizontal.preferredSize)
+                vertical.addPropertyChangeListener("preferredSize", listener)
+                horizontal.preferredSize = null
+
+                realState.hideEditorVScrollbar = false
+                realState.hideEditorHScrollbar = false
+                manager.apply()
+
+                assertEquals(newerSize, vertical.preferredSize)
+                assertSame(newerBaseline, vertical.getClientProperty(key))
+                assertFalse(horizontal.isPreferredSizeSet)
+                assertNull(horizontal.getClientProperty(key))
+            } finally {
+                vertical.removePropertyChangeListener("preferredSize", listener)
+                manager.dispose()
+            }
+        }
+
+    @Test
+    fun `showing scrollbars restores inherited and explicit sizes independently`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = scrollPane.verticalScrollBar
+            val horizontal = scrollPane.horizontalScrollBar
+            vertical.preferredSize = null
+            horizontal.preferredSize = Dimension(140, 18)
+            realState.hideEditorVScrollbar = true
+            realState.hideEditorHScrollbar = true
+            val manager = createManager()
+            try {
+                manager.apply()
+                assertEquals(Dimension(0, 0), vertical.preferredSize)
+                assertEquals(Dimension(0, 0), horizontal.preferredSize)
+
+                realState.hideEditorVScrollbar = false
+                realState.hideEditorHScrollbar = false
+                manager.apply()
+
+                assertFalse(vertical.isPreferredSizeSet)
+                assertTrue(horizontal.isPreferredSizeSet)
+                assertEquals(Dimension(140, 18), horizontal.preferredSize)
+            } finally {
+                manager.dispose()
+            }
+        }
+
+    @Test
+    fun `toggling scrollbars preserves newer size and ownership from outside Ayu`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = scrollPane.verticalScrollBar
+            val horizontal = scrollPane.horizontalScrollBar
+            realState.hideEditorVScrollbar = true
+            realState.hideEditorHScrollbar = true
+            val manager = createManager()
+            try {
+                manager.apply()
+                val foreignSize = Dimension(23, 133)
+                vertical.preferredSize = foreignSize
+                val previousBaseline = horizontal.getClientProperty("ayuIslands.originalPreferredSize") as Dimension
+                val replacementBaseline = Dimension(previousBaseline)
+                horizontal.putClientProperty("ayuIslands.originalPreferredSize", replacementBaseline)
+
+                realState.hideEditorVScrollbar = false
+                realState.hideEditorHScrollbar = false
+                manager.apply()
+
+                assertEquals(foreignSize, vertical.preferredSize)
+                assertNull(vertical.getClientProperty("ayuIslands.originalPreferredSize"))
+                assertEquals(Dimension(0, 0), horizontal.preferredSize)
+                assertSame(replacementBaseline, horizontal.getClientProperty("ayuIslands.originalPreferredSize"))
+
+                val replacementSize = Dimension(151, 19)
+                horizontal.preferredSize = replacementSize
+                realState.hideEditorHScrollbar = true
+                manager.apply()
+
+                assertEquals(replacementSize, horizontal.preferredSize)
+                assertSame(replacementBaseline, horizontal.getClientProperty("ayuIslands.originalPreferredSize"))
+            } finally {
+                manager.dispose()
+            }
+        }
+
+    @Test
+    fun `refresh recaptures the inherited size and keeps an unowned sibling property`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = scrollPane.verticalScrollBar
+            val horizontal = scrollPane.horizontalScrollBar
+            vertical.preferredSize = Dimension(13, 110)
+            realState.hideEditorVScrollbar = true
+            val manager = createManager()
+            try {
+                manager.apply()
+                vertical.preferredSize = null
+                val foreignBaseline = Dimension(111, 19)
+                horizontal.putClientProperty("ayuIslands.originalPreferredSize", foreignBaseline)
+                manager.apply()
+                assertEquals(Dimension(0, 0), vertical.preferredSize)
+                realState.hideEditorVScrollbar = false
+                manager.apply()
+                assertFalse(vertical.isPreferredSizeSet)
+                assertSame(foreignBaseline, horizontal.getClientProperty("ayuIslands.originalPreferredSize"))
+            } finally {
+                manager.dispose()
+            }
+        }
+
+    @Test
+    fun `replacing a hidden scrollbar releases the detached bar without touching its replacement`() =
+        SwingUtilities.invokeAndWait {
+            val detached = scrollPane.verticalScrollBar
+            detached.preferredSize = null
+            val replacement = JScrollBar(JScrollBar.VERTICAL)
+            replacement.preferredSize = Dimension(19, 111)
+            realState.hideEditorVScrollbar = true
+            val manager = createManager()
+            try {
+                manager.apply()
+                assertEquals(Dimension(0, 0), detached.preferredSize)
+                scrollPane.verticalScrollBar = replacement
+                realState.hideEditorVScrollbar = false
+                manager.apply()
+
+                assertFalse(detached.isPreferredSizeSet)
+                assertNull(detached.getClientProperty("ayuIslands.originalPreferredSize"))
+                assertEquals(Dimension(19, 111), replacement.preferredSize)
+            } finally {
+                manager.dispose()
+            }
+        }
 
     @Test
     fun `editorCreated listener applies to new editors when licensed`() {
