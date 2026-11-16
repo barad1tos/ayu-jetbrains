@@ -392,7 +392,7 @@ class EditorScrollbarManager(
                 return
             }
             if (!hasPending) return
-            if (!isCurrent()) {
+            if (!isAttached()) {
                 relinquish()
                 return
             }
@@ -416,18 +416,19 @@ class EditorScrollbarManager(
             when {
                 current == before.preferredSize -> Unit
                 current != expected.preferredSize -> foreign = true
-                else -> writeSize(before.preferredSize)
+                else -> writeSize(before.preferredSize, restoring = true)
             }
             sizePending = false
         }
 
         private fun restoreBaseline() {
             val current = observe()
-            val destination = if (foreign && owned != null) planned else before
+            val destination =
+                if (foreign && owned != null) before.copy(baseline = null, baselineSize = null) else before
             when {
                 current.matchesBaseline(destination) -> Unit
                 !current.matchesBaseline(expected) -> foreign = true
-                else -> writeBaseline(destination)
+                else -> writeBaseline(destination, restoring = true)
             }
             baselinePending = false
         }
@@ -437,8 +438,11 @@ class EditorScrollbarManager(
             phase = EditorScrollbarWrite.RELINQUISHED
         }
 
-        private fun writeSize(value: ScrollbarSize?) {
-            check(isCurrent() && observe().preferredSize == expected.preferredSize) {
+        private fun writeSize(
+            value: ScrollbarSize?,
+            restoring: Boolean = false,
+        ) {
+            check(canWrite(restoring) && observe().preferredSize == expected.preferredSize) {
                 "Editor scrollbar size changed before write"
             }
             expected = expected.copy(preferredSize = value)
@@ -446,8 +450,11 @@ class EditorScrollbarManager(
             check(observe().preferredSize == value) { "Editor scrollbar size write did not settle" }
         }
 
-        private fun writeBaseline(value: EditorScrollbarSnapshot) {
-            check(isCurrent() && observe().matchesBaseline(expected)) {
+        private fun writeBaseline(
+            value: EditorScrollbarSnapshot,
+            restoring: Boolean = false,
+        ) {
+            check(canWrite(restoring) && observe().matchesBaseline(expected)) {
                 "Editor scrollbar baseline changed before write"
             }
             expected = expected.copy(baseline = value.baseline, baselineSize = value.baselineSize)
@@ -457,10 +464,13 @@ class EditorScrollbarManager(
 
         private fun observe(): EditorScrollbarSnapshot = EditorScrollbarSnapshot.read(bar, ORIGINAL_PREFERRED_SIZE_KEY)
 
-        private fun isCurrent(): Boolean =
+        private fun isCurrent(): Boolean = canWrite(restoring = false)
+
+        private fun canWrite(restoring: Boolean): Boolean = isAttached() && (restoring || target.isCurrent())
+
+        private fun isAttached(): Boolean =
             isAlive &&
                 !editor.isDisposed &&
-                target.isCurrent() &&
                 editor.scrollPane === pane &&
                 scrollbar(pane, vertical) === bar
     }

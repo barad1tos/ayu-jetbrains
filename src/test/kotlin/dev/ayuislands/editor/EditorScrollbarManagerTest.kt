@@ -25,6 +25,8 @@ import java.beans.PropertyChangeListener
 import javax.swing.JScrollBar
 import javax.swing.JScrollPane
 import javax.swing.SwingUtilities
+import javax.swing.UIManager
+import javax.swing.plaf.metal.MetalLookAndFeel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -793,6 +795,60 @@ class EditorScrollbarManagerTest {
                 } finally {
                     manager.dispose()
                 }
+            }
+        }
+
+    @Test
+    fun `rollback restores its scrollbar after the look and feel changes`() =
+        SwingUtilities.invokeAndWait {
+            val scrollbar = scrollPane.verticalScrollBar
+            val originalLookAndFeel = UIManager.getLookAndFeel()
+            val manager = createManager()
+            try {
+                val checkpoint = manager.capture(hideVertical = true, hideHorizontal = null)
+                assertTrue(checkpoint.apply())
+                assertEquals(Dimension(0, 0), scrollbar.preferredSize)
+
+                UIManager.setLookAndFeel(MetalLookAndFeel())
+                assertSame(scrollbar, scrollPane.verticalScrollBar)
+                checkpoint.restore()
+                checkpoint.releaseResources()
+
+                assertFalse(scrollbar.isPreferredSizeSet)
+                assertNull(scrollbar.getClientProperty("ayuIslands.originalPreferredSize"))
+                assertFalse(realState.hideEditorVScrollbar)
+            } finally {
+                UIManager.setLookAndFeel(originalLookAndFeel)
+                manager.dispose()
+            }
+        }
+
+    @Test
+    fun `aborted rehide does not leave Ayu ownership on a newer size`() =
+        SwingUtilities.invokeAndWait {
+            val scrollbar = scrollPane.verticalScrollBar
+            val marker = "ayuIslands.originalPreferredSize"
+            val newerSize = Dimension(35, 120)
+            val manager = createManager()
+            try {
+                realState.hideEditorVScrollbar = true
+                manager.apply()
+                scrollbar.preferredSize = Dimension(23, 107)
+                val checkpoint = manager.capture(hideVertical = true, hideHorizontal = null)
+                assertTrue(checkpoint.apply())
+                scrollbar.preferredSize = newerSize
+                checkpoint.restore()
+                checkpoint.releaseResources()
+
+                assertEquals(newerSize, scrollbar.preferredSize)
+                assertNull(scrollbar.getClientProperty(marker))
+                manager.apply()
+                assertEquals(Dimension(0, 0), scrollbar.preferredSize)
+                realState.hideEditorVScrollbar = false
+                manager.apply()
+                assertEquals(newerSize, scrollbar.preferredSize)
+            } finally {
+                manager.dispose()
             }
         }
 
