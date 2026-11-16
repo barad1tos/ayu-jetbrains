@@ -17,11 +17,12 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-/** Runs forward owners under an acquired lease; null from capture means no native change. */
+/** Journals native effects and settles the retained owners on the serialized Studio queue. */
 internal class StudioOwnerJournal(
     private val store: StudioAppearanceStore,
     private val ioDispatcher: CoroutineDispatcher,
 ) {
+    /** Null from capture means no native change. */
     suspend fun apply(
         work: StudioOwnerWork,
         qualifies: suspend () -> Boolean,
@@ -37,15 +38,46 @@ internal class StudioOwnerJournal(
 
     /** The caller serializes commit, rollback, and cleanup for this transaction. */
     suspend fun rollback(work: StudioOwnerWork): OwnerRollback {
-        val observed = withContext(ioDispatcher) { store.load() }
-        val token = work.journal.token
-        if (observed !is StoreLoad.Recovering || observed.journal.token != token) {
-            return OwnerRollback.Decision(CommitResolution.Unknown)
-        }
-        val decision = withContext(ioDispatcher) { store.resolveOutcome(token) }
+        val decision = observeDecision(work, CommitResolution.NotCommitted)
         if (decision != CommitResolution.NotCommitted) return OwnerRollback.Decision(decision)
-        work.acknowledge(observed.journal)
         return restoreOwners(work)
+    }
+
+    /** Release owner checkpoints only after the same transaction is durably committed. */
+    suspend fun accept(work: StudioOwnerWork): OwnerAcceptance {
+        val decision = observeDecision(work, CommitResolution.Committed)
+        if (decision != CommitResolution.Committed) return OwnerAcceptance.Decision(decision)
+        val operations = work.operations
+        for (owner in work.journal.recovery.owners) {
+            if (work.hasAccepted(owner) || work.journal.receipts.none { it.owner == owner }) continue
+            val operation = operations[owner] ?: return OwnerAcceptance.HandleUnavailable(owner)
+            currentCoroutineContext().ensureActive()
+            try {
+                operation.accept()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: RuntimeException) {
+                currentCoroutineContext().ensureActive()
+                return OwnerAcceptance.OwnerFailed(owner, failure)
+            }
+            work.markAccepted(owner)
+        }
+        return OwnerAcceptance.Completed
+    }
+
+    private suspend fun observeDecision(
+        work: StudioOwnerWork,
+        expected: CommitResolution,
+    ): CommitResolution {
+        val token = work.journal.token
+        val (journal, decision) =
+            withContext(ioDispatcher) {
+                val observed = store.load() as? StoreLoad.Recovering ?: return@withContext null
+                if (observed.journal.token != token) return@withContext null
+                observed.journal to store.resolveOutcome(token)
+            } ?: return CommitResolution.Unknown
+        if (decision == expected) work.acknowledge(journal)
+        return decision
     }
 
     private suspend fun restoreOwners(work: StudioOwnerWork): OwnerRollback {

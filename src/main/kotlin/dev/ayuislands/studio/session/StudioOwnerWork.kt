@@ -27,6 +27,9 @@ internal interface StudioOwnerOperation {
 
     /** Restore only fields still owned by this operation and respect unresolved newer writes. */
     suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation
+
+    /** Release native checkpoints after durable commit. A failed release must be safe to retry. */
+    suspend fun accept()
 }
 
 internal enum class RestoreContinuation { COMPLETE, REQUIRED }
@@ -36,6 +39,7 @@ internal class StudioOwnerWork(
     journal: PendingJournal,
 ) {
     private val retained = linkedMapOf<EffectOwner, StudioOwnerOperation>()
+    private val accepted = mutableSetOf<EffectOwner>()
 
     var journal: PendingJournal = journal
         private set
@@ -48,6 +52,12 @@ internal class StudioOwnerWork(
         operation: StudioOwnerOperation,
     ) {
         check(retained.putIfAbsent(owner, operation) == null)
+    }
+
+    fun hasAccepted(owner: EffectOwner): Boolean = owner in accepted
+
+    fun markAccepted(owner: EffectOwner) {
+        check(owner in retained && accepted.add(owner))
     }
 
     fun acknowledge(journal: PendingJournal) {
@@ -90,4 +100,21 @@ internal sealed interface OwnerRollback {
         val owner: EffectOwner,
         val issue: StoreIssue,
     ) : OwnerRollback
+}
+
+internal sealed interface OwnerAcceptance {
+    data object Completed : OwnerAcceptance
+
+    data class Decision(
+        val resolution: CommitResolution,
+    ) : OwnerAcceptance
+
+    data class HandleUnavailable(
+        val owner: EffectOwner,
+    ) : OwnerAcceptance
+
+    data class OwnerFailed(
+        val owner: EffectOwner,
+        val cause: RuntimeException,
+    ) : OwnerAcceptance
 }

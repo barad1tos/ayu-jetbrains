@@ -20,9 +20,13 @@ import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioFiles
 import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.session.ApplySettlement
+import dev.ayuislands.studio.session.OwnerAcceptance
 import dev.ayuislands.studio.session.OwnerApply
 import dev.ayuislands.studio.session.OwnerRollback
 import dev.ayuislands.studio.session.RestoreContinuation
+import dev.ayuislands.studio.session.SettlementProblem
+import dev.ayuislands.studio.session.StudioApplySettlement
 import dev.ayuislands.studio.session.StudioNativeWrite
 import dev.ayuislands.studio.session.StudioOwnerJournal
 import dev.ayuislands.studio.session.StudioOwnerOperation
@@ -44,6 +48,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -179,7 +184,9 @@ class StudioOwnerJournalTest {
 
                     override suspend fun apply(writes: StudioNativeWrite): Boolean = error("Unrecorded setter ran")
 
-                    override suspend fun restore(blocked: List<PortableReceipt>) = error("Unexpected restore")
+                    override suspend fun restore(blocked: List<PortableReceipt>) = error("Unrecorded restore ran")
+
+                    override suspend fun accept() = error("Unrecorded acceptance ran")
                 }
 
             assertFailsWith<IllegalArgumentException> {
@@ -293,6 +300,8 @@ class StudioOwnerJournalTest {
                         writes.execute(ioDispatcher) { wrote = true }
 
                     override suspend fun restore(blocked: List<PortableReceipt>) = error("Unexpected restore")
+
+                    override suspend fun accept() = error("Unexpected acceptance")
                 }
             assertFailsWith<IllegalArgumentException> {
                 runBlocking { ownerJournal(store).apply(work, qualifies = { true }) { operation } }
@@ -327,6 +336,8 @@ class StudioOwnerJournalTest {
                         }
 
                     override suspend fun restore(blocked: List<PortableReceipt>) = error("Unexpected restore")
+
+                    override suspend fun accept() = error("Unexpected acceptance")
                 }
             val result = runBlocking { ownerJournal(store).apply(work, qualifies = { true }) { operation } }
             assertEquals(OwnerApply.ReceiptFailed(owner, StoreIssue.CONFLICT), result)
@@ -355,6 +366,8 @@ class StudioOwnerJournalTest {
                         writes.execute(nativeDispatcher) { wrote = true }
 
                     override suspend fun restore(blocked: List<PortableReceipt>) = error("Unexpected restore")
+
+                    override suspend fun accept() = error("Unexpected acceptance")
                 }
             val result = runBlocking { ownerJournal(store).apply(work, qualifies = { qualified }) { operation } }
             assertEquals(OwnerApply.LeaseLost, result)
@@ -638,6 +651,213 @@ class StudioOwnerJournalTest {
         }
     }
 
+    @Test
+    fun `owners accept only after the durable generation changes`() {
+        val initial = catalogTestDocument()
+        val owners = listOf(EffectOwner.GLOW, EffectOwner.WORKSPACE)
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, owners))
+            val accepted = mutableListOf<EffectOwner>()
+            val runner = ownerJournal(store)
+            runBlocking {
+                assertEquals(
+                    OwnerApply.Completed,
+                    runner.apply(work, qualifies = { true }) { owner ->
+                        effect(owner, accepted = { accepted.add(owner) }) {}
+                    },
+                )
+                assertEquals(OwnerAcceptance.Decision(CommitResolution.NotCommitted), runner.accept(work))
+                assertTrue(accepted.isEmpty())
+                assertEquals(initial, assertIs<StoreLoad.Recovering>(store.load()).document)
+
+                val commit = assertIs<CommitResult.Committed>(store.commit(work.journal.token, initial.runtime))
+                assertEquals(OwnerAcceptance.Completed, runner.accept(work))
+                assertEquals(OwnerAcceptance.Completed, runner.accept(work))
+                assertEquals(owners, accepted)
+                val pending = assertIs<StoreLoad.Recovering>(store.load())
+                assertEquals(commit.document, pending.document)
+                assertEquals(owners, pending.journal.receipts.map { it.owner })
+            }
+        }
+    }
+
+    @Test
+    fun `retry acknowledges only the owners still awaiting acceptance`() {
+        val initial = catalogTestDocument()
+        val owners = listOf(EffectOwner.ACCENT, EffectOwner.FONT, EffectOwner.GLOW, EffectOwner.WORKSPACE)
+        val failure = IllegalStateException("Font acknowledgement interrupted")
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, owners))
+            val accepted = mutableListOf<EffectOwner>()
+            val written = mutableListOf<EffectOwner>()
+            var fail = true
+            val runner = ownerJournal(store)
+            runBlocking {
+                assertEquals(
+                    OwnerApply.Completed,
+                    runner.apply(work, qualifies = { true }) { owner ->
+                        if (owner == EffectOwner.GLOW) {
+                            null
+                        } else {
+                            effect(
+                                owner,
+                                accepted = {
+                                    if (owner == EffectOwner.FONT && fail) throw failure
+                                    accepted.add(owner)
+                                },
+                            ) { written.add(owner) }
+                        }
+                    },
+                )
+                val commit = assertIs<CommitResult.Committed>(store.commit(work.journal.token, initial.runtime))
+                assertEquals(OwnerAcceptance.OwnerFailed(EffectOwner.FONT, failure), runner.accept(work))
+                assertEquals(listOf(EffectOwner.ACCENT), accepted)
+                assertEquals(commit.document, assertIs<StoreLoad.Recovering>(store.load()).document)
+
+                fail = false
+                assertEquals(OwnerAcceptance.Completed, runner.accept(work))
+                val effects = listOf(EffectOwner.ACCENT, EffectOwner.FONT, EffectOwner.WORKSPACE)
+                assertEquals(effects, accepted)
+                assertEquals(effects, written)
+            }
+        }
+    }
+
+    @Test
+    fun `accepted receipts without a live handle keep recovery pending`() {
+        val initial = catalogTestDocument()
+        val owner = EffectOwner.GLOW
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(owner)))
+            val receipt = nativeReceipt(owner).copy(status = RestoreStatus.OWNED)
+            assertEquals(JournalResult.Acknowledged, store.recordRecovery(work.journal.token, listOf(receipt)))
+            val commit = assertIs<CommitResult.Committed>(store.commit(work.journal.token, initial.runtime))
+            assertEquals(OwnerAcceptance.HandleUnavailable(owner), runBlocking { ownerJournal(store).accept(work) })
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(commit.document, pending.document)
+            assertEquals(listOf(receipt), pending.journal.receipts)
+        }
+    }
+
+    @Test
+    fun `cleanup after accepted Apply retries only the unfinished step`() {
+        val initial = catalogTestDocument()
+        val owner = EffectOwner.GLOW
+        val files = FailingJournalFiles(openStudioFiles(directory))
+        var acknowledgements = 0
+        var releases = 0
+        val failure = IllegalStateException("Cannot release the native scope yet")
+
+        StudioAppearanceStore(files).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(owner)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                assertEquals(
+                    OwnerApply.Completed,
+                    runner.apply(work, qualifies = { true }) { effect(it, accepted = { acknowledgements++ }) {} },
+                )
+                val committed = assertIs<CommitResult.Committed>(store.commit(work.journal.token, initial.runtime))
+                val settlement =
+                    StudioApplySettlement(store, runner, ioDispatcher, work) { accepted ->
+                        assertEquals(committed.document, accepted)
+                        if (++releases == 1) throw failure
+                    }
+                assertEquals(
+                    ApplySettlement.AcceptedCleanupPending(committed.document, SettlementProblem.Release(failure)),
+                    settlement.settle(),
+                )
+                assertEquals(committed.document, assertIs<StoreLoad.Recovering>(store.load()).document)
+
+                val cleanupPending =
+                    ApplySettlement.AcceptedCleanupPending(
+                        committed.document,
+                        SettlementProblem.Journal(StoreIssue.IO),
+                    )
+                files.loseNextRemovalAcknowledgement = true
+                assertEquals(cleanupPending, settlement.settle())
+                assertEquals(committed.document, assertIs<StoreLoad.Ready>(store.load()).document)
+                files.failNextStateRead = true
+                assertEquals(cleanupPending, settlement.settle())
+                assertEquals(ApplySettlement.Accepted(committed.document), settlement.settle())
+                assertEquals(2, releases)
+                assertEquals(1, acknowledgements)
+            }
+        }
+    }
+
+    @Test
+    fun `cleanup after rollback cannot restore an already settled native field again`() {
+        val initial = catalogTestDocument()
+        val owner = EffectOwner.GLOW
+        val files = FailingJournalFiles(openStudioFiles(directory))
+        var native = false
+        var restores = 0
+        var releases = 0
+
+        StudioAppearanceStore(files).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(owner)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                assertEquals(
+                    OwnerApply.Completed,
+                    runner.apply(work, qualifies = { true }) {
+                        effect(it, restoreStatus = {
+                            restores++
+                            native = false
+                            RestoreStatus.RESTORED
+                        }) { native = true }
+                    },
+                )
+                assertTrue(native)
+                val settlement =
+                    StudioApplySettlement(store, runner, ioDispatcher, work) { accepted ->
+                        assertNull(accepted)
+                        releases++
+                    }
+                files.loseNextRemovalAcknowledgement = true
+                assertEquals(
+                    ApplySettlement.RecoveryRequired(SettlementProblem.Journal(StoreIssue.IO)),
+                    settlement.settle(),
+                )
+                assertEquals(initial, assertIs<StoreLoad.Ready>(store.load()).document)
+                assertFalse(native)
+
+                // A user edit after restoration must survive a journal cleanup retry.
+                native = true
+                assertEquals(ApplySettlement.NotAccepted, settlement.settle())
+                assertEquals(initial, assertIs<StoreLoad.Ready>(store.load()).document)
+                assertTrue(native)
+                assertEquals(1, restores)
+                assertEquals(1, releases)
+            }
+        }
+    }
+
+    @Test
+    fun `unreadable commit evidence prevents settlement of either outcome`() {
+        val initial = catalogTestDocument()
+        val files = FailingJournalFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, emptyList()))
+            var releases = 0
+            val settlement =
+                StudioApplySettlement(store, ownerJournal(store), ioDispatcher, work) { accepted ->
+                    assertNull(accepted)
+                    releases++
+                }
+            files.failNextStateRead = true
+            runBlocking {
+                assertEquals(ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed), settlement.settle())
+                val pending = assertIs<StoreLoad.Recovering>(store.load())
+                assertEquals(work.journal.token, pending.journal.token)
+                assertEquals(initial, pending.document)
+                assertEquals(0, releases)
+                assertEquals(ApplySettlement.NotAccepted, settlement.settle())
+                assertEquals(1, releases)
+            }
+        }
+    }
+
     private fun prepare(
         store: StudioAppearanceStore,
         initial: StudioDocument,
@@ -657,6 +877,7 @@ class StudioOwnerJournalTest {
     private fun effect(
         owner: EffectOwner,
         restoreStatus: (List<PortableReceipt>) -> RestoreStatus = { error("Unexpected rollback setter") },
+        accepted: () -> Unit = { error("Unexpected acceptance") },
         write: () -> Unit,
     ): StudioOwnerOperation =
         object : StudioOwnerOperation {
@@ -673,6 +894,8 @@ class StudioOwnerJournalTest {
                 receipt = receipt.copy(status = restoreStatus(blocked))
                 return RestoreContinuation.COMPLETE
             }
+
+            override suspend fun accept() = accepted()
         }
 
     private fun rollbackOperation(
@@ -695,6 +918,8 @@ class StudioOwnerJournalTest {
 
             override suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation =
                 restore(current, blocked)
+
+            override suspend fun accept() = error("Unexpected acceptance")
         }
 
     private fun nativeReceipt(owner: EffectOwner): PortableReceipt {
@@ -714,6 +939,24 @@ private class FailingJournalFiles(
     private val files: StudioFiles,
 ) : StudioFiles by files {
     var failNextReplace = false
+    var loseNextRemovalAcknowledgement = false
+    var failNextStateRead = false
+
+    override fun read(name: String): ByteArray? {
+        if (failNextStateRead && name == "state.xml") {
+            failNextStateRead = false
+            throw IOException("Cannot read the current generation")
+        }
+        return files.read(name)
+    }
+
+    override fun remove(name: String) {
+        files.remove(name)
+        if (loseNextRemovalAcknowledgement && name == "pending.xml") {
+            loseNextRemovalAcknowledgement = false
+            throw IOException("Lost acknowledgement after deleting the pending journal")
+        }
+    }
 
     override fun replace(
         source: String,
