@@ -1,6 +1,7 @@
 package dev.ayuislands.studio.session
 
 import dev.ayuislands.studio.model.EffectOwner
+import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.persistence.CommitResolution
 import dev.ayuislands.studio.persistence.PendingJournal
 import dev.ayuislands.studio.persistence.PortableReceipt
@@ -37,6 +38,7 @@ internal enum class RestoreContinuation { COMPLETE, REQUIRED }
 /** Retains prepared native handles even when a setter only partially applies. */
 internal class StudioOwnerWork(
     journal: PendingJournal,
+    private val recover: suspend (EffectOwner, StudioList<PortableReceipt>) -> StudioOwnerOperation? = { _, _ -> null },
 ) {
     private val retained = linkedMapOf<EffectOwner, StudioOwnerOperation>()
     private val accepted = mutableSetOf<EffectOwner>()
@@ -52,6 +54,13 @@ internal class StudioOwnerWork(
         operation: StudioOwnerOperation,
     ) {
         check(retained.putIfAbsent(owner, operation) == null)
+    }
+
+    suspend fun handle(owner: EffectOwner): StudioOwnerOperation? {
+        retained[owner]?.let { return it }
+        val receipts = StudioList(journal.receipts.filter { it.owner == owner })
+        if (receipts.isEmpty()) return null
+        return recover(owner, receipts)?.also { retain(owner, it) }
     }
 
     fun hasAccepted(owner: EffectOwner): Boolean = owner in accepted

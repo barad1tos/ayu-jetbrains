@@ -6,11 +6,15 @@ import dev.ayuislands.studio.model.ApplyRequest
 import dev.ayuislands.studio.model.DraftWriteResult
 import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.StudioDocument
+import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.model.StudioRuntimeState
 import dev.ayuislands.studio.model.StudioSessionRecord
+import dev.ayuislands.studio.persistence.CommitResolution
 import dev.ayuislands.studio.persistence.CommitResult
 import dev.ayuislands.studio.persistence.PendingJournal
+import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.PrepareResult
+import dev.ayuislands.studio.persistence.RecoveryPurpose
 import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
@@ -36,11 +40,12 @@ internal class StudioApplyCoordinator(
     flush: suspend (StudioSessionRecord) -> DraftWriteResult,
     observe: suspend (ApplyRequest, StudioDocument) -> ApplyInputs,
     private val acquire: suspend (AcceptancePlan.Commit) -> StudioApplyLease,
+    private val recover: suspend (PendingJournal, CommitResolution) -> StudioRecoveryLease?,
     private val cancelSettlementTimeout: Duration = 5.seconds,
 ) {
     private val admission = StudioSubmitAdmission(store, queue, flush, observe, ioDispatcher)
     private val owners = StudioOwnerJournal(store, ioDispatcher)
-    private var activeApply: ActiveApply? = null
+    private var activeApply: ActiveOperation? = null
     private val outcomes = mutableMapOf<UUID, RecordedApply>()
 
     suspend fun submit(
@@ -64,8 +69,11 @@ internal class StudioApplyCoordinator(
 
     suspend fun retry(operation: UUID): ApplyExecution? =
         queue.withLock {
-            activeApply?.takeIf { it.operation == operation }?.let { settle(it) }
-                ?: outcomes[operation]?.execution
+            val active = activeApply
+            when {
+                active?.operation == operation -> settle(active)
+                else -> outcomes[operation]?.execution ?: if (active == null) recoverPending(operation) else null
+            }
         }
 
     private suspend fun settlePrior(
@@ -94,15 +102,15 @@ internal class StudioApplyCoordinator(
         plan: AcceptancePlan.Commit,
     ): ApplyExecution =
         try {
-            withContext(NonCancellable) {
-                activeApply = ActiveApply(request, operation, plan, acquire(plan))
-            }
-            val work = checkNotNull(activeApply)
+            val work =
+                withContext(NonCancellable) {
+                    ActiveApply(request, operation, plan, acquire(plan)).also { activeApply = it }
+                }
             work.failure = apply(work)
             settle(work)
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) {
-                val pending = activeApply
+                val pending = activeApply as? ActiveApply
                 if (pending == null) {
                     record(request, operation, ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.Cancelled))
                 } else {
@@ -112,7 +120,7 @@ internal class StudioApplyCoordinator(
             }
             throw cancelled
         } catch (failure: RuntimeException) {
-            val pending = activeApply
+            val pending = activeApply as? ActiveApply
             val problem = ApplyFailure.Native(failure)
             if (pending == null) {
                 record(request, operation, ApplyExecution(ApplySettlement.NotAccepted, problem))
@@ -151,8 +159,62 @@ internal class StudioApplyCoordinator(
         return valid
     }
 
-    private suspend fun settle(work: ActiveApply): ApplyExecution {
-        val result = work.settlement?.settle() ?: settleUnbound(work)
+    private suspend fun recoverPending(operation: UUID): ApplyExecution? {
+        val observed =
+            when (val loaded = withContext(ioDispatcher) { store.load() }) {
+                is StoreLoad.Recovering -> loaded
+                is StoreLoad.ReadOnly ->
+                    return ApplyExecution(
+                        ApplySettlement.RecoveryRequired(SettlementProblem.Journal(loaded.issue)),
+                        null,
+                    )
+
+                StoreLoad.Empty, is StoreLoad.Ready -> return null
+            }
+        val journal = observed.journal
+        if (journal.token.transactionId != operation.toString() ||
+            journal.token.baseRevision < 0 ||
+            journal.recovery.purpose != RecoveryPurpose.UserAcceptance
+        ) {
+            return null
+        }
+        val decision = withContext(ioDispatcher) { store.resolveOutcome(journal.token) }
+        val outcome =
+            when (decision) {
+                CommitResolution.Committed -> observed.document?.let(ApplySettlement::Accepted)
+                CommitResolution.NotCommitted -> ApplySettlement.NotAccepted
+                CommitResolution.Unknown -> null
+            } ?: return ApplyExecution(ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed), null)
+        val recovered =
+            try {
+                withContext(NonCancellable) { attachRecovery(operation, journal, decision) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: RuntimeException) {
+                currentCoroutineContext().ensureActive()
+                return ApplyExecution(outcome.pending(SettlementProblem.RecoveryLeaseFailed(failure)), null)
+            } ?: return ApplyExecution(outcome.pending(SettlementProblem.RecoveryLeaseUnavailable), null)
+        currentCoroutineContext().ensureActive()
+        return settle(recovered)
+    }
+
+    private suspend fun attachRecovery(
+        operation: UUID,
+        journal: PendingJournal,
+        decision: CommitResolution,
+    ): RecoveredApply? {
+        val lease = recover(journal, decision) ?: return null
+        val work = StudioOwnerWork(journal, lease::recover)
+        val settlement = StudioApplySettlement(store, owners, ioDispatcher, work, lease::release)
+        return RecoveredApply(operation, settlement).also { activeApply = it }
+    }
+
+    private suspend fun settle(work: ActiveOperation): ApplyExecution {
+        val result =
+            when (work) {
+                is ActiveApply -> work.settlement?.settle() ?: settleUnbound(work)
+                is RecoveredApply -> work.settlement.settle()
+            }
         return recordSettlement(work, result)
     }
 
@@ -166,11 +228,11 @@ internal class StudioApplyCoordinator(
     }
 
     private fun recordSettlement(
-        work: ActiveApply,
+        work: ActiveOperation,
         result: ApplySettlement,
     ): ApplyExecution {
         val failure =
-            work.failure.takeUnless {
+            (work as? ActiveApply)?.failure.takeUnless {
                 result is ApplySettlement.Accepted ||
                     result is ApplySettlement.AcceptedCleanupPending
             }
@@ -218,7 +280,7 @@ internal class StudioApplyCoordinator(
     }
 
     private fun record(
-        request: ApplyRequest,
+        request: ApplyRequest?,
         operation: UUID,
         result: ApplyExecution,
     ): ApplyExecution {
@@ -226,20 +288,42 @@ internal class StudioApplyCoordinator(
         return result
     }
 
+    private sealed interface ActiveOperation {
+        val operation: UUID
+        val request: ApplyRequest?
+    }
+
     private class ActiveApply(
-        val request: ApplyRequest,
-        val operation: UUID,
+        override val request: ApplyRequest,
+        override val operation: UUID,
         val plan: AcceptancePlan.Commit,
         val lease: StudioApplyLease,
-    ) {
+    ) : ActiveOperation {
         var failure: ApplyFailure? = null
         var settlement: StudioApplySettlement? = null
     }
 
+    private class RecoveredApply(
+        override val operation: UUID,
+        val settlement: StudioApplySettlement,
+    ) : ActiveOperation {
+        override val request: ApplyRequest? get() = null
+    }
+
     private data class RecordedApply(
-        val request: ApplyRequest,
+        val request: ApplyRequest?,
         val execution: ApplyExecution,
     )
+}
+
+/** Reattaches durable handles without preparing or applying a new effect. */
+internal interface StudioRecoveryLease {
+    suspend fun recover(
+        owner: EffectOwner,
+        receipts: StudioList<PortableReceipt>,
+    ): StudioOwnerOperation?
+
+    suspend fun release(accepted: StudioDocument?)
 }
 
 /** A returned lease is retained even if it has already lost qualification. */

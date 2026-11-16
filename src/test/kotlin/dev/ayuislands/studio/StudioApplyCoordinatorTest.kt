@@ -362,6 +362,7 @@ class StudioApplyCoordinatorTest {
                         }
                         lease()
                     },
+                    recover = { _, _ -> error("Live Apply still owns the recovery handles") },
                     cancelSettlementTimeout = 250.milliseconds,
                 )
         }
