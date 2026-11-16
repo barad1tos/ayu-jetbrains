@@ -15,8 +15,8 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
-import io.mockk.verify
 import java.awt.Dimension
+import java.beans.PropertyChangeListener
 import javax.swing.JScrollBar
 import javax.swing.JScrollPane
 import javax.swing.SwingUtilities
@@ -226,54 +226,6 @@ class EditorScrollbarManagerTest {
     }
 
     @Test
-    fun `resetOriginalSizeCache tolerates putClientProperty failures`() {
-        // Listener body is `resetOriginalSizeCacheForTest() then apply()`. If a downstream
-        // Swing layer throws from putClientProperty (platform regression, disposed
-        // component) the listener must survive — otherwise the MessageBus dispatcher
-        // catches it as SEVERE and the follow-up apply() never runs (scrollbars stay
-        // unhidden after LAF change). Mocked scrollbar that throws on the null-value
-        // clear proves the per-pane try/catch keeps iteration alive.
-        val throwingVBar = mockk<JScrollBar>(relaxed = true)
-        val property = "ayuIslands.originalPreferredSize"
-        var ownedBaseline: Dimension? = null
-        every { throwingVBar.preferredSize } returns Dimension(17, 100)
-        every { throwingVBar.getClientProperty(property) } answers { ownedBaseline }
-        every { throwingVBar.putClientProperty(property, any<Dimension>()) } answers {
-            ownedBaseline = secondArg()
-        }
-        every {
-            throwingVBar.putClientProperty(property, null)
-        } throws IllegalStateException("simulated putClientProperty failure")
-
-        val mockScrollPane = mockk<JScrollPane>(relaxed = true)
-        every { mockScrollPane.verticalScrollBar } returns throwingVBar
-        every { mockScrollPane.horizontalScrollBar } returns mockk(relaxed = true)
-        every { editorEx.scrollPane } returns mockScrollPane
-
-        realState.hideEditorVScrollbar = true
-        val manager = createManager()
-        manager.apply()
-        // The mock reports a nonzero size to simulate a platform refresh of the owned bar.
-        val suppressLoggedErrors =
-            object : LoggedErrorProcessor() {
-                override fun processWarn(
-                    category: String,
-                    message: String,
-                    throwable: Throwable?,
-                ): Boolean = false
-            }
-        LoggedErrorProcessor.executeWith<Throwable>(suppressLoggedErrors) {
-            manager.resetOriginalSizeCacheForTest()
-        }
-
-        verify(atLeast = 1) {
-            throwingVBar.putClientProperty(property, null)
-        }
-        every { throwingVBar.putClientProperty(property, null) } answers { ownedBaseline = null }
-        manager.dispose()
-    }
-
-    @Test
     fun `apply re-hides scrollbar after platform reset simulation`() {
         // Regression guard for the stale-flag bug (commit 64833a0): a previous version of
         // applyToEditor gated hideScrollBar on `!patched.verticalHidden`. After startup the
@@ -301,8 +253,140 @@ class EditorScrollbarManagerTest {
         manager.apply()
 
         assertEquals(Dimension(0, 0), vBar.preferredSize)
+        realState.hideEditorVScrollbar = false
+        manager.apply()
+        assertEquals(Dimension(12, 100), vBar.preferredSize)
+        assertTrue(vBar.isPreferredSizeSet)
         manager.dispose()
     }
+
+    @Test
+    fun `a Swing callback failure preserves the recorded size and does not interrupt the other axis`() =
+        SwingUtilities.invokeAndWait {
+            for (property in listOf("preferredSize", "ayuIslands.originalPreferredSize")) {
+                verifyCallbackFailure(property)
+            }
+        }
+
+    private fun verifyCallbackFailure(property: String) {
+        val vertical = scrollPane.verticalScrollBar
+        val horizontal = scrollPane.horizontalScrollBar
+        val verticalSize = Dimension(18, 104)
+        val horizontalSize = Dimension(142, 19)
+        vertical.preferredSize = verticalSize
+        horizontal.preferredSize = horizontalSize
+        realState.hideEditorVScrollbar = true
+        realState.hideEditorHScrollbar = true
+        val listener =
+            PropertyChangeListener { event ->
+                if (event.newValue != null) {
+                    error("scrollbar listener failed after the write")
+                }
+            }
+        val manager = createManager()
+        vertical.addPropertyChangeListener(property, listener)
+        try {
+            withExpectedScrollbarWarning { manager.apply() }
+            assertEquals(Dimension(0, 0), vertical.preferredSize)
+            assertEquals(Dimension(0, 0), horizontal.preferredSize)
+            vertical.removePropertyChangeListener(property, listener)
+            realState.hideEditorVScrollbar = false
+            realState.hideEditorHScrollbar = false
+            manager.apply()
+            assertEquals(verticalSize, vertical.preferredSize)
+            assertEquals(horizontalSize, horizontal.preferredSize)
+        } finally {
+            vertical.removePropertyChangeListener(property, listener)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `a replacement is hidden even when the detached scrollbar reports a restoration failure`() =
+        SwingUtilities.invokeAndWait {
+            val detached = scrollPane.verticalScrollBar
+            val original = Dimension(19, 108)
+            detached.preferredSize = original
+            realState.hideEditorVScrollbar = true
+            val manager = createManager()
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.newValue == original) error("scrollbar listener failed after restoration")
+                }
+            detached.addPropertyChangeListener("preferredSize", listener)
+            try {
+                manager.apply()
+                val replacement = JScrollBar(JScrollBar.VERTICAL)
+                val replacementSize = Dimension(14, 112)
+                replacement.preferredSize = replacementSize
+                scrollPane.verticalScrollBar = replacement
+                withExpectedScrollbarWarning { manager.apply() }
+                assertEquals(original, detached.preferredSize)
+                assertNull(detached.getClientProperty("ayuIslands.originalPreferredSize"))
+                assertEquals(Dimension(0, 0), replacement.preferredSize)
+
+                realState.hideEditorVScrollbar = false
+                manager.apply()
+                assertEquals(replacementSize, replacement.preferredSize)
+            } finally {
+                detached.removePropertyChangeListener("preferredSize", listener)
+                manager.dispose()
+            }
+        }
+
+    private fun withExpectedScrollbarWarning(action: () -> Unit) {
+        val log =
+            object : LoggedErrorProcessor() {
+                override fun processWarn(
+                    category: String,
+                    message: String,
+                    throwable: Throwable?,
+                ): Boolean = false
+            }
+        LoggedErrorProcessor.executeWith<Throwable>(log) { action() }
+    }
+
+    @Test
+    fun `showing scrollbars preserves newer ownership and an inherited sibling size`() =
+        SwingUtilities.invokeAndWait {
+            val vertical = scrollPane.verticalScrollBar
+            val horizontal = scrollPane.horizontalScrollBar
+            val originalSize = Dimension(18, 104)
+            val newerSize = Dimension(21, 108)
+            val newerBaseline = Dimension(newerSize)
+            val key = "ayuIslands.originalPreferredSize"
+            vertical.preferredSize = originalSize
+            horizontal.preferredSize = Dimension(142, 19)
+            realState.hideEditorVScrollbar = true
+            realState.hideEditorHScrollbar = true
+            val manager = createManager()
+            val listener =
+                PropertyChangeListener { event ->
+                    if (event.newValue == originalSize) {
+                        vertical.putClientProperty(key, newerBaseline)
+                        vertical.preferredSize = newerSize
+                    }
+                }
+            try {
+                manager.apply()
+                assertEquals(Dimension(0, 0), vertical.preferredSize)
+                assertEquals(Dimension(0, 0), horizontal.preferredSize)
+                vertical.addPropertyChangeListener("preferredSize", listener)
+                horizontal.preferredSize = null
+
+                realState.hideEditorVScrollbar = false
+                realState.hideEditorHScrollbar = false
+                manager.apply()
+
+                assertEquals(newerSize, vertical.preferredSize)
+                assertSame(newerBaseline, vertical.getClientProperty(key))
+                assertFalse(horizontal.isPreferredSizeSet)
+                assertNull(horizontal.getClientProperty(key))
+            } finally {
+                vertical.removePropertyChangeListener("preferredSize", listener)
+                manager.dispose()
+            }
+        }
 
     @Test
     fun `showing scrollbars restores inherited and explicit sizes independently`() =
@@ -316,8 +400,8 @@ class EditorScrollbarManagerTest {
             val manager = createManager()
             try {
                 manager.apply()
-                manager.resetOriginalSizeCacheForTest()
-                manager.apply()
+                assertEquals(Dimension(0, 0), vertical.preferredSize)
+                assertEquals(Dimension(0, 0), horizontal.preferredSize)
 
                 realState.hideEditorVScrollbar = false
                 realState.hideEditorHScrollbar = false
@@ -381,7 +465,6 @@ class EditorScrollbarManagerTest {
                 vertical.preferredSize = null
                 val foreignBaseline = Dimension(111, 19)
                 horizontal.putClientProperty("ayuIslands.originalPreferredSize", foreignBaseline)
-                manager.resetOriginalSizeCacheForTest()
                 manager.apply()
                 assertEquals(Dimension(0, 0), vertical.preferredSize)
                 realState.hideEditorVScrollbar = false
