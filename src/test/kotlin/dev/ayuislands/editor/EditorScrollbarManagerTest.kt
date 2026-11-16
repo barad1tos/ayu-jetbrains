@@ -12,6 +12,31 @@ import dev.ayuislands.accent.AccentApplyPlanRunner
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.WorkspacePanelEvent
+import dev.ayuislands.settings.WorkspaceToggle
+import dev.ayuislands.studio.catalogTestDocument
+import dev.ayuislands.studio.model.EffectOwner
+import dev.ayuislands.studio.model.FieldAddress
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioProcess
+import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.persistence.CommitResolution
+import dev.ayuislands.studio.persistence.CommitResult
+import dev.ayuislands.studio.persistence.JournalResult
+import dev.ayuislands.studio.persistence.PrepareResult
+import dev.ayuislands.studio.persistence.RecoveryPlan
+import dev.ayuislands.studio.persistence.RestoreStatus
+import dev.ayuislands.studio.persistence.StoreLoad
+import dev.ayuislands.studio.persistence.StudioAppearanceStore
+import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.session.OwnerAcceptance
+import dev.ayuislands.studio.session.OwnerApply
+import dev.ayuislands.studio.session.OwnerRollback
+import dev.ayuislands.studio.session.StudioEditorScrollbarOperation
+import dev.ayuislands.studio.session.StudioOwnerJournal
+import dev.ayuislands.studio.session.StudioOwnerWork
+import dev.ayuislands.studio.session.StudioWorkspaceEditing
+import dev.ayuislands.studio.session.StudioWorkspaceProjection
 import dev.ayuislands.ui.ComponentTreeRefreshedListener
 import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import io.mockk.every
@@ -20,8 +45,17 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import org.junit.jupiter.api.io.TempDir
 import java.awt.Dimension
 import java.beans.PropertyChangeListener
+import java.nio.file.Path
+import java.time.Instant
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 import javax.swing.JScrollBar
 import javax.swing.JScrollPane
 import javax.swing.SwingUtilities
@@ -33,12 +67,16 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class EditorScrollbarManagerTest {
+    @TempDir
+    lateinit var directory: Path
+
     private lateinit var project: Project
     private lateinit var editorFactory: EditorFactory
     private lateinit var realState: AyuIslandsState
@@ -953,6 +991,134 @@ class EditorScrollbarManagerTest {
                 manager.dispose()
             }
         }
+
+    @Test
+    fun `Studio journals the selected editor axis before changing it and restores it on abort`() =
+        exerciseJournaledEditor(JournalOutcome.ABORTED)
+
+    @Test
+    fun `an accepted editor change keeps its selected axis and releases the checkpoint`() =
+        exerciseJournaledEditor(JournalOutcome.ACCEPTED)
+
+    @Test
+    fun `losing the Apply lease after journaling leaves the editor untouched`() =
+        exerciseJournaledEditor(JournalOutcome.LEASE_LOST)
+
+    private enum class JournalOutcome { ABORTED, ACCEPTED, LEASE_LOST }
+
+    private fun exerciseJournaledEditor(outcome: JournalOutcome) =
+        runBlocking {
+            val nativeDispatcher = Executor { SwingUtilities.invokeLater(it) }.asCoroutineDispatcher()
+            Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { ioDispatcher ->
+                withContext(ioDispatcher) {
+                    StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+                        verifyJournaledEditor(store, ioDispatcher, nativeDispatcher, outcome)
+                    }
+                }
+            }
+        }
+
+    private suspend fun verifyJournaledEditor(
+        store: StudioAppearanceStore,
+        ioDispatcher: CoroutineDispatcher,
+        nativeDispatcher: CoroutineDispatcher,
+        outcome: JournalOutcome,
+    ) {
+        val before = catalogTestDocument()
+        val fields = before.shared.workspace
+        val toggle = WorkspacePanelEvent.Toggle(WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR, true)
+        val edit = StudioWorkspaceEditing.edits(fields, toggle).single()
+        val key = edit.after.key
+        val edited = fields.copy(records = StudioList(fields.records.map { if (it.key == key) edit.after else it }))
+        val selection = StudioWorkspaceProjection.resolve(edited, listOf(FieldAddress(key)), true)
+        val plan = RecoveryPlan(StudioTarget.Global, StudioList(emptyList()))
+        assertEquals(StoreLoad.Empty, store.load())
+        assertEquals(JournalResult.Acknowledged, store.preserveSource(before.header.migration))
+        val first = assertIs<PrepareResult.Prepared>(store.prepare(-1, before, plan)).token
+        assertIs<CommitResult.Committed>(store.commit(first, before.runtime))
+        assertEquals(JournalResult.Acknowledged, store.finishAccepted(first))
+        val candidate =
+            before.copy(
+                header = before.header.copy(revision = 1, transactionId = "workspace-editor"),
+                shared = before.shared.copy(workspace = edited),
+            )
+        val route = plan.copy(owners = StudioList(listOf(EffectOwner.WORKSPACE)))
+        val journal = assertIs<PrepareResult.Prepared>(store.prepare(0, candidate, route)).journal
+        val work = StudioOwnerWork(journal)
+        val owners = StudioOwnerJournal(store, ioDispatcher)
+        val horizontalSize = Dimension(53, 9)
+        val manager =
+            withContext(nativeDispatcher) {
+                scrollPane.verticalScrollBar.preferredSize = null
+                scrollPane.horizontalScrollBar.preferredSize = horizontalSize
+                createManager()
+            }
+        try {
+            val refuseWrite = outcome == JournalOutcome.LEASE_LOST
+            var sawPendingReceipts = false
+            val applied =
+                owners.apply(
+                    work,
+                    qualifies = {
+                        val pending =
+                            withContext(ioDispatcher) {
+                                assertIs<StoreLoad.Recovering>(store.load()).journal.receipts
+                            }
+                        if (pending.isNotEmpty()) {
+                            assertTrue(SwingUtilities.isEventDispatchThread())
+                            assertEquals(listOf("EDITOR_SIZE", "EDITOR_BASELINE"), pending.map { it.identity.field })
+                            assertTrue(pending.all { it.status == RestoreStatus.PENDING })
+                            assertFalse(scrollPane.verticalScrollBar.isPreferredSizeSet)
+                            sawPendingReceipts = true
+                        }
+                        !refuseWrite || pending.isEmpty()
+                    },
+                ) {
+                    StudioEditorScrollbarOperation.capture(
+                        listOf(manager),
+                        selection,
+                        StudioProcess(501, Instant.EPOCH),
+                        journal.token.transactionId,
+                        nativeDispatcher,
+                    )
+                }
+            assertEquals(if (refuseWrite) OwnerApply.LeaseLost else OwnerApply.Completed, applied)
+            assertTrue(sawPendingReceipts)
+            val expectedStatus = if (refuseWrite) RestoreStatus.PENDING else RestoreStatus.OWNED
+            assertTrue(work.journal.receipts.all { it.status == expectedStatus })
+            withContext(nativeDispatcher) {
+                if (refuseWrite) {
+                    assertFalse(scrollPane.verticalScrollBar.isPreferredSizeSet)
+                } else {
+                    assertEquals(Dimension(0, 0), scrollPane.verticalScrollBar.preferredSize)
+                }
+                assertEquals(horizontalSize, scrollPane.horizontalScrollBar.preferredSize)
+            }
+            if (outcome == JournalOutcome.ACCEPTED) {
+                assertEquals(OwnerAcceptance.Decision(CommitResolution.NotCommitted), owners.accept(work))
+                val committed = assertIs<CommitResult.Committed>(store.commit(journal.token, candidate.runtime))
+                assertEquals(OwnerAcceptance.Completed, owners.accept(work))
+                assertEquals(JournalResult.Acknowledged, store.finishAccepted(journal.token))
+                assertEquals(edited, committed.document.shared.workspace)
+                assertEquals(StoreLoad.Ready(committed.document), store.load())
+            } else {
+                assertEquals(OwnerRollback.Settled, owners.rollback(work))
+                assertEquals(JournalResult.Acknowledged, store.finishRollback(journal.token))
+                assertEquals(StoreLoad.Ready(before), store.load())
+            }
+            withContext(nativeDispatcher) {
+                if (outcome == JournalOutcome.ACCEPTED) {
+                    assertEquals(Dimension(0, 0), scrollPane.verticalScrollBar.preferredSize)
+                    assertTrue(manager.capture(hideVertical = false, hideHorizontal = null).records.isNotEmpty())
+                } else {
+                    assertFalse(scrollPane.verticalScrollBar.isPreferredSizeSet)
+                }
+                assertEquals(horizontalSize, scrollPane.horizontalScrollBar.preferredSize)
+            }
+        } finally {
+            withContext(nativeDispatcher) { manager.dispose() }
+        }
+    }
 
     @Test
     fun `editorCreated listener applies to new editors when licensed`() {
