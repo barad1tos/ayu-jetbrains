@@ -49,7 +49,7 @@ internal class StudioAppearanceStore(
         prepare(
             plan.lease.documentRevision,
             plan.document,
-            RecoveryPlan(plan.target, plan.route.owners, plan.limitations),
+            recoveryPlanFor(plan),
         )
 
     @Synchronized
@@ -268,6 +268,9 @@ internal class StudioAppearanceStore(
             JournalResult.Rejected(storeIssue(failure))
         }
 }
+
+internal fun recoveryPlanFor(plan: AcceptancePlan.Commit): RecoveryPlan =
+    RecoveryPlan(plan.target, plan.route.owners, plan.limitations)
 
 private sealed interface StorePhase {
     data object Unloaded : StorePhase

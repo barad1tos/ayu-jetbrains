@@ -22,6 +22,15 @@ internal class StudioApplySettlement(
 ) {
     private var stage: Stage = Stage.Inspecting
 
+    fun interrupted(problem: SettlementProblem): ApplySettlement =
+        when (val current = stage) {
+            Stage.Inspecting -> ApplySettlement.RecoveryRequired(problem)
+            is Stage.Owners -> current.outcome.pending(problem)
+            is Stage.Release -> current.outcome.pending(problem)
+            is Stage.Cleanup -> current.outcome.pending(problem)
+            is Stage.Done -> current.outcome
+        }
+
     /** A failed release may be retried, so the adapter must tolerate an interrupted release. */
     suspend fun settle(): ApplySettlement {
         while (true) {
@@ -141,6 +150,8 @@ internal sealed interface ApplySettlement {
 
 internal sealed interface SettlementProblem {
     data object Unconfirmed : SettlementProblem
+
+    data object TimedOut : SettlementProblem
 
     data class AcceptOwners(
         val result: OwnerAcceptance,
