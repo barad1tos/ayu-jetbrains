@@ -8,6 +8,7 @@ import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioSessionRecord
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -22,19 +23,22 @@ internal class StudioSubmitAdmission(
     private val queue: Mutex,
     private val flush: suspend (StudioSessionRecord) -> DraftWriteResult,
     private val observe: suspend (ApplyRequest, StudioDocument) -> ApplyInputs,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     suspend fun <T> submit(
         request: ApplyRequest,
         operation: UUID,
         consume: suspend (AcceptancePlan.Commit) -> T,
+        beforeAdmission: suspend () -> Submission<T>? = { null },
     ): Submission<T> {
-        val pending = queue.withLock { blocked(load()) }
+        val pending = queue.withLock { beforeAdmission() ?: blocked(load()) }
         if (pending != null) return pending
 
         // The autosave writer may need the same queue to flush this exact record.
         val flushed = flush(request.session)
 
         return queue.withLock {
+            beforeAdmission()?.let { return@withLock it }
             when (val loaded = load()) {
                 is StoreLoad.Ready ->
                     when (flushed) {
@@ -77,7 +81,7 @@ internal class StudioSubmitAdmission(
         }
     }
 
-    private suspend fun load(): StoreLoad = withContext(Dispatchers.IO) { store.load() }
+    private suspend fun load(): StoreLoad = withContext(ioDispatcher) { store.load() }
 
     private fun blocked(loaded: StoreLoad): Submission<Nothing>? =
         when (loaded) {

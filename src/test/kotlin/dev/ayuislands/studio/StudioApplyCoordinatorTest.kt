@@ -1,0 +1,496 @@
+package dev.ayuislands.studio
+
+import dev.ayuislands.studio.model.AcceptanceBlock
+import dev.ayuislands.studio.model.AcceptanceObservation
+import dev.ayuislands.studio.model.ApplyContext
+import dev.ayuislands.studio.model.ApplyRequest
+import dev.ayuislands.studio.model.AuthorityStatus
+import dev.ayuislands.studio.model.DraftTracking
+import dev.ayuislands.studio.model.EffectObservation
+import dev.ayuislands.studio.model.EffectOwner
+import dev.ayuislands.studio.model.RawValue
+import dev.ayuislands.studio.model.StudioDocument
+import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioRuntimeState
+import dev.ayuislands.studio.model.StudioSessionRecord
+import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.model.TargetObservation
+import dev.ayuislands.studio.model.TargetPresence
+import dev.ayuislands.studio.persistence.CommitResult
+import dev.ayuislands.studio.persistence.JournalResult
+import dev.ayuislands.studio.persistence.NativeFieldIdentity
+import dev.ayuislands.studio.persistence.NativeValue
+import dev.ayuislands.studio.persistence.PortableReceipt
+import dev.ayuislands.studio.persistence.PrepareResult
+import dev.ayuislands.studio.persistence.RecoveryPlan
+import dev.ayuislands.studio.persistence.RestoreStatus
+import dev.ayuislands.studio.persistence.StoreIssue
+import dev.ayuislands.studio.persistence.StoreLoad
+import dev.ayuislands.studio.persistence.StudioAppearanceStore
+import dev.ayuislands.studio.persistence.StudioDraftStore
+import dev.ayuislands.studio.persistence.StudioFiles
+import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.session.ApplyExecution
+import dev.ayuislands.studio.session.ApplyFailure
+import dev.ayuislands.studio.session.ApplyInputs
+import dev.ayuislands.studio.session.ApplySettlement
+import dev.ayuislands.studio.session.RestoreContinuation
+import dev.ayuislands.studio.session.SettlementProblem
+import dev.ayuislands.studio.session.StudioApplyCoordinator
+import dev.ayuislands.studio.session.StudioApplyLease
+import dev.ayuislands.studio.session.StudioNativeWrite
+import dev.ayuislands.studio.session.StudioOwnerOperation
+import dev.ayuislands.studio.session.Submission
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import org.junit.jupiter.api.io.TempDir
+import java.io.IOException
+import java.nio.file.Path
+import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.CoroutineContext
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+
+class StudioApplyCoordinatorTest {
+    @TempDir
+    lateinit var directory: Path
+
+    @Test
+    fun `flush shares the queue and native checkpoints accept after durable commit`() =
+        exercise { fixture ->
+            val edit = editedJournalRecord(fixture.initial)
+            val execution = fixture.applyDraft(edit)
+            assertEquals(execution, fixture.applyDraft(edit))
+            assertEquals(
+                Submission.Blocked(AcceptanceBlock.INVALID_REQUEST),
+                fixture.coordinator.submit(ApplyRequest(edit, 2), APPLY),
+            )
+            fixture.assertAccepted(edit, execution)
+            assertTrue(fixture.coordinator.acknowledge(APPLY))
+            assertNull(fixture.coordinator.outcome(APPLY))
+        }
+
+    @Test
+    fun `a native mutation followed by failure restores the old appearance and keeps the draft`() =
+        exercise { fixture ->
+            fixture.failApply = true
+            assertIs<ApplyFailure.Effects>(fixture.applyAndAssertRollback())
+        }
+
+    @Test
+    fun `cancellation after commit retains the accepted appearance and settles without a second write`() =
+        exercise { fixture ->
+            fixture.cancelAcceptance = true
+            val edit = editedJournalRecord(fixture.initial)
+            assertFailsWith<CancellationException> { fixture.coordinator.submit(ApplyRequest(edit, 1), APPLY) }
+            fixture.assertAccepted(edit, requireNotNull(fixture.coordinator.outcome(APPLY)))
+        }
+
+    @Test
+    fun `new Apply settles retained cleanup even when the store already looks ready`() =
+        exercise { fixture ->
+            fixture.loseApplyCleanup = true
+            val first = ApplyRequest(editedJournalRecord(fixture.initial), 1)
+            val execution = assertIs<Submission.Admitted<ApplyExecution>>(fixture.coordinator.submit(first, APPLY))
+            assertIs<ApplySettlement.AcceptedCleanupPending>(execution.result.settlement)
+            assertFalse(fixture.coordinator.acknowledge(APPLY))
+            val committed = assertIs<StoreLoad.Ready>(fixture.store.load()).document
+            val next = ApplyRequest(committed.sessions.single(), 1)
+            val settledEvents = fixture.events.toList()
+            fixture.failNextCleanupRead()
+            val retained = assertIs<Submission.Retained>(fixture.coordinator.submit(next, NEXT))
+            assertEquals(APPLY, retained.operation)
+            assertIs<ApplySettlement.AcceptedCleanupPending>(retained.execution.settlement)
+            assertEquals(settledEvents, fixture.events)
+            assertNull(fixture.coordinator.outcome(NEXT))
+            fixture.expectPriorSettledOnFlush = true
+            assertEquals(Submission.NoChanges, fixture.coordinator.submit(next, NEXT))
+            val recovered = assertIs<ApplySettlement.Accepted>(fixture.coordinator.retry(APPLY)?.settlement)
+            assertEquals(committed, recovered.document)
+            assertTrue(fixture.coordinator.acknowledge(APPLY))
+            assertEquals(listOf("flush", "acquire", "apply", "accept", "release", "flush"), fixture.events)
+        }
+
+    @Test
+    fun `lost prepare acknowledgement binds only the exact journal and does not write a native field`() =
+        exercise { fixture ->
+            fixture.loseApplyPrepare = true
+            val edit = editedJournalRecord(fixture.initial)
+            val execution = fixture.applyDraft(edit)
+            assertEquals(ApplySettlement.NotAccepted, execution.settlement)
+            assertIs<ApplyFailure.Prepare>(execution.failure)
+            assertEquals(listOf("flush", "acquire", "release"), fixture.events)
+            fixture.assertUnchanged(edit)
+        }
+
+    @Test
+    fun `lease loss during runtime projection restores native settings before publication`() =
+        exercise { fixture ->
+            fixture.loseLeaseBeforeCommit = true
+            assertEquals(ApplyFailure.LeaseLost, fixture.applyAndAssertRollback())
+        }
+
+    @Test
+    fun `lease loss on the commit dispatcher preserves the draft and old appearance`() =
+        exercise { fixture ->
+            fixture.loseLeaseOnCommitDispatch = true
+            assertEquals(ApplyFailure.LeaseLost, fixture.applyAndAssertRollback())
+        }
+
+    @Test
+    fun `runtime projection failure restores native settings and retains the saved draft`() =
+        exercise { fixture ->
+            val failure = IllegalStateException("Host closed during runtime projection")
+            fixture.projectionFailure = failure
+            assertEquals(ApplyFailure.Native(failure), fixture.applyAndAssertRollback())
+        }
+
+    @Test
+    fun `a failed state replacement leaves the previous appearance and draft intact`() =
+        exercise { fixture ->
+            fixture.publicationFault = PublicationFault.REJECTED
+            assertEquals(ApplyFailure.Commit(StoreIssue.IO), fixture.applyAndAssertRollback())
+        }
+
+    @Test
+    fun `unknown write acknowledgement settles the accepted state once it is readable`() =
+        exercise { fixture ->
+            fixture.publicationFault = PublicationFault.ACKNOWLEDGEMENT_LOST
+            val edit = editedJournalRecord(fixture.initial)
+            fixture.assertAccepted(edit, fixture.applyDraft(edit))
+        }
+
+    @Test
+    fun `expired lease keeps its draft when the state file is temporarily unreadable`() =
+        exercise { fixture ->
+            fixture.expireLeaseBeforePrepare = true
+            val edit = editedJournalRecord(fixture.initial)
+            val first = fixture.applyDraft(edit)
+            assertIs<SettlementProblem.Journal>(assertIs<ApplySettlement.RecoveryRequired>(first.settlement).problem)
+            assertEquals(ApplyFailure.LeaseLost, first.failure)
+            assertFalse(fixture.coordinator.acknowledge(APPLY))
+            assertEquals(ApplySettlement.NotAccepted, fixture.applyDraft(edit).settlement)
+            assertEquals(listOf("flush", "acquire", "release"), fixture.events)
+            fixture.assertUnchanged(edit)
+            assertTrue(fixture.coordinator.acknowledge(APPLY))
+            assertNull(fixture.coordinator.retry(APPLY))
+        }
+
+    private suspend fun Fixture.applyDraft(edit: StudioSessionRecord): ApplyExecution =
+        assertIs<Submission.Admitted<ApplyExecution>>(coordinator.submit(ApplyRequest(edit, 1), APPLY)).result
+
+    private suspend fun Fixture.applyAndAssertRollback(): ApplyFailure? {
+        val edit = editedJournalRecord(initial)
+        val execution = applyDraft(edit)
+        assertEquals(ApplySettlement.NotAccepted, execution.settlement)
+        assertEquals(listOf("flush", "acquire", "apply", "restore", "release"), events)
+        assertUnchanged(edit)
+        return execution.failure
+    }
+
+    private fun Fixture.assertUnchanged(edit: StudioSessionRecord) {
+        val stored = assertIs<StoreLoad.Ready>(store.load()).document
+        assertEquals(initial.currents, stored.currents)
+        assertEquals(listOf(edit), stored.sessions)
+        assertFalse(native)
+    }
+
+    private fun Fixture.assertAccepted(
+        edit: StudioSessionRecord,
+        execution: ApplyExecution,
+    ) {
+        val stored = assertIs<StoreLoad.Ready>(store.load()).document
+        assertEquals(assertIs<ApplySettlement.Accepted>(execution.settlement).document, stored)
+        assertNull(execution.failure)
+        assertTrue(native)
+        assertEquals(listOf("flush", "acquire", "apply", "accept", "release"), events)
+        val draft = edit.work.drafts.single()
+        val expected =
+            initial.currents.global.appearance
+                .copy(glow = draft.appearance.glow)
+        assertEquals(expected, stored.currents.global.appearance)
+        assertEquals(initial.currents.projects, stored.currents.projects)
+        assertEquals(initial.catalog, stored.catalog)
+        assertEquals(initial.shared, stored.shared)
+        assertEquals(initial.auxiliary, stored.auxiliary)
+        val saved = stored.sessions.single()
+        assertEquals(edit.id, saved.id)
+        assertEquals(edit.target, saved.target)
+        assertEquals(edit.generation + 1, saved.generation)
+        assertEquals(stored.header.revision, saved.baseDocumentRevision)
+        assertEquals(edit.work.selected, saved.work.selected)
+        assertEquals(
+            draft.copy(base = stored.currents.global, appearance = expected, tracking = DraftTracking(expected)),
+            saved.work.drafts.single(),
+        )
+    }
+
+    private fun exercise(block: suspend (Fixture) -> Unit) {
+        Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { dispatcher ->
+            Fixture(directory, dispatcher).use { fixture ->
+                runBlocking { withTimeout(5.seconds) { block(fixture) } }
+            }
+        }
+    }
+
+    @Test
+    fun `cancelled Apply releases the queue after bounded recovery and retains committed state`() =
+        exercise { fixture ->
+            fixture.pauseRelease = true
+            val edit = editedJournalRecord(fixture.initial)
+            coroutineScope {
+                val apply = launch { fixture.coordinator.submit(ApplyRequest(edit, 1), APPLY) }
+                fixture.releaseStarted.await()
+                apply.cancel()
+                val finished =
+                    withTimeoutOrNull(2.seconds) {
+                        apply.join()
+                        true
+                    }
+                fixture.resumeRelease.complete(Unit)
+                assertEquals(true, finished)
+            }
+            assertIs<ApplySettlement.AcceptedCleanupPending>(fixture.coordinator.outcome(APPLY)?.settlement)
+            assertFalse(fixture.coordinator.acknowledge(APPLY))
+            fixture.pauseRelease = false
+            assertIs<ApplySettlement.Accepted>(fixture.coordinator.retry(APPLY)?.settlement)
+            assertTrue(fixture.native)
+            assertEquals(1, fixture.events.count { it == "accept" })
+            assertEquals(1, fixture.events.count { it == "apply" })
+        }
+
+    private class Fixture(
+        directory: Path,
+        private val dispatcher: CoroutineDispatcher,
+    ) : AutoCloseable {
+        val initial = catalogTestDocument()
+        private val files = Faults(openStudioFiles(directory))
+        val store = StudioAppearanceStore(files)
+        val events = mutableListOf<String>()
+        var native = false
+        var failApply = false
+        var cancelAcceptance = false
+        var loseApplyCleanup = false
+        var loseApplyPrepare = false
+        var loseLeaseBeforeCommit = false
+        var loseLeaseOnCommitDispatch = false
+        var expireLeaseBeforePrepare = false
+        var projectionFailure: RuntimeException? = null
+        var publicationFault: PublicationFault? = null
+        var pauseRelease = false
+        val releaseStarted = CompletableDeferred<Unit>()
+        val resumeRelease = CompletableDeferred<Unit>()
+        var expectPriorSettledOnFlush = false
+        private val queue = Mutex()
+        private var leaseValid = true
+        private val invalidateOnNextIo = AtomicBoolean()
+        private val ioDispatcher =
+            object : CoroutineDispatcher() {
+                override fun dispatch(
+                    context: CoroutineContext,
+                    block: Runnable,
+                ) {
+                    dispatcher.dispatch(context) {
+                        if (invalidateOnNextIo.getAndSet(false)) leaseValid = false
+                        block.run()
+                    }
+                }
+            }
+        private val drafts = StudioDraftStore(store)
+        val coordinator: StudioApplyCoordinator
+
+        init {
+            assertEquals(StoreLoad.Empty, store.load())
+            assertEquals(JournalResult.Acknowledged, store.preserveSource(initial.header.migration))
+            val bootstrap = RecoveryPlan(StudioTarget.Global, StudioList(emptyList()))
+            val token = assertIs<PrepareResult.Prepared>(store.prepare(-1, initial, bootstrap)).token
+            assertIs<CommitResult.Committed>(store.commit(token, initial.runtime))
+            assertEquals(JournalResult.Acknowledged, store.finishAccepted(token))
+            coordinator =
+                StudioApplyCoordinator(
+                    store,
+                    queue,
+                    ioDispatcher,
+                    flush = { record ->
+                        if (expectPriorSettledOnFlush) {
+                            assertIs<ApplySettlement.Accepted>(
+                                coordinator.outcome(APPLY)?.settlement,
+                            )
+                        }
+                        queue.withLock {
+                            events.add("flush")
+                            drafts.save(record, "draft-${events.size}")
+                        }
+                    },
+                    observe = { request, _ ->
+                        ApplyInputs(
+                            ApplyContext(
+                                AcceptanceObservation(
+                                    AuthorityStatus.READY,
+                                    TargetObservation(request.session.target, 1, TargetPresence.ACTIVE),
+                                ),
+                                StudioList(emptyList()),
+                            ),
+                            EffectObservation(1),
+                        )
+                    },
+                    acquire = {
+                        assertTrue(queue.isLocked)
+                        events.add("acquire")
+                        files.losePrepare = loseApplyPrepare
+                        if (expireLeaseBeforePrepare) {
+                            leaseValid = false
+                            files.readFailurePath = "state.xml"
+                        }
+                        lease()
+                    },
+                    cancelSettlementTimeout = 250.milliseconds,
+                )
+        }
+
+        private fun lease(): StudioApplyLease =
+            object : StudioApplyLease {
+                override suspend fun qualifies(): Boolean = leaseValid
+
+                override suspend fun capture(owner: EffectOwner): StudioOwnerOperation {
+                    assertEquals(EffectOwner.GLOW, owner)
+                    return nativeOperation()
+                }
+
+                override suspend fun settledRuntime(candidate: StudioDocument): StudioRuntimeState {
+                    projectionFailure?.let { throw it }
+                    files.publicationFault = publicationFault
+                    leaseValid = !loseLeaseBeforeCommit
+                    invalidateOnNextIo.set(loseLeaseOnCommitDispatch)
+                    return candidate.runtime
+                }
+
+                override suspend fun release(accepted: StudioDocument?) {
+                    if (pauseRelease) {
+                        releaseStarted.complete(Unit)
+                        resumeRelease.await()
+                    }
+                    events.add("release")
+                }
+            }
+
+        private fun nativeOperation(): StudioOwnerOperation =
+            object : StudioOwnerOperation {
+                private var receipt =
+                    PortableReceipt(
+                        id = "glow",
+                        owner = EffectOwner.GLOW,
+                        identity = NativeFieldIdentity("editor", "glow", "test-window"),
+                        before = NativeValue.Present(RawValue.BooleanValue(false)),
+                        lastWritten = NativeValue.Present(RawValue.BooleanValue(true)),
+                        status = RestoreStatus.PENDING,
+                    )
+                override val receipts: List<PortableReceipt> get() = listOf(receipt)
+
+                override suspend fun apply(writes: StudioNativeWrite): Boolean =
+                    writes.execute(dispatcher) {
+                        val pending = assertIs<StoreLoad.Recovering>(store.load())
+                        assertEquals(receipt, pending.journal.receipts.single())
+                        events.add("apply")
+                        native = true
+                        if (failApply) error("Native mutation failed after changing the value")
+                        receipt = receipt.copy(status = RestoreStatus.OWNED)
+                    }
+
+                override suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation {
+                    events.add("restore")
+                    native = false
+                    receipt = receipt.copy(status = RestoreStatus.RESTORED)
+                    return RestoreContinuation.COMPLETE
+                }
+
+                override suspend fun accept() {
+                    val pending = assertIs<StoreLoad.Recovering>(store.load())
+                    assertEquals(pending.journal.candidate, pending.document)
+                    if (cancelAcceptance) {
+                        cancelAcceptance = false
+                        throw CancellationException("Host closed after commit")
+                    }
+                    events.add("accept")
+                    files.loseCleanup = loseApplyCleanup
+                }
+            }
+
+        fun failNextCleanupRead() {
+            files.readFailurePath = "pending.xml"
+        }
+
+        override fun close() = store.close()
+    }
+
+    private class Faults(
+        private val delegate: StudioFiles,
+    ) : StudioFiles by delegate {
+        var loseCleanup = false
+        var losePrepare = false
+        var readFailurePath: String? = null
+        var publicationFault: PublicationFault? = null
+
+        override fun read(name: String): ByteArray? {
+            if (name == readFailurePath) {
+                readFailurePath = null
+                throw IOException("State or journal read unavailable")
+            }
+            return delegate.read(name)
+        }
+
+        override fun replace(
+            source: String,
+            destination: String,
+        ) {
+            val fault = publicationFault.takeIf { destination == "state.xml" }
+            if (fault != null) publicationFault = null
+            if (fault == PublicationFault.REJECTED) throw IOException("State replacement unavailable")
+            delegate.replace(source, destination)
+            if (fault == PublicationFault.ACKNOWLEDGEMENT_LOST) {
+                readFailurePath = destination
+                throw IOException("Lost state replacement acknowledgement")
+            }
+            if (losePrepare && destination == "pending.xml") {
+                losePrepare = false
+                throw IOException("Lost prepare acknowledgement")
+            }
+        }
+
+        override fun remove(name: String) {
+            delegate.remove(name)
+            if (loseCleanup && name == "pending.xml") {
+                loseCleanup = false
+                throw IOException("Lost deletion acknowledgement")
+            }
+        }
+    }
+
+    private enum class PublicationFault {
+        REJECTED,
+        ACKNOWLEDGEMENT_LOST,
+    }
+
+    private companion object {
+        val APPLY: UUID = UUID.fromString("0b4677ae-29f5-4c0d-993d-63e0122c2839")
+        val NEXT: UUID = UUID.fromString("1b4677ae-29f5-4c0d-993d-63e0122c2839")
+    }
+}

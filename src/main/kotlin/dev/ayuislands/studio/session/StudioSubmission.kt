@@ -6,6 +6,7 @@ import dev.ayuislands.studio.model.ApplyContext
 import dev.ayuislands.studio.model.EffectObservation
 import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.persistence.StoreIssue
+import java.util.UUID
 
 internal data class ApplyInputs(
     val context: ApplyContext,
@@ -25,6 +26,11 @@ internal sealed interface Submission<out T> {
 
     data class Recovery(
         val transactionId: String,
+    ) : Submission<Nothing>
+
+    data class Retained(
+        val operation: UUID,
+        val execution: ApplyExecution,
     ) : Submission<Nothing>
 
     data class FlushFailed(
