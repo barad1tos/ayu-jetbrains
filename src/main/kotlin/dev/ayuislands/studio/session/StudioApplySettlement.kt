@@ -153,6 +153,12 @@ internal sealed interface SettlementProblem {
 
     data object TimedOut : SettlementProblem
 
+    data object RecoveryLeaseUnavailable : SettlementProblem
+
+    data class RecoveryLeaseFailed(
+        val cause: RuntimeException,
+    ) : SettlementProblem
+
     data class AcceptOwners(
         val result: OwnerAcceptance,
     ) : SettlementProblem
@@ -170,7 +176,7 @@ internal sealed interface SettlementProblem {
     ) : SettlementProblem
 }
 
-private fun ApplySettlement.Finished.pending(problem: SettlementProblem): ApplySettlement =
+internal fun ApplySettlement.Finished.pending(problem: SettlementProblem): ApplySettlement =
     when (this) {
         is ApplySettlement.Accepted -> ApplySettlement.AcceptedCleanupPending(document, problem)
         ApplySettlement.NotAccepted -> ApplySettlement.RecoveryRequired(problem)

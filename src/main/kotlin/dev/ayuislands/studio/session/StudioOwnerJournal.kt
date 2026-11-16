@@ -47,12 +47,11 @@ internal class StudioOwnerJournal(
     suspend fun accept(work: StudioOwnerWork): OwnerAcceptance {
         val decision = observeDecision(work, CommitResolution.Committed)
         if (decision != CommitResolution.Committed) return OwnerAcceptance.Decision(decision)
-        val operations = work.operations
         for (owner in work.journal.recovery.owners) {
             if (work.hasAccepted(owner) || work.journal.receipts.none { it.owner == owner }) continue
-            val operation = operations[owner] ?: return OwnerAcceptance.HandleUnavailable(owner)
             currentCoroutineContext().ensureActive()
             try {
+                val operation = work.handle(owner) ?: return OwnerAcceptance.HandleUnavailable(owner)
                 operation.accept()
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -81,26 +80,42 @@ internal class StudioOwnerJournal(
     }
 
     private suspend fun restoreOwners(work: StudioOwnerWork): OwnerRollback {
-        val operations = work.operations
-        val blocked = mutableListOf<PortableReceipt>()
+        var blocked = StudioList<PortableReceipt>(emptyList())
         var firstFailure: OwnerRollback.OwnerFailed? = null
         var needsRetry = false
         val owners =
             work.journal.recovery.owners
                 .asReversed()
         for (owner in owners) {
-            val operation = operations[owner]
-            if (operation != null && work.journal.receipts.any { it.owner == owner }) {
-                when (val result = restoreOwner(work, owner, operation, StudioList(blocked))) {
+            if (work.journal.receipts.any { it.owner == owner }) {
+                when (val result = restoreRetained(work, owner, blocked)) {
                     is OwnerRollback.ReceiptFailed -> return result
                     is OwnerRollback.OwnerFailed -> if (firstFailure == null) firstFailure = result
                     OwnerRollback.Pending -> needsRetry = true
                     else -> Unit
                 }
             }
-            blocked.addAll(work.journal.receipts.filter { it.owner == owner && !StudioReceiptPolicy.isTerminal(it) })
+            val outstanding = work.journal.receipts.filter { it.owner == owner && !StudioReceiptPolicy.isTerminal(it) }
+            if (outstanding.isNotEmpty()) blocked = StudioList(blocked + outstanding)
         }
         return firstFailure ?: if (needsRetry || blocked.isNotEmpty()) OwnerRollback.Pending else OwnerRollback.Settled
+    }
+
+    private suspend fun restoreRetained(
+        work: StudioOwnerWork,
+        owner: EffectOwner,
+        blocked: StudioList<PortableReceipt>,
+    ): OwnerRollback? {
+        val operation =
+            try {
+                work.handle(owner)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: RuntimeException) {
+                currentCoroutineContext().ensureActive()
+                return OwnerRollback.OwnerFailed(owner, failure)
+            } ?: return null
+        return restoreOwner(work, owner, operation, blocked)
     }
 
     private suspend fun applyOwner(
