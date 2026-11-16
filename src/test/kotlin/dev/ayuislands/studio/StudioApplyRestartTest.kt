@@ -18,6 +18,7 @@ import dev.ayuislands.studio.persistence.PrepareResult
 import dev.ayuislands.studio.persistence.RecoveryPlan
 import dev.ayuislands.studio.persistence.RecoveryPurpose
 import dev.ayuislands.studio.persistence.RestoreStatus
+import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioFiles
@@ -143,11 +144,33 @@ class StudioApplyRestartTest {
     }
 
     @Test
+    fun `failed journal read leaves the pending Apply retryable without touching native values`() {
+        val owner = receipt(EffectOwner.GLOW)
+        val (initial, _) = prepare(listOf(owner))
+        val effects = NativeState(owner to 1)
+        reopen(effects, readFault = ReadFault.JOURNAL) { coordinator, store ->
+            assertEquals(
+                ApplySettlement.RecoveryRequired(SettlementProblem.Journal(StoreIssue.IO)),
+                coordinator.retry(APPLY)?.settlement,
+            )
+            val pending = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(initial, pending.document)
+            assertEquals(listOf(owner), pending.journal.receipts)
+            assertEquals(1, effects.values.getValue(owner.id))
+            assertTrue(effects.events.isEmpty())
+
+            assertEquals(ApplySettlement.NotAccepted, coordinator.retry(APPLY)?.settlement)
+            assertEquals(StoreLoad.Ready(initial), store.load())
+            assertEquals(0, effects.values.getValue(owner.id))
+        }
+    }
+
+    @Test
     fun `restart with unreadable authority reports recovery and leaves native state untouched`() {
         val owner = receipt(EffectOwner.GLOW)
         val (initial, _) = prepare(listOf(owner))
         val effects = NativeState(owner to 1)
-        reopen(effects, unreadable = true) { coordinator, store ->
+        reopen(effects, readFault = ReadFault.OUTCOME) { coordinator, store ->
             assertIs<ApplySettlement.RecoveryRequired>(coordinator.retry(APPLY)?.settlement)
             assertEquals(1, effects.values.getValue(owner.id))
             assertTrue(effects.events.isEmpty())
@@ -176,6 +199,8 @@ class StudioApplyRestartTest {
                 first.join()
             }
 
+            assertNull(coordinator.outcome(APPLY))
+            assertEquals(listOf("resume-accepted"), effects.events)
             assertEquals(ApplySettlement.Accepted(accepted), coordinator.retry(APPLY)?.settlement)
             assertEquals(listOf("resume-accepted", "accept-GLOW", "release-accepted"), effects.events)
         }
@@ -223,13 +248,13 @@ class StudioApplyRestartTest {
     private fun reopen(
         effects: NativeState,
         loseCleanup: Boolean = false,
-        unreadable: Boolean = false,
+        readFault: ReadFault? = null,
         afterResume: suspend () -> Unit = {},
         block: suspend (StudioApplyCoordinator, StudioAppearanceStore) -> Unit,
     ) {
         val queue = Mutex()
         Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { dispatcher ->
-            val files = Faults(openStudioFiles(directory), loseCleanup, unreadable)
+            val files = Faults(openStudioFiles(directory), loseCleanup, readFault)
             StudioAppearanceStore(files).use { store ->
                 runBlocking { block(coordinator(store, dispatcher, queue, effects, afterResume), store) }
             }
@@ -323,12 +348,17 @@ class StudioApplyRestartTest {
     private class Faults(
         private val delegate: StudioFiles,
         private var loseCleanup: Boolean,
-        private var unreadable: Boolean,
+        private var readFault: ReadFault?,
     ) : StudioFiles by delegate {
         override fun read(name: String): ByteArray? {
-            if (name == "pending.xml" && unreadable) {
-                unreadable = false
-                rejectStateRead = true
+            if (name == "pending.xml") {
+                val fault = readFault
+                readFault = null
+                when (fault) {
+                    ReadFault.JOURNAL -> throw IOException("Could not read the pending Apply journal")
+                    ReadFault.OUTCOME -> rejectStateRead = true
+                    null -> Unit
+                }
             } else if (name == "state.xml" && rejectStateRead) {
                 rejectStateRead = false
                 throw IOException("Could not confirm authoritative settings during recovery")
@@ -345,6 +375,11 @@ class StudioApplyRestartTest {
                 throw IOException("Lost the journal removal acknowledgement")
             }
         }
+    }
+
+    private enum class ReadFault {
+        JOURNAL,
+        OUTCOME,
     }
 
     private companion object {

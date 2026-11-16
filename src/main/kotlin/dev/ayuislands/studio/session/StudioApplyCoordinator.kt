@@ -160,18 +160,25 @@ internal class StudioApplyCoordinator(
     }
 
     private suspend fun recoverPending(operation: UUID): ApplyExecution? {
-        val (observed, decision) =
-            withContext(ioDispatcher) {
-                val loaded = store.load() as? StoreLoad.Recovering ?: return@withContext null
-                val journal = loaded.journal
-                if (journal.token.transactionId != operation.toString() ||
-                    journal.token.baseRevision < 0 ||
-                    journal.recovery.purpose != RecoveryPurpose.UserAcceptance
-                ) {
-                    return@withContext null
-                }
-                loaded to store.resolveOutcome(journal.token)
-            } ?: return null
+        val observed =
+            when (val loaded = withContext(ioDispatcher) { store.load() }) {
+                is StoreLoad.Recovering -> loaded
+                is StoreLoad.ReadOnly ->
+                    return ApplyExecution(
+                        ApplySettlement.RecoveryRequired(SettlementProblem.Journal(loaded.issue)),
+                        null,
+                    )
+
+                StoreLoad.Empty, is StoreLoad.Ready -> return null
+            }
+        val journal = observed.journal
+        if (journal.token.transactionId != operation.toString() ||
+            journal.token.baseRevision < 0 ||
+            journal.recovery.purpose != RecoveryPurpose.UserAcceptance
+        ) {
+            return null
+        }
+        val decision = withContext(ioDispatcher) { store.resolveOutcome(journal.token) }
         val outcome =
             when (decision) {
                 CommitResolution.Committed -> observed.document?.let(ApplySettlement::Accepted)
@@ -180,7 +187,7 @@ internal class StudioApplyCoordinator(
             } ?: return ApplyExecution(ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed), null)
         val recovered =
             try {
-                withContext(NonCancellable) { attachRecovery(operation, observed.journal, decision) }
+                withContext(NonCancellable) { attachRecovery(operation, journal, decision) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: RuntimeException) {
