@@ -24,7 +24,6 @@ import java.beans.PropertyChangeListener
 import java.util.MissingResourceException
 import javax.swing.JScrollPane
 import javax.swing.JTree
-import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
 import javax.swing.tree.TreeCellRenderer
 
@@ -44,7 +43,15 @@ class ProjectViewScrollbarManager private constructor(
         registryValueProvider: () -> RegistryValue = ::showUrlRegistryValue,
     ) : this(project, { rootPathLease }, registryValueProvider)
 
-    private var originalScrollbarPolicy: Int? = null
+    private var disposed = false
+    private val scrollbar =
+        ProjectScrollbarOwner(
+            currentPane = {
+                if (project.isDisposed) null else findProjectScrollPane(onlyExisting = true)
+            },
+            canAcquire = { !disposed && !project.isDisposed },
+            replay = ::postScrollbarRefresh,
+        )
     private var hasRegistryLease = false
     private var trackedTree: JTree? = null
     private var lastAppliedHidePath: Boolean? = null
@@ -104,34 +111,36 @@ class ProjectViewScrollbarManager private constructor(
     }
 
     fun apply() {
+        if (disposed) return
         canFilterRoot = LicenseChecker.isLicensedOrGrace()
         if (!canFilterRoot) {
             cleanupRuntime()
             return
         }
-        applyScrollbar()
+        applyScrollbar(AyuIslandsSettings.getInstance().state.hideProjectViewHScrollbar)
         applyRootDisplay()
         manageAutoFit()
     }
 
-    private fun applyScrollbar() {
-        val scrollPane = findProjectScrollPane() ?: return
-        val shouldHide =
-            AyuIslandsSettings.getInstance().state.hideProjectViewHScrollbar
+    private fun applyScrollbar(hideHorizontal: Boolean) {
+        if (scrollbar.deferRefresh()) return
+        if (hideHorizontal) findProjectScrollPane()?.let(scrollbar::hideLegacy) else scrollbar.restoreLegacy()
+    }
 
-        if (shouldHide) {
-            if (originalScrollbarPolicy == null) {
-                originalScrollbarPolicy =
-                    scrollPane.horizontalScrollBarPolicy
+    private fun postScrollbarRefresh() {
+        SwingUtilities.invokeLater {
+            if (!project.isDisposed) {
+                val hideHorizontal =
+                    !disposed &&
+                        LicenseChecker.isLicensedOrGrace() &&
+                        AyuIslandsSettings.getInstance().state.hideProjectViewHScrollbar
+                applyScrollbar(hideHorizontal)
             }
-            scrollPane.horizontalScrollBarPolicy =
-                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
-        } else if (originalScrollbarPolicy != null) {
-            scrollPane.horizontalScrollBarPolicy =
-                originalScrollbarPolicy!!
-            originalScrollbarPolicy = null
         }
     }
+
+    internal fun prepareScrollbar(hideHorizontal: Boolean): ProjectScrollbarOwner.Checkpoint? =
+        scrollbar.prepare(hideHorizontal)
 
     private fun manageAutoFit() {
         val state = AyuIslandsSettings.getInstance().state
@@ -240,8 +249,8 @@ class ProjectViewScrollbarManager private constructor(
         rendererListener = null
     }
 
-    private fun findProjectScrollPane(): JScrollPane? {
-        val content = findProjectContent() ?: return null
+    private fun findProjectScrollPane(onlyExisting: Boolean = false): JScrollPane? {
+        val content = findProjectContent(onlyExisting) ?: return null
         return AutoFitCalculator.findFirstOfType(
             content,
             JScrollPane::class.java,
@@ -256,33 +265,30 @@ class ProjectViewScrollbarManager private constructor(
         ) as? JTree
     }
 
-    private fun findProjectContent(): Component? {
+    private fun findProjectContent(onlyExisting: Boolean = false): Component? {
         val toolWindow =
             ToolWindowManager
                 .getInstance(project)
                 .getToolWindow(TOOL_WINDOW_ID)
                 ?: return null
-        return toolWindow
-            .contentManager
-            .contents
-            .firstOrNull()
-            ?.component
+        val content = if (onlyExisting) toolWindow.contentManagerIfCreated else toolWindow.contentManager
+        return content?.contents?.firstOrNull()?.component
     }
 
     override fun dispose() {
-        cleanupRuntime()
+        try {
+            scrollbar.close()
+        } finally {
+            disposed = true
+            cleanupRuntime()
+        }
     }
 
     private fun cleanupRuntime() {
         canFilterRoot = false
         removeRendererGuard()
         autoFitter.removeExpansionListener()
-        val scrollPane = findProjectScrollPane()
-        if (scrollPane != null && originalScrollbarPolicy != null) {
-            scrollPane.horizontalScrollBarPolicy =
-                originalScrollbarPolicy!!
-            originalScrollbarPolicy = null
-        }
+        applyScrollbar(hideHorizontal = false)
         try {
             rootPathLease.release(project, registryValueProvider())
             hasRegistryLease = false
