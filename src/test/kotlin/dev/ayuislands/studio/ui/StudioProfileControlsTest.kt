@@ -15,7 +15,6 @@ import org.junit.Test
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
-import java.awt.event.ActionEvent
 import java.awt.event.KeyEvent
 import javax.swing.AbstractButton
 import javax.swing.JComboBox
@@ -27,6 +26,7 @@ import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import javax.swing.plaf.basic.ComboPopup
+import javax.swing.plaf.metal.MetalLookAndFeel
 import javax.swing.text.Position
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -93,7 +93,9 @@ class StudioProfileControlsTest {
         onEdt {
             val policy = "ComboBox.noActionOnKeyNavigation"
             val previous = UIManager.get(policy)
+            val previousLookAndFeel = UIManager.getLookAndFeel()
             try {
+                UIManager.setLookAndFeel(MetalLookAndFeel())
                 UIManager.put(policy, true)
                 val selections = mutableListOf<StudioProfileChoice>()
                 val controls = StudioProfileControls(selections::add, {})
@@ -137,6 +139,7 @@ class StudioProfileControlsTest {
                     assertTrue(selections.isEmpty())
                 }
             } finally {
+                UIManager.setLookAndFeel(previousLookAndFeel)
                 if (previous == null) UIManager.getDefaults().remove(policy) else UIManager.put(policy, previous)
             }
         }
@@ -424,8 +427,8 @@ class StudioProfileControlsTest {
                 "Missing native keyboard mapping: $key",
             )
         val action = assertNotNull(comboBox.actionMap.get(actionKey))
-        assertTrue(action.isEnabled)
-        action.actionPerformed(ActionEvent(comboBox, ActionEvent.ACTION_PERFORMED, actionKey.toString()))
+        val event = KeyEvent(comboBox, KeyEvent.KEY_PRESSED, 0, 0, keyCode, KeyEvent.CHAR_UNDEFINED)
+        assertTrue(SwingUtilities.notifyAction(action, key, event, comboBox, 0), "Native action rejected $key")
     }
 
     private fun draftButton(controls: StudioProfileControls): AbstractButton =
