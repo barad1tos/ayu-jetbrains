@@ -891,6 +891,33 @@ class EditorScrollbarManagerTest {
         }
 
     @Test
+    fun `opening an editor before admission makes the prepared scrollbar capture stale`() =
+        SwingUtilities.invokeAndWait {
+            val manager = createManager()
+            try {
+                val checkpoint = manager.capture(hideVertical = true, hideHorizontal = null)
+                val openedPane = JScrollPane()
+                val openedEditor =
+                    mockk<EditorEx>(relaxed = true) {
+                        every { project } returns this@EditorScrollbarManagerTest.project
+                        every { scrollPane } returns openedPane
+                    }
+                every { editorFactory.allEditors } returns arrayOf(editorEx, openedEditor)
+                val event =
+                    mockk<com.intellij.openapi.editor.event.EditorFactoryEvent> {
+                        every { editor } returns openedEditor
+                    }
+                listenerSlot.captured.editorCreated(event)
+
+                assertFalse(checkpoint.apply())
+                assertFalse(scrollPane.verticalScrollBar.isPreferredSizeSet)
+                assertFalse(openedPane.verticalScrollBar.isPreferredSizeSet)
+            } finally {
+                manager.dispose()
+            }
+        }
+
+    @Test
     fun `commit holds callbacks until release without replaying setters on captured editors`() =
         SwingUtilities.invokeAndWait {
             val vertical = RecordingScrollBar(JScrollBar.VERTICAL)

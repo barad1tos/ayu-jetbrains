@@ -212,6 +212,7 @@ class EditorScrollbarManager(
         hideHorizontal: Boolean?,
     ) : AccentCheckpoint {
         private val target = UiDefaultsTarget()
+        private val capturedPanes = captured.mapTo(hashSetOf()) { it.scrollPane }
         private val changes =
             captured.flatMap { editor ->
                 listOfNotNull(
@@ -248,7 +249,10 @@ class EditorScrollbarManager(
             return true
         }
 
-        private fun canApply(): Boolean = canStart() && changes.all(AxisWrite::matchesBefore)
+        private fun canApply(): Boolean =
+            canStart() &&
+                editors().none { it.scrollPane !in capturedPanes } &&
+                changes.all(AxisWrite::matchesBefore)
 
         private fun canStart(): Boolean = isAlive && held == null && target.isCurrent()
 
