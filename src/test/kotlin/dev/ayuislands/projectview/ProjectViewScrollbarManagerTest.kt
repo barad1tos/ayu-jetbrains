@@ -34,14 +34,20 @@ import javax.swing.JScrollPane
 import javax.swing.JTree
 import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
+import javax.swing.UIManager
+import javax.swing.plaf.metal.MetalLookAndFeel
 import javax.swing.tree.DefaultTreeCellRenderer
 import javax.swing.tree.TreeCellRenderer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class ProjectViewScrollbarManagerTest {
     private lateinit var project: Project
@@ -575,7 +581,324 @@ class ProjectViewScrollbarManagerTest {
         assertEquals(originalPolicy, scrollPane.horizontalScrollBarPolicy)
     }
 
-    private fun setupToolWindowContent(component: JPanel) {
+    @Test
+    fun `Studio capture leaves Project View unchanged until Apply and restores the exact policy`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            assertNull(manager.prepareScrollbar(hideHorizontal = false))
+            val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+            assertTrue(native.apply())
+            manager.apply() // A legacy callback must not change the preview under the transaction.
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, pane.horizontalScrollBarPolicy)
+            assertFalse(realState.hideProjectViewHScrollbar)
+
+            native.restore()
+            assertFalse(native.hasPending)
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+            assertEquals(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS, pane.verticalScrollBarPolicy)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `Studio capture does not initialize absent Project View content`() {
+        val window = setupToolWindowContent(JPanel())
+        val manager = createAndDrain()
+        every { window.contentManagerIfCreated } returns null
+        clearMocks(window, answers = false)
+
+        SwingUtilities.invokeAndWait {
+            assertNull(manager.prepareScrollbar(hideHorizontal = true))
+        }
+
+        verify(exactly = 0) { window.contentManager }
+        SwingUtilities.invokeAndWait { manager.dispose() }
+    }
+
+    @Test
+    fun `rollback restores the same Project View pane after a theme change`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val originalLookAndFeel = UIManager.getLookAndFeel()
+            try {
+                val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+                assertTrue(native.apply())
+
+                UIManager.setLookAndFeel(MetalLookAndFeel())
+                manager.apply()
+                assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, pane.horizontalScrollBarPolicy)
+
+                native.restore()
+                assertFalse(native.hasPending)
+                assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+                assertEquals(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS, pane.verticalScrollBarPolicy)
+            } finally {
+                UIManager.setLookAndFeel(originalLookAndFeel)
+                manager.dispose()
+            }
+        }
+    }
+
+    @Test
+    fun `a theme change before Apply makes the prepared Project View capture stale`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val originalLookAndFeel = UIManager.getLookAndFeel()
+            try {
+                val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+                UIManager.setLookAndFeel(MetalLookAndFeel())
+
+                assertFalse(native.apply())
+                assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+                assertFalse(realState.hideProjectViewHScrollbar)
+            } finally {
+                UIManager.setLookAndFeel(originalLookAndFeel)
+                manager.dispose()
+            }
+        }
+    }
+
+    @Test
+    fun `closing Project View restores the policy even if Apply has not released it`() {
+        for (accepted in listOf(false, true)) {
+            val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+            setupToolWindowContent(JPanel().apply { add(pane) })
+            val manager = createAndDrain()
+
+            SwingUtilities.invokeAndWait {
+                val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+                assertTrue(native.apply())
+                if (accepted) {
+                    realState.hideProjectViewHScrollbar = true
+                    native.commit()
+                }
+
+                manager.dispose()
+
+                assertFalse(native.hasPending)
+                assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+                assertEquals(accepted, realState.hideProjectViewHScrollbar)
+            }
+        }
+    }
+
+    @Test
+    fun `cancelling after capture leaves Project View unchanged and allows a fresh Apply`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val abandoned = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            abandoned.restore()
+            abandoned.releaseResources()
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+
+            val next = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            assertTrue(next.apply())
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, pane.horizontalScrollBarPolicy)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `an IDE policy written by a listener during Apply is left intact`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            pane.addPropertyChangeListener("horizontalScrollBarPolicy") { event ->
+                if (event.newValue == ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER) {
+                    pane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+                }
+            }
+
+            assertFalse(native.apply())
+            native.restore()
+            manager.dispose()
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED, pane.horizontalScrollBarPolicy)
+        }
+    }
+
+    @Test
+    fun `accepting Apply leaves a newer Project View policy intact`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            assertTrue(native.apply())
+
+            pane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+            realState.hideProjectViewHScrollbar = true
+            native.commit()
+            native.releaseResources()
+
+            assertFalse(native.hasPending)
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED, pane.horizontalScrollBarPolicy)
+            manager.dispose()
+            assertTrue(realState.hideProjectViewHScrollbar)
+        }
+    }
+
+    @Test
+    fun `disabling the legacy toggle preserves policies that the IDE owns`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            realState.hideProjectViewHScrollbar = true
+            manager.apply()
+            realState.hideProjectViewHScrollbar = false
+            manager.apply()
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, pane.horizontalScrollBarPolicy)
+
+            pane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS
+            realState.hideProjectViewHScrollbar = true
+            manager.apply()
+            pane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+            realState.hideProjectViewHScrollbar = false
+            manager.apply()
+
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED, pane.horizontalScrollBarPolicy)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `disabling the scrollbar override never borrows the old pane policy for its replacement`() {
+        val first = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        val replacement = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED)
+        val wrapper = JPanel().apply { add(first) }
+        setupToolWindowContent(wrapper)
+        realState.hideProjectViewHScrollbar = true
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, first.horizontalScrollBarPolicy)
+            wrapper.remove(first)
+            wrapper.add(replacement)
+            realState.hideProjectViewHScrollbar = false
+            manager.apply()
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED, replacement.horizontalScrollBarPolicy)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `a throwing Project View listener leaves the changed policy recoverable`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            pane.addPropertyChangeListener("horizontalScrollBarPolicy") { event ->
+                check(event.newValue != ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER) {
+                    "Listener failed after write"
+                }
+            }
+
+            assertFailsWith<IllegalStateException> { native.apply() }
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, pane.horizontalScrollBarPolicy)
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, native.lastWritten.policy)
+            assertTrue(native.hasPending)
+
+            native.restore()
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+            assertFalse(native.hasPending)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `rollback and its deferred refresh do not overwrite a foreign Project View policy`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        realState.hideProjectViewHScrollbar = true
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = false))
+            assertTrue(native.apply())
+            manager.apply()
+            pane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED
+            native.restore()
+            assertFalse(native.hasPending)
+        }
+
+        SwingUtilities.invokeAndWait {
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED, pane.horizontalScrollBarPolicy)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `prepared Project View policy cannot be written to a replaced pane`() {
+        val first = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        val replacement = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED)
+        val wrapper = JPanel().apply { add(first) }
+        setupToolWindowContent(wrapper)
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            wrapper.remove(first)
+            wrapper.add(replacement)
+
+            assertFalse(native.apply())
+            native.restore()
+            assertFalse(native.hasPending)
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, first.horizontalScrollBarPolicy)
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED, replacement.horizontalScrollBarPolicy)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `an accepted Project View change replays the latest scrollbar preference after release`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val native = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            assertTrue(native.apply())
+            manager.apply()
+            manager.apply()
+            realState.hideProjectViewHScrollbar = true
+            native.commit()
+            native.releaseResources()
+
+            // A component refresh reset the policy while the deferred update was queued.
+            pane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS
+        }
+
+        SwingUtilities.invokeAndWait {
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, pane.horizontalScrollBarPolicy)
+            manager.dispose()
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+        }
+    }
+
+    private fun projectPane(policy: Int): JScrollPane =
+        JScrollPane(JTree(), ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS, policy)
+
+    private fun setupToolWindowContent(component: JPanel): ToolWindow {
         val content =
             mockk<Content>(relaxed = true) {
                 every {
@@ -594,9 +917,11 @@ class ProjectViewScrollbarManagerTest {
                 every {
                     this@mockk.contentManager
                 } returns contentManager
+                every { contentManagerIfCreated } returns contentManager
             }
         every {
             toolWindowManager.getToolWindow("Project")
         } returns toolWindow
+        return toolWindow
     }
 }
