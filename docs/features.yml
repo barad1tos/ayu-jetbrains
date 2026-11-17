@@ -455,11 +455,11 @@ categories:
             - src/main/kotlin/dev/ayuislands/gitpanel
             - src/main/kotlin/dev/ayuislands/projectview
             - src/main/kotlin/dev/ayuislands/editor/EditorScrollbarManager.kt
-          last_verified_sha: "06d781b2"
+          last_verified_sha: "080bdc09"
           last_verified_date: "2026-08-09"
           content_sha256: ad849b17308901bc2dac85f895978be656f578c9c31f857b9e9578e5cf4289f2
 
-          sources_sha256: "a19b75174ce6d8249ff096d615d2f0cc033978a0c08165ed166463bd3ad99d27"
+          sources_sha256: "ff0fc8cf0501d70288f29029ed85821bfded71ec37070b0a928c5052bf7ad72c"
   tabs:
     title: "Tab styling"
     features:

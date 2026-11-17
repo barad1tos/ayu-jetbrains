@@ -6,10 +6,18 @@ import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.registry.RegistryValue
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowManager
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener
 import com.intellij.testFramework.LoggedErrorProcessor
+import com.intellij.ui.content.Content
+import com.intellij.ui.content.ContentManager
 import com.intellij.util.messages.MessageBusConnection
 import dev.ayuislands.accent.AccentApplyPlanRunner
 import dev.ayuislands.licensing.LicenseChecker
+import dev.ayuislands.projectview.ProjectViewScrollbarManager
+import dev.ayuislands.projectview.RootPathLease
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.WorkspacePanelEvent
@@ -32,11 +40,11 @@ import dev.ayuislands.studio.persistence.openStudioFiles
 import dev.ayuislands.studio.session.OwnerAcceptance
 import dev.ayuislands.studio.session.OwnerApply
 import dev.ayuislands.studio.session.OwnerRollback
-import dev.ayuislands.studio.session.StudioEditorScrollbarOperation
 import dev.ayuislands.studio.session.StudioOwnerJournal
 import dev.ayuislands.studio.session.StudioOwnerWork
 import dev.ayuislands.studio.session.StudioWorkspaceEditing
 import dev.ayuislands.studio.session.StudioWorkspaceProjection
+import dev.ayuislands.studio.session.StudioWorkspaceScrollbarOperation
 import dev.ayuislands.ui.ComponentTreeRefreshedListener
 import dev.ayuislands.ui.ComponentTreeRefreshedTopic
 import io.mockk.every
@@ -56,8 +64,10 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import javax.swing.JPanel
 import javax.swing.JScrollBar
 import javax.swing.JScrollPane
+import javax.swing.ScrollPaneConstants
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import javax.swing.plaf.metal.MetalLookAndFeel
@@ -69,6 +79,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -102,6 +113,7 @@ class EditorScrollbarManagerTest {
 
         val connection = mockk<MessageBusConnection>()
         every { connection.subscribe(ComponentTreeRefreshedTopic.TOPIC, capture(refreshSlot)) } returns Unit
+        every { connection.subscribe(ToolWindowManagerListener.TOPIC, any()) } returns Unit
         project =
             mockk(relaxed = true) {
                 every { isDisposed } returns false
@@ -1021,43 +1033,80 @@ class EditorScrollbarManagerTest {
 
     @Test
     fun `Studio journals the selected editor axis before changing it and restores it on abort`() =
-        exerciseJournaledEditor(JournalOutcome.ABORTED)
+        exerciseJournaledScrollbars(JournalOutcome.ABORTED)
 
     @Test
     fun `an accepted editor change keeps its selected axis and releases the checkpoint`() =
-        exerciseJournaledEditor(JournalOutcome.ACCEPTED)
+        exerciseJournaledScrollbars(JournalOutcome.ACCEPTED)
 
     @Test
     fun `losing the Apply lease after journaling leaves the editor untouched`() =
-        exerciseJournaledEditor(JournalOutcome.LEASE_LOST)
+        exerciseJournaledScrollbars(JournalOutcome.EDITOR_LEASE_LOST)
 
-    private enum class JournalOutcome { ABORTED, ACCEPTED, LEASE_LOST }
+    @Test
+    fun `losing the Apply lease between editor axes leaves the second scrollbar untouched`() =
+        exerciseJournaledScrollbars(
+            JournalOutcome.EDITOR_AXIS_LEASE_LOST,
+            toggles = listOf(WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR, WorkspaceToggle.EDITOR_HORIZONTAL_SCROLLBAR),
+        )
 
-    private fun exerciseJournaledEditor(outcome: JournalOutcome) =
-        runBlocking {
-            val nativeDispatcher = Executor { SwingUtilities.invokeLater(it) }.asCoroutineDispatcher()
-            Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { ioDispatcher ->
-                withContext(ioDispatcher) {
-                    StudioAppearanceStore(openStudioFiles(directory)).use { store ->
-                        verifyJournaledEditor(store, ioDispatcher, nativeDispatcher, outcome)
-                    }
+    @Test
+    fun `losing the Apply lease after the editor write leaves Project View untouched and rolls back the editor`() =
+        exerciseJournaledScrollbars(
+            JournalOutcome.PROJECT_LEASE_LOST,
+            toggles = listOf(WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR, WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR),
+        )
+
+    @Test
+    fun `a failing Project View setter restores both scrollbars through the same journal`() =
+        exerciseJournaledScrollbars(
+            JournalOutcome.PROJECT_WRITE_FAILED,
+            toggles = listOf(WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR, WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR),
+        )
+
+    @Test
+    fun `a Project View only Apply leaves editor scrollbars and the legacy settings alone`() =
+        exerciseJournaledScrollbars(
+            JournalOutcome.ACCEPTED,
+            toggles = listOf(WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR),
+        )
+
+    @Test
+    fun `a deferred legacy refresh preserves the accepted Project View scrollbar policy`() =
+        exerciseJournaledScrollbars(
+            JournalOutcome.PROJECT_REFRESH,
+            toggles = listOf(WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR),
+        )
+
+    private fun exerciseJournaledScrollbars(
+        outcome: JournalOutcome,
+        toggles: List<WorkspaceToggle> = listOf(WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR),
+    ) = runBlocking {
+        val nativeDispatcher = Executor { SwingUtilities.invokeLater(it) }.asCoroutineDispatcher()
+        Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { ioDispatcher ->
+            withContext(ioDispatcher) {
+                StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+                    val scenario = JournalScenario(outcome, toggles)
+                    verifyJournaledScrollbars(store, ioDispatcher, nativeDispatcher, scenario)
                 }
             }
         }
+    }
 
-    private suspend fun verifyJournaledEditor(
+    private suspend fun verifyJournaledScrollbars(
         store: StudioAppearanceStore,
         ioDispatcher: CoroutineDispatcher,
         nativeDispatcher: CoroutineDispatcher,
-        outcome: JournalOutcome,
+        scenario: JournalScenario,
     ) {
         val before = catalogTestDocument()
         val fields = before.shared.workspace
-        val toggle = WorkspacePanelEvent.Toggle(WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR, true)
-        val edit = StudioWorkspaceEditing.edits(fields, toggle).single()
-        val key = edit.after.key
-        val edited = fields.copy(records = StudioList(fields.records.map { if (it.key == key) edit.after else it }))
-        val selection = StudioWorkspaceProjection.resolve(edited, listOf(FieldAddress(key)), true)
+        val changes =
+            scenario.toggles
+                .flatMap { StudioWorkspaceEditing.edits(fields, WorkspacePanelEvent.Toggle(it, true)) }
+                .associate { it.after.key to it.after }
+        val edited = fields.copy(records = StudioList(fields.records.map { changes[it.key] ?: it }))
+        val selection = StudioWorkspaceProjection.resolve(edited, changes.keys.map(::FieldAddress), true)
         val plan = RecoveryPlan(StudioTarget.Global, StudioList(emptyList()))
         assertEquals(StoreLoad.Empty, store.load())
         assertEquals(JournalResult.Acknowledged, store.preserveSource(before.header.migration))
@@ -1066,7 +1115,7 @@ class EditorScrollbarManagerTest {
         assertEquals(JournalResult.Acknowledged, store.finishAccepted(first))
         val candidate =
             before.copy(
-                header = before.header.copy(revision = 1, transactionId = "workspace-editor"),
+                header = before.header.copy(revision = 1, transactionId = "workspace-scrollbars"),
                 shared = before.shared.copy(workspace = edited),
             )
         val route = plan.copy(owners = StudioList(listOf(EffectOwner.WORKSPACE)))
@@ -1074,15 +1123,17 @@ class EditorScrollbarManagerTest {
         val work = StudioOwnerWork(journal)
         val owners = StudioOwnerJournal(store, ioDispatcher)
         val horizontalSize = Dimension(53, 9)
-        val manager =
+        val projectPane = JScrollPane()
+        val (manager, projectManager) =
             withContext(nativeDispatcher) {
                 scrollPane.verticalScrollBar.preferredSize = null
                 scrollPane.horizontalScrollBar.preferredSize = horizontalSize
-                createManager()
+                projectPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS
+                createManager() to if (scenario.includesProject) createProjectViewManager(projectPane) else null
             }
         try {
-            val refuseWrite = outcome == JournalOutcome.LEASE_LOST
-            var sawPendingReceipts = false
+            if (scenario.failProjectWrite) withContext(nativeDispatcher) { failProjectAfterWrite(projectPane) }
+            var nativeAttempts = 0
             val applied =
                 owners.apply(
                     work,
@@ -1093,35 +1144,52 @@ class EditorScrollbarManagerTest {
                             }
                         if (pending.isNotEmpty()) {
                             assertTrue(SwingUtilities.isEventDispatchThread())
-                            assertEquals(listOf("EDITOR_SIZE", "EDITOR_BASELINE"), pending.map { it.identity.field })
+                            assertEquals(scenario.expectedFields(), pending.map { it.identity.field })
                             assertTrue(pending.all { it.status == RestoreStatus.PENDING })
-                            assertFalse(scrollPane.verticalScrollBar.isPreferredSizeSet)
-                            sawPendingReceipts = true
+                            assertScrollbarTargets(
+                                scenario,
+                                projectPane,
+                                horizontalSize,
+                                applied = nativeAttempts > 0,
+                                projectApplied = false,
+                            )
+                            nativeAttempts++
                         }
-                        !refuseWrite || pending.isEmpty()
+                        nativeAttempts != scenario.outcome.refuseWrite
                     },
                 ) {
-                    StudioEditorScrollbarOperation.capture(
-                        listOf(manager),
+                    StudioWorkspaceScrollbarOperation.capture(
+                        StudioWorkspaceScrollbarOperation.Targets(listOf(manager), listOfNotNull(projectManager)),
                         selection,
                         StudioProcess(501, Instant.EPOCH),
                         journal.token.transactionId,
                         nativeDispatcher,
                     )
                 }
-            assertEquals(if (refuseWrite) OwnerApply.LeaseLost else OwnerApply.Completed, applied)
-            assertTrue(sawPendingReceipts)
-            val expectedStatus = if (refuseWrite) RestoreStatus.PENDING else RestoreStatus.OWNED
-            assertTrue(work.journal.receipts.all { it.status == expectedStatus })
-            withContext(nativeDispatcher) {
-                if (refuseWrite) {
-                    assertFalse(scrollPane.verticalScrollBar.isPreferredSizeSet)
-                } else {
-                    assertEquals(Dimension(0, 0), scrollPane.verticalScrollBar.preferredSize)
+            refreshProjectWhileOwned(scenario.outcome, projectManager, nativeDispatcher)
+            when {
+                scenario.failProjectWrite ->
+                    assertEquals(EffectOwner.WORKSPACE, assertIs<OwnerApply.OwnerFailed>(applied).owner)
+                scenario.outcome.refuseWrite != null -> {
+                    assertEquals(OwnerApply.LeaseLost, applied)
+                    assertTrue(work.journal.receipts.all { it.status == RestoreStatus.PENDING })
                 }
-                assertEquals(horizontalSize, scrollPane.horizontalScrollBar.preferredSize)
+                else -> {
+                    assertEquals(OwnerApply.Completed, applied)
+                    assertTrue(work.journal.receipts.all { it.status == RestoreStatus.OWNED })
+                }
             }
-            if (outcome == JournalOutcome.ACCEPTED) {
+            assertTrue(nativeAttempts > 0)
+            withContext(nativeDispatcher) {
+                assertScrollbarTargets(
+                    scenario,
+                    projectPane,
+                    horizontalSize,
+                    applied = scenario.outcome != JournalOutcome.EDITOR_LEASE_LOST,
+                    projectApplied = scenario.outcome.refuseWrite == null,
+                )
+            }
+            if (scenario.accept) {
                 assertEquals(OwnerAcceptance.Decision(CommitResolution.NotCommitted), owners.accept(work))
                 val committed = assertIs<CommitResult.Committed>(store.commit(journal.token, candidate.runtime))
                 assertEquals(OwnerAcceptance.Completed, owners.accept(work))
@@ -1134,17 +1202,109 @@ class EditorScrollbarManagerTest {
                 assertEquals(StoreLoad.Ready(before), store.load())
             }
             withContext(nativeDispatcher) {
-                if (outcome == JournalOutcome.ACCEPTED) {
-                    assertEquals(Dimension(0, 0), scrollPane.verticalScrollBar.preferredSize)
+                assertScrollbarTargets(scenario, projectPane, horizontalSize, applied = scenario.accept)
+                if (scenario.accept && scenario.includesEditor) {
                     assertTrue(manager.capture(hideVertical = false, hideHorizontal = null).records.isNotEmpty())
-                } else {
-                    assertFalse(scrollPane.verticalScrollBar.isPreferredSizeSet)
                 }
-                assertEquals(horizontalSize, scrollPane.horizontalScrollBar.preferredSize)
+                if (scenario.accept && scenario.includesProject) {
+                    assertNotNull(projectManager?.prepareScrollbar(hideHorizontal = false))
+                }
+                assertFalse(realState.hideEditorVScrollbar)
+                assertFalse(realState.hideProjectViewHScrollbar)
             }
         } finally {
-            withContext(nativeDispatcher) { manager.dispose() }
+            withContext(nativeDispatcher) {
+                projectManager?.dispose()
+                manager.dispose()
+            }
         }
+    }
+
+    private suspend fun refreshProjectWhileOwned(
+        outcome: JournalOutcome,
+        manager: ProjectViewScrollbarManager?,
+        nativeDispatcher: CoroutineDispatcher,
+    ) {
+        if (outcome == JournalOutcome.PROJECT_REFRESH) {
+            withContext(nativeDispatcher) { checkNotNull(manager).apply() }
+        }
+    }
+
+    private fun failProjectAfterWrite(pane: JScrollPane) {
+        pane.addPropertyChangeListener("horizontalScrollBarPolicy") { event ->
+            if (event.newValue == ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER) {
+                assertEquals(Dimension(0, 0), scrollPane.verticalScrollBar.preferredSize)
+                error("Project View write failed after changing the policy")
+            }
+        }
+    }
+
+    private fun assertScrollbarTargets(
+        scenario: JournalScenario,
+        pane: JScrollPane,
+        horizontalSize: Dimension,
+        applied: Boolean,
+        projectApplied: Boolean = applied,
+    ) {
+        if (applied && scenario.includesEditor) {
+            assertEquals(Dimension(0, 0), scrollPane.verticalScrollBar.preferredSize)
+        } else {
+            assertFalse(scrollPane.verticalScrollBar.isPreferredSizeSet)
+        }
+        val expectedPolicy =
+            if (projectApplied && scenario.includesProject) {
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            } else {
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS
+            }
+        assertEquals(expectedPolicy, pane.horizontalScrollBarPolicy)
+        assertEquals(horizontalSize, scrollPane.horizontalScrollBar.preferredSize)
+    }
+
+    private fun createProjectViewManager(pane: JScrollPane): ProjectViewScrollbarManager {
+        mockkStatic(ToolWindowManager::class)
+        val wrapper = JPanel().apply { add(pane) }
+        val content = mockk<Content> { every { component } returns wrapper }
+        val contents = mockk<ContentManager> { every { this@mockk.contents } returns arrayOf(content) }
+        val window =
+            mockk<ToolWindow> {
+                every { contentManager } returns contents
+                every { contentManagerIfCreated } returns contents
+            }
+        val toolWindows = mockk<ToolWindowManager> { every { getToolWindow("Project") } returns window }
+        every { ToolWindowManager.getInstance(project) } returns toolWindows
+        return ProjectViewScrollbarManager(project, RootPathLease()) { mockk<RegistryValue>(relaxed = true) }
+    }
+
+    private enum class JournalOutcome(
+        val refuseWrite: Int? = null,
+    ) {
+        ABORTED,
+        ACCEPTED,
+        EDITOR_LEASE_LOST(1),
+        EDITOR_AXIS_LEASE_LOST(2),
+        PROJECT_LEASE_LOST(2),
+        PROJECT_WRITE_FAILED,
+        PROJECT_REFRESH,
+    }
+
+    private data class JournalScenario(
+        val outcome: JournalOutcome,
+        val toggles: List<WorkspaceToggle>,
+    ) {
+        val accept get() = outcome == JournalOutcome.ACCEPTED || outcome == JournalOutcome.PROJECT_REFRESH
+        val failProjectWrite get() = outcome == JournalOutcome.PROJECT_WRITE_FAILED
+        val includesEditor get() = WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR in toggles
+        val includesProject get() = WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR in toggles
+
+        fun expectedFields(): List<String> =
+            buildList {
+                if (includesEditor) addAll(listOf("EDITOR_SIZE", "EDITOR_BASELINE"))
+                if (WorkspaceToggle.EDITOR_HORIZONTAL_SCROLLBAR in toggles) {
+                    addAll(listOf("EDITOR_SIZE", "EDITOR_BASELINE"))
+                }
+                if (includesProject) addAll(listOf("PROJECT_SCROLLBAR_POLICY", "PROJECT_SCROLLBAR_BASELINE"))
+            }
     }
 
     @Test

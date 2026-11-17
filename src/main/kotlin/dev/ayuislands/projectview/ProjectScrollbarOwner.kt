@@ -76,7 +76,8 @@ internal class ProjectScrollbarOwner(
         private val admissionTarget = UiDefaultsTarget()
         private var expected = before
         val lastWritten: Policy get() = expected
-        private var phase = Phase.PREPARED
+        var phase = Phase.PREPARED
+            private set
 
         override val hasPending: Boolean get() = phase == Phase.OWNED
 
@@ -111,6 +112,12 @@ internal class ProjectScrollbarOwner(
         override fun commit() {
             checkEdt()
             if (permitsWrite()) phase = Phase.ACCEPTED
+        }
+
+        fun commitStudio() {
+            commit()
+            // The deferred legacy reader still sees the value from before Studio accepted.
+            if (phase == Phase.ACCEPTED && held === this) refreshPending = false
         }
 
         override fun releaseResources() {
@@ -163,7 +170,7 @@ internal class ProjectScrollbarOwner(
         }
     }
 
-    private enum class Phase { PREPARED, OWNED, FOREIGN, RESTORED, ACCEPTED }
+    internal enum class Phase { PREPARED, OWNED, FOREIGN, RESTORED, ACCEPTED }
 
     internal data class Policy(
         val policy: Int,
