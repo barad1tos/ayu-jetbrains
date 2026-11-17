@@ -114,6 +114,12 @@ internal class ProjectScrollbarOwner(
             if (permitsWrite()) phase = Phase.ACCEPTED
         }
 
+        fun commitStudio() {
+            commit()
+            // The deferred legacy reader still sees the value from before Studio accepted.
+            if (phase == Phase.ACCEPTED && held === this) refreshPending = false
+        }
+
         override fun releaseResources() {
             checkEdt()
             if (hasPending || held !== this) return

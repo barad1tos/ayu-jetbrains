@@ -38,10 +38,7 @@ internal class StudioWorkspaceScrollbarOperation private constructor(
         withContext(nativeDispatcher) {
             try {
                 for (checkpoint in checkpoints) {
-                    val applied =
-                        writes.execute(nativeDispatcher) {
-                            check(checkpoint.apply()) { "Prepared Workspace scrollbars changed before Apply" }
-                        }
+                    val applied = checkpoint.apply { write -> writes.execute(nativeDispatcher, write) }
                     if (!applied) return@withContext false
                 }
                 true
@@ -73,7 +70,7 @@ internal class StudioWorkspaceScrollbarOperation private constructor(
 
     override suspend fun accept() =
         withContext(nativeDispatcher) {
-            checkpoints.forEach { it.native.commit() }
+            checkpoints.forEach(ScrollbarCheckpoint::commit)
             checkpoints.forEach { it.native.releaseResources() }
         }
 
@@ -95,7 +92,9 @@ internal class StudioWorkspaceScrollbarOperation private constructor(
         val native: AccentCheckpoint
         val fields: List<WorkspaceNativeField>
 
-        fun apply(): Boolean
+        suspend fun apply(write: suspend (() -> Unit) -> Boolean): Boolean
+
+        fun commit() = native.commit()
 
         fun evidence(context: ReceiptContext): List<PortableReceipt>
 
@@ -107,7 +106,12 @@ internal class StudioWorkspaceScrollbarOperation private constructor(
     ) : ScrollbarCheckpoint {
         override val fields get() = FIELDS
 
-        override fun apply(): Boolean = native.apply()
+        override suspend fun apply(write: suspend (() -> Unit) -> Boolean): Boolean =
+            when (native.applyQualified { write(it) }) {
+                EditorScrollbarManager.ApplyResult.APPLIED -> true
+                EditorScrollbarManager.ApplyResult.REFUSED -> false
+                EditorScrollbarManager.ApplyResult.STALE -> error("Prepared editor scrollbars changed before Apply")
+            }
 
         override fun evidence(context: ReceiptContext): List<PortableReceipt> =
             native.records.flatMap { entry ->
@@ -166,7 +170,10 @@ internal class StudioWorkspaceScrollbarOperation private constructor(
     ) : ScrollbarCheckpoint {
         override val fields get() = FIELDS
 
-        override fun apply(): Boolean = native.apply()
+        override suspend fun apply(write: suspend (() -> Unit) -> Boolean): Boolean =
+            write { check(native.apply()) { "Prepared Project View scrollbar changed before Apply" } }
+
+        override fun commit() = native.commitStudio()
 
         override fun evidence(context: ReceiptContext): List<PortableReceipt> {
             val resource = context.tokens.token(native.pane)

@@ -234,19 +234,37 @@ class EditorScrollbarManager(
                     Phase.PREPARED, Phase.RESTORED, Phase.COMMITTED, Phase.DONE -> false
                 }
 
-        fun apply(): Boolean {
+        fun apply(): Boolean =
+            applySteps { write ->
+                write()
+                true
+            } == ApplyResult.APPLIED
+
+        internal suspend fun applyQualified(write: suspend (() -> Unit) -> Boolean): ApplyResult =
+            applySteps { write(it) }
+
+        private inline fun applySteps(write: (() -> Unit) -> Boolean): ApplyResult {
             checkEdt()
             check(phase == Phase.PREPARED)
-            if (!canApply()) {
-                changes.forEach(AxisWrite::relinquish)
-                phase = Phase.DONE
-                return false
+            for (index in 0 until changes.size.coerceAtLeast(1)) {
+                if (!write { applyAxis(changes.getOrNull(index)) }) return ApplyResult.REFUSED
+                if (phase != Phase.APPLYING) return ApplyResult.STALE
             }
-            held = this
-            phase = Phase.APPLYING
-            changes.forEach(AxisWrite::apply)
             phase = Phase.APPLIED
-            return true
+            return ApplyResult.APPLIED
+        }
+
+        private fun applyAxis(change: AxisWrite?) {
+            if (phase == Phase.PREPARED) {
+                if (!canApply()) {
+                    changes.forEach(AxisWrite::relinquish)
+                    phase = Phase.DONE
+                    return
+                }
+                held = this
+                phase = Phase.APPLYING
+            }
+            if (phase == Phase.APPLYING) change?.apply()
         }
 
         private fun canApply(): Boolean =
@@ -327,6 +345,8 @@ class EditorScrollbarManager(
 
         private fun overlaps(bar: JScrollBar): Boolean = changes.any { it.bar === bar && it.hasPending }
     }
+
+    internal enum class ApplyResult { APPLIED, REFUSED, STALE }
 
     private inner class AxisWrite(
         private val editor: EditorEx,

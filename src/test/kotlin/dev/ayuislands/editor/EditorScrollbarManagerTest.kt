@@ -1044,6 +1044,13 @@ class EditorScrollbarManagerTest {
         exerciseJournaledScrollbars(JournalOutcome.EDITOR_LEASE_LOST)
 
     @Test
+    fun `losing the Apply lease between editor axes leaves the second scrollbar untouched`() =
+        exerciseJournaledScrollbars(
+            JournalOutcome.EDITOR_AXIS_LEASE_LOST,
+            toggles = listOf(WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR, WorkspaceToggle.EDITOR_HORIZONTAL_SCROLLBAR),
+        )
+
+    @Test
     fun `losing the Apply lease after the editor write leaves Project View untouched and rolls back the editor`() =
         exerciseJournaledScrollbars(
             JournalOutcome.PROJECT_LEASE_LOST,
@@ -1061,6 +1068,13 @@ class EditorScrollbarManagerTest {
     fun `a Project View only Apply leaves editor scrollbars and the legacy settings alone`() =
         exerciseJournaledScrollbars(
             JournalOutcome.ACCEPTED,
+            toggles = listOf(WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR),
+        )
+
+    @Test
+    fun `a deferred legacy refresh preserves the accepted Project View scrollbar policy`() =
+        exerciseJournaledScrollbars(
+            JournalOutcome.PROJECT_REFRESH,
             toggles = listOf(WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR),
         )
 
@@ -1152,6 +1166,7 @@ class EditorScrollbarManagerTest {
                         nativeDispatcher,
                     )
                 }
+            refreshProjectWhileOwned(scenario.outcome, projectManager, nativeDispatcher)
             when {
                 scenario.failProjectWrite ->
                     assertEquals(EffectOwner.WORKSPACE, assertIs<OwnerApply.OwnerFailed>(applied).owner)
@@ -1202,6 +1217,16 @@ class EditorScrollbarManagerTest {
                 projectManager?.dispose()
                 manager.dispose()
             }
+        }
+    }
+
+    private suspend fun refreshProjectWhileOwned(
+        outcome: JournalOutcome,
+        manager: ProjectViewScrollbarManager?,
+        nativeDispatcher: CoroutineDispatcher,
+    ) {
+        if (outcome == JournalOutcome.PROJECT_REFRESH) {
+            withContext(nativeDispatcher) { checkNotNull(manager).apply() }
         }
     }
 
@@ -1257,15 +1282,17 @@ class EditorScrollbarManagerTest {
         ABORTED,
         ACCEPTED,
         EDITOR_LEASE_LOST(1),
+        EDITOR_AXIS_LEASE_LOST(2),
         PROJECT_LEASE_LOST(2),
         PROJECT_WRITE_FAILED,
+        PROJECT_REFRESH,
     }
 
     private data class JournalScenario(
         val outcome: JournalOutcome,
         val toggles: List<WorkspaceToggle>,
     ) {
-        val accept get() = outcome == JournalOutcome.ACCEPTED
+        val accept get() = outcome == JournalOutcome.ACCEPTED || outcome == JournalOutcome.PROJECT_REFRESH
         val failProjectWrite get() = outcome == JournalOutcome.PROJECT_WRITE_FAILED
         val includesEditor get() = WorkspaceToggle.EDITOR_VERTICAL_SCROLLBAR in toggles
         val includesProject get() = WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR in toggles
@@ -1273,6 +1300,9 @@ class EditorScrollbarManagerTest {
         fun expectedFields(): List<String> =
             buildList {
                 if (includesEditor) addAll(listOf("EDITOR_SIZE", "EDITOR_BASELINE"))
+                if (WorkspaceToggle.EDITOR_HORIZONTAL_SCROLLBAR in toggles) {
+                    addAll(listOf("EDITOR_SIZE", "EDITOR_BASELINE"))
+                }
                 if (includesProject) addAll(listOf("PROJECT_SCROLLBAR_POLICY", "PROJECT_SCROLLBAR_BASELINE"))
             }
     }
