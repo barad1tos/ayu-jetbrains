@@ -26,6 +26,8 @@ import javax.swing.JList
 import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import javax.swing.UIManager
+import javax.swing.plaf.basic.ComboPopup
+import javax.swing.text.Position
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -47,7 +49,7 @@ class StudioProfileControlsTest {
 
             assertTrue(selections.isEmpty())
             assertTrue(previews.isEmpty())
-            assertEquals(initial.rows.last().choice, (picker(controls).selectedItem as StudioProfileRow).choice)
+            assertEquals(initial.rows.size - 1, picker(controls).selectedIndex)
             assertTrue(draftButton(controls).isSelected)
         }
 
@@ -131,11 +133,63 @@ class StudioProfileControlsTest {
                 withPopup(controls) { picker ->
                     invokeKey(picker, KeyEvent.VK_DOWN)
                     invokeKey(picker, KeyEvent.VK_ESCAPE)
-                    assertEquals(first.choice, (picker.selectedItem as StudioProfileRow).choice)
+                    assertEquals(1, picker.selectedIndex)
                     assertTrue(selections.isEmpty())
                 }
             } finally {
                 if (previous == null) UIManager.getDefaults().remove(policy) else UIManager.put(policy, previous)
+            }
+        }
+
+    @Test
+    fun `native type ahead searches visible profile names`(): Unit =
+        onEdt {
+            val selections = mutableListOf<StudioProfileChoice>()
+            val controls = StudioProfileControls(selections::add, {})
+            val initial = view()
+            controls.render(initial)
+
+            assertTrue(picker(controls).selectWithKeyChar('a'))
+            assertEquals(listOf(initial.rows.last().choice), selections)
+
+            withPopup(controls) { comboBox ->
+                val popup = assertIs<ComboPopup>(comboBox.accessibleContext.getAccessibleChild(0))
+                assertEquals(1, popup.list.getNextMatch("Ambient", 0, Position.Bias.Forward))
+            }
+            val staged =
+                initial.rows.last().copy(
+                    choice = StudioProfileChoice.Profile(ProfileId("staged")),
+                    label = StudioProfileLabel("Saved", pendingName = "Azure"),
+                    kind = StudioProfileKind.USER,
+                )
+            controls.render(
+                initial.copy(
+                    rows =
+                        StudioList(
+                            listOf(
+                                initial.rows.first(),
+                                initial.rows.last().copy(isEnabled = false),
+                                staged,
+                            ),
+                        ),
+                ),
+            )
+            selections.clear()
+            assertTrue(picker(controls).selectWithKeyChar('a'))
+            assertEquals(listOf(staged.choice), selections)
+            withPopup(controls) { comboBox ->
+                val popup = assertIs<ComboPopup>(comboBox.accessibleContext.getAccessibleChild(0))
+                assertEquals(2, popup.list.getNextMatch("Azure", 0, Position.Bias.Forward))
+                assertEquals(-1, popup.list.getNextMatch("Ambient", 0, Position.Bias.Forward))
+                val row =
+                    comboBox.renderer.getListCellRendererComponent(
+                        JList(),
+                        comboBox.getItemAt(1),
+                        1,
+                        false,
+                        false,
+                    )
+                assertTrue(row.accessibleContext.accessibleName.contains("Ambient"))
             }
         }
 
@@ -151,10 +205,10 @@ class StudioProfileControlsTest {
             assertTrue(picker.accessibleContext.accessibleName.contains(name))
             assertTrue(picker.toolTipText.contains(name))
             assertFalse(picker.toolTipText.startsWith("<html>", ignoreCase = true))
-            val renderer = picker.renderer.getListCellRendererComponent(JList(), named, 0, true, false)
+            val renderer = picker.renderer.getListCellRendererComponent(JList(), picker.getItemAt(0), 0, true, false)
             assertTrue(renderer is SimpleColoredComponent)
             assertTrue(renderer.accessibleContext.accessibleName.contains(name))
-            assertEquals(name, (picker.selectedItem as StudioProfileRow).label.name)
+            assertEquals(name, picker.selectedItem.toString())
             assertTrue(controls.minimumSize.width < picker.getFontMetrics(picker.font).stringWidth(name))
         }
 
@@ -180,14 +234,25 @@ class StudioProfileControlsTest {
         onEdt {
             val controls = StudioProfileControls({}, {})
             val initial = view()
-            controls.render(initial)
-            val renderer = picker(controls).renderer
-            val list = JList<StudioProfileRow>().apply { foreground = Color(12, 98, 142) }
-            renderer.getListCellRendererComponent(list, initial.rows.first().copy(isEnabled = false), 0, false, false)
+            controls.render(
+                initial.copy(
+                    rows =
+                        StudioList(
+                            listOf(
+                                initial.rows.first().copy(isEnabled = false),
+                                initial.rows.last(),
+                            ),
+                        ),
+                ),
+            )
+            val picker = picker(controls)
+            val renderer = picker.renderer
+            val list = JList<Any?>().apply { foreground = Color(12, 98, 142) }
+            renderer.getListCellRendererComponent(list, picker.getItemAt(0), 0, false, false)
 
             val enabled =
                 assertIs<SimpleColoredComponent>(
-                    renderer.getListCellRendererComponent(list, initial.rows.last(), 1, false, false),
+                    renderer.getListCellRendererComponent(list, picker.getItemAt(1), 1, false, false),
                 )
             val fragments = enabled.iterator()
             fragments.next()
@@ -236,7 +301,7 @@ class StudioProfileControlsTest {
             assertEquals("Profile: Edited", picker.accessibleContext.accessibleName)
             val renderer =
                 assertIs<SimpleColoredComponent>(
-                    picker.renderer.getListCellRendererComponent(JList(), detached, 1, false, false),
+                    picker.renderer.getListCellRendererComponent(JList(), picker.getItemAt(1), 1, false, false),
                 )
             val text = renderer.iterator().asSequence().joinToString("")
             assertEquals("Edited · Create pending · Rename pending · Update pending · Delete pending", text)
@@ -260,7 +325,7 @@ class StudioProfileControlsTest {
             picker.selectedIndex = 1
             draftButton(controls).doClick()
 
-            assertEquals(initial.selected, (picker.selectedItem as StudioProfileRow).choice)
+            assertEquals(0, picker.selectedIndex)
             assertTrue(selections.isEmpty())
             assertTrue(previews.isEmpty())
             assertFalse(draftButton(controls).isEnabled)
@@ -319,12 +384,12 @@ class StudioProfileControlsTest {
         )
     }
 
-    private fun picker(controls: StudioProfileControls): JComboBox<StudioProfileRow> =
-        assertIs<JComboBox<StudioProfileRow>>(descendants(controls).filterIsInstance<JComboBox<*>>().single())
+    private fun picker(controls: StudioProfileControls): JComboBox<Any?> =
+        assertIs<JComboBox<Any?>>(descendants(controls).filterIsInstance<JComboBox<*>>().single())
 
     private fun withPopup(
         controls: StudioProfileControls,
-        action: (JComboBox<StudioProfileRow>) -> Unit,
+        action: (JComboBox<Any?>) -> Unit,
     ) {
         val picker = picker(controls)
         val window = JFrame("Ayu Islands profile keyboard test")
@@ -349,7 +414,7 @@ class StudioProfileControlsTest {
     }
 
     private fun invokeKey(
-        comboBox: JComboBox<StudioProfileRow>,
+        comboBox: JComboBox<Any?>,
         keyCode: Int,
     ) {
         val key = KeyStroke.getKeyStroke(keyCode, 0)

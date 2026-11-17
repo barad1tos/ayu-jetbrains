@@ -81,8 +81,9 @@ internal class StudioProfileControls(
         isRendering = true
         try {
             rendered = view
-            picker.model = DefaultComboBoxModel(view.rows.toTypedArray())
-            picker.selectedItem = view.rows.singleOrNull { it.choice == view.selected }
+            val items = view.rows.map(::ProfileItem)
+            picker.model = DefaultComboBoxModel(items.toTypedArray())
+            picker.selectedItem = items.singleOrNull { it.row.choice == view.selected }
             picker.isEnabled = view.rows.any { it.isEnabled }
             current.isSelected = view.preview == PreviewMode.CURRENT
             draft.isSelected = view.preview == PreviewMode.DRAFT
@@ -115,7 +116,7 @@ internal class StudioProfileControls(
         }
 
     private fun selected() {
-        val row = picker.selectedItem as? StudioProfileRow ?: return
+        val row = (picker.selectedItem as? ProfileItem)?.row ?: return
         val view = rendered ?: return
         if (!picker.isEnabled || !row.isEnabled) {
             render(view)
@@ -131,7 +132,7 @@ internal class StudioProfileControls(
     }
 
     private fun describeSelection() {
-        val row = picker.selectedItem as? StudioProfileRow
+        val row = (picker.selectedItem as? ProfileItem)?.row
         val description = row?.let(::profileDescription) ?: "Profile"
         picker.accessibleContext.accessibleName = description
         // The fixed prefix also keeps HTML-shaped user names literal in native tooltips.
@@ -140,7 +141,7 @@ internal class StudioProfileControls(
 }
 
 /** Bound the visible name in native font columns; full names remain in the model and accessibility text. */
-private class ProfilePicker : JComboBox<StudioProfileRow>() {
+private class ProfilePicker : JComboBox<ProfileItem>() {
     init {
         for (keyCode in listOf(KeyEvent.VK_UP, KeyEvent.VK_DOWN, KeyEvent.VK_HOME, KeyEvent.VK_END)) {
             val stroke = KeyStroke.getKeyStroke(keyCode, 0)
@@ -175,7 +176,7 @@ private class ProfilePicker : JComboBox<StudioProfileRow>() {
                 KeyEvent.VK_HOME -> 0 until itemCount
                 else -> itemCount - 1 downTo 0
             }
-        val target = candidates.firstOrNull { getItemAt(it).isEnabled } ?: return
+        val target = candidates.firstOrNull { getItemAt(it).row.isEnabled } ?: return
         popup.list.selectedIndex = target
         popup.list.ensureIndexIsVisible(target)
         // Preserve native preview-only navigation: Enter commits, Escape abandons the highlight.
@@ -201,31 +202,38 @@ private class ProfilePicker : JComboBox<StudioProfileRow>() {
     }
 }
 
-private class ProfileRenderer : ColoredListCellRenderer<StudioProfileRow>() {
+/** Native search uses visible names; empty search text excludes unavailable rows without hiding them. */
+private class ProfileItem(
+    val row: StudioProfileRow,
+) {
+    override fun toString(): String = if (row.isEnabled) displayName(row) else ""
+}
+
+private class ProfileRenderer : ColoredListCellRenderer<ProfileItem>() {
     override fun getListCellRendererComponent(
-        list: JList<out StudioProfileRow>,
-        value: StudioProfileRow?,
+        list: JList<out ProfileItem>,
+        value: ProfileItem?,
         index: Int,
         selected: Boolean,
         hasFocus: Boolean,
     ): Component {
-        isEnabled = value?.isEnabled == true
+        isEnabled = value?.row?.isEnabled == true
         return super.getListCellRendererComponent(list, value, index, selected, hasFocus)
     }
 
     override fun customizeCellRenderer(
-        list: JList<out StudioProfileRow>,
-        value: StudioProfileRow?,
+        list: JList<out ProfileItem>,
+        value: ProfileItem?,
         index: Int,
         selected: Boolean,
         hasFocus: Boolean,
     ) {
-        if (value == null) return
-        append(displayName(value))
-        value.label.qualifier?.let { append(" · $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
-        if (value.isCurrent) append(" · Current", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-        for (change in value.pending) append(" · ${pendingName(change)}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
-        toolTipText = profileDescription(value)
+        val row = value?.row ?: return
+        append(displayName(row))
+        row.label.qualifier?.let { append(" · $it", SimpleTextAttributes.GRAYED_ATTRIBUTES) }
+        if (row.isCurrent) append(" · Current", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        for (change in row.pending) append(" · ${pendingName(change)}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+        toolTipText = profileDescription(row)
     }
 }
 
