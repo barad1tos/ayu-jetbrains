@@ -1,5 +1,6 @@
 package dev.ayuislands.studio.ui
 
+import com.intellij.ui.scale.JBUIScale
 import org.junit.Test
 import java.awt.Dimension
 import java.awt.Rectangle
@@ -129,7 +130,7 @@ class StudioResponsiveLayoutTest {
         }
 
     @Test
-    fun `wide layout minimum height does not reserve space for narrow stacked rows`(): Unit =
+    fun `wide layout preferred height only reserves space for its occupied rows`(): Unit =
         onEdt {
             val fixture = fixture(1f)
             resize(fixture.panel, 800)
@@ -137,7 +138,44 @@ class StudioResponsiveLayoutTest {
                 fixture.fields.maxOf { maxOf(it.label.y + it.label.height, it.control.y + it.control.height) }
 
             assertEquals(occupiedHeight, fixture.panel.preferredSize.height)
-            assertEquals(occupiedHeight, fixture.panel.minimumSize.height)
+        }
+
+    @Test
+    fun `a resized panel fits every field when allocated its reported minimum size`(): Unit =
+        onEdt {
+            for (scale in scales) {
+                val fixture = fixture(scale)
+                resize(fixture.panel, pixels(800, scale))
+                fixture.panel.size = fixture.panel.minimumSize
+                fixture.panel.doLayout()
+
+                assertContained(fixture)
+            }
+        }
+
+    @Test
+    fun `preferred size accommodates unequal control widths in either column`(): Unit =
+        onEdt {
+            for (scale in scales) {
+                for (widths in listOf(listOf(300, 80), listOf(80, 300))) {
+                    val fixture = fixture(scale)
+                    for ((index, field) in fixture.fields.withIndex()) {
+                        field.label.preferredSize = Dimension(pixels(100, scale), pixels(20, scale))
+                        field.control.preferredSize = Dimension(pixels(widths[index % 2], scale), pixels(28, scale))
+                    }
+                    val preferredWidth = fixture.panel.preferredSize.width
+                    for (width in listOf(preferredWidth, pixels(500, scale), pixels(800, scale))) {
+                        resize(fixture.panel, width)
+
+                        if (width >= preferredWidth) {
+                            for ((_, control) in fixture.fields) {
+                                assertEquals(control.preferredSize.width, control.width)
+                            }
+                        }
+                        assertContained(fixture)
+                    }
+                }
+            }
         }
 
     @Test
@@ -182,6 +220,34 @@ class StudioResponsiveLayoutTest {
             hidden.control.isVisible = true
             resize(fixture.panel, 400)
             assertEquals(original, fixture.fields.map { it.control.bounds })
+        }
+
+    @Test
+    fun `an existing panel remeasures gaps when native UI scale changes`(): Unit =
+        onEdt {
+            val originalScale = JBUIScale.scale(1f)
+            try {
+                JBUIScale.setUserScaleFactorForTest(1f)
+                val label = JLabel("Glow")
+                label.preferredSize = Dimension(100, 20)
+                val control = JComboBox(arrayOf("Soft", "Neon"))
+                control.preferredSize = Dimension(80, 28)
+                control.minimumSize = Dimension(80, 28)
+                val panel = JPanel(StudioResponsiveLayout())
+                panel.add(label)
+                panel.add(control)
+
+                for (scale in listOf(1f, 1.5f, 2f, 1f)) {
+                    JBUIScale.setUserScaleFactorForTest(scale)
+                    resize(panel, 500)
+                    assertEquals(pixels(6, scale), control.x - label.x - label.width)
+
+                    resize(panel, 100)
+                    assertEquals(pixels(6, scale), control.y - label.y - label.height)
+                }
+            } finally {
+                JBUIScale.setUserScaleFactorForTest(originalScale)
+            }
         }
 
     private fun fixture(scale: Float): LayoutFixture {

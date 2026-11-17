@@ -7,8 +7,10 @@ import java.awt.LayoutManager2
 
 /** Lay out consecutive label/control pairs on the EDT without changing their models or child order. */
 internal class StudioResponsiveLayout(
-    private val spacing: StudioSpacing = StudioUiTokens.spacing(),
+    private val spacing: StudioSpacing? = null,
 ) : LayoutManager2 {
+    private val currentSpacing: StudioSpacing get() = spacing ?: StudioUiTokens.spacing()
+
     // AWT declares constraints as Object; this layout uses the existing child order instead.
     override fun addLayoutComponent(
         component: Component,
@@ -37,18 +39,15 @@ internal class StudioResponsiveLayout(
     override fun minimumLayoutSize(parent: Container): Dimension {
         val metrics = measureFields(parent).map { it.metrics }
         val insets = parent.insets
-        val width = if (parent.width > 0) (parent.width - insets.left - insets.right).coerceAtLeast(0) else null
-        val plan = StudioLayoutPolicy.arrange(metrics, width, spacing)
-        val minimumHeight =
-            if (width == null) StudioLayoutPolicy.arrange(metrics, plan.minimumWidth, spacing).height else plan.height
-        return Dimension(plan.minimumWidth + insets.left + insets.right, minimumHeight + insets.top + insets.bottom)
+        val plan = StudioLayoutPolicy.arrange(metrics, 0, currentSpacing)
+        return Dimension(plan.minimumWidth + insets.left + insets.right, plan.height + insets.top + insets.bottom)
     }
 
     override fun preferredLayoutSize(parent: Container): Dimension {
         val fields = measureFields(parent)
         val insets = parent.insets
         val width = if (parent.width > 0) (parent.width - insets.left - insets.right).coerceAtLeast(0) else null
-        val plan = StudioLayoutPolicy.arrange(fields.map { it.metrics }, width, spacing)
+        val plan = StudioLayoutPolicy.arrange(fields.map { it.metrics }, width, currentSpacing)
         return Dimension(plan.preferredWidth + insets.left + insets.right, plan.height + insets.top + insets.bottom)
     }
 
@@ -56,7 +55,7 @@ internal class StudioResponsiveLayout(
         val fields = measureFields(parent)
         val insets = parent.insets
         val width = (parent.width - insets.left - insets.right).coerceAtLeast(0)
-        val plan = StudioLayoutPolicy.arrange(fields.map { it.metrics }, width, spacing)
+        val plan = StudioLayoutPolicy.arrange(fields.map { it.metrics }, width, currentSpacing)
         for ((field, placement) in fields.zip(plan.fields)) {
             place(field.label, placement.label, insets.left, insets.top)
             place(field.control, placement.control, insets.left, insets.top)
@@ -200,7 +199,15 @@ private object StudioLayoutPolicy {
     ): List<Int> {
         if (columns.size == 1) return listOf(width)
         val extra = width - gap - columns.sumOf { it.minimumWidth }
-        val leftWidth = columns[0].minimumWidth + extra / 2
+        val preferredGrowth = columns.map { it.preferredWidth - it.minimumWidth }
+        val totalGrowth = preferredGrowth.sum()
+        val leftExtra =
+            if (extra >= totalGrowth) {
+                preferredGrowth[0] + (extra - totalGrowth) / 2
+            } else {
+                (extra.toLong() * preferredGrowth[0] / totalGrowth).toInt()
+            }
+        val leftWidth = columns[0].minimumWidth + leftExtra
         return listOf(leftWidth, width - gap - leftWidth)
     }
 
