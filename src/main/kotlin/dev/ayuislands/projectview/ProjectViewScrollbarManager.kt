@@ -47,8 +47,9 @@ class ProjectViewScrollbarManager private constructor(
     private val scrollbar =
         ProjectScrollbarOwner(
             currentPane = {
-                if (disposed || project.isDisposed) null else findProjectScrollPane(onlyExisting = true)
+                if (project.isDisposed) null else findProjectScrollPane(onlyExisting = true)
             },
+            canAcquire = { !disposed && !project.isDisposed },
             replay = ::postScrollbarRefresh,
         )
     private var hasRegistryLease = false
@@ -122,14 +123,16 @@ class ProjectViewScrollbarManager private constructor(
     }
 
     private fun applyScrollbar(hideHorizontal: Boolean) {
-        if (!scrollbar.deferRefresh()) scrollbar.applyLegacy(findProjectScrollPane(), hideHorizontal)
+        if (scrollbar.deferRefresh()) return
+        if (hideHorizontal) findProjectScrollPane()?.let(scrollbar::hideLegacy) else scrollbar.restoreLegacy()
     }
 
     private fun postScrollbarRefresh() {
         SwingUtilities.invokeLater {
-            if (!disposed && !project.isDisposed) {
+            if (!project.isDisposed) {
                 val hideHorizontal =
-                    LicenseChecker.isLicensedOrGrace() &&
+                    !disposed &&
+                        LicenseChecker.isLicensedOrGrace() &&
                         AyuIslandsSettings.getInstance().state.hideProjectViewHScrollbar
                 applyScrollbar(hideHorizontal)
             }

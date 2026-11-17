@@ -2,7 +2,7 @@ package dev.ayuislands.projectview
 
 import dev.ayuislands.accent.AccentCheckpoint
 import dev.ayuislands.accent.UiDefaultsTarget
-import java.lang.ref.WeakReference
+import java.util.WeakHashMap
 import javax.swing.JScrollPane
 import javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
 import javax.swing.SwingUtilities
@@ -10,9 +10,10 @@ import javax.swing.SwingUtilities
 /** Owns only the current pane's horizontal scrollbar policy. */
 internal class ProjectScrollbarOwner(
     private val currentPane: () -> JScrollPane?,
+    private val canAcquire: () -> Boolean,
     private val replay: () -> Unit,
 ) {
-    private var baseline: Baseline? = null
+    private val baselines = WeakHashMap<JScrollPane, Int>()
     private var held: Checkpoint? = null
     private var refreshPending = false
 
@@ -22,11 +23,16 @@ internal class ProjectScrollbarOwner(
         return true
     }
 
-    fun applyLegacy(
-        pane: JScrollPane?,
+    fun hideLegacy(pane: JScrollPane) = writeLegacy(pane, hideHorizontal = true)
+
+    fun restoreLegacy() {
+        baselines.keys.toList().forEach { writeLegacy(it, hideHorizontal = false) }
+    }
+
+    private fun writeLegacy(
+        pane: JScrollPane,
         hideHorizontal: Boolean,
     ) {
-        if (pane == null) return
         val before = observe(pane)
         val planned = before.withHiddenScrollbar(hideHorizontal)
         publishBaseline(pane, planned.baseline)
@@ -35,6 +41,7 @@ internal class ProjectScrollbarOwner(
 
     fun prepare(hideHorizontal: Boolean): Checkpoint? {
         checkEdt()
+        if (!canAcquire()) return null
         check(held == null) { "Project scrollbar recovery must settle before capture" }
         val pane = currentPane() ?: return null
         val before = observe(pane)
@@ -45,30 +52,20 @@ internal class ProjectScrollbarOwner(
     fun close() {
         refreshPending = false
         val checkpoint = held ?: return
-        try {
-            if (checkpoint.hasPending) checkpoint.restore() else checkpoint.releaseResources()
-        } finally {
-            held = null
-        }
+        if (checkpoint.hasPending) checkpoint.restore() else checkpoint.releaseResources()
     }
 
     private fun observe(pane: JScrollPane): Policy =
         Policy(
             pane.horizontalScrollBarPolicy,
-            baseline?.takeIf { it.pane.get() === pane }?.policy,
+            baselines[pane],
         )
 
     private fun publishBaseline(
         pane: JScrollPane,
         policy: Int?,
     ) {
-        val previous = baseline
-        baseline =
-            when {
-                policy == null -> null
-                previous?.pane?.get() === pane && previous.policy == policy -> previous
-                else -> Baseline(WeakReference(pane), policy)
-            }
+        if (policy == null) baselines.remove(pane) else baselines[pane] = policy
     }
 
     internal inner class Checkpoint internal constructor(
@@ -154,12 +151,12 @@ internal class ProjectScrollbarOwner(
             return hasPending
         }
 
-        private fun isPreparedTarget(): Boolean = admissionTarget.isCurrent() && isCurrentPane()
+        private fun isPreparedTarget(): Boolean = canAcquire() && admissionTarget.isCurrent() && isCurrentPane()
 
         private fun isCurrentPane(): Boolean = currentPane() === pane
 
         private fun relinquish() {
-            if (baseline?.pane?.get() === pane && baseline?.policy == expected.baseline) baseline = null
+            if (baselines[pane] == expected.baseline) baselines.remove(pane)
             phase = Phase.FOREIGN
             refreshPending = false
             releaseResources()
@@ -180,11 +177,6 @@ internal class ProjectScrollbarOwner(
                 Policy(restored, null)
             }
     }
-
-    private class Baseline(
-        val pane: WeakReference<JScrollPane>,
-        val policy: Int,
-    )
 
     private companion object {
         fun checkEdt() {

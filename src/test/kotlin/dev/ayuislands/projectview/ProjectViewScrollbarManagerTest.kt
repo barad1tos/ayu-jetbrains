@@ -800,6 +800,74 @@ class ProjectViewScrollbarManagerTest {
     }
 
     @Test
+    fun `disabling the override restores both Project View panes after revisiting the first`() {
+        val first = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        val second = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED)
+        val wrapper = JPanel().apply { add(first) }
+        setupToolWindowContent(wrapper)
+        realState.hideProjectViewHScrollbar = true
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, first.horizontalScrollBarPolicy)
+            wrapper.remove(first)
+            wrapper.add(second)
+            manager.apply()
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, second.horizontalScrollBarPolicy)
+
+            wrapper.remove(second)
+            wrapper.add(first)
+            realState.hideProjectViewHScrollbar = false
+            manager.apply()
+
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, first.horizontalScrollBarPolicy)
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED, second.horizontalScrollBarPolicy)
+            manager.dispose()
+        }
+    }
+
+    @Test
+    fun `prepared Project View policy cannot be written after manager disposal`() {
+        val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val change = checkNotNull(manager.prepareScrollbar(hideHorizontal = true))
+            manager.dispose()
+
+            assertFalse(change.apply())
+            assertFalse(change.hasPending)
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+        }
+    }
+
+    @Test
+    fun `disposal defers legacy cleanup until a failed Project View rollback can retry`() {
+        val pane = RollbackFailingPane()
+        setupToolWindowContent(JPanel().apply { add(pane) })
+        realState.hideProjectViewHScrollbar = true
+        val manager = createAndDrain()
+
+        SwingUtilities.invokeAndWait {
+            val change = checkNotNull(manager.prepareScrollbar(hideHorizontal = false))
+            assertTrue(change.apply())
+            pane.rejectedPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+
+            assertFailsWith<IllegalStateException> { manager.dispose() }
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+            change.retain()
+            change.restore()
+            assertFalse(change.hasPending)
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, pane.horizontalScrollBarPolicy)
+        }
+        SwingUtilities.invokeAndWait {
+            assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+            assertTrue(realState.hideProjectViewHScrollbar)
+        }
+    }
+
+    @Test
     fun `a throwing Project View listener leaves the changed policy recoverable`() {
         val pane = projectPane(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS)
         setupToolWindowContent(JPanel().apply { add(pane) })
@@ -892,6 +960,19 @@ class ProjectViewScrollbarManagerTest {
             assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER, pane.horizontalScrollBarPolicy)
             manager.dispose()
             assertEquals(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_ALWAYS, pane.horizontalScrollBarPolicy)
+        }
+    }
+
+    private class RollbackFailingPane :
+        JScrollPane(JTree(), VERTICAL_SCROLLBAR_ALWAYS, HORIZONTAL_SCROLLBAR_ALWAYS) {
+        var rejectedPolicy: Int? = null
+
+        override fun setHorizontalScrollBarPolicy(policy: Int) {
+            if (policy == rejectedPolicy) {
+                rejectedPolicy = null
+                error("IDE refused the rollback write")
+            }
+            super.setHorizontalScrollBarPolicy(policy)
         }
     }
 
