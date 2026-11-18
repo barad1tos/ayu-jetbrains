@@ -3,7 +3,6 @@ package dev.ayuislands.settings
 import com.intellij.ui.components.JBTabbedPane
 import java.awt.Color
 import java.awt.Dimension
-import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.JScrollPane
 import javax.swing.JTabbedPane
@@ -53,19 +52,12 @@ class AyuIslandsConfigurableChromeWiringTest {
     }
 
     @Test
-    fun `Configurable tab content tracks compact viewport width`() {
+    fun `settings tab content tracks compact viewport width`() {
         val wideContent =
             JPanel().apply {
                 preferredSize = Dimension(WIDE_CONTENT_WIDTH, TAB_CONTENT_HEIGHT)
             }
-        val createScrollableContent =
-            AyuIslandsConfigurable::class.java.getDeclaredMethod(
-                "createScrollableTabContent",
-                JComponent::class.java,
-            )
-        createScrollableContent.isAccessible = true
-
-        val scrollPane = createScrollableContent.invoke(AyuIslandsConfigurable(), wideContent) as JScrollPane
+        val scrollPane = createScrollableTabContent(wideContent)
         val viewportView = scrollPane.viewport.view
 
         assertTrue(scrollPane.preferredSize.width <= COMPACT_TAB_WIDTH)

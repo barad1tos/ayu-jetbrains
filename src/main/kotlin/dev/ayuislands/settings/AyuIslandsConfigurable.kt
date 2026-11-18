@@ -6,7 +6,6 @@ import com.intellij.openapi.options.BoundConfigurable
 import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.ui.DialogPanel
-import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.panel
@@ -16,21 +15,16 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.onboarding.OnboardingUrls
-import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
 import java.awt.Image
-import java.awt.Rectangle
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.ImageIcon
 import javax.swing.JComponent
 import javax.swing.JLabel
 import javax.swing.JPanel
-import javax.swing.JScrollPane
-import javax.swing.Scrollable
-import javax.swing.SwingConstants
 import javax.swing.Timer
 
 /** Settings page at Appearance > Ayu Islands with Accent / Glow tabs. */
@@ -208,55 +202,6 @@ class AyuIslandsConfigurable internal constructor(
             onSelectedIndexChanged(tabs.selectedIndex)
         }
         return tabs
-    }
-
-    private fun createScrollableTabContent(content: JComponent): JComponent =
-        JBScrollPane(WidthTrackingTabContent(content)).apply {
-            border = JBUI.Borders.empty()
-            viewportBorder = JBUI.Borders.empty()
-            horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-            verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
-            minimumSize = Dimension(0, 0)
-        }
-
-    private class WidthTrackingTabContent(
-        content: JComponent,
-    ) : JPanel(BorderLayout()),
-        Scrollable {
-        init {
-            isOpaque = false
-            minimumSize = Dimension(0, 0)
-            add(content, BorderLayout.CENTER)
-        }
-
-        override fun getPreferredScrollableViewportSize(): Dimension = Dimension(0, preferredSize.height)
-
-        override fun getScrollableUnitIncrement(
-            visibleRect: Rectangle,
-            orientation: Int,
-            direction: Int,
-        ): Int = JBUI.scale(SCROLL_UNIT_INCREMENT)
-
-        override fun getScrollableBlockIncrement(
-            visibleRect: Rectangle,
-            orientation: Int,
-            direction: Int,
-        ): Int =
-            if (orientation == SwingConstants.VERTICAL) {
-                (visibleRect.height - JBUI.scale(SCROLL_UNIT_INCREMENT))
-                    .coerceAtLeast(JBUI.scale(SCROLL_UNIT_INCREMENT))
-            } else {
-                (visibleRect.width - JBUI.scale(SCROLL_UNIT_INCREMENT))
-                    .coerceAtLeast(JBUI.scale(SCROLL_UNIT_INCREMENT))
-            }
-
-        override fun getScrollableTracksViewportWidth(): Boolean = true
-
-        override fun getScrollableTracksViewportHeight(): Boolean = false
-
-        private companion object {
-            const val SCROLL_UNIT_INCREMENT = 16
-        }
     }
 
     private fun createLinkTab(
