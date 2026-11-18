@@ -16,6 +16,7 @@ import java.awt.Graphics2D
 import java.awt.Insets
 import java.awt.RenderingHints
 import javax.swing.JComponent
+import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.border.Border
 import javax.swing.border.CompoundBorder
@@ -395,11 +396,20 @@ internal fun Row.newFeatureBadge(
     SettingsBadges.registerAnchorVisible(anchorId, isVisible)
     val state = AyuIslandsSettings.getInstance().state
     if (!SettingsBadges.isPending(state, anchorId)) return
-    label("New").applyToComponent {
-        font = JBUI.Fonts.smallFont()
-        foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
-        accessibleContext.accessibleDescription = "New in this release"
+    label("New").applyToComponent { styleNewFeatureBadge() }
+}
+
+/** Native surfaces share the existing badge appearance without owning acknowledgement state. */
+internal fun newFeatureBadgeLabel(pending: Boolean): JLabel =
+    JBLabel("New").apply {
+        styleNewFeatureBadge()
+        isVisible = pending
     }
+
+private fun JLabel.styleNewFeatureBadge() {
+    font = JBUI.Fonts.smallFont()
+    foreground = JBUI.CurrentTheme.Link.Foreground.ENABLED
+    accessibleContext.accessibleDescription = "New in this release"
 }
 
 /**
