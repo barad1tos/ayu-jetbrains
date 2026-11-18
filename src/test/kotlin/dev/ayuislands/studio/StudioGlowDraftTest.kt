@@ -10,7 +10,9 @@ import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.studio.fields.StudioAppearanceFields
 import dev.ayuislands.studio.model.DraftRecord
 import dev.ayuislands.studio.model.DraftTracking
+import dev.ayuislands.studio.model.FieldAddress
 import dev.ayuislands.studio.model.FieldOrigin
+import dev.ayuislands.studio.model.FieldPart
 import dev.ayuislands.studio.model.LegacyFieldKey
 import dev.ayuislands.studio.model.LegacyStore
 import dev.ayuislands.studio.model.RawValue
@@ -63,7 +65,8 @@ class StudioGlowDraftTest {
         val future = draftWith("glowPreset" to RawValue.Text("future-preset"))
         assertEquals(GlowPreset.CUSTOM, StudioGlowProjection.settings(future.appearance).preset)
         val edited = StudioGlowEditing.edit(future, StudioGlowEdit.Width(12))
-        assertEquals(setOf("softWidth"), touched(edited))
+        assertTouched(edited, "softWidth")
+        assertEquals(RawValue.Integer(12), field(edited, "softWidth"))
         assertEquals(RawValue.Text("future-preset"), field(edited, "glowPreset"))
     }
 
@@ -73,7 +76,7 @@ class StudioGlowDraftTest {
         val off = StudioGlowEditing.edit(draft, StudioGlowEdit.Enable(false))
 
         assertFalse(StudioGlowProjection.settings(off.appearance).enabled)
-        assertEquals(setOf("glowEnabled"), touched(off))
+        assertTouched(off, "glowEnabled")
         assertEquals(draft.base, off.base)
         assertEquals(draft, StudioGlowEditing.edit(off, StudioGlowEdit.Enable(true)))
         assertEquals(draft, StudioDraftPolicy.discard(off))
@@ -100,10 +103,7 @@ class StudioGlowDraftTest {
             ).fold(draft, StudioGlowEditing::edit)
         val settings = StudioGlowProjection.settings(changed.appearance)
 
-        assertEquals(
-            setOf("glowPreset", "glowStyle", "gradientIntensity", "gradientWidth", "glowAnimation"),
-            touched(changed),
-        )
+        assertTouched(changed, "glowPreset", "glowStyle", "gradientIntensity", "gradientWidth", "glowAnimation")
         assertEquals(GlowPreset.CUSTOM, settings.preset)
         assertEquals(GlowAnimation.REACTIVE, settings.animation)
         assertEquals(36, settings.intensity[GlowStyle.SOFT])
@@ -128,7 +128,7 @@ class StudioGlowDraftTest {
         val edited = StudioGlowEditing.edit(draft, StudioGlowEdit.Width(8))
 
         assertEquals(GlowPreset.CUSTOM, StudioGlowProjection.settings(edited.appearance).preset)
-        assertEquals(setOf("glowPreset", "softWidth"), touched(edited))
+        assertTouched(edited, "glowPreset", "softWidth")
         assertEquals(draft, StudioDraftPolicy.discard(edited))
     }
 
@@ -147,15 +147,12 @@ class StudioGlowDraftTest {
         val custom = StudioGlowEditing.edit(draft, StudioGlowEdit.Preset(GlowPreset.CUSTOM))
         val settings = StudioGlowProjection.settings(ambient.appearance)
 
-        assertEquals(
-            setOf("glowPreset", "glowStyle", "glowAnimation", "gradientIntensity", "gradientWidth"),
-            touched(ambient),
-        )
+        assertTouched(ambient, "glowPreset", "glowStyle", "glowAnimation", "gradientIntensity", "gradientWidth")
         assertEquals(GlowShape.WAVEFORM, settings.shape)
         assertEquals(GlowAnimation.BREATHE, settings.animation)
         assertEquals(45, settings.intensity[GlowStyle.GRADIENT])
         assertEquals(10, settings.width[GlowStyle.GRADIENT])
-        assertEquals(setOf("glowPreset"), touched(custom))
+        assertTouched(custom, "glowPreset")
     }
 
     @Test
@@ -229,7 +226,7 @@ class StudioGlowDraftTest {
         cases.forEach { (edit, name, value) ->
             val draft = draftWith()
             val changed = StudioGlowEditing.edit(draft, edit)
-            assertEquals(setOf(name), touched(changed))
+            assertTouched(changed, name)
             assertEquals(value, field(changed, name))
         }
     }
@@ -246,7 +243,7 @@ class StudioGlowDraftTest {
         val targets = StudioList(listOf(StudioGlowTarget.EDITOR, StudioGlowTarget.GIT))
         val off = StudioGlowEditing.edit(draft, StudioGlowEdit.Targets(targets, enabled = false))
 
-        assertEquals(setOf("glowEditor", "glowGit"), touched(off))
+        assertTouched(off, "glowEditor", "glowGit")
         val liveTargets = StudioGlowProjection.settings(off.appearance).islandToggles
         assertEquals(false, liveTargets["Editor"])
         assertEquals(false, liveTargets["Git"])
@@ -281,8 +278,11 @@ class StudioGlowDraftTest {
         name: String,
     ): RawValue = StudioAppearanceFields.field(draft.appearance, key(name)).value
 
-    private fun touched(draft: DraftRecord): Set<String> =
-        draft.tracking.touched
-            .map { it.field.name }
-            .toSet()
+    private fun assertTouched(
+        draft: DraftRecord,
+        vararg names: String,
+    ) {
+        val expected = names.map { FieldAddress(key(it), FieldPart.Value) }.toSet()
+        assertEquals(expected, draft.tracking.touched.toSet())
+    }
 }
