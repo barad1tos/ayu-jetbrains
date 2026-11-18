@@ -1,6 +1,7 @@
 package dev.ayuislands.studio.ui
 
 import com.intellij.ui.components.ActionLink
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.font.FontWeight
 import dev.ayuislands.glow.GlowShape
@@ -27,6 +28,7 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
 import java.awt.Container
+import java.awt.image.BufferedImage
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JComponent
@@ -36,6 +38,7 @@ import javax.swing.JTabbedPane
 import javax.swing.JToggleButton
 import javax.swing.SwingUtilities
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -53,6 +56,7 @@ class StudioSettingsPanelTest {
             )
             assertEquals(1, descendants(fixture.panel).filterIsInstance<JComboBox<*>>().size)
             assertEquals(1, labels(fixture.panel).count { it.text == "Ayu Islands" })
+            assertTrue(labels(fixture.panel).single { it.text == "Ayu Islands" }.icon.iconWidth > 0)
             assertEquals(1, labels(fixture.panel).count { it.text == "v3.0.0" })
             assertEquals(1, labels(fixture.panel).count { it.text == "No pending changes" })
             assertEquals(1, descendants(fixture.panel).filterIsInstance<StudioProfileControls>().size)
@@ -65,9 +69,9 @@ class StudioSettingsPanelTest {
             val fixture = fixture()
             val current = view()
             fixture.panel.render(current)
+            val acceptedSamples = fixture.samples.mapValues { (_, component) -> previewPixels(component) }
             fixture.panel.render(current)
             fixture.panel.render(current.copy(section = StudioSettingsSection.GLOW))
-            val components = fixture.sections.map { it.component }
             val different =
                 current.profiles.rows
                     .first { it.choice != current.profiles.selected }
@@ -75,20 +79,23 @@ class StudioSettingsPanelTest {
             fixture.panel.render(
                 current.copy(profiles = current.profiles.copy(selected = different, preview = PreviewMode.DRAFT)),
             )
+            val draftSamples = fixture.samples.mapValues { (_, component) -> previewPixels(component) }
             fixture.panel.render(current)
+            for ((section, component) in fixture.samples) {
+                val accepted = acceptedSamples.getValue(section)
+                assertFalse(accepted.contentEquals(draftSamples.getValue(section)), "$section did not show its draft")
+                assertTrue(accepted.contentEquals(previewPixels(component)), "$section did not return to Current")
+            }
 
             assertTrue(fixture.events.selections.isEmpty())
             assertTrue(fixture.events.previews.isEmpty())
             assertTrue(fixture.events.navigation.isEmpty())
             assertEquals(StudioSettingsSection.entries.toSet(), fixture.rendered.keys)
-            assertTrue(fixture.rendered.values.all { it.last() == PreviewMode.CURRENT })
-            assertTrue(fixture.rendered.values.all { PreviewMode.DRAFT in it })
             assertTrue(
                 fixture.rendered.values.all {
                     it == listOf(PreviewMode.CURRENT, PreviewMode.DRAFT, PreviewMode.CURRENT)
                 },
             )
-            assertEquals(components, fixture.sections.map { it.component })
             assertSame(
                 fixture.samples.getValue(StudioSettingsSection.FONT),
                 descendants(fixture.panel).filterIsInstance<FontPreviewComponent>().single(),
@@ -101,6 +108,25 @@ class StudioSettingsPanelTest {
                 fixture.samples.getValue(StudioSettingsSection.GLOW),
                 descendants(fixture.panel).filterIsInstance<GlowGroupPanel>().single(),
             )
+        }
+
+    @Test
+    fun `retry after a failed preview refresh updates every section`(): Unit =
+        onEdt {
+            var shouldFail = true
+            val fixture =
+                fixture { section, mode ->
+                    if (shouldFail && section == StudioSettingsSection.GLOW && mode == PreviewMode.DRAFT) {
+                        shouldFail = false
+                        error("Glow preview failed")
+                    }
+                }
+            val current = view()
+            val draft = current.copy(profiles = current.profiles.copy(preview = PreviewMode.DRAFT))
+            fixture.panel.render(current)
+            assertFailsWith<IllegalStateException> { fixture.panel.render(draft) }
+            fixture.panel.render(draft)
+            assertTrue(fixture.rendered.values.all { it.last() == PreviewMode.DRAFT })
         }
 
     @Test
@@ -126,7 +152,11 @@ class StudioSettingsPanelTest {
 
             assertEquals(listOf(StudioSettingsSection.GLOW, StudioSettingsSection.ACCENT), fixture.events.navigation)
             assertEquals(original, (0 until tabs.tabCount).map(tabs::getComponentAt))
-            assertEquals(childOrder, fixture.sections.map { (it.component as JPanel).components.toList() })
+            for ((index, section) in fixture.sections.withIndex()) {
+                val shown = descendants(tabs.getComponentAt(index) as Container)
+                assertTrue(shown.any { it === section.component }, "Missing original ${section.section} body")
+                assertEquals(childOrder[index], (section.component as JPanel).components.toList())
+            }
             assertTrue(disclosure.isSelected)
             assertTrue(
                 fixture.groups
@@ -230,12 +260,12 @@ class StudioSettingsPanelTest {
             ),
             StudioSettingsSection.ACCENT,
             AuthorityStatus.READY,
-            "#FFCD66",
+            AccentHex.require("#FFCD66"),
             StudioList(emptyList()),
         )
     }
 
-    private fun fixture(): Fixture {
+    private fun fixture(beforePreview: (StudioSettingsSection, PreviewMode) -> Unit = { _, _ -> }): Fixture {
         val selections = mutableListOf<StudioProfileChoice>()
         val previews = mutableListOf<PreviewMode>()
         val navigation = mutableListOf<StudioSettingsSection>()
@@ -271,6 +301,7 @@ class StudioSettingsPanelTest {
                         add(detail, BorderLayout.SOUTH)
                     }
                 StudioSectionContent(section, body) { mode ->
+                    beforePreview(section, mode)
                     rendered.getOrPut(section) { mutableListOf() }.add(mode)
                     updatePreview(sample, mode)
                 }
@@ -359,6 +390,19 @@ class StudioSettingsPanelTest {
 
     private fun tabs(panel: StudioSettingsPanel): JTabbedPane =
         descendants(panel).filterIsInstance<JTabbedPane>().single()
+
+    private fun previewPixels(component: JComponent): IntArray {
+        val size = component.preferredSize
+        component.size = size
+        val image = BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        try {
+            component.paint(graphics)
+        } finally {
+            graphics.dispose()
+        }
+        return image.getRGB(0, 0, size.width, size.height, null, 0, size.width)
+    }
 
     private fun tabTitles(panel: StudioSettingsPanel): List<String> =
         tabs(panel).let { pane -> (0 until pane.tabCount).map(pane::getTitleAt) }

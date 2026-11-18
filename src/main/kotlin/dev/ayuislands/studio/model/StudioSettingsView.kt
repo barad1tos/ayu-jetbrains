@@ -1,5 +1,7 @@
 package dev.ayuislands.studio.model
 
+import dev.ayuislands.accent.AccentHex
+
 /** Stable native section identities; shared preferences are outside appearance profiles. */
 internal enum class StudioSettingsSection(
     val title: String,
@@ -19,6 +21,6 @@ internal data class StudioSettingsView(
     val profiles: StudioProfileView,
     val section: StudioSettingsSection,
     val authority: AuthorityStatus,
-    val acceptedAccentHex: String,
+    val acceptedAccent: AccentHex,
     val pendingBadgeIds: StudioList<String>,
 )

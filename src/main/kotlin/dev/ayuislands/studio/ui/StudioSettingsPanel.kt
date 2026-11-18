@@ -1,11 +1,11 @@
 package dev.ayuislands.studio.ui
 
 import com.intellij.openapi.util.IconLoader
-import com.intellij.ui.ColorUtil
 import com.intellij.ui.components.ActionLink
 import com.intellij.ui.components.JBTabbedPane
 import com.intellij.util.IconUtil
 import com.intellij.util.ui.JBUI
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.toolbar.popup.AccentStripe
 import dev.ayuislands.settings.createScrollableTabContent
 import dev.ayuislands.studio.model.AuthorityStatus
@@ -47,9 +47,10 @@ internal class StudioSettingsPanel(
     private val tabs = JBTabbedPane().apply { minimumSize = Dimension(0, 0) }
     private val status = JLabel()
     private val sharedCaptions = mutableMapOf<StudioSettingsSection, JLabel>()
-    private var rendered: StudioSettingsView? = null
+    private var acceptedAccent: AccentHex? = null
+    private var appliedPreview: PreviewMode? = null
     private var isRendering = false
-    private val stripe = AccentStripe { checkNotNull(rendered).acceptedAccentHex }.apply { isVisible = false }
+    private val stripe = AccentStripe { checkNotNull(acceptedAccent).value }.apply { isVisible = false }
 
     init {
         val spacing = StudioUiTokens.spacing()
@@ -75,7 +76,7 @@ internal class StudioSettingsPanel(
         tabs.addChangeListener {
             val section = content[tabs.selectedIndex].section
             showSharedCaption(section)
-            if (!isRendering && rendered != null) selectSection(section)
+            if (!isRendering && acceptedAccent != null) selectSection(section)
         }
         add(header, BorderLayout.NORTH)
         add(tabs, BorderLayout.CENTER)
@@ -83,18 +84,21 @@ internal class StudioSettingsPanel(
     }
 
     fun render(view: StudioSettingsView) {
-        // Validate through the same native color path as AccentStripe before changing the displayed view.
-        ColorUtil.fromHex(view.acceptedAccentHex)
-        val changedPreview = rendered?.profiles?.preview != view.profiles.preview
         isRendering = true
         try {
-            rendered = view
+            val mode = view.profiles.preview
+            if (appliedPreview != mode) {
+                // A partial refresh invalidates the prior mode as well as the attempted one.
+                appliedPreview = null
+                content.forEach { it.preview(mode) }
+                appliedPreview = mode
+            }
             profiles.render(view.profiles)
             profiles.renderBadges(view.pendingBadgeIds.toSet())
             tabs.selectedIndex = view.section.ordinal
             showSharedCaption(view.section)
             status.text = statusText(view)
-            if (changedPreview) content.forEach { it.preview(view.profiles.preview) }
+            acceptedAccent = view.acceptedAccent
             stripe.isVisible = true
             stripe.repaint()
         } finally {
