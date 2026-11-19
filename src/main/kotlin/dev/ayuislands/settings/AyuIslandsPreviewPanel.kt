@@ -54,14 +54,16 @@ class AyuIslandsPreviewPanel {
         panel.row { cell(wrapper) }
     }
 
-    fun createComponent(): JComponent {
+    fun createComponent(): JComponent = createComponent(JBUI.scale(HEADER_INDENT))
+
+    internal fun createComponent(leadingInset: Int): JComponent {
         val mockup = AccentPreviewComponent()
         mockupComponent = mockup
 
         val wrapper = JPanel()
         wrapper.layout = BoxLayout(wrapper, BoxLayout.X_AXIS)
         wrapper.isOpaque = false
-        wrapper.add(Box.createHorizontalStrut(JBUI.scale(HEADER_INDENT)))
+        wrapper.add(Box.createHorizontalStrut(leadingInset))
         wrapper.add(mockup)
         return wrapper
     }

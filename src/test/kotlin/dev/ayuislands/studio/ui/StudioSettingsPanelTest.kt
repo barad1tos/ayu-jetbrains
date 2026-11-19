@@ -12,6 +12,8 @@ import dev.ayuislands.settings.GlowGroupPanel
 import dev.ayuislands.settings.GlowPreview
 import dev.ayuislands.settings.VcsColorPreviewComponent
 import dev.ayuislands.settings.VcsPreviewIntensities
+import dev.ayuislands.studio.catalogTestDocument
+import dev.ayuislands.studio.catalogTestWork
 import dev.ayuislands.studio.model.AuthorityStatus
 import dev.ayuislands.studio.model.PreviewMode
 import dev.ayuislands.studio.model.ProfileId
@@ -23,6 +25,8 @@ import dev.ayuislands.studio.model.StudioProfileRow
 import dev.ayuislands.studio.model.StudioProfileView
 import dev.ayuislands.studio.model.StudioSettingsSection
 import dev.ayuislands.studio.model.StudioSettingsView
+import dev.ayuislands.studio.model.SystemAccentPolicy
+import dev.ayuislands.studio.session.StudioAccentEditing
 import org.junit.Test
 import java.awt.BorderLayout
 import java.awt.Color
@@ -44,6 +48,37 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class StudioSettingsPanelTest {
+    @Test
+    fun `the native Accent tab follows Current and Draft from the shell`(): Unit =
+        onEdt {
+            val document = catalogTestDocument()
+            val draft = catalogTestWork(document).drafts.single()
+            val accent =
+                StudioAccentSection(
+                    onDraftChanged = { error("Render must not dispatch edits") },
+                    chooseCustom = { null },
+                    shuffleColor = { error("Render must not shuffle") },
+                )
+            accent.render(
+                StudioAccentView(
+                    AyuVariant.MIRAGE,
+                    StudioAccentEditing.choose(draft, AyuVariant.MIRAGE, AccentHex.require("#5CCFE6")),
+                    document.currents.global.appearance,
+                    SystemAccentPolicy.BY_PROFILE,
+                    isEditable = true,
+                ),
+            )
+            val fixture = fixture(accent = accent.content)
+            val current = view()
+            fixture.panel.render(current)
+            assertTrue(descendants(fixture.panel).contains(accent.content.component))
+            assertTrue(labels(fixture.panel).any { it.text == "Global accent sample · #FFCC66" })
+
+            fixture.panel.render(current.copy(profiles = current.profiles.copy(preview = PreviewMode.DRAFT)))
+            assertTrue(labels(fixture.panel).any { it.text == "Global accent sample · #5CCFE6" })
+            assertTrue(fixture.events.previews.isEmpty())
+        }
+
     @Test
     fun `shell keeps the brand one picker seven familiar tabs and one pending status`(): Unit =
         onEdt {
@@ -265,7 +300,10 @@ class StudioSettingsPanelTest {
         )
     }
 
-    private fun fixture(beforePreview: (StudioSettingsSection, PreviewMode) -> Unit = { _, _ -> }): Fixture {
+    private fun fixture(
+        accent: StudioSectionContent? = null,
+        beforePreview: (StudioSettingsSection, PreviewMode) -> Unit = { _, _ -> },
+    ): Fixture {
         val selections = mutableListOf<StudioProfileChoice>()
         val previews = mutableListOf<PreviewMode>()
         val navigation = mutableListOf<StudioSettingsSection>()
@@ -277,6 +315,7 @@ class StudioSettingsPanelTest {
         val glow = GlowGroupPanel()
         val sections =
             StudioSettingsSection.entries.map { section ->
+                if (section == StudioSettingsSection.ACCENT && accent != null) return@map accent
                 val sample =
                     when (section) {
                         StudioSettingsSection.FONT -> font
