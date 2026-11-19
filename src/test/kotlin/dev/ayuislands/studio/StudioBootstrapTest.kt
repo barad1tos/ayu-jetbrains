@@ -218,6 +218,77 @@ class StudioBootstrapTest {
         assertFalse(Files.exists(studio.resolve("source-backup")))
     }
 
+    @Test
+    fun `archive publication failure stops before the first Studio write`() {
+        val original = legacySettings()
+        val files = openStudioFiles(studio)
+        val interrupted =
+            object : StudioFiles by files {
+                override fun publishNew(
+                    source: String,
+                    destination: String,
+                ) {
+                    if (destination.endsWith("/manifest.xml")) throw IOException("Archive manifest was not published")
+                    files.publishNew(source, destination)
+                }
+            }
+        StudioAppearanceStore(interrupted).use { store ->
+            val rejected = assertIs<StudioBootstrapResult.ReadOnly>(bootstrap(store).load("first"))
+            assertEquals(StoreIssue.IO, rejected.state.issue)
+            assertEquals(StoreLoad.Empty, store.load())
+        }
+        assertFalse(Files.exists(studio.resolve("pending.xml")))
+        assertContentEquals(original, Files.readAllBytes(options.resolve("ayuIslands.xml")))
+    }
+
+    @Test
+    fun `colliding project paths keep the archived mapping without choosing an accent`() {
+        val original =
+            writeLegacy(
+                "ayuIslandsAccentMappings.xml",
+                $$"""
+                <application><component name="AyuIslandsAccentMappings">
+                    <option name="projectAccents"><map>
+                        <entry key="$USER_HOME$/project" value="#5CCFE6" />
+                        <entry key="/home/ayu/project" value="#F07178" />
+                    </map></option>
+                </component></application>
+                """.trimIndent(),
+            )
+        open().use { store ->
+            val blocked = assertIs<StudioBootstrapResult.ReadOnly>(bootstrap(store).load("first"))
+            assertEquals(StoreIssue.CONFLICT, blocked.state.issue)
+            assertEquals(StoreLoad.Empty, store.load())
+        }
+        assertContentEquals(original, Files.readAllBytes(studio.resolve("source-backup/first/mappings.xml")))
+    }
+
+    @Test
+    fun `failed journal cleanup keeps accepted migration recoverable across restart`() {
+        legacySettings()
+        val files = openStudioFiles(studio)
+        val interrupted =
+            object : StudioFiles by files {
+                override fun remove(name: String) {
+                    if (name == "pending.xml") throw IOException("Accepted journal could not be removed")
+                    files.remove(name)
+                }
+            }
+        val committed =
+            StudioAppearanceStore(interrupted).use { store ->
+                val pending = assertIs<StudioBootstrapResult.Recovering>(bootstrap(store).load("first")).state
+                assertEquals(pending, store.load())
+                assertEquals(pending.journal.candidate, pending.document)
+                pending.journal.candidate
+            }
+        writeLegacy("ayuIslands.xml", "later legacy edit")
+        open().use { store ->
+            assertEquals(StudioBootstrapResult.Ready(committed), bootstrap(store).load("reopen"))
+            assertEquals(StoreLoad.Ready(committed), store.load())
+            assertFalse(Files.exists(studio.resolve("source-backup/reopen")))
+        }
+    }
+
     private fun open(): StudioAppearanceStore = StudioAppearanceStore(openStudioFiles(studio))
 
     private fun bootstrap(store: StudioAppearanceStore): StudioBootstrap = StudioBootstrap(store, options, "/home/ayu")
