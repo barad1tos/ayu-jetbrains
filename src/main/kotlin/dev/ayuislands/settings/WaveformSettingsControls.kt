@@ -6,6 +6,7 @@ import com.intellij.ui.JBColor
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.DslComponentProperty
 import com.intellij.ui.dsl.builder.Panel
+import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.gridLayout.UnscaledGaps
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.glow.GlowShape
@@ -56,10 +57,18 @@ internal data class WaveformControlVisibility(
     val waveform: AtomicBooleanProperty,
 )
 
+internal class WaveformControlBadges(
+    val attach: (Row, String, () -> Boolean) -> Unit = { row, id, visible -> row.newFeatureBadge(id, visible) },
+    val acknowledge: (
+        String,
+    ) -> Unit = { id -> SettingsBadges.acknowledgeAnchor(AyuIslandsSettings.getInstance().state, id) },
+)
+
 internal class WaveformSettingsControls(
     initial: WaveformSettingsValue,
     private val gate: PremiumFeatureGate,
     private val visibility: WaveformControlVisibility,
+    private val badges: WaveformControlBadges = WaveformControlBadges(),
     private val onChange: (WaveformSettingsValue) -> Unit,
 ) {
     internal var shapeCombo: ComboBox<String>? = null
@@ -198,16 +207,13 @@ internal class WaveformSettingsControls(
                     val shape = GlowShape.entries.first { it.displayName == selected }
                     update(value.copy(shape = shape))
                     if (shape == GlowShape.WAVEFORM) {
-                        SettingsBadges.acknowledgeAnchor(
-                            AyuIslandsSettings.getInstance().state,
-                            ROUTING_BADGE_ID,
-                        )
+                        badges.acknowledge(ROUTING_BADGE_ID)
                     }
                 },
             )
             shapeCombo = combo
             cell(combo).widthGroup(WAVEFORM_COMBO_GROUP)
-            newFeatureBadge("glow-waveform")
+            badges.attach(this, "glow-waveform") { true }
         }
     }
 
@@ -228,7 +234,7 @@ internal class WaveformSettingsControls(
                 )
                 movementCombo = combo
                 cell(combo).widthGroup(WAVEFORM_COMBO_GROUP)
-                newFeatureBadge(ROUTING_BADGE_ID) { visibility.waveform.get() || !gate.isUnlocked }
+                badges.attach(this, ROUTING_BADGE_ID) { visibility.waveform.get() || !gate.isUnlocked }
             }.visibleIfUnlockedOrPreview(visibility.waveform, gate)
     }
 
