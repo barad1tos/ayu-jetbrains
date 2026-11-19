@@ -23,4 +23,5 @@ internal data class StudioSettingsView(
     val authority: AuthorityStatus,
     val acceptedAccent: AccentHex,
     val pendingBadgeIds: StudioList<String>,
+    val acceptedCleanupPending: Boolean = false,
 )
