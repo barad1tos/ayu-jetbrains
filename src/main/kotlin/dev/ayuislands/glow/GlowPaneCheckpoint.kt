@@ -32,16 +32,18 @@ internal class GlowPaneCheckpoint(
     val hasPending: Boolean
         get() = phase != GlowCheckpointPhase.ACCEPTED && GlowFieldState.WRITING in fields.values
 
-    fun apply() {
+    /** Reserve the owner after validation; the reservation must leave pane values unchanged. */
+    fun apply(beforeFirstWrite: () -> Unit = {}) {
         checkEdt()
         check(phase == GlowCheckpointPhase.PREPARED) { "Glow pane change was already started" }
         phase = GlowCheckpointPhase.APPLYING
-        for (field in fields.keys) {
+        fields.keys.forEachIndexed { index, field ->
             checkCurrent()
             if (!GlowPaneFields.matches(field, pane.captureAppearance(), before)) {
                 fields[field] = GlowFieldState.FOREIGN
                 error("Glow pane changed before apply: $field")
             }
+            if (index == 0) beforeFirstWrite()
             fields[field] = GlowFieldState.WRITING
             write(field, planned)
             checkCurrent()
@@ -57,10 +59,25 @@ internal class GlowPaneCheckpoint(
         phase = GlowCheckpointPhase.APPLIED
     }
 
-    fun restore(blockedBy: Set<GlowPaneField> = emptySet()) {
+    fun restore(
+        blockedBy: Set<GlowPaneField> = emptySet(),
+        targetRetired: Boolean = false,
+    ) {
         checkEdt()
         check(phase != GlowCheckpointPhase.ACCEPTED) { "Accepted Glow pane changes cannot be restored" }
         if (phase == GlowCheckpointPhase.RESTORED) return
+        if (targetRetired) {
+            // A disposed manager will remove this pane. Keep the receipt terminal without writing to it.
+            fields.replaceAll { _, state ->
+                when (state) {
+                    GlowFieldState.PREPARED -> GlowFieldState.RESTORED
+                    GlowFieldState.WRITING -> GlowFieldState.FOREIGN
+                    else -> state
+                }
+            }
+            phase = GlowCheckpointPhase.RESTORED
+            return
+        }
         phase = GlowCheckpointPhase.RESTORING
         val failures = mutableListOf<RuntimeException>()
         for (field in fields.keys.toList().asReversed()) {

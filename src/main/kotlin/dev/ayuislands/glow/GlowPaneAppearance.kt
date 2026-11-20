@@ -3,6 +3,12 @@ package dev.ayuislands.glow
 import dev.ayuislands.glow.waveform.WaveformConfig
 import java.awt.Color
 
+/** A mounted pane and the native manager's identity check for that exact mount. */
+internal data class GlowPaneTarget(
+    val pane: GlowGlassPane,
+    val isCurrent: () -> Boolean,
+)
+
 /** Installed appearance of one pane, excluding animation progress and host geometry. */
 internal data class GlowPaneAppearance(
     val color: Color,
