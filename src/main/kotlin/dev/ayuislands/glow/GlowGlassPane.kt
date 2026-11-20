@@ -83,6 +83,18 @@ class GlowGlassPane(
     internal val usesWaveformBounds: Boolean
         get() = glowShape == GlowShape.WAVEFORM
 
+    internal fun captureAppearance(): GlowPaneAppearance =
+        GlowPaneAppearance(
+            glowColor,
+            glowStyle,
+            glowIntensity,
+            glowWidth,
+            glowPlacement,
+            glowShape,
+            waveformConfig,
+            isVisible,
+        )
+
     internal val waveformMargin: Int
         get() = WaveformPainter.marginFor(waveformConfig.amplitude, glowWidth).toInt()
 
@@ -183,12 +195,14 @@ class GlowGlassPane(
     internal fun configureWaveform(
         shape: GlowShape,
         config: WaveformConfig,
+        preserveFailure: Boolean = false,
     ) {
         val previousShape = glowShape
         val previousConfig = waveformConfig
         val geometryChanged = previousShape != shape || previousConfig != config
         val shouldRetry =
-            waveformFailed &&
+            !preserveFailure &&
+                waveformFailed &&
                 shape == GlowShape.WAVEFORM &&
                 (previousShape != GlowShape.WAVEFORM || previousConfig != config)
         glowShape = shape
