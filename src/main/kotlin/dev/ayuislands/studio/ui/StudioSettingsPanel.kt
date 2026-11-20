@@ -124,7 +124,8 @@ private fun orderedContent(sections: List<StudioSectionContent>): List<StudioSec
 private fun statusText(view: StudioSettingsView): String =
     when (view.authority) {
         AuthorityStatus.READ_ONLY -> "Read-only settings"
-        AuthorityStatus.RECOVERY -> "Recovery required"
+        AuthorityStatus.RECOVERY ->
+            if (view.acceptedCleanupPending) "Applied; cleanup needs attention" else "Recovery required"
         AuthorityStatus.READY -> if (view.profiles.hasPendingChanges) "Pending changes" else "No pending changes"
     }
 

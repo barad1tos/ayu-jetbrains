@@ -387,18 +387,18 @@ class StudioDraftStoreTest {
     }
 }
 
-private enum class IoOperation { READ, REPLACE, REMOVE }
+internal enum class IoOperation { READ, REPLACE, REMOVE }
 
-private enum class IoBoundary { BEFORE, AFTER }
+internal enum class IoBoundary { BEFORE, AFTER }
 
-private data class IoEvent(
+internal data class IoEvent(
     val operation: IoOperation,
     val name: String,
     val boundary: IoBoundary,
 )
 
 /** Wrap real temporary files and fail only the specified operation, in order. */
-private class FaultingStudioFiles(
+internal class FaultingStudioFiles(
     private val actual: StudioFiles,
 ) : StudioFiles by actual {
     private val failures = ArrayDeque<IoEvent>()
