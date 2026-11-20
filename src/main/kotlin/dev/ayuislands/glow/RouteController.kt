@@ -6,6 +6,7 @@ import com.intellij.openapi.wm.ToolWindowManager
 import com.intellij.openapi.wm.ToolWindowType
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.glow.waveform.CrossWindowBridge
+import dev.ayuislands.glow.waveform.RouteClock
 import dev.ayuislands.glow.waveform.RouteConnector
 import dev.ayuislands.glow.waveform.RouteConnectorId
 import dev.ayuislands.glow.waveform.RouteCoordinator
@@ -64,7 +65,9 @@ internal class RouteController(
     private val focusedSurfaceId: () -> String?,
     private val state: () -> AyuIslandsState,
     private val onFailure: (RuntimeException) -> Unit,
+    private val allowGraphRefresh: () -> Boolean = { true },
 ) {
+    private val routeClock = RouteClock()
     private var coordinator: RouteCoordinator? = null
     private var timer: Timer? = null
     private var layoutTimer: Timer? = null
@@ -87,7 +90,7 @@ internal class RouteController(
 
     fun configure(config: WaveformConfig) {
         if (coordinator == null) {
-            coordinator = RouteCoordinator(config)
+            coordinator = RouteCoordinator(config, clock = routeClock)
             isFailureLogged = false
         } else {
             dispatch(RouteEvent.Configure(config))
@@ -119,13 +122,19 @@ internal class RouteController(
         val current =
             layoutTimer
                 ?: Timer(LAYOUT_DEBOUNCE_MS) {
-                    rebuildGraph()
+                    if (allowGraphRefresh()) rebuildGraph()
                 }.also {
                     it.isRepeats = false
                     layoutTimer = it
                 }
         current.restart()
     }
+
+    fun capturePlaybackTimers(): List<GlowPlaybackTimer> =
+        listOfNotNull(
+            GlowPlaybackTimer.capture(resumeClock = routeClock::resetWallTick) { timer },
+            GlowPlaybackTimer.capture { layoutTimer },
+        )
 
     fun dispose() {
         layoutTimer?.stop()

@@ -48,6 +48,7 @@ class GlowGlassPane(
     private var fadeAlpha: Float = 0.0f
     private var fadeTimer: Timer? = null
     private var waveformTimer: Timer? = null
+    private var waveformPauseOffsetMs = 0L
     private var waveformEngine: WaveformEngine? = null
     private var waveformFrame: WaveformFrame? = null
     private var waveformPlan: WaveformRenderPlan? = null
@@ -255,7 +256,7 @@ class GlowGlassPane(
 
     internal fun onWaveformKeystroke(nowMs: Long = System.currentTimeMillis()) {
         if (isRouteMode || glowShape != GlowShape.WAVEFORM || waveformFailed) return
-        waveformEngine?.handle(WaveformEvent.Keystroke(nowMs))?.let(::applyWaveformUpdate)
+        waveformEngine?.handle(WaveformEvent.Keystroke(nowMs - waveformPauseOffsetMs))?.let(::applyWaveformUpdate)
     }
 
     internal fun changeWaveformPowerSave(enabled: Boolean) {
@@ -407,7 +408,7 @@ class GlowGlassPane(
                             val update =
                                 engine.handle(
                                     WaveformEvent.Tick(
-                                        nowMs = timeSource(),
+                                        nowMs = timeSource() - waveformPauseOffsetMs,
                                         trackLength = waveformTrackLength,
                                     ),
                                 )
@@ -458,6 +459,15 @@ class GlowGlassPane(
                 repaint()
                 if (fadeAlpha <= 0.0f) fadeTimer?.stop()
             }.also { it.start() }
+    }
+
+    internal fun capturePlaybackTimers(isOwned: () -> Boolean): List<GlowPlaybackTimer> {
+        val capturedAt = timeSource()
+        val resumeWaveformClock = { waveformPauseOffsetMs += (timeSource() - capturedAt).coerceAtLeast(0L) }
+        return listOfNotNull(
+            GlowPlaybackTimer.capture(isOwned) { fadeTimer },
+            GlowPlaybackTimer.capture(isOwned, resumeWaveformClock) { waveformTimer },
+        )
     }
 
     fun stopAnimation() {

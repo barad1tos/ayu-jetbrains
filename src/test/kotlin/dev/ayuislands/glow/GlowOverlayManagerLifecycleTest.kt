@@ -31,6 +31,7 @@ import dev.ayuislands.glow.waveform.RouteSnapshot
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformEdge
+import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.WaveformRouteLayer
@@ -53,6 +54,9 @@ import java.awt.KeyboardFocusManager
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Window
+import java.awt.event.ActionEvent
+import java.awt.event.ComponentEvent
+import java.awt.event.ComponentListener
 import javax.swing.JLayeredPane
 import javax.swing.SwingUtilities
 import javax.swing.Timer
@@ -60,6 +64,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -407,32 +412,227 @@ class GlowOverlayManagerLifecycleTest {
     fun `Power Save fanout reaches every open project`() {
         val project1 = stubProject("power-save-1")
         val project2 = stubProject("power-save-2")
-        val manager1 = mockk<GlowOverlayManager>()
-        val manager2 = mockk<GlowOverlayManager>()
-        val input1 = mockk<GlowInputSink>(relaxed = true)
-        val input2 = mockk<GlowInputSink>(relaxed = true)
+        val manager1 = GlowOverlayManager(project1)
+        val manager2 = GlowOverlayManager(project2)
+        val pane1 = seedPowerSaveTarget(manager1)
+        val pane2 = seedPowerSaveTarget(manager2)
         every { mockProjectManager.openProjects } returns arrayOf(project1, project2)
         every { project1.getService(GlowOverlayManager::class.java) } returns manager1
         every { project2.getService(GlowOverlayManager::class.java) } returns manager2
-        every { manager1.input } returns input1
-        every { manager2.input } returns input2
 
         GlowOverlayManager.broadcastPowerSave(enabled = true)
 
-        verify(exactly = 1) { input1.onPowerSaveChanged(true) }
-        verify(exactly = 1) { input2.onPowerSaveChanged(true) }
+        verify(exactly = 1) { pane1.changeWaveformPowerSave(true) }
+        verify(exactly = 1) { pane2.changeWaveformPowerSave(true) }
     }
 
     @Test
     fun `Power Save reaches the active waveform through the real input sink`() {
         val manager = GlowOverlayManager(stubProject("power-save-input-project"))
-        val active = mockk<GlowGlassPane>(relaxed = true)
-        seedOverlaysMapWithMocks(manager, active, mockk(relaxed = true), mockk(relaxed = true), key = "active")
-        setActiveGlow(manager)
+        val active = seedPowerSaveTarget(manager)
 
         manager.input.onPowerSaveChanged(enabled = true)
 
         verify(exactly = 1) { active.changeWaveformPowerSave(true) }
+    }
+
+    @Test
+    fun `Power Save fanout isolates a project failure without hiding it from the direct sink`() {
+        val firstProject = stubProject("failing-power-save")
+        val secondProject = stubProject("following-power-save")
+        val firstManager = GlowOverlayManager(firstProject)
+        val secondManager = GlowOverlayManager(secondProject)
+        val firstPane = seedPowerSaveTarget(firstManager)
+        val secondPane = seedPowerSaveTarget(secondManager)
+        every { mockProjectManager.openProjects } returns arrayOf(firstProject, secondProject)
+        every { firstProject.getService(GlowOverlayManager::class.java) } returns firstManager
+        every { secondProject.getService(GlowOverlayManager::class.java) } returns secondManager
+        val failure = IllegalStateException("Power Save peer failed")
+        every { firstPane.changeWaveformPowerSave(true) } throws failure
+
+        GlowOverlayManager.broadcastPowerSave(enabled = true)
+
+        verify(exactly = 1) { secondPane.changeWaveformPowerSave(true) }
+        assertSame(failure, assertFailsWith<IllegalStateException> { firstManager.input.onPowerSaveChanged(true) })
+    }
+
+    @Test
+    fun `held changes cannot rewrite an active overlay and release reports refresh`() {
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+        val manager = GlowOverlayManager(stubProject("held-overlay"))
+        val pane = mockk<GlowGlassPane>(relaxed = true)
+        every { pane.isWaveform } returns true
+        seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), mockk(relaxed = true), key = "active")
+        setActiveGlow(manager)
+        markManagerWarm(manager)
+        val hold = manager.holdUpdates()
+        try {
+            manager.updateGlow(AccentHex.unsafeOf("#ABCDEF"))
+            manager.input.onPowerSaveChanged(enabled = true)
+            manager.input.onKeystroke()
+            verify(exactly = 0) { pane.glowColor = any() }
+            verify(exactly = 0) { pane.changeWaveformPowerSave(any()) }
+            verify(exactly = 0) { pane.onWaveformKeystroke(any()) }
+
+            assertTrue(hold.release())
+            manager.updateGlow()
+            manager.input.onPowerSaveChanged(enabled = false)
+
+            verify(exactly = 0) { pane.glowColor = Color.decode("#ABCDEF") }
+            verify(exactly = 1) { pane.glowColor = Color.decode("#5CCFE6") }
+            verify(exactly = 1) { pane.changeWaveformPowerSave(false) }
+        } finally {
+            hold.release()
+        }
+    }
+
+    @Test
+    fun `activation already queued before a hold cannot replay after release`() {
+        val manager = GlowOverlayManager(stubProject("queued-overlay"))
+        val pane = mockk<GlowGlassPane>(relaxed = true)
+        every { pane.isWaveform } returns true
+        seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), mockk(relaxed = true), key = "active")
+        setActiveGlow(manager)
+        val listener = readActivationListener(manager)
+        val frame = mockk<IdeFrame>()
+        val scheduled = mutableListOf<Runnable>()
+        every { SwingUtilities.invokeLater(any()) } answers { scheduled.add(firstArg<Runnable>()) }
+        every { SwingUtilities.isEventDispatchThread() } returns false
+        listener.applicationDeactivated(frame)
+        every { SwingUtilities.isEventDispatchThread() } returns true
+        val hold = manager.holdUpdates()
+
+        assertTrue(hold.release())
+        scheduled.single().run()
+        verify(exactly = 0) { pane.deactivateWaveform() }
+        listener.applicationDeactivated(frame)
+        verify(exactly = 1) { pane.deactivateWaveform() }
+    }
+
+    @Test
+    fun `transient changes are dropped without requesting a persistent refresh`() {
+        val manager = GlowOverlayManager(stubProject("held-preview"))
+        val pane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), mockk(relaxed = true), key = "active")
+        setActiveGlow(manager)
+        val hold = manager.holdUpdates()
+
+        manager.input.onKeystroke()
+        manager.previewPlacements(GlowPlacement.SIDE_EDGES, GlowPlacement.SIDE_EDGES)
+
+        assertFalse(hold.release())
+        verify(exactly = 0) { pane.glowPlacement = any() }
+        manager.previewPlacements(GlowPlacement.SIDE_EDGES, GlowPlacement.SIDE_EDGES)
+        verify(exactly = 1) { pane.glowPlacement = GlowPlacement.SIDE_EDGES }
+    }
+
+    @Test
+    fun `playback resumes the same pane and animator timers without resetting visible progress`() {
+        val manager = GlowOverlayManager(stubProject("paused-playback"))
+        val pane = configuredPane(WaveformMovement.CLOCKWISE)
+        var playbackNowMs = 1_000L
+        pane.timeSource = { playbackNowMs }
+        val animator = GlowAnimator()
+        seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), mockk(relaxed = true), key = "active")
+        setAnimator(manager, animator)
+
+        EventQueue.invokeAndWait {
+            try {
+                pane.startFadeIn()
+                pane.activateWaveform(powerSaveEnabled = false)
+                animator.start(GlowAnimation.REACTIVE) { pane.animationAlpha = it }
+                animator.onKeystroke()
+                val fade = ownedTimer(pane, "fadeTimer")
+                val waveform = ownedTimer(pane, "waveformTimer")
+                val animation = ownedTimer(animator, "timer")
+                val timers = listOf(fade, waveform, animation)
+                fireTimer(fade)
+                fireTimer(animation)
+                fireTimer(waveform)
+                playbackNowMs += 20
+                fireTimer(waveform)
+                val traceOffset = waveformAnchorOffset(pane)
+                val fadeAlpha = pane.readFadeAlpha()
+                val alpha = pane.animationAlpha
+                val boost = animator.reactiveBoost
+                assertTrue(timers.all { it.isRunning })
+                val hold = manager.holdUpdates()
+
+                hold.pausePlayback()
+                hold.pausePlayback()
+
+                assertTrue(timers.none { it.isRunning })
+                assertEquals(fadeAlpha, pane.readFadeAlpha())
+                assertEquals(alpha, pane.animationAlpha)
+                assertEquals(boost, animator.reactiveBoost)
+                assertEquals(1L, animator.frame)
+
+                playbackNowMs += 1_000
+                hold.release()
+
+                assertTrue(timers.all { it.isRunning })
+                assertSame(fade, ownedTimer(pane, "fadeTimer"))
+                assertSame(waveform, ownedTimer(pane, "waveformTimer"))
+                assertSame(animation, ownedTimer(animator, "timer"))
+                fireTimer(waveform)
+                assertEquals(traceOffset, waveformAnchorOffset(pane))
+                fireTimer(animation)
+                assertEquals(2L, animator.frame)
+                assertTrue(animator.reactiveBoost in 0f..<boost)
+            } finally {
+                pane.stopAnimation()
+                manager.dispose()
+            }
+        }
+    }
+
+    @Test
+    fun `route playback resumes after a hold without reviving replaced pane timers`() {
+        state.glowEditor = true
+        state.glowGit = true
+        state.glowShape = GlowShape.WAVEFORM.name
+        state.waveformDirection = WaveformMovement.CHAOTIC.name
+        val project = stubProject("paused-route")
+        val manager = GlowOverlayManager(project)
+        seedRouteOverlays(manager, project)
+        markManagerWarm(manager)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+
+        EventQueue.invokeAndWait {
+            try {
+                manager.updateGlow()
+                scheduleGraphRefresh(manager)
+                val pane = readGlassPane(manager, "Editor")
+                val previousFade = ownedTimer(pane, "fadeTimer")
+                val stoppedFade = ownedTimer(readGlassPane(manager, "Commit"), "fadeTimer")
+                stoppedFade.stop()
+                val routeTimer = ownedTimer(readRouteController(manager), "timer")
+                val layoutTimer = ownedTimer(readRouteController(manager), "layoutTimer")
+                assertTrue(routeTimer.isRunning && layoutTimer.isRunning && previousFade.isRunning)
+                val coordinator = requireNotNull(readRouteCoordinator(manager))
+                coordinator.handle(RouteEvent.Tick(1_000))
+                coordinator.handle(RouteEvent.Tick(1_020))
+                val routeBeforeHold = coordinator.snapshot
+                assertTrue(routeBeforeHold.distanceOnLeg > 0f)
+                val hold = manager.holdUpdates()
+
+                hold.pausePlayback()
+                assertFalse(routeTimer.isRunning || layoutTimer.isRunning || previousFade.isRunning)
+                pane.startFadeOut()
+                val replacement = ownedTimer(pane, "fadeTimer")
+                hold.release()
+
+                assertTrue(routeTimer.isRunning && layoutTimer.isRunning && replacement.isRunning)
+                assertFalse(previousFade.isRunning)
+                assertFalse(stoppedFade.isRunning)
+                assertSame(replacement, ownedTimer(pane, "fadeTimer"))
+                coordinator.handle(RouteEvent.Tick(2_020))
+                assertEquals(routeBeforeHold, coordinator.snapshot)
+            } finally {
+                manager.dispose()
+                stopOverlayAnimations(manager)
+            }
+        }
     }
 
     @Test
@@ -934,6 +1134,45 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     @Test
+    fun `a scheduled layout refresh leaves the route intact until its hold settles`() {
+        state.glowEnabled = true
+        state.glowEditor = true
+        state.glowGit = true
+        state.glowShape = GlowShape.WAVEFORM.name
+        state.waveformDirection = WaveformMovement.CHAOTIC.name
+        val project = stubProject("held-layout")
+        val manager = GlowOverlayManager(project)
+        seedRouteOverlays(manager, project)
+        markManagerWarm(manager)
+        every { AyuVariant.detect() } returns AyuVariant.MIRAGE
+
+        EventQueue.invokeAndWait {
+            try {
+                manager.updateGlow()
+                val current = requireNotNull(readRouteGraph(manager))
+                assertTrue("Commit" in current.surfaces)
+                scheduleGraphRefresh(manager)
+                val timer = requireNotNull(readLayoutTimer(manager))
+                timer.stop()
+                val event = ActionEvent(timer, ActionEvent.ACTION_PERFORMED, null)
+                val refresh = { timer.actionListeners.single().actionPerformed(event) }
+                val hold = manager.holdUpdates()
+                state.glowGit = false
+
+                refresh()
+                assertSame(current, readRouteGraph(manager))
+                assertTrue(hold.release())
+
+                refresh()
+                assertFalse("Commit" in requireNotNull(readRouteGraph(manager)).surfaces)
+            } finally {
+                manager.dispose()
+                stopOverlayAnimations(manager)
+            }
+        }
+    }
+
+    @Test
     fun `focus changes do not reroute an active chaotic waveform`() {
         state.glowEnabled = true
         state.glowEditor = true
@@ -1048,6 +1287,8 @@ class GlowOverlayManagerLifecycleTest {
         every { SwingUtilities.invokeLater(any()) } answers { firstArg<Runnable>().run() }
         val project = stubProject("bounds-project")
         val host = mockk<javax.swing.JComponent>(relaxed = true)
+        val geometryListeners = mutableListOf<ComponentListener>()
+        every { host.addComponentListener(capture(geometryListeners)) } just Runs
         val rootPane = mockk<javax.swing.JRootPane>(relaxed = true)
         val layeredPane = mockk<JLayeredPane>(relaxed = true)
         every { host.width } returns 120
@@ -1070,6 +1311,17 @@ class GlowOverlayManagerLifecycleTest {
             Rectangle(50 - margin, 40 - margin, 120 + margin * 2, 80 + margin * 2),
             readGlassPane(waveformManager, "waveform").bounds,
         )
+
+        val listener = geometryListeners.first()
+        val solidPane = readGlassPane(solidManager, "solid")
+        val resize = ComponentEvent(host, ComponentEvent.COMPONENT_RESIZED)
+        val hold = solidManager.holdUpdates()
+        every { host.width } returns 140
+        listener.componentResized(resize)
+        assertEquals(120, solidPane.width)
+        assertTrue(hold.release())
+        listener.componentResized(resize)
+        assertEquals(140, solidPane.width)
     }
 
     @Test
@@ -1847,6 +2099,26 @@ class GlowOverlayManagerLifecycleTest {
         field.set(manager, overlayId)
     }
 
+    private fun seedPowerSaveTarget(manager: GlowOverlayManager): GlowGlassPane {
+        val pane = mockk<GlowGlassPane>(relaxed = true)
+        seedOverlaysMapWithMocks(manager, pane, mockk(relaxed = true), mockk(relaxed = true), key = "active")
+        setActiveGlow(manager)
+        return pane
+    }
+
+    private fun ownedTimer(
+        owner: Any,
+        name: String,
+    ): Timer {
+        val field = owner.javaClass.getDeclaredField(name)
+        field.isAccessible = true
+        return field.get(owner) as Timer
+    }
+
+    private fun fireTimer(timer: Timer) {
+        timer.actionListeners.single().actionPerformed(ActionEvent(timer, ActionEvent.ACTION_PERFORMED, null))
+    }
+
     private fun markManagerWarm(manager: GlowOverlayManager) {
         val field = GlowOverlayManager::class.java.getDeclaredField("messageBusConnected")
         field.isAccessible = true
@@ -2000,12 +2272,18 @@ class GlowOverlayManagerLifecycleTest {
         return field.getFloat(this)
     }
 
+    private fun waveformAnchorOffset(pane: GlowGlassPane): Float {
+        val field = GlowGlassPane::class.java.getDeclaredField("waveformFrame")
+        field.isAccessible = true
+        return assertNotNull((field.get(pane) as? WaveformFrame)?.trace).anchorOffset
+    }
+
     private fun GlowGlassPane.advanceFade() {
         val field = GlowGlassPane::class.java.getDeclaredField("fadeTimer")
         field.isAccessible = true
         val timer = requireNotNull(field.get(this) as Timer?)
         timer.actionListeners.forEach { listener ->
-            listener.actionPerformed(java.awt.event.ActionEvent(timer, 0, "tick"))
+            listener.actionPerformed(ActionEvent(timer, 0, "tick"))
         }
     }
 

@@ -51,6 +51,12 @@ class GlowOverlayManager(
     private val log = logger<GlowOverlayManager>()
     private val overlays = mutableMapOf<String, OverlayEntry>()
     private var activeGlowId: String? = null
+
+    @Volatile
+    private var disposed = false
+
+    private val focusRingManager = FocusRingManager()
+    private val updates = GlowUpdateGate({ disposed }, focusRingManager::holdCallbacks)
     private val routeController =
         RouteController(
             project = project,
@@ -62,12 +68,8 @@ class GlowOverlayManager(
             focusedSurfaceId = { activeGlowId },
             state = { AyuIslandsSettings.getInstance().state },
             onFailure = { exception -> log.warn("Chaotic waveform route render failed", exception) },
+            allowGraphRefresh = { updates.admit() },
         )
-
-    @Volatile
-    private var disposed = false
-
-    private val focusRingManager = FocusRingManager()
 
     // Global focus listener
     private var focusChangeListener: PropertyChangeListener? = null
@@ -83,22 +85,19 @@ class GlowOverlayManager(
             }
 
             private fun syncWaveform(isActive: Boolean) {
-                val update =
-                    Runnable {
-                        if (disposed) return@Runnable
-                        if (routeController.handle(RouteEvent.ApplicationActiveChanged(isActive))) {
-                            return@Runnable
-                        }
-                        val glassPane = activeGlowId?.let { overlays[it]?.glassPane } ?: return@Runnable
-                        if (!glassPane.isWaveform) return@Runnable
-
-                        if (isActive) {
-                            glassPane.activateWaveform(PowerSaveMode.isEnabled())
-                        } else {
-                            glassPane.deactivateWaveform()
-                        }
+                updates.dispatch {
+                    if (routeController.handle(RouteEvent.ApplicationActiveChanged(isActive))) {
+                        return@dispatch
                     }
-                if (SwingUtilities.isEventDispatchThread()) update.run() else SwingUtilities.invokeLater(update)
+                    val glassPane = activeGlowId?.let { overlays[it]?.glassPane } ?: return@dispatch
+                    if (!glassPane.isWaveform) return@dispatch
+
+                    if (isActive) {
+                        glassPane.activateWaveform(PowerSaveMode.isEnabled())
+                    } else {
+                        glassPane.deactivateWaveform()
+                    }
+                }
             }
         }
 
@@ -132,20 +131,27 @@ class GlowOverlayManager(
 
         fun broadcastPowerSave(enabled: Boolean) {
             for (project in ProjectManager.getInstance().openProjects) {
-                val update =
-                    Runnable {
-                        try {
-                            getInstance(project).input.onPowerSaveChanged(enabled)
-                        } catch (exception: RuntimeException) {
-                            logger<GlowOverlayManager>().warn(
-                                "Failed to sync Power Save glow for project ${project.name}",
-                                exception,
-                            )
-                        }
+                val manager =
+                    try {
+                        getInstance(project)
+                    } catch (exception: RuntimeException) {
+                        logPowerSaveFailure(project, exception)
+                        continue
                     }
-                if (SwingUtilities.isEventDispatchThread()) update.run() else SwingUtilities.invokeLater(update)
+                manager.updates.dispatch {
+                    try {
+                        manager.input.onPowerSaveChanged(enabled)
+                    } catch (exception: RuntimeException) {
+                        logPowerSaveFailure(project, exception)
+                    }
+                }
             }
         }
+
+        private fun logPowerSaveFailure(
+            project: Project,
+            exception: RuntimeException,
+        ) = logger<GlowOverlayManager>().warn("Failed to sync Power Save glow for project ${project.name}", exception)
 
         fun safeDecodeColor(hex: String): Color =
             try {
@@ -164,10 +170,43 @@ class GlowOverlayManager(
     )
 
     private var messageBusConnected = false
+
+    internal fun holdUpdates(): UpdateHold = UpdateHold()
+
+    internal inner class UpdateHold {
+        private val hold = updates.hold()
+        private var pausedTimers: List<GlowPlaybackTimer>? = null
+
+        /** Pause the current playback only after the owning operation is ready to write. */
+        fun pausePlayback() {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
+            check(hold.isActive) { "Glow playback hold is unavailable" }
+            if (pausedTimers != null) return
+            val captured =
+                buildList {
+                    addAll(routeController.capturePlaybackTimers())
+                    animator?.let { owner ->
+                        owner.capturePlaybackTimer { animator === owner }?.let(::add)
+                    }
+                    for ((id, entry) in overlays) {
+                        addAll(entry.glassPane.capturePlaybackTimers { overlays[id] === entry })
+                    }
+                }
+            pausedTimers = captured.filter(GlowPlaybackTimer::pause)
+        }
+
+        fun release(): Boolean {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
+            if (hold.isActive) pausedTimers?.forEach(GlowPlaybackTimer::resume)
+            pausedTimers = null
+            return hold.release()
+        }
+    }
+
     internal val input =
         GlowInputSink(
             keystroke = keystroke@{
-                if (disposed) return@keystroke
+                if (!updates.admit(invalidates = false)) return@keystroke
                 val state = AyuIslandsSettings.getInstance().state
                 if (!state.glowEnabled) return@keystroke
                 if (routeController.handle(RouteEvent.Keystroke(System.currentTimeMillis()))) {
@@ -184,7 +223,8 @@ class GlowOverlayManager(
                     animator?.onKeystroke()
                 }
             },
-            powerSaveChange = { enabled ->
+            powerSaveChange = powerSave@{ enabled ->
+                if (!updates.admit()) return@powerSave
                 if (!routeController.handle(RouteEvent.PowerSaveChanged(enabled))) {
                     activeGlowId?.let { overlays[it]?.glassPane }?.changeWaveformPowerSave(enabled)
                 }
@@ -192,7 +232,7 @@ class GlowOverlayManager(
         )
 
     fun initialize() {
-        if (disposed) return
+        if (!updates.admit()) return
         if (!LicenseChecker.isLicensedOrGrace()) return
 
         val settings = AyuIslandsSettings.getInstance()
@@ -212,7 +252,7 @@ class GlowOverlayManager(
         }
 
         if (messageBusConnected) {
-            SwingUtilities.invokeLater {
+            updates.queue {
                 attachVisibleToolWindowOverlays()
                 attachEditorOverlayIfNeeded()
                 refreshActiveGlow()
@@ -231,10 +271,10 @@ class GlowOverlayManager(
             }
         }
 
-        SwingUtilities.invokeLater {
+        installFocusTracker()
+        updates.queue {
             attachVisibleToolWindowOverlays()
             attachEditorOverlayIfNeeded()
-            installFocusTracker()
             refreshActiveGlow()
             initializeFocusRingGlow()
         }
@@ -261,7 +301,7 @@ class GlowOverlayManager(
                     toolWindowManager: ToolWindowManager,
                     changeType: ToolWindowManagerListener.ToolWindowManagerEventType,
                 ) {
-                    SwingUtilities.invokeLater {
+                    updates.queue {
                         val activeId = toolWindowManager.activeToolWindowId
                         val toolWindow = activeId?.let(toolWindowManager::getToolWindow)
                         if (toolWindow?.isVisible == true) {
@@ -278,7 +318,7 @@ class GlowOverlayManager(
             FileEditorManagerListener.FILE_EDITOR_MANAGER,
             object : FileEditorManagerListener {
                 override fun selectionChanged(event: FileEditorManagerEvent) {
-                    SwingUtilities.invokeLater {
+                    updates.queue {
                         attachEditorOverlayIfNeeded()
                         routeController.scheduleGraphRefresh()
                     }
@@ -292,13 +332,7 @@ class GlowOverlayManager(
                 if (disposed) return@AccentChangeListener
                 if (project !== this@GlowOverlayManager.project) return@AccentChangeListener
 
-                if (SwingUtilities.isEventDispatchThread()) {
-                    updateGlow(hex)
-                } else {
-                    SwingUtilities.invokeLater {
-                        if (!disposed) updateGlow(hex)
-                    }
-                }
+                updates.dispatch { updateGlow(hex) }
             },
         )
 
@@ -315,12 +349,7 @@ class GlowOverlayManager(
     private fun installFocusTracker() {
         if (disposed) return
         focusChangeListener =
-            PropertyChangeListener {
-                if (disposed) return@PropertyChangeListener
-                SwingUtilities.invokeLater {
-                    if (!disposed) refreshActiveGlow()
-                }
-            }
+            PropertyChangeListener { updates.queue { refreshActiveGlow() } }
         KeyboardFocusManager
             .getCurrentKeyboardFocusManager()
             .addPropertyChangeListener("permanentFocusOwner", focusChangeListener)
@@ -429,14 +458,13 @@ class GlowOverlayManager(
         host: JComponent,
         layeredPane: JLayeredPane,
     ) {
-        SwingUtilities.invokeLater {
-            if (disposed || !host.isShowing) return@invokeLater
+        updates.queue {
+            if (!host.isShowing) return@queue
             updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = false)
-            if (!glassPane.isEditorOverlay) return@invokeLater
+            if (!glassPane.isEditorOverlay) return@queue
 
-            SwingUtilities.invokeLater {
-                if (disposed || !host.isShowing) return@invokeLater
-                updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = true)
+            updates.queue {
+                if (host.isShowing) updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = true)
             }
         }
     }
@@ -492,19 +520,22 @@ class GlowOverlayManager(
         layeredPane.add(glassPane)
         updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = false)
 
+        val refreshBounds = {
+            updates.dispatch { updateOverlayBounds(glassPane, host, layeredPane) }
+        }
         val compListener =
             object : ComponentAdapter() {
-                override fun componentResized(e: ComponentEvent) = updateOverlayBounds(glassPane, host, layeredPane)
+                override fun componentResized(e: ComponentEvent) = refreshBounds()
 
-                override fun componentMoved(e: ComponentEvent) = updateOverlayBounds(glassPane, host, layeredPane)
+                override fun componentMoved(e: ComponentEvent) = refreshBounds()
             }
         host.addComponentListener(compListener)
 
         val boundsListener =
             object : HierarchyBoundsAdapter() {
-                override fun ancestorMoved(e: HierarchyEvent) = updateOverlayBounds(glassPane, host, layeredPane)
+                override fun ancestorMoved(e: HierarchyEvent) = refreshBounds()
 
-                override fun ancestorResized(e: HierarchyEvent) = updateOverlayBounds(glassPane, host, layeredPane)
+                override fun ancestorResized(e: HierarchyEvent) = refreshBounds()
             }
         host.addHierarchyBoundsListener(boundsListener)
 
@@ -630,7 +661,7 @@ class GlowOverlayManager(
     }
 
     fun updateGlow(appliedAccent: AccentHex? = null) {
-        if (disposed) return
+        if (!updates.admit()) return
         if (!LicenseChecker.isLicensedOrGrace()) {
             removeAllOverlays()
             return
@@ -655,7 +686,7 @@ class GlowOverlayManager(
             initialize()
         }
         if (overlays.isEmpty()) {
-            SwingUtilities.invokeLater {
+            updates.queue {
                 attachVisibleToolWindowOverlays()
                 attachEditorOverlayIfNeeded()
                 refreshActiveGlow()
@@ -727,6 +758,7 @@ class GlowOverlayManager(
         editorPlacement: GlowPlacement?,
         toolWindowPlacement: GlowPlacement?,
     ) {
+        if (!updates.admit(invalidates = false)) return
         val state = AyuIslandsSettings.getInstance().state
         for ((glassPane) in overlays.values) {
             val isEditor = glassPane.isEditorOverlay

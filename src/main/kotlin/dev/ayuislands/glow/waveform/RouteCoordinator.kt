@@ -22,11 +22,11 @@ private val EMPTY_ROUTE_SNAPSHOT = RouteSnapshot(null, 0f, null, null)
 internal class RouteCoordinator(
     initialConfig: WaveformConfig,
     random: Random = Random.Default,
+    private val clock: RouteClock = RouteClock(),
 ) {
     private var config = initialConfig
     private val engine = WaveformEngine(initialConfig, random)
     private val planner = RoutePlanner(random)
-    private val clock = RouteClock()
     private var graph = RouteGraph(emptyMap(), emptyMap())
     private var previousSurfaceId: String? = null
     private var lastFrame: RouteFrame? = null
