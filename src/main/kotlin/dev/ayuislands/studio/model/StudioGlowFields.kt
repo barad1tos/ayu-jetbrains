@@ -23,6 +23,7 @@ internal enum class StudioGlowField(
     DEBUG("glowDebug"),
     GIT("glowGit"),
     SERVICES("glowServices"),
+    FOCUS_RING("glowFocusRing"),
     EDITOR_PLACEMENT("glowEditorPlacement"),
     TOOL_WINDOW_PLACEMENT("glowToolWindowPlacement"),
     WAVEFORM_MOVEMENT("waveformDirection"),
