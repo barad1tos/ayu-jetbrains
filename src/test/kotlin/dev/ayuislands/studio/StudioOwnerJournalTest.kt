@@ -371,11 +371,13 @@ class StudioOwnerJournalTest {
                         } else {
                             assertTrue(pane.isWaveform)
                             assertTrue(originalTimer.pause(), "Rollback must resume the original waveform timer")
-                            originalTimer.resume()
                         }
                     }
                 } finally {
-                    withContext(glowEdt) { manager.dispose() }
+                    withContext(glowEdt) {
+                        pane.stopAnimation()
+                        manager.dispose()
+                    }
                 }
             }
         }
