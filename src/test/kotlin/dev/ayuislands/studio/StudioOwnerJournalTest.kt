@@ -328,6 +328,60 @@ class StudioOwnerJournalTest {
     }
 
     @Test
+    fun `Glow resumes the original waveform after an aborted solid transition`() = settleSolidGlow(accept = false)
+
+    @Test
+    fun `Glow stops waveform playback after accepting solid`() = settleSolidGlow(accept = true)
+
+    private fun settleSolidGlow(accept: Boolean) {
+        val pane = glowPane(Color.ORANGE)
+        val manager = glowManager(pane)
+        val initial = catalogTestDocument()
+        val request =
+            StudioGlowPaneOperation.Request(manager, requestRefresh = {}) { _, current ->
+                StudioGlowPaneOperation.Edit(current.copy(shape = GlowShape.SOLID), setOf(GlowPaneField.SHAPE))
+            }
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                try {
+                    val originalTimer =
+                        withContext(glowEdt) {
+                            pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig())
+                            pane.activateWaveform(powerSaveEnabled = false)
+                            pane.capturePlaybackTimers { true }.single()
+                        }
+                    val applied = runner.apply(work, qualifies = { true }) { captureGlow(work, request) }
+                    assertEquals(OwnerApply.Completed, applied)
+                    withContext(glowEdt) {
+                        assertEquals(GlowShape.SOLID, pane.captureAppearance().shape)
+                        assertFalse(originalTimer.pause())
+                    }
+                    if (accept) {
+                        assertIs<CommitResult.Committed>(store.commit(work.journal.token, initial.runtime))
+                        assertEquals(OwnerAcceptance.Completed, runner.accept(work))
+                    } else {
+                        assertEquals(OwnerRollback.Settled, runner.rollback(work))
+                    }
+                    withContext(glowEdt) {
+                        if (accept) {
+                            assertEquals(GlowShape.SOLID, pane.captureAppearance().shape)
+                            assertTrue(pane.capturePlaybackTimers { true }.isEmpty())
+                        } else {
+                            assertTrue(pane.isWaveform)
+                            assertTrue(originalTimer.pause(), "Rollback must resume the original waveform timer")
+                            originalTimer.resume()
+                        }
+                    }
+                } finally {
+                    withContext(glowEdt) { manager.dispose() }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `routed owners write only after their receipts are durable in order`() {
         val owners = listOf(EffectOwner.GLOW, EffectOwner.WORKSPACE)
         val initial = catalogTestDocument()

@@ -196,13 +196,13 @@ class GlowGlassPane(
     internal fun configureWaveform(
         shape: GlowShape,
         config: WaveformConfig,
-        preserveFailure: Boolean = false,
+        staged: Boolean = false,
     ) {
         val previousShape = glowShape
         val previousConfig = waveformConfig
         val geometryChanged = previousShape != shape || previousConfig != config
         val shouldRetry =
-            !preserveFailure &&
+            !staged &&
                 waveformFailed &&
                 shape == GlowShape.WAVEFORM &&
                 (previousShape != GlowShape.WAVEFORM || previousConfig != config)
@@ -221,8 +221,11 @@ class GlowGlassPane(
             waveformFailureLogged = false
         }
         if (shape == GlowShape.SOLID) {
-            waveformEngine?.handle(WaveformEvent.Deactivate)?.let(::applyWaveformUpdate)
-            applyTimerDirective(TimerDirective.STOP)
+            // A staged change keeps the paused timer and engine available for rollback.
+            if (!staged) {
+                waveformEngine?.handle(WaveformEvent.Deactivate)?.let(::applyWaveformUpdate)
+                applyTimerDirective(TimerDirective.STOP)
+            }
             repaint()
             return
         }

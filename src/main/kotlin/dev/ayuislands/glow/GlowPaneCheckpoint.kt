@@ -98,8 +98,11 @@ internal class GlowPaneCheckpoint(
 
     fun accept() {
         checkEdt()
-        check(phase == GlowCheckpointPhase.APPLIED || phase == GlowCheckpointPhase.ACCEPTED) {
-            "Glow pane apply has not completed"
+        if (phase == GlowCheckpointPhase.ACCEPTED) return
+        check(phase == GlowCheckpointPhase.APPLIED) { "Glow pane apply has not completed" }
+        if (GlowPaneField.SHAPE in fields && planned.shape == GlowShape.SOLID && isCurrent()) {
+            val current = pane.captureAppearance()
+            if (current.shape == GlowShape.SOLID) pane.configureWaveform(current.shape, current.waveform)
         }
         phase = GlowCheckpointPhase.ACCEPTED
     }
@@ -180,7 +183,7 @@ internal class GlowPaneCheckpoint(
                 pane.configureWaveform(
                     merged.shape,
                     merged.waveform,
-                    preserveFailure = true,
+                    staged = true,
                 )
             }
         }
