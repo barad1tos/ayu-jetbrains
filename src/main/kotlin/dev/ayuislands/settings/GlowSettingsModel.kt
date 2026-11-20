@@ -32,6 +32,7 @@ internal data class GlowSettings(
     val waveformAmplitude: Int = DEFAULT_WAVEFORM_AMPLITUDE,
     val waveformIntensity: Int = DEFAULT_WAVEFORM_INTENSITY,
     val waveformLoopSeconds: Float = DEFAULT_LOOP_SECONDS,
+    val focusRing: Boolean = true,
 ) {
     fun withPresetValues(preset: GlowPreset): GlowSettings {
         val presetStyle = preset.style ?: return this
@@ -95,6 +96,7 @@ internal fun loadGlowSettings(
         waveformAmplitude = state.waveformAmplitude,
         waveformIntensity = state.waveformIntensity,
         waveformLoopSeconds = state.waveformLoopSeconds,
+        focusRing = state.glowFocusRing,
     )
 
 internal class GlowVisibility {

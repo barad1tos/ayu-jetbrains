@@ -54,6 +54,7 @@ internal object StudioGlowProjection {
             waveformAmplitude = number(StudioGlowField.AMPLITUDE),
             waveformIntensity = number(StudioGlowField.WAVEFORM_INTENSITY),
             waveformLoopSeconds = Float.fromBits((value(StudioGlowField.LOOP_SECONDS) as RawValue.FloatBits).bits),
+            focusRing = enabled(StudioGlowField.FOCUS_RING),
         )
     }
 }
