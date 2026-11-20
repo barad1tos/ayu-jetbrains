@@ -96,6 +96,9 @@ class GlowAnimator : Disposable {
         if (currentAnimation == GlowAnimation.REACTIVE) reactiveBoost = 1f
     }
 
+    internal fun capturePlaybackTimer(isOwned: () -> Boolean): GlowPlaybackTimer? =
+        GlowPlaybackTimer.capture(isOwned) { timer }
+
     fun stop() {
         timer?.stop()
         timer = null

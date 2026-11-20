@@ -9,6 +9,7 @@ import java.awt.Component
 import java.awt.Window
 import java.awt.event.FocusEvent
 import java.awt.event.FocusListener
+import java.awt.event.HierarchyEvent
 import java.awt.event.HierarchyListener
 import java.awt.image.BufferedImage
 import javax.swing.JButton
@@ -22,6 +23,7 @@ import javax.swing.border.Border
 import javax.swing.border.EmptyBorder
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
@@ -161,6 +163,117 @@ class FocusRingManagerTest {
             assertEquals(baseline.hierarchyCount + 1, field.hierarchyListeners.size)
             manager.removeFocusListeners()
             assertSame(replacement, field.border)
+        }
+
+    @Test
+    fun `held focus changes leave borders intact until reconciliation`() =
+        withFocusWindows { manager, windows ->
+            val first = FocusField().apply { isFocusSimulated = true }
+            val second = FocusField()
+            val firstBorder = first.border
+            val secondBorder = second.border
+            val firstBaseline = listenerBaseline(first)
+            val secondBaseline = listenerBaseline(second)
+            val panel =
+                JPanel().apply {
+                    add(first)
+                    add(second)
+                }
+            windows += focusWindow(panel)
+            manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+            val firstRing = assertIs<GlowFocusBorder>(first.border)
+            val firstListener = addedFocusListener(first, firstBaseline)
+            val secondListener = addedFocusListener(second, secondBaseline)
+            val hold = manager.holdCallbacks()
+
+            first.isFocusSimulated = false
+            second.isFocusSimulated = true
+            firstListener.focusLost(FocusEvent(first, FocusEvent.FOCUS_LOST))
+            secondListener.focusGained(FocusEvent(second, FocusEvent.FOCUS_GAINED))
+            manager.updateFocusRingGlow(Color.RED, GlowStyle.SHARP_NEON, 100, enabled = false)
+
+            assertSame(firstRing, first.border)
+            assertSame(secondBorder, second.border)
+            assertSame(firstListener, addedFocusListener(first, firstBaseline))
+            hold.release()
+
+            assertSame(firstBorder, first.border)
+            assertIs<GlowFocusBorder>(second.border)
+            secondListener.focusLost(FocusEvent(second, FocusEvent.FOCUS_LOST))
+            assertSame(secondBorder, second.border)
+        }
+
+    @Test
+    fun `release preserves a border installed by another writer during the hold`() =
+        withFocusWindows { manager, windows ->
+            val field = FocusField()
+            val baseline = listenerBaseline(field)
+            windows += focusWindow(JPanel().apply { add(field) })
+            manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+            val hold = manager.holdCallbacks()
+            val replacement = EmptyBorder(7, 6, 5, 4)
+            field.isFocusSimulated = true
+            addedFocusListener(field, baseline).focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
+            field.border = replacement
+
+            hold.release()
+
+            assertSame(replacement, field.border)
+        }
+
+    @Test
+    fun `release does not reinstall a listener removed during the hold`() =
+        withFocusWindows { manager, windows ->
+            val field = FocusField().apply { isFocusSimulated = true }
+            val border = field.border
+            val baseline = listenerBaseline(field)
+            windows += focusWindow(JPanel().apply { add(field) })
+            manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+            val hold = manager.holdCallbacks()
+            val removed =
+                HierarchyEvent(
+                    field,
+                    HierarchyEvent.HIERARCHY_CHANGED,
+                    field,
+                    field.parent,
+                    HierarchyEvent.DISPLAYABILITY_CHANGED.toLong(),
+                )
+            field.hierarchyListeners.forEach { it.hierarchyChanged(removed) }
+            assertSame(border, field.border)
+
+            hold.release()
+
+            assertSame(border, field.border)
+            assertListenerBaseline(field, baseline)
+        }
+
+    @Test
+    fun `a Swing border listener failure leaves later focus callbacks working`() =
+        withFocusWindows { manager, windows ->
+            val first = FocusField().apply { isFocusSimulated = true }
+            val second = FocusField()
+            val panel =
+                JPanel().apply {
+                    add(first)
+                    add(second)
+                }
+            windows += focusWindow(panel)
+            val firstBorder = first.border
+            val secondBorder = second.border
+            val secondBaseline = listenerBaseline(second)
+            manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+            val hold = manager.holdCallbacks()
+            val failure = IllegalStateException("Border listener failed")
+            first.addPropertyChangeListener("border") { throw failure }
+            first.isFocusSimulated = false
+            second.isFocusSimulated = true
+
+            assertSame(failure, assertFailsWith<IllegalStateException> { hold.release() })
+
+            assertSame(firstBorder, first.border)
+            assertIs<GlowFocusBorder>(second.border)
+            addedFocusListener(second, secondBaseline).focusLost(FocusEvent(second, FocusEvent.FOCUS_LOST))
+            assertSame(secondBorder, second.border)
         }
 
     @Test

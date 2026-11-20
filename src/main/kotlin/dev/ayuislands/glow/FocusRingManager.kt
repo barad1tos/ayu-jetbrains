@@ -6,9 +6,11 @@ import java.awt.Component
 import java.awt.Container
 import java.awt.Window
 import java.util.WeakHashMap
+import java.util.concurrent.CancellationException
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JTextField
+import javax.swing.SwingUtilities
 
 /**
  * Manages focus-ring glow borders on text input components.
@@ -22,6 +24,41 @@ class FocusRingManager {
     private val log = logger<FocusRingManager>()
     private val focusListeners = mutableMapOf<JComponent, GlowFocusListener>()
     private val processedWindows = WeakHashMap<Window, Unit>()
+    private var callbackHold: CallbackHold? = null
+
+    /** Keep focus callbacks off the captured borders until the enclosing change has settled. */
+    internal fun holdCallbacks(): CallbackHold {
+        check(SwingUtilities.isEventDispatchThread()) { "Glow focus holds must run on EDT" }
+        check(callbackHold == null) { "Glow focus callbacks are already held" }
+        return CallbackHold().also { callbackHold = it }
+    }
+
+    internal inner class CallbackHold {
+        private val captures = focusListeners.values.map(GlowFocusListener::captureCallbacks)
+
+        fun release() {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow focus holds must run on EDT" }
+            if (callbackHold !== this) return
+            val failures = mutableListOf<RuntimeException>()
+            try {
+                for (capture in captures) {
+                    try {
+                        capture.reconcile()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: RuntimeException) {
+                        failures.add(failure)
+                    }
+                }
+            } finally {
+                if (callbackHold === this) callbackHold = null
+            }
+            failures.firstOrNull()?.let { first ->
+                failures.drop(1).filterNot { it === first }.forEach(first::addSuppressed)
+                throw first
+            }
+        }
+    }
 
     fun isTextInputComponent(component: Component): Boolean =
         component is JTextField ||
@@ -38,6 +75,7 @@ class FocusRingManager {
         style: GlowStyle,
         intensity: Int,
     ) {
+        if (callbackHold != null) return
         for (window in Window.getWindows()) {
             if (processedWindows.containsKey(window)) continue
             installFocusListenersRecursively(window, accent, style, intensity)
@@ -59,6 +97,7 @@ class FocusRingManager {
         intensity: Int,
         enabled: Boolean,
     ) {
+        if (callbackHold != null) return
         removeFocusListeners()
         processedWindows.clear()
         if (enabled) {
@@ -79,6 +118,7 @@ class FocusRingManager {
     fun dispose() {
         removeFocusListeners()
         processedWindows.clear()
+        callbackHold = null
     }
 
     private fun installFocusListenersRecursively(
@@ -88,7 +128,10 @@ class FocusRingManager {
         intensity: Int,
     ) {
         if (isTextInputComponent(component) && component is JComponent && !focusListeners.containsKey(component)) {
-            val listener = GlowFocusListener(component, accent, style, intensity) { focusListeners.remove(component) }
+            val listener =
+                GlowFocusListener(component, accent, style, intensity, callbacksAllowed = { callbackHold == null }) {
+                    focusListeners.remove(component)
+                }
             focusListeners[component] = listener
             listener.attach()
         }

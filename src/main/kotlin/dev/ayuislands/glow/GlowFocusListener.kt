@@ -14,12 +14,29 @@ internal class GlowFocusListener(
     private val glowColor: Color,
     private val glowStyle: GlowStyle,
     private val baseIntensity: Int,
+    private val callbacksAllowed: () -> Boolean,
     private val onDetached: () -> Unit,
 ) : FocusListener,
     HierarchyListener {
     private var isAttached = false
     private var originalBorder: Border? = null
     private var installedBorder: GlowFocusBorder? = null
+
+    fun captureCallbacks(): CallbackCheckpoint = CallbackCheckpoint()
+
+    inner class CallbackCheckpoint {
+        private val borderAtCapture = component.border
+        private val mayWrapBaseline = installedBorder == null || installedBorder === borderAtCapture
+
+        fun reconcile() {
+            if (!isAttached) return
+            if (!component.hasFocus()) {
+                restoreBorder()
+                return
+            }
+            if (mayWrapBaseline && component.border === borderAtCapture) applyBorder()
+        }
+    }
 
     fun attach() {
         if (isAttached) return
@@ -39,12 +56,15 @@ internal class GlowFocusListener(
     }
 
     override fun focusGained(event: FocusEvent) {
-        if (isAttached && event.component === component) applyBorder()
+        if (canHandle(event)) applyBorder()
     }
 
     override fun focusLost(event: FocusEvent) {
-        if (event.component === component) restoreBorder()
+        if (canHandle(event)) restoreBorder()
     }
+
+    private fun canHandle(event: FocusEvent): Boolean =
+        isAttached && event.component === component && callbacksAllowed()
 
     override fun hierarchyChanged(event: HierarchyEvent) {
         val displayabilityChanged =
