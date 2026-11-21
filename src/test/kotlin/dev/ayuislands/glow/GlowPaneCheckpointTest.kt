@@ -163,7 +163,7 @@ class GlowPaneCheckpointTest {
             val before = originalAppearance()
             val pane = spyk(newPane(before))
             val checkpoint = GlowPaneCheckpoint(pane, targetAppearance()) { true }
-            every { pane.configureWaveform(GlowShape.WAVEFORM, any(), preserveFailure = true) } answers {
+            every { pane.configureWaveform(GlowShape.WAVEFORM, any(), staged = true) } answers {
                 callOriginal()
                 error("after waveform mutation")
             }
@@ -190,7 +190,7 @@ class GlowPaneCheckpointTest {
             try {
                 checkpoint.apply()
                 every {
-                    pane.configureWaveform(GlowShape.SOLID, any(), preserveFailure = true)
+                    pane.configureWaveform(GlowShape.SOLID, any(), staged = true)
                 } answers {
                     callOriginal()
                     error("after waveform restoration")
@@ -203,7 +203,7 @@ class GlowPaneCheckpointTest {
 
                 assertFalse(checkpoint.hasPending)
                 verify(exactly = 1) {
-                    pane.configureWaveform(GlowShape.SOLID, any(), preserveFailure = true)
+                    pane.configureWaveform(GlowShape.SOLID, any(), staged = true)
                 }
             } finally {
                 pane.stopAnimation()

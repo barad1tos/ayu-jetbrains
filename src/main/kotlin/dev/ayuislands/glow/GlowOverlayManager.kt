@@ -55,6 +55,9 @@ class GlowOverlayManager(
     @Volatile
     private var disposed = false
 
+    internal val isDisposed: Boolean
+        get() = disposed
+
     private val focusRingManager = FocusRingManager()
     private val updates = GlowUpdateGate({ disposed }, focusRingManager::holdCallbacks)
     private val routeController =
@@ -170,6 +173,18 @@ class GlowOverlayManager(
     )
 
     private var messageBusConnected = false
+
+    internal val paneTargets: List<GlowPaneTarget>
+        get() {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow pane capture must run on EDT" }
+            return overlays.mapNotNull { (id, entry) ->
+                val target =
+                    GlowPaneTarget(entry.glassPane) {
+                        !disposed && overlays[id] === entry && entry.glassPane.parent === entry.layeredPane
+                    }
+                target.takeIf { it.isCurrent() }
+            }
+        }
 
     internal fun holdUpdates(): UpdateHold = UpdateHold()
 

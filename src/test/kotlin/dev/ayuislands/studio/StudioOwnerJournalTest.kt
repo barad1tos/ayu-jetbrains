@@ -1,9 +1,20 @@
 package dev.ayuislands.studio
 
+import com.intellij.openapi.project.Project
+import dev.ayuislands.glow.GlowGlassPane
+import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.glow.GlowPaneField
+import dev.ayuislands.glow.GlowPlacement
+import dev.ayuislands.glow.GlowShape
+import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.waveform.WaveformBaseline
+import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioProcess
 import dev.ayuislands.studio.model.StudioTarget
 import dev.ayuislands.studio.persistence.CommitResolution
 import dev.ayuislands.studio.persistence.CommitResult
@@ -27,21 +38,31 @@ import dev.ayuislands.studio.session.OwnerRollback
 import dev.ayuislands.studio.session.RestoreContinuation
 import dev.ayuislands.studio.session.SettlementProblem
 import dev.ayuislands.studio.session.StudioApplySettlement
+import dev.ayuislands.studio.session.StudioGlowPaneOperation
+import dev.ayuislands.studio.session.StudioNativeEvidence
 import dev.ayuislands.studio.session.StudioNativeWrite
 import dev.ayuislands.studio.session.StudioOwnerJournal
 import dev.ayuislands.studio.session.StudioOwnerOperation
 import dev.ayuislands.studio.session.StudioOwnerWork
+import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.io.TempDir
+import java.awt.Color
 import java.io.IOException
 import java.nio.file.Path
+import java.time.Instant
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import javax.swing.JLayeredPane
+import javax.swing.JPanel
+import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -60,6 +81,307 @@ class StudioOwnerJournalTest {
 
     @AfterTest
     fun closeDispatcher() = ioDispatcher.close()
+
+    @Test
+    fun `Glow journals selected pane settings before the setter and preserves a foreign edit on rollback`() {
+        val original = Color(0xFFCC66)
+        val changed = Color(0x5CCFE6)
+        val pane = glowPane(original)
+        val manager = glowManager(pane)
+        val initial = catalogTestDocument()
+        var refreshRequests = 0
+        var qualifications = 0
+        val request =
+            StudioGlowPaneOperation.Request(manager, requestRefresh = { refreshRequests++ }) { _, current ->
+                StudioGlowPaneOperation.Edit(
+                    current.copy(color = changed, width = 9, intensity = 99),
+                    setOf(GlowPaneField.COLOR, GlowPaneField.WIDTH),
+                )
+            }
+        val files = FailingJournalFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                try {
+                    val result =
+                        runner.apply(
+                            work,
+                            qualifies = {
+                                if (++qualifications > 1) {
+                                    val persisted =
+                                        withContext(ioDispatcher) { assertIs<StoreLoad.Recovering>(store.load()) }
+                                    assertEquals(List(2) { RestoreStatus.PENDING }, persisted.statuses())
+                                    assertEquals(initial, persisted.document)
+                                    assertSame(original, pane.glowColor)
+                                    assertEquals(4, pane.glowWidth)
+                                }
+                                true
+                            },
+                        ) { captureGlow(work, request) }
+
+                    assertEquals(OwnerApply.Completed, result)
+                    val applied = assertIs<StoreLoad.Recovering>(store.load())
+                    assertEquals(listOf(RestoreStatus.OWNED, RestoreStatus.OWNED), applied.statuses())
+                    val width = applied.journal.receipts.single { it.identity.field.endsWith("/WIDTH") }
+                    assertEquals(RawValue.Integer(4), glowEvidenceValue(width.before))
+                    assertEquals(RawValue.Integer(9), glowEvidenceValue(width.lastWritten))
+                    withContext(glowEdt) {
+                        assertSame(changed, pane.glowColor)
+                        assertEquals(9, pane.glowWidth)
+                        assertEquals(40, pane.glowIntensity)
+                        pane.glowWidth = 14
+                        manager.updateGlow()
+                    }
+
+                    files.failNextReplace = true
+                    assertEquals(OwnerRollback.ReceiptFailed(EffectOwner.GLOW, StoreIssue.IO), runner.rollback(work))
+                    assertEquals(0, refreshRequests)
+                    withContext(glowEdt) {
+                        assertFailsWith<IllegalStateException> { manager.holdUpdates() }
+                    }
+                    assertEquals(OwnerRollback.Settled, runner.rollback(work))
+                    withContext(glowEdt) {
+                        assertSame(original, pane.glowColor)
+                        assertEquals(14, pane.glowWidth)
+                    }
+                    assertEquals(1, refreshRequests)
+                    val reverted = assertIs<StoreLoad.Recovering>(store.load())
+                    assertEquals(listOf(RestoreStatus.RESTORED, RestoreStatus.FOREIGN), reverted.statuses())
+                    assertEquals(width.copy(status = RestoreStatus.FOREIGN), reverted.journal.receipts.last())
+                    assertEquals(JournalResult.Acknowledged, store.finishRollback(work.journal.token))
+                } finally {
+                    withContext(glowEdt) { manager.dispose() }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `a Glow pane changed before the first setter does not acquire its hold`() {
+        val pane = glowPane(Color.ORANGE)
+        val manager = glowManager(pane)
+        val initial = catalogTestDocument()
+        var qualifications = 0
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                try {
+                    val result =
+                        runner.apply(
+                            work,
+                            qualifies = {
+                                if (++qualifications > 1) pane.glowWidth = 13
+                                true
+                            },
+                        ) { captureGlow(work, widthRequest(manager, 9)) }
+
+                    assertIs<OwnerApply.OwnerFailed>(result)
+                    withContext(glowEdt) { manager.holdUpdates().release() }
+                    assertEquals(OwnerRollback.Settled, runner.rollback(work))
+                    withContext(glowEdt) { assertEquals(13, pane.glowWidth) }
+                } finally {
+                    withContext(glowEdt) { manager.dispose() }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `Glow rolls back an earlier pane when qualification is lost before the next write`() {
+        val first = glowPane(Color.ORANGE)
+        val second = glowPane(Color.ORANGE)
+        val manager = glowManager(first, second)
+        val initial = catalogTestDocument()
+        var qualifications = 0
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                try {
+                    val result =
+                        runner.apply(work, qualifies = { ++qualifications < 3 }) {
+                            captureGlow(work, widthRequest(manager, 9))
+                        }
+                    assertEquals(OwnerApply.LeaseLost, result)
+                    withContext(glowEdt) {
+                        assertEquals(9, first.glowWidth)
+                        assertEquals(4, second.glowWidth)
+                    }
+
+                    assertEquals(OwnerRollback.Settled, runner.rollback(work))
+                    withContext(glowEdt) {
+                        assertEquals(4, first.glowWidth)
+                        assertEquals(4, second.glowWidth)
+                        manager.holdUpdates().release()
+                    }
+                    val restored = assertIs<StoreLoad.Recovering>(store.load())
+                    assertEquals(listOf(RestoreStatus.RESTORED, RestoreStatus.RESTORED), restored.statuses())
+                } finally {
+                    withContext(glowEdt) { manager.dispose() }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `closing an applied project does not block rollback of another Glow pane`() {
+        val closedPane = glowPane(Color.ORANGE)
+        val openPane = glowPane(Color.ORANGE)
+        val closedManager = glowManager(closedPane)
+        val openManager = glowManager(openPane)
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                try {
+                    val result =
+                        runner.apply(work, qualifies = { true }) {
+                            captureGlow(work, widthRequest(closedManager, 9), widthRequest(openManager, 7))
+                        }
+                    assertEquals(OwnerApply.Completed, result)
+                    withContext(glowEdt) {
+                        assertEquals(9, closedPane.glowWidth)
+                        assertEquals(7, openPane.glowWidth)
+                        closedManager.dispose()
+                    }
+
+                    assertEquals(OwnerRollback.Settled, runner.rollback(work))
+                    withContext(glowEdt) {
+                        assertEquals(9, closedPane.glowWidth)
+                        assertEquals(4, openPane.glowWidth)
+                        openManager.holdUpdates().release()
+                    }
+                    val restored = assertIs<StoreLoad.Recovering>(store.load())
+                    assertEquals(listOf(RestoreStatus.FOREIGN, RestoreStatus.RESTORED), restored.statuses())
+                    assertEquals(JournalResult.Acknowledged, store.finishRollback(work.journal.token))
+                } finally {
+                    withContext(glowEdt) { openManager.dispose() }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `Glow releases its hold after acceptance and leaves a no-op out of the journal`() {
+        val pane = glowPane(Color.ORANGE)
+        val manager = glowManager(pane)
+        val initial = catalogTestDocument()
+        val waveform =
+            WaveformConfig(
+                movement = WaveformMovement.COUNTER_CLOCKWISE,
+                baseline = WaveformBaseline.OUTSIDE,
+                amplitude = 17,
+                intensity = 73,
+                loopSeconds = 3.25f,
+                traceDensity = 2,
+                traceLength = 133,
+            )
+        val request =
+            StudioGlowPaneOperation.Request(manager, requestRefresh = {}) { _, current ->
+                StudioGlowPaneOperation.Edit(
+                    current.copy(
+                        style = GlowStyle.GRADIENT,
+                        intensity = 63,
+                        width = 7,
+                        placement = GlowPlacement.SIDE_EDGES,
+                        shape = GlowShape.WAVEFORM,
+                        waveform = waveform,
+                        isVisible = false,
+                    ),
+                    GlowPaneField.entries.toSet(),
+                )
+            }
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                try {
+                    assertNull(captureGlow(work, widthRequest(manager, 4)))
+                    assertEquals(
+                        OwnerApply.Completed,
+                        runner.apply(work, qualifies = { true }) { captureGlow(work, request) },
+                    )
+                    val pending = assertIs<StoreLoad.Recovering>(store.load())
+                    val values =
+                        pending.journal.receipts.associate { receipt ->
+                            val native = receipt.lastWritten
+                            assertEquals(StudioProcess(17, Instant.EPOCH), StudioNativeEvidence.readProcess(native))
+                            receipt.identity.field.substringAfterLast('/') to glowEvidenceValue(native)
+                        }
+                    assertEquals(expectedGlowValues(), values)
+                    assertIs<CommitResult.Committed>(store.commit(work.journal.token, initial.runtime))
+                    assertEquals(OwnerAcceptance.Completed, runner.accept(work))
+                    withContext(glowEdt) {
+                        assertEquals(7, pane.glowWidth)
+                        assertEquals(waveform, pane.captureAppearance().waveform)
+                        assertFalse(pane.isVisible)
+                        manager.holdUpdates().release()
+                    }
+                    assertEquals(JournalResult.Acknowledged, store.finishAccepted(work.journal.token))
+                } finally {
+                    withContext(glowEdt) { manager.dispose() }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `Glow resumes the original waveform after an aborted solid transition`() = settleSolidGlow(accept = false)
+
+    @Test
+    fun `Glow stops waveform playback after accepting solid`() = settleSolidGlow(accept = true)
+
+    private fun settleSolidGlow(accept: Boolean) {
+        val pane = glowPane(Color.ORANGE)
+        val manager = glowManager(pane)
+        val initial = catalogTestDocument()
+        val request =
+            StudioGlowPaneOperation.Request(manager, requestRefresh = {}) { _, current ->
+                StudioGlowPaneOperation.Edit(current.copy(shape = GlowShape.SOLID), setOf(GlowPaneField.SHAPE))
+            }
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
+            val runner = ownerJournal(store)
+            runBlocking {
+                try {
+                    val originalTimer =
+                        withContext(glowEdt) {
+                            pane.configureWaveform(GlowShape.WAVEFORM, WaveformConfig())
+                            pane.activateWaveform(powerSaveEnabled = false)
+                            pane.capturePlaybackTimers { true }.single()
+                        }
+                    val applied = runner.apply(work, qualifies = { true }) { captureGlow(work, request) }
+                    assertEquals(OwnerApply.Completed, applied)
+                    withContext(glowEdt) {
+                        assertEquals(GlowShape.SOLID, pane.captureAppearance().shape)
+                        assertFalse(originalTimer.pause())
+                    }
+                    if (accept) {
+                        assertIs<CommitResult.Committed>(store.commit(work.journal.token, initial.runtime))
+                        assertEquals(OwnerAcceptance.Completed, runner.accept(work))
+                    } else {
+                        assertEquals(OwnerRollback.Settled, runner.rollback(work))
+                    }
+                    withContext(glowEdt) {
+                        if (accept) {
+                            assertEquals(GlowShape.SOLID, pane.captureAppearance().shape)
+                            assertTrue(pane.capturePlaybackTimers { true }.isEmpty())
+                        } else {
+                            assertTrue(pane.isWaveform)
+                            assertTrue(originalTimer.pause(), "Rollback must resume the original waveform timer")
+                        }
+                    }
+                } finally {
+                    withContext(glowEdt) {
+                        pane.stopAnimation()
+                        manager.dispose()
+                    }
+                }
+            }
+        }
+    }
 
     @Test
     fun `routed owners write only after their receipts are durable in order`() {
@@ -857,6 +1179,68 @@ class StudioOwnerJournalTest {
             }
         }
     }
+
+    private val glowEdt: CoroutineDispatcher = Executor(SwingUtilities::invokeLater).asCoroutineDispatcher()
+
+    private suspend fun captureGlow(
+        work: StudioOwnerWork,
+        vararg requests: StudioGlowPaneOperation.Request,
+    ): StudioOwnerOperation? =
+        StudioGlowPaneOperation.capture(
+            requests.asList(),
+            StudioProcess(17, Instant.EPOCH),
+            work.journal.token.transactionId,
+            glowEdt,
+        )
+
+    private fun glowPane(color: Color): GlowGlassPane = GlowGlassPane(color, GlowStyle.SOFT, 40, 4)
+
+    private fun glowManager(vararg panes: GlowGlassPane): GlowOverlayManager {
+        val manager = GlowOverlayManager(mockk<Project>(relaxed = true))
+        val entries = GlowOverlayManager::class.java.getDeclaredField("overlays")
+        entries.isAccessible = true
+        val overlays = entries.get(manager)
+        val put = overlays.javaClass.getMethod("put", Any::class.java, Any::class.java)
+        val entryType = GlowOverlayManager::class.java.declaredClasses.single { it.simpleName == "OverlayEntry" }
+        val constructor = entryType.declaredConstructors.single { it.parameterCount == 5 }
+        constructor.isAccessible = true
+        panes.forEachIndexed { index, pane ->
+            val root = JLayeredPane()
+            root.add(pane)
+            put.invoke(overlays, "pane-$index", constructor.newInstance(pane, JPanel(), root, null, null))
+        }
+        return manager
+    }
+
+    private fun widthRequest(
+        manager: GlowOverlayManager,
+        width: Int,
+    ): StudioGlowPaneOperation.Request =
+        StudioGlowPaneOperation.Request(manager, requestRefresh = {}) { _, current ->
+            StudioGlowPaneOperation.Edit(current.copy(width = width), setOf(GlowPaneField.WIDTH))
+        }
+
+    private fun glowEvidenceValue(native: NativeValue): RawValue =
+        StudioNativeEvidence.fields(assertIs<NativeValue.Present>(native).value).getValue("value")
+
+    private fun StoreLoad.Recovering.statuses(): List<RestoreStatus> = journal.receipts.map { it.status }
+
+    private fun expectedGlowValues(): Map<String, RawValue> =
+        mapOf(
+            "STYLE" to RawValue.Text("GRADIENT"),
+            "INTENSITY" to RawValue.Integer(63),
+            "WIDTH" to RawValue.Integer(7),
+            "PLACEMENT" to RawValue.Text("SIDE_EDGES"),
+            "SHAPE" to RawValue.Text("WAVEFORM"),
+            "MOVEMENT" to RawValue.Text("COUNTER_CLOCKWISE"),
+            "BASELINE" to RawValue.Text("OUTSIDE"),
+            "AMPLITUDE" to RawValue.Integer(17),
+            "WAVEFORM_INTENSITY" to RawValue.Integer(73),
+            "LOOP_SECONDS" to RawValue.FloatBits(3.25f.toRawBits()),
+            "TRACE_DENSITY" to RawValue.Integer(2),
+            "TRACE_LENGTH" to RawValue.Integer(133),
+            "VISIBILITY" to RawValue.BooleanValue(false),
+        )
 
     private fun prepare(
         store: StudioAppearanceStore,
