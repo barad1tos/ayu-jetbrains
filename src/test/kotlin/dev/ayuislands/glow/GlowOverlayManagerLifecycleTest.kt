@@ -2158,9 +2158,11 @@ class GlowOverlayManagerLifecycleTest {
                 GlowGlassPane::class.java,
                 javax.swing.JComponent::class.java,
                 JLayeredPane::class.java,
+                Boolean::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType,
             )
         method.isAccessible = true
-        method.invoke(manager, pane, host, layeredPane)
+        method.invoke(manager, pane, host, layeredPane, true, true)
     }
 
     private fun invokeAttachEditorOverlayIfNeeded(manager: GlowOverlayManager) {

@@ -4,7 +4,9 @@ import com.intellij.openapi.project.Project
 import dev.ayuislands.glow.FocusRingManager
 import dev.ayuislands.glow.GlowFocusListener
 import dev.ayuislands.glow.GlowGlassPane
+import dev.ayuislands.glow.GlowOverlayAddition
 import dev.ayuislands.glow.GlowOverlayManager
+import dev.ayuislands.glow.GlowPaneAppearance
 import dev.ayuislands.glow.GlowPaneField
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowShape
@@ -70,7 +72,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.io.TempDir
 import java.awt.Color
+import java.awt.Rectangle
 import java.awt.Window
+import java.awt.event.ComponentListener
+import java.awt.event.ContainerAdapter
+import java.awt.event.ContainerEvent
+import java.awt.event.HierarchyBoundsListener
 import java.io.IOException
 import java.nio.file.Path
 import java.time.Instant
@@ -78,6 +85,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import javax.swing.JLayeredPane
 import javax.swing.JPanel
+import javax.swing.JRootPane
 import javax.swing.JTextField
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
@@ -98,6 +106,22 @@ class StudioOwnerJournalTest {
 
     @AfterTest
     fun closeDispatcher() = ioDispatcher.close()
+
+    @Test
+    fun `Glow adds a qualified pane after journaling and keeps its registration after commit`() =
+        runBlocking { verifyGlowAddition(GlowAdditionOutcome.ACCEPTED) }
+
+    @Test
+    fun `Glow rolls back an insertion that threw after Swing attached the pane`() =
+        runBlocking { verifyGlowAddition(GlowAdditionOutcome.INTERRUPTED) }
+
+    @Test
+    fun `Glow releases its listeners without detaching a pane another parent took over`() =
+        runBlocking { verifyGlowAddition(GlowAdditionOutcome.REPARENTED) }
+
+    @Test
+    fun `committed Glow waits for its pane and exact listeners before releasing the hold`() =
+        runBlocking { verifyGlowMountAcceptance() }
 
     @Test
     fun `one Glow owner restores focus before pane playback after an interrupted Apply`() =
@@ -1453,6 +1477,242 @@ class StudioOwnerJournalTest {
     }
 
     private val glowEdt: CoroutineDispatcher = Executor(SwingUtilities::invokeLater).asCoroutineDispatcher()
+
+    private enum class GlowAdditionOutcome(
+        val status: RestoreStatus,
+    ) {
+        ACCEPTED(RestoreStatus.OWNED),
+        INTERRUPTED(RestoreStatus.RESTORED),
+        REPARENTED(RestoreStatus.FOREIGN),
+    }
+
+    private class GlowMount {
+        private val root = JRootPane()
+        val layer: JLayeredPane = root.layeredPane
+        val host =
+            object : JPanel() {
+                override fun isShowing(): Boolean = true
+            }
+        val manager = GlowOverlayManager(mockk<Project>(relaxed = true))
+        val appearance =
+            GlowPaneAppearance(
+                Color.MAGENTA,
+                GlowStyle.SOFT,
+                64,
+                7,
+                GlowPlacement.ISLAND,
+                GlowShape.SOLID,
+                WaveformConfig(),
+                true,
+            )
+
+        init {
+            root.contentPane.add(host)
+            host.setBounds(7, 9, 180, 90)
+            layer.setBounds(0, 0, 400, 300)
+        }
+
+        private val initialChildren = layer.components.toList()
+        private val initialComponents = host.componentListeners.toList()
+        private val initialBounds = host.hierarchyBoundsListeners.toList()
+
+        fun addedComponentListener(): ComponentListener =
+            host.componentListeners.single { candidate -> initialComponents.none { it === candidate } }
+
+        fun addedBoundsListener(): HierarchyBoundsListener =
+            host.hierarchyBoundsListeners.single { candidate -> initialBounds.none { it === candidate } }
+
+        fun verifyEmpty() {
+            assertEquals(initialChildren, layer.components.toList())
+            assertEquals(initialComponents, host.componentListeners.toList())
+            assertEquals(initialBounds, host.hierarchyBoundsListeners.toList())
+            assertTrue(manager.paneTargets.isEmpty())
+        }
+
+        fun attached(): GlowGlassPane {
+            val pane = manager.paneTargets.single().pane
+            assertSame(layer, pane.parent)
+            assertEquals(JLayeredPane.PALETTE_LAYER.toInt(), layer.getLayer(pane))
+            assertEquals(initialChildren, layer.components.filterNot { it === pane })
+            assertEquals(initialComponents.size + 1, host.componentListeners.size)
+            assertEquals(initialBounds.size + 1, host.hierarchyBoundsListeners.size)
+            assertEquals(appearance, pane.captureAppearance())
+            assertEquals(Rectangle(7, 9, 180, 90), pane.bounds)
+            return pane
+        }
+    }
+
+    private suspend fun verifyGlowAddition(outcome: GlowAdditionOutcome) {
+        val mount = withContext(glowEdt) { GlowMount() }
+        val holds = StudioGlowHolds {}
+        val failure = IllegalStateException("Interrupted after inserting the native pane")
+        try {
+            if (outcome == GlowAdditionOutcome.INTERRUPTED) {
+                withContext(glowEdt) {
+                    mount.layer.addContainerListener(
+                        object : ContainerAdapter() {
+                            override fun componentAdded(event: ContainerEvent) {
+                                if (event.child is GlowGlassPane) throw failure
+                            }
+                        },
+                    )
+                }
+            }
+            StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+                val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+                val runner = ownerJournal(store)
+                var qualifications = 0
+                val applied =
+                    runner.apply(work, qualifies = {
+                        if (++qualifications == 2) {
+                            val receipt = withContext(ioDispatcher) { journalReceipts(store).single() }
+                            assertEquals(EffectOwner.GLOW, receipt.owner)
+                            assertEquals(RestoreStatus.PENDING, receipt.status)
+                            verifyMountEvidence(receipt)
+                            mount.verifyEmpty()
+                        }
+                        true
+                    }) { captureGlowAddition(mount, work, holds) }
+                val nativePane =
+                    withContext(glowEdt) {
+                        mount.layer.components
+                            .filterIsInstance<GlowGlassPane>()
+                            .single()
+                    }
+                val settlement =
+                    StudioApplySettlement(store, runner, ioDispatcher, work) {
+                        val receipt = withContext(ioDispatcher) { journalReceipts(store).single() }
+                        assertEquals(outcome.status, receipt.status)
+                        withContext(glowEdt) { holds.release() }
+                    }
+                val expectedParent =
+                    when (outcome) {
+                        GlowAdditionOutcome.ACCEPTED -> {
+                            assertEquals(OwnerApply.Completed, applied)
+                            withContext(glowEdt) { assertSame(nativePane, mount.attached()) }
+                            val committed = store.commit(work.journal.token, work.journal.candidate.runtime)
+                            assertIs<CommitResult.Committed>(committed)
+                            mount.layer
+                        }
+                        GlowAdditionOutcome.INTERRUPTED -> {
+                            val reported = assertIs<OwnerApply.OwnerFailed>(applied).cause
+                            assertEquals(failure.message, assertIs<IllegalStateException>(reported).message)
+                            null
+                        }
+                        GlowAdditionOutcome.REPARENTED -> {
+                            assertEquals(OwnerApply.Completed, applied)
+                            withContext(glowEdt) { JPanel().apply { add(nativePane) } }
+                        }
+                    }
+                val settled = settlement.settle()
+                if (outcome == GlowAdditionOutcome.ACCEPTED) {
+                    assertIs<ApplySettlement.Accepted>(settled)
+                    withContext(glowEdt) { assertSame(nativePane, mount.attached()) }
+                } else {
+                    assertEquals(ApplySettlement.NotAccepted, settled)
+                    withContext(glowEdt) { mount.verifyEmpty() }
+                }
+                withContext(glowEdt) { assertSame(expectedParent, nativePane.parent) }
+            }
+        } finally {
+            withContext(glowEdt) {
+                holds.release()
+                mount.manager.dispose()
+            }
+        }
+    }
+
+    private fun verifyMountEvidence(receipt: PortableReceipt) {
+        assertEquals("glow/overlay/membership", receipt.identity.field)
+        assertEquals(RawValue.Null, glowEvidenceValue(receipt.before))
+        val process = StudioProcess(17, Instant.EPOCH)
+        assertEquals(process, StudioNativeEvidence.readProcess(receipt.before))
+        assertEquals(process, StudioNativeEvidence.readProcess(receipt.lastWritten))
+        val planned = StudioNativeEvidence.fields(glowEvidenceValue(receipt.lastWritten))
+        assertEquals(RawValue.Text("Terminal"), planned["id"])
+        val members = setOf("host", "layer", "componentListener", "boundsListener")
+        assertEquals(members + "id", planned.keys)
+        val references = members.map { assertIs<RawValue.Text>(planned[it]).value }
+        assertEquals(4, references.distinct().size)
+        assertTrue(receipt.identity.resource !in references)
+    }
+
+    private suspend fun captureGlowAddition(
+        mount: GlowMount,
+        work: StudioOwnerWork,
+        holds: StudioGlowHolds,
+    ): StudioOwnerOperation? {
+        val target =
+            StudioGlowTarget(
+                mount.manager,
+                additions = listOf(GlowOverlayAddition("Terminal", mount.host, mount.appearance)),
+            )
+        return StudioGlowOperation.capture(
+            listOf(target),
+            holds,
+            StudioProcess(17, Instant.EPOCH),
+            work.journal.token.transactionId,
+            glowEdt,
+        )
+    }
+
+    private suspend fun verifyGlowMountAcceptance() {
+        val mount = withContext(glowEdt) { GlowMount() }
+        val holds = StudioGlowHolds {}
+        try {
+            StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+                val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+                val runner = ownerJournal(store)
+                val applied = runner.apply(work, qualifies = { true }) { captureGlowAddition(mount, work, holds) }
+                assertEquals(OwnerApply.Completed, applied)
+                val commit = store.commit(work.journal.token, work.journal.candidate.runtime)
+                val committed = assertIs<CommitResult.Committed>(commit)
+                val settlement =
+                    StudioApplySettlement(store, runner, ioDispatcher, work) {
+                        withContext(glowEdt) { holds.release() }
+                    }
+                val pane = withContext(glowEdt) { mount.attached() }
+                val componentListener = withContext(glowEdt) { mount.addedComponentListener() }
+                val boundsListener = withContext(glowEdt) { mount.addedBoundsListener() }
+                val foreign = withContext(glowEdt) { JPanel().apply { add(pane) } }
+
+                assertMountAcceptancePending(settlement, mount)
+                withContext(glowEdt) {
+                    assertSame(foreign, pane.parent)
+                    mount.layer.setLayer(pane, JLayeredPane.PALETTE_LAYER)
+                    mount.layer.add(pane)
+                    mount.host.removeComponentListener(componentListener)
+                }
+                assertMountAcceptancePending(settlement, mount)
+                withContext(glowEdt) {
+                    assertTrue(mount.host.componentListeners.none { it === componentListener })
+                    mount.host.addComponentListener(componentListener)
+                    mount.host.removeHierarchyBoundsListener(boundsListener)
+                }
+                assertMountAcceptancePending(settlement, mount)
+                withContext(glowEdt) {
+                    assertTrue(mount.host.hierarchyBoundsListeners.none { it === boundsListener })
+                    mount.host.addHierarchyBoundsListener(boundsListener)
+                }
+                assertEquals(ApplySettlement.Accepted(committed.document), settlement.settle())
+                withContext(glowEdt) { assertSame(pane, mount.attached()) }
+            }
+        } finally {
+            withContext(glowEdt) {
+                holds.release()
+                mount.manager.dispose()
+            }
+        }
+    }
+
+    private suspend fun assertMountAcceptancePending(
+        settlement: StudioApplySettlement,
+        mount: GlowMount,
+    ) {
+        val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(settlement.settle())
+        assertIs<OwnerAcceptance.OwnerFailed>(assertIs<SettlementProblem.AcceptOwners>(pending.problem).result)
+        withContext(glowEdt) { assertFailsWith<IllegalStateException> { mount.manager.holdUpdates() } }
+    }
 
     private suspend fun verifyCombinedGlow(accept: Boolean) {
         val pane = glowPane(Color.ORANGE)
