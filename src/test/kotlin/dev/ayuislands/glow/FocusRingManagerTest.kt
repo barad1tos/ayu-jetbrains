@@ -536,7 +536,7 @@ class FocusRingManagerTest {
         }
 
     @Test
-    fun `partial holds preserve the other ring and reconcile focus loss`() {
+    fun `partial holds reconcile focus loss or hand the ring to the remaining owner`() {
         for (startsFocused in listOf(false, true)) {
             withSharedManagers(focused = startsFocused) { field, firstManager, secondManager, baseline ->
                 val hold = firstManager.holdCallbacks()
@@ -557,16 +557,26 @@ class FocusRingManagerTest {
                 assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
 
                 val visibleHold = secondManager.holdCallbacks()
-                val visibleEdit = visibleHold.captureAppearance { it.copy(color = Color.BLUE) }.single()
+                val visibleEdit =
+                    visibleHold
+                        .captureAppearance { it.copy(color = Color.BLUE, enabled = !startsFocused) }
+                        .single()
                 visibleEdit.apply()
                 visibleEdit.accept()
-                field.isFocusSimulated = false
-                field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
-                    it.focusLost(FocusEvent(field, FocusEvent.FOCUS_LOST))
+                if (!startsFocused) {
+                    field.isFocusSimulated = false
+                    field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
+                        it.focusLost(FocusEvent(field, FocusEvent.FOCUS_LOST))
+                    }
                 }
                 assertSame(installed, field.border)
                 visibleHold.release()
-                assertSame(baseline, field.border)
+                if (startsFocused) {
+                    val remaining = GlowFocusBorder(baseline, Color.RED, GlowStyle.SOFT, 50)
+                    assertEquals(paintBorder(field, remaining), paintCurrentBorder(field))
+                } else {
+                    assertSame(baseline, field.border)
+                }
             }
         }
     }

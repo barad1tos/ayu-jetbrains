@@ -59,7 +59,7 @@ internal class GlowFocusListener(
             returnedPeerBorder = null
             if (!isAttached) return
             if (!component.hasFocus() || !appearance.enabled) {
-                restoreBorder()
+                restoreBorder()?.takeIf { !appearance.enabled }?.let(::transferRestoredBorder)
                 return
             }
             val current = component.border
