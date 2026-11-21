@@ -43,7 +43,7 @@ internal fun planFocusRestore(
     isFocused: Boolean,
     lastAttempt: GlowFocusRestore?,
 ): GlowFocusRestore {
-    val desired = if (isFocused && record.before.enabled) record.beforeBorder else record.baselineBorder
+    val desired = if (isFocused) record.beforeBorder else record.baselineBorder
     val wasAttempted = lastAttempt != null && observed === lastAttempt.desired
     val isOwned = observed === record.plannedBorder || observed === record.beforeBorder || wasAttempted
     val outcome =
