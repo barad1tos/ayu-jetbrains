@@ -12,9 +12,14 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformMovement
+import dev.ayuislands.settings.GlowSettings
 import dev.ayuislands.studio.model.EffectOwner
+import dev.ayuislands.studio.model.FieldAddress
+import dev.ayuislands.studio.model.GlowDependency
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.StudioDocument
+import dev.ayuislands.studio.model.StudioGlowField
+import dev.ayuislands.studio.model.StudioGlowSelection
 import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.model.StudioProcess
 import dev.ayuislands.studio.model.StudioTarget
@@ -41,7 +46,11 @@ import dev.ayuislands.studio.session.RestoreContinuation
 import dev.ayuislands.studio.session.SettlementProblem
 import dev.ayuislands.studio.session.StudioApplySettlement
 import dev.ayuislands.studio.session.StudioGlowFocusOperation
+import dev.ayuislands.studio.session.StudioGlowHolds
+import dev.ayuislands.studio.session.StudioGlowOperation
 import dev.ayuislands.studio.session.StudioGlowPaneOperation
+import dev.ayuislands.studio.session.StudioGlowPlanning
+import dev.ayuislands.studio.session.StudioGlowTarget
 import dev.ayuislands.studio.session.StudioNativeEvidence
 import dev.ayuislands.studio.session.StudioNativeWrite
 import dev.ayuislands.studio.session.StudioOwnerJournal
@@ -89,6 +98,14 @@ class StudioOwnerJournalTest {
 
     @AfterTest
     fun closeDispatcher() = ioDispatcher.close()
+
+    @Test
+    fun `one Glow owner restores focus before pane playback after an interrupted Apply`() =
+        runBlocking { verifyCombinedGlow(accept = false) }
+
+    @Test
+    fun `one Glow owner keeps the accepted pane and focus appearance after release`() =
+        runBlocking { verifyCombinedGlow(accept = true) }
 
     @Test
     fun `shared Glow journals one border and writes no restoration before its evidence is durable`() =
@@ -247,12 +264,13 @@ class StudioOwnerJournalTest {
         var refreshRequests = 0
         var qualifications = 0
         val request =
-            StudioGlowPaneOperation.Request(manager, requestRefresh = { refreshRequests++ }) { _, current ->
+            StudioGlowTarget(manager) { _, current ->
                 StudioGlowPaneOperation.Edit(
                     current.copy(color = changed, width = 9, intensity = 99),
                     setOf(GlowPaneField.COLOR, GlowPaneField.WIDTH),
                 )
             }
+        val holds = StudioGlowHolds { refreshRequests++ }
         val files = FailingJournalFiles(openStudioFiles(directory))
         StudioAppearanceStore(files).use { store ->
             val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
@@ -273,7 +291,7 @@ class StudioOwnerJournalTest {
                                 }
                                 true
                             },
-                        ) { captureGlow(work, request) }
+                        ) { captureGlow(work, holds, request) }
 
                     assertEquals(OwnerApply.Completed, result)
                     val applied = assertIs<StoreLoad.Recovering>(store.load())
@@ -296,9 +314,11 @@ class StudioOwnerJournalTest {
                         assertFailsWith<IllegalStateException> { manager.holdUpdates() }
                     }
                     assertEquals(OwnerRollback.Settled, runner.rollback(work))
+                    assertEquals(0, refreshRequests)
                     withContext(glowEdt) {
                         assertSame(original, pane.glowColor)
                         assertEquals(14, pane.glowWidth)
+                        holds.release()
                     }
                     assertEquals(1, refreshRequests)
                     val reverted = assertIs<StoreLoad.Recovering>(store.load())
@@ -317,6 +337,7 @@ class StudioOwnerJournalTest {
         val pane = glowPane(Color.ORANGE)
         val manager = glowManager(pane)
         val initial = catalogTestDocument()
+        val holds = StudioGlowHolds { error("An unwritten pane requested a refresh") }
         var qualifications = 0
         StudioAppearanceStore(openStudioFiles(directory)).use { store ->
             val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
@@ -330,12 +351,15 @@ class StudioOwnerJournalTest {
                                 if (++qualifications > 1) pane.glowWidth = 13
                                 true
                             },
-                        ) { captureGlow(work, widthRequest(manager, 9)) }
+                        ) { captureGlow(work, holds, widthRequest(manager, 9)) }
 
                     assertIs<OwnerApply.OwnerFailed>(result)
                     withContext(glowEdt) { manager.holdUpdates().release() }
                     assertEquals(OwnerRollback.Settled, runner.rollback(work))
-                    withContext(glowEdt) { assertEquals(13, pane.glowWidth) }
+                    withContext(glowEdt) {
+                        holds.release()
+                        assertEquals(13, pane.glowWidth)
+                    }
                 } finally {
                     withContext(glowEdt) { manager.dispose() }
                 }
@@ -349,6 +373,7 @@ class StudioOwnerJournalTest {
         val second = glowPane(Color.ORANGE)
         val manager = glowManager(first, second)
         val initial = catalogTestDocument()
+        val holds = StudioGlowHolds { error("An unchanged environment requested a refresh") }
         var qualifications = 0
         StudioAppearanceStore(openStudioFiles(directory)).use { store ->
             val work = StudioOwnerWork(prepare(store, initial, listOf(EffectOwner.GLOW)))
@@ -357,7 +382,7 @@ class StudioOwnerJournalTest {
                 try {
                     val result =
                         runner.apply(work, qualifies = { ++qualifications < 3 }) {
-                            captureGlow(work, widthRequest(manager, 9))
+                            captureGlow(work, holds, widthRequest(manager, 9))
                         }
                     assertEquals(OwnerApply.LeaseLost, result)
                     withContext(glowEdt) {
@@ -369,6 +394,7 @@ class StudioOwnerJournalTest {
                     withContext(glowEdt) {
                         assertEquals(4, first.glowWidth)
                         assertEquals(4, second.glowWidth)
+                        holds.release()
                         manager.holdUpdates().release()
                     }
                     val restored = assertIs<StoreLoad.Recovering>(store.load())
@@ -386,6 +412,7 @@ class StudioOwnerJournalTest {
         val openPane = glowPane(Color.ORANGE)
         val closedManager = glowManager(closedPane)
         val openManager = glowManager(openPane)
+        val holds = StudioGlowHolds { error("An unchanged environment requested a refresh") }
         StudioAppearanceStore(openStudioFiles(directory)).use { store ->
             val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
             val runner = ownerJournal(store)
@@ -393,7 +420,7 @@ class StudioOwnerJournalTest {
                 try {
                     val result =
                         runner.apply(work, qualifies = { true }) {
-                            captureGlow(work, widthRequest(closedManager, 9), widthRequest(openManager, 7))
+                            captureGlow(work, holds, widthRequest(closedManager, 9), widthRequest(openManager, 7))
                         }
                     assertEquals(OwnerApply.Completed, result)
                     withContext(glowEdt) {
@@ -404,6 +431,7 @@ class StudioOwnerJournalTest {
 
                     assertEquals(OwnerRollback.Settled, runner.rollback(work))
                     withContext(glowEdt) {
+                        holds.release()
                         assertEquals(9, closedPane.glowWidth)
                         assertEquals(4, openPane.glowWidth)
                         openManager.holdUpdates().release()
@@ -423,6 +451,7 @@ class StudioOwnerJournalTest {
         val pane = glowPane(Color.ORANGE)
         val manager = glowManager(pane)
         val initial = catalogTestDocument()
+        val holds = StudioGlowHolds { error("An unchanged environment requested a refresh") }
         val waveform =
             WaveformConfig(
                 movement = WaveformMovement.COUNTER_CLOCKWISE,
@@ -434,7 +463,7 @@ class StudioOwnerJournalTest {
                 traceLength = 133,
             )
         val request =
-            StudioGlowPaneOperation.Request(manager, requestRefresh = {}) { _, current ->
+            StudioGlowTarget(manager) { _, current ->
                 StudioGlowPaneOperation.Edit(
                     current.copy(
                         style = GlowStyle.GRADIENT,
@@ -453,10 +482,10 @@ class StudioOwnerJournalTest {
             val runner = ownerJournal(store)
             runBlocking {
                 try {
-                    assertNull(captureGlow(work, widthRequest(manager, 4)))
+                    assertNull(captureGlow(work, holds, widthRequest(manager, 4)))
                     assertEquals(
                         OwnerApply.Completed,
-                        runner.apply(work, qualifies = { true }) { captureGlow(work, request) },
+                        runner.apply(work, qualifies = { true }) { captureGlow(work, holds, request) },
                     )
                     val pending = assertIs<StoreLoad.Recovering>(store.load())
                     val values =
@@ -472,6 +501,8 @@ class StudioOwnerJournalTest {
                         assertEquals(7, pane.glowWidth)
                         assertEquals(waveform, pane.captureAppearance().waveform)
                         assertFalse(pane.isVisible)
+                        assertFailsWith<IllegalStateException> { manager.holdUpdates() }
+                        holds.release()
                         manager.holdUpdates().release()
                     }
                     assertEquals(JournalResult.Acknowledged, store.finishAccepted(work.journal.token))
@@ -492,8 +523,9 @@ class StudioOwnerJournalTest {
         val pane = glowPane(Color.ORANGE)
         val manager = glowManager(pane)
         val initial = catalogTestDocument()
+        val holds = StudioGlowHolds { error("An unchanged environment requested a refresh") }
         val request =
-            StudioGlowPaneOperation.Request(manager, requestRefresh = {}) { _, current ->
+            StudioGlowTarget(manager) { _, current ->
                 StudioGlowPaneOperation.Edit(current.copy(shape = GlowShape.SOLID), setOf(GlowPaneField.SHAPE))
             }
         StudioAppearanceStore(openStudioFiles(directory)).use { store ->
@@ -507,7 +539,7 @@ class StudioOwnerJournalTest {
                             pane.activateWaveform(powerSaveEnabled = false)
                             pane.capturePlaybackTimers { true }.single()
                         }
-                    val applied = runner.apply(work, qualifies = { true }) { captureGlow(work, request) }
+                    val applied = runner.apply(work, qualifies = { true }) { captureGlow(work, holds, request) }
                     assertEquals(OwnerApply.Completed, applied)
                     withContext(glowEdt) {
                         assertEquals(GlowShape.SOLID, pane.captureAppearance().shape)
@@ -520,6 +552,7 @@ class StudioOwnerJournalTest {
                         assertEquals(OwnerRollback.Settled, runner.rollback(work))
                     }
                     withContext(glowEdt) {
+                        holds.release()
                         if (accept) {
                             assertEquals(GlowShape.SOLID, pane.captureAppearance().shape)
                             assertTrue(pane.capturePlaybackTimers { true }.isEmpty())
@@ -537,6 +570,90 @@ class StudioOwnerJournalTest {
             }
         }
     }
+
+    @Test
+    fun `Glow refresh sees all managers released and reads the restored pane values`() {
+        val firstPane = glowPane(Color.ORANGE)
+        val secondPane = glowPane(Color.CYAN)
+        val managers = listOf(glowManager(firstPane), glowManager(secondPane))
+        val refreshes = mutableListOf<GlowOverlayManager>()
+        val holds =
+            StudioGlowHolds { manager ->
+                managers.forEach { it.holdUpdates().release() }
+                assertEquals(listOf(4, 4), listOf(firstPane.glowWidth, secondPane.glowWidth))
+                refreshes.add(manager)
+            }
+        val requests = managers.map { widthRequest(it, 9) }
+        StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+            val runner = ownerJournal(store)
+            val settlement =
+                StudioApplySettlement(store, runner, ioDispatcher, work) {
+                    withContext(glowEdt) { holds.release() }
+                }
+            runBlocking {
+                try {
+                    val focus = withContext(glowEdt) { holds.hold(managers.first()).focusCallbacks }
+                    val applied =
+                        runner.apply(work, qualifies = { true }) {
+                            StudioGlowOperation.capture(
+                                requests,
+                                holds,
+                                StudioProcess(17, Instant.EPOCH),
+                                work.journal.token.transactionId,
+                                glowEdt,
+                            )
+                        }
+                    assertEquals(OwnerApply.Completed, applied)
+                    withContext(glowEdt) {
+                        assertSame(focus, holds.hold(managers.first()).focusCallbacks)
+                        assertTrue(focus.isActive)
+                        managers.forEach { it.updateGlow() }
+                    }
+
+                    assertEquals(ApplySettlement.NotAccepted, settlement.settle())
+                    assertEquals(managers.asReversed(), refreshes)
+                    withContext(glowEdt) { assertFalse(focus.isActive) }
+                } finally {
+                    withContext(glowEdt) { managers.forEach { it.dispose() } }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `Glow retries only the refresh that failed after managers were released`() =
+        runBlocking {
+            withContext(glowEdt) {
+                val first = glowManager(glowPane(Color.ORANGE))
+                val second = glowManager(glowPane(Color.CYAN))
+                val attempts = mutableListOf<GlowOverlayManager>()
+                val failure = IllegalStateException("Glow refresh failed")
+                val holds =
+                    StudioGlowHolds {
+                        attempts.add(it)
+                        if (attempts.size == 1) throw failure
+                    }
+                try {
+                    holds.hold(first)
+                    holds.hold(second)
+                    first.updateGlow()
+                    second.updateGlow()
+
+                    assertSame(failure, assertFailsWith<IllegalStateException> { holds.release() })
+                    assertEquals(listOf(second, first), attempts)
+                    first.holdUpdates().release()
+                    second.holdUpdates().release()
+
+                    holds.release()
+                    holds.release()
+                    assertEquals(listOf(second, first, second), attempts)
+                } finally {
+                    first.dispose()
+                    second.dispose()
+                }
+            }
+        }
 
     @Test
     fun `routed owners write only after their receipts are durable in order`() {
@@ -1337,22 +1454,131 @@ class StudioOwnerJournalTest {
 
     private val glowEdt: CoroutineDispatcher = Executor(SwingUtilities::invokeLater).asCoroutineDispatcher()
 
+    private suspend fun verifyCombinedGlow(accept: Boolean) {
+        val pane = glowPane(Color.ORANGE)
+        val manager = glowManager(pane)
+        val focusPeer = glowManager()
+        val untouchedPeer = glowManager()
+        val field = JournalFocusField()
+        val widthsAtBorderChange = mutableListOf<Int>()
+        val holds = StudioGlowHolds { error("No external refresh was requested") }
+        val original =
+            withContext(glowEdt) {
+                val focus = GlowOverlayManager::class.java.getDeclaredField("focusRingManager")
+                focus.isAccessible = true
+                val managers = listOf(untouchedPeer, manager, focusPeer)
+                installFocus(field, managers.map { focus.get(it) as FocusRingManager })
+                field.addPropertyChangeListener("border") { widthsAtBorderChange.add(pane.glowWidth) }
+                field.border
+            }
+        try {
+            val files = FailingJournalFiles(openStudioFiles(directory))
+            StudioAppearanceStore(files).use { store ->
+                val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+                val runner = ownerJournal(store)
+                var qualifications = 0
+                val applied =
+                    runner.apply(work, qualifies = {
+                        if (++qualifications == 2) {
+                            val receipts = withContext(ioDispatcher) { journalReceipts(store) }
+                            val fields = receipts.map { it.identity.field.substringAfterLast('/') }
+                            val expectedFields = mapOf("WIDTH" to 1, "APPEARANCE" to 2, "BORDER" to 1)
+                            assertEquals("WIDTH", fields.first())
+                            assertEquals(expectedFields, fields.groupingBy { it }.eachCount())
+                            assertEquals(4, receipts.map { it.id }.distinct().size)
+                            assertTrue(receipts.all { it.owner == EffectOwner.GLOW })
+                            assertTrue(receipts.all { it.status == RestoreStatus.PENDING })
+                            assertEquals(4, pane.glowWidth)
+                            assertSame(original, field.border)
+                            assertFailsWith<IllegalStateException> { untouchedPeer.holdUpdates() }
+                        }
+                        true
+                    }) {
+                        val width = FieldAddress(StudioGlowField.SOFT_WIDTH.key)
+                        val selection =
+                            StudioGlowSelection(StudioList(listOf(width)), StudioList(listOf(GlowDependency.ACCENT)))
+                        val settings = GlowSettings(width = mapOf(GlowStyle.SOFT to 9))
+                        val paneTarget =
+                            StudioGlowPlanning.target(
+                                manager,
+                                selection,
+                                settings,
+                                StudioGlowPlanning.Accents(pane = null, focus = Color.MAGENTA),
+                                focusAvailable = true,
+                            )
+                        val focusTarget =
+                            StudioGlowPlanning.target(
+                                focusPeer,
+                                selection,
+                                settings,
+                                StudioGlowPlanning.Accents(pane = null, focus = Color.GREEN),
+                                focusAvailable = true,
+                            )
+                        StudioGlowOperation.capture(
+                            listOf(paneTarget, focusTarget, StudioGlowTarget(untouchedPeer)),
+                            holds,
+                            StudioProcess(17, Instant.EPOCH),
+                            work.journal.token.transactionId,
+                            glowEdt,
+                        )
+                    }
+                assertEquals(OwnerApply.Completed, applied)
+                assertEquals(List(4) { RestoreStatus.OWNED }, journalReceipts(store).map { it.status })
+                val installed = withContext(glowEdt) { field.border }
+                val settlement =
+                    StudioApplySettlement(store, runner, ioDispatcher, work) {
+                        withContext(glowEdt) { holds.release() }
+                    }
+                if (accept) {
+                    assertIs<CommitResult.Committed>(store.commit(work.journal.token, work.journal.candidate.runtime))
+                    assertIs<ApplySettlement.Accepted>(settlement.settle())
+                } else {
+                    files.failNextReplace = true
+                    val failure = OwnerRollback.ReceiptFailed(EffectOwner.GLOW, StoreIssue.IO)
+                    assertEquals(
+                        ApplySettlement.RecoveryRequired(SettlementProblem.RestoreOwners(failure)),
+                        settlement.settle(),
+                    )
+                    withContext(glowEdt) {
+                        assertSame(installed, field.border)
+                        assertEquals(9, pane.glowWidth)
+                    }
+                    assertEquals(ApplySettlement.NotAccepted, settlement.settle())
+                }
+                withContext(glowEdt) {
+                    assertEquals(if (accept) 9 else 4, pane.glowWidth)
+                    assertSame(if (accept) installed else original, field.border)
+                    val expected =
+                        if (accept) {
+                            listOf(Color.ORANGE, Color.MAGENTA, Color.GREEN)
+                        } else {
+                            listOf(Color.ORANGE, Color.CYAN, Color.CYAN)
+                        }
+                    assertEquals(expected, field.currentColors())
+                    assertEquals(if (accept) listOf(9) else listOf(9, 9), widthsAtBorderChange)
+                    manager.holdUpdates().release()
+                    focusPeer.holdUpdates().release()
+                    untouchedPeer.holdUpdates().release()
+                }
+            }
+        } finally {
+            withContext(glowEdt) {
+                holds.release()
+                focusPeer.dispose()
+                manager.dispose()
+                untouchedPeer.dispose()
+            }
+        }
+    }
+
     private suspend fun withFocusHolds(
         test: suspend (JournalFocusField, List<FocusRingManager.CallbackHold>) -> Unit,
     ) {
         val (field, managers, holds) =
             withContext(glowEdt) {
                 val input = JournalFocusField()
-                val window = mockk<Window> { every { components } returns arrayOf(input) }
                 val focusManagers = listOf(FocusRingManager(), FocusRingManager())
-                mockkStatic(Window::class)
-                try {
-                    every { Window.getWindows() } returns arrayOf(window)
-                    focusManagers.first().initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
-                    focusManagers.last().initializeFocusRingGlow(Color.CYAN, GlowStyle.SOFT, 60)
-                } finally {
-                    unmockkStatic(Window::class)
-                }
+                installFocus(input, focusManagers)
                 Triple(input, focusManagers, focusManagers.map { it.holdCallbacks() })
             }
         try {
@@ -1362,6 +1588,23 @@ class StudioOwnerJournalTest {
                 holds.asReversed().forEach { it.release() }
                 managers.asReversed().forEach { it.dispose() }
             }
+        }
+    }
+
+    private fun installFocus(
+        input: JTextField,
+        managers: List<FocusRingManager>,
+    ) {
+        val window = mockk<Window> { every { components } returns arrayOf(input) }
+        mockkStatic(Window::class)
+        try {
+            every { Window.getWindows() } returns arrayOf(window)
+            managers.forEachIndexed { index, manager ->
+                val color = if (index == 0) Color.ORANGE else Color.CYAN
+                manager.initializeFocusRingGlow(color, GlowStyle.SOFT, 50 + index * 10)
+            }
+        } finally {
+            unmockkStatic(Window::class)
         }
     }
 
@@ -1390,10 +1633,12 @@ class StudioOwnerJournalTest {
 
     private suspend fun captureGlow(
         work: StudioOwnerWork,
-        vararg requests: StudioGlowPaneOperation.Request,
+        holds: StudioGlowHolds,
+        vararg requests: StudioGlowTarget,
     ): StudioOwnerOperation? =
-        StudioGlowPaneOperation.capture(
+        StudioGlowOperation.capture(
             requests.asList(),
+            holds,
             StudioProcess(17, Instant.EPOCH),
             work.journal.token.transactionId,
             glowEdt,
@@ -1404,8 +1649,8 @@ class StudioOwnerJournalTest {
     private fun widthRequest(
         manager: GlowOverlayManager,
         width: Int,
-    ): StudioGlowPaneOperation.Request =
-        StudioGlowPaneOperation.Request(manager, requestRefresh = {}) { _, current ->
+    ): StudioGlowTarget =
+        StudioGlowTarget(manager) { _, current ->
             StudioGlowPaneOperation.Edit(current.copy(width = width), setOf(GlowPaneField.WIDTH))
         }
 

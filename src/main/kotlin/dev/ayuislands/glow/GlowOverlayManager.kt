@@ -192,6 +192,8 @@ class GlowOverlayManager(
         private val hold = updates.hold()
         private var pausedTimers: List<GlowPlaybackTimer>? = null
 
+        val focusCallbacks: FocusRingManager.CallbackHold get() = hold.focusCallbacks
+
         /** Pause the current playback only after the owning operation is ready to write. */
         fun pausePlayback() {
             check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
