@@ -12,6 +12,7 @@ import java.awt.event.FocusListener
 import java.awt.event.HierarchyEvent
 import java.awt.event.HierarchyListener
 import java.awt.image.BufferedImage
+import java.beans.PropertyChangeListener
 import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JComponent
@@ -328,6 +329,250 @@ class FocusRingManagerTest {
         }
 
     @Test
+    fun `shared apply writes one border and retains independent appearances and listener order`() =
+        withSharedField(focused = true) { field, first, second, baseline ->
+            val original = field.border
+            val listeners = field.focusListeners.toList()
+            val checkpoints =
+                captureGlowFocus(listOf(second, first)) { hold, actual ->
+                    actual.copy(color = if (hold === first) Color.RED else Color.BLUE)
+                }
+
+            assertEquals(2, checkpoints.size)
+            val writer = checkpoints.single { GlowFocusField.BORDER in it.record.fields }
+            assertEquals(Color.CYAN, writer.record.before.color)
+            assertEquals(Color.BLUE, writer.record.planned.color)
+            assertSame(baseline, writer.record.baselineBorder)
+            assertSame(original, field.border)
+            checkpoints.forEach { it.apply() }
+            assertSame(writer.record.plannedBorder, field.border)
+            val expected = GlowFocusBorder(baseline, Color.BLUE, GlowStyle.SOFT, 60)
+            assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+
+            restoreSharedFocus(checkpoints)
+            first.release()
+            second.release()
+            assertSame(original, field.border)
+            assertEquals(listeners, field.focusListeners.toList())
+        }
+
+    @Test
+    fun `disabling the visible writer transfers the border without a false appearance receipt`() =
+        withSharedField(focused = true) { field, first, second, baseline ->
+            val original = field.border
+            val checkpoints =
+                captureGlowFocus(listOf(first, second)) { hold, actual ->
+                    if (hold === second) actual.copy(enabled = false) else actual
+                }
+            val writer = checkpoints.single { GlowFocusField.BORDER in it.record.fields }
+            assertEquals(Color.ORANGE, writer.record.planned.color)
+            assertEquals(setOf(GlowFocusField.BORDER), writer.record.fields.keys)
+
+            checkpoints.forEach { it.apply() }
+            val expected = GlowFocusBorder(baseline, Color.ORANGE, GlowStyle.SOFT, 50)
+            assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+            restoreSharedFocus(checkpoints)
+            second.release()
+            first.release()
+
+            assertSame(original, field.border)
+        }
+
+    @Test
+    fun `late focus reconciles through a single writer after all managers release their holds`() =
+        withSharedField(focused = false) { field, first, second, baseline ->
+            val checkpoints =
+                captureGlowFocus(listOf(second, first)) { hold, actual ->
+                    actual.copy(color = if (hold === first) Color.RED else Color.BLUE)
+                }
+            assertTrue(checkpoints.none { GlowFocusField.BORDER in it.record.fields })
+            checkpoints.forEach { it.apply() }
+            checkpoints.forEach { it.accept() }
+            field.isFocusSimulated = true
+            field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
+                it.focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
+            }
+            var writes = 0
+            field.addPropertyChangeListener("border") { writes++ }
+
+            second.release()
+            field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
+                it.focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
+            }
+            assertSame(baseline, field.border)
+            assertEquals(0, writes)
+            first.release()
+
+            assertEquals(1, writes)
+            val expected = GlowFocusBorder(baseline, Color.BLUE, GlowStyle.SOFT, 60)
+            assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+        }
+
+    @Test
+    fun `unshared focus callbacks finish before shared holds are released`() =
+        withFocusWindows { firstManager, windows ->
+            val shared = FocusField()
+            val other = FocusField()
+            val root = JPanel().apply { add(shared) }
+            windows += focusWindow(root)
+            firstManager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+            val secondManager = FocusRingManager()
+            try {
+                root.add(other)
+                secondManager.initializeFocusRingGlow(Color.CYAN, GlowStyle.SOFT, 60)
+                val first = firstManager.holdCallbacks()
+                val second = secondManager.holdCallbacks()
+                val checkpoints =
+                    captureGlowFocus(listOf(first, second)) { hold, actual ->
+                        if (hold === first) actual.copy(color = Color.RED) else actual
+                    }
+                checkpoints.forEach { it.apply() }
+                checkpoints.forEach { it.accept() }
+                shared.isFocusSimulated = true
+                other.isFocusSimulated = true
+                other.addPropertyChangeListener("border") {
+                    shared.focusListeners.filterIsInstance<GlowFocusListener>().forEach { listener ->
+                        listener.focusGained(FocusEvent(shared, FocusEvent.FOCUS_GAINED))
+                    }
+                }
+                var writes = 0
+                shared.addPropertyChangeListener("border") { writes++ }
+
+                first.release()
+                second.release()
+
+                assertEquals(1, writes)
+            } finally {
+                secondManager.dispose()
+            }
+        }
+
+    @Test
+    fun `late focus still reconciles when an overlapping manager closes during Apply`() =
+        withSharedManagers(focused = false) { field, firstManager, secondManager, baseline ->
+            val first = firstManager.holdCallbacks()
+            val second = secondManager.holdCallbacks()
+            val checkpoints =
+                captureGlowFocus(listOf(first, second)) { hold, actual ->
+                    actual.copy(color = if (hold === first) Color.RED else Color.BLUE)
+                }
+            checkpoints.forEach { it.apply() }
+            checkpoints.forEach { it.accept() }
+            field.isFocusSimulated = true
+            field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
+                it.focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
+            }
+            firstManager.dispose()
+            assertSame(baseline, field.border)
+
+            var writes = 0
+            val counter = PropertyChangeListener { writes++ }
+            field.addPropertyChangeListener("border", counter)
+            try {
+                second.release()
+                assertEquals(1, writes)
+                val expected = GlowFocusBorder(baseline, Color.BLUE, GlowStyle.SOFT, 60)
+                assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+            } finally {
+                field.removePropertyChangeListener("border", counter)
+            }
+        }
+
+    @Test
+    fun `disposing the visible writer keeps the surviving ring before or after the holds release`() {
+        for (releaseBeforeDispose in listOf(false, true)) {
+            withSharedManagers(focused = true) { field, firstManager, secondManager, baseline ->
+                val firstListener = field.focusListeners.filterIsInstance<GlowFocusListener>().first()
+                val first = firstManager.holdCallbacks()
+                val second = secondManager.holdCallbacks()
+                val checkpoints =
+                    captureGlowFocus(listOf(first, second)) { hold, actual ->
+                        actual.copy(color = if (hold === first) Color.RED else Color.BLUE)
+                    }
+                checkpoints.forEach { it.apply() }
+                checkpoints.forEach { it.accept() }
+                if (releaseBeforeDispose) {
+                    first.release()
+                    second.release()
+                }
+
+                secondManager.dispose()
+                if (!releaseBeforeDispose) {
+                    assertSame(baseline, field.border)
+                    first.release()
+                }
+                val expected = GlowFocusBorder(baseline, Color.RED, GlowStyle.SOFT, 50)
+                assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+                assertSame(firstListener, field.focusListeners.filterIsInstance<GlowFocusListener>().single())
+            }
+        }
+    }
+
+    @Test
+    fun `shared disable removes just the complete owned chain and leaves both listeners registered`() =
+        withSharedField(focused = true) { field, first, second, baseline ->
+            val listeners = field.focusListeners.toList()
+            val checkpoints = captureGlowFocus(listOf(first, second)) { _, actual -> actual.copy(enabled = false) }
+            assertEquals(1, checkpoints.count { GlowFocusField.BORDER in it.record.fields })
+
+            checkpoints.forEach { it.apply() }
+            checkpoints.forEach { it.accept() }
+            first.release()
+            second.release()
+
+            assertSame(baseline, field.border)
+            assertEquals(listeners, field.focusListeners.toList())
+        }
+
+    @Test
+    fun `reenabling after shared disable draws immediately with the same listeners`() =
+        withSharedManagers(focused = true) { field, firstManager, secondManager, baseline ->
+            val listeners = field.focusListeners.toList()
+            val firstDisable = firstManager.holdCallbacks()
+            val secondDisable = secondManager.holdCallbacks()
+            val disableHolds = listOf(firstDisable, secondDisable)
+            val disable = captureGlowFocus(disableHolds) { _, actual -> actual.copy(enabled = false) }
+            disable.forEach { it.apply() }
+            disable.forEach { it.accept() }
+            firstDisable.release()
+            secondDisable.release()
+            assertSame(baseline, field.border)
+
+            val firstEnable = firstManager.holdCallbacks()
+            val secondEnable = secondManager.holdCallbacks()
+            val enableHolds = listOf(firstEnable, secondEnable)
+            val enable = captureGlowFocus(enableHolds) { _, actual -> actual.copy(enabled = true) }
+            enable.forEach { it.apply() }
+            val expected = GlowFocusBorder(baseline, Color.CYAN, GlowStyle.SOFT, 60)
+            val applied = field.border
+            assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+
+            enable.forEach { it.accept() }
+            firstEnable.release()
+            secondEnable.release()
+
+            assertSame(applied, field.border)
+            assertEquals(listeners, field.focusListeners.toList())
+        }
+
+    @Test
+    fun `shared capture leaves a foreign visible border untouched`() =
+        withSharedField(focused = true) { field, first, second, _ ->
+            val foreign = EmptyBorder(6, 5, 4, 3)
+            field.border = foreign
+            val checkpoints = captureGlowFocus(listOf(first, second)) { _, actual -> actual.copy(color = Color.RED) }
+            assertEquals(2, checkpoints.size)
+            assertTrue(checkpoints.none { GlowFocusField.BORDER in it.record.fields })
+
+            checkpoints.forEach { it.apply() }
+            restoreSharedFocus(checkpoints)
+            first.release()
+            second.release()
+
+            assertSame(foreign, field.border)
+        }
+
+    @Test
     fun `release preserves a border installed by another writer during the hold`() =
         withFocusWindows { manager, windows ->
             val field = FocusField()
@@ -488,6 +733,44 @@ class FocusRingManagerTest {
             assertIs<GlowFocusBorder>(field.border)
             assertEquals(baseline.focusCount + 1, field.focusListeners.size)
         }
+}
+
+private fun withSharedField(
+    focused: Boolean,
+    test: (FocusField, FocusRingManager.CallbackHold, FocusRingManager.CallbackHold, Border) -> Unit,
+) = withSharedManagers(focused) { field, firstManager, secondManager, baseline ->
+    val first = firstManager.holdCallbacks()
+    val second = secondManager.holdCallbacks()
+    try {
+        test(field, first, second, baseline)
+    } finally {
+        first.release()
+        second.release()
+    }
+}
+
+private fun withSharedManagers(
+    focused: Boolean,
+    test: (FocusField, FocusRingManager, FocusRingManager, Border) -> Unit,
+) = withFocusWindows { firstManager, windows ->
+    val field = FocusField().apply { isFocusSimulated = focused }
+    val baseline = checkNotNull(field.border)
+    windows += focusWindow(JPanel().apply { add(field) })
+    firstManager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+    val secondManager = FocusRingManager()
+    try {
+        secondManager.initializeFocusRingGlow(Color.CYAN, GlowStyle.SOFT, 60)
+        test(field, firstManager, secondManager, baseline)
+    } finally {
+        secondManager.dispose()
+    }
+}
+
+private fun restoreSharedFocus(checkpoints: List<GlowFocusListener.Checkpoint>) {
+    for (checkpoint in checkpoints.asReversed()) {
+        checkpoint.prepareRestore()
+        checkpoint.restore()
+    }
 }
 
 private data class ListenerBaseline(
