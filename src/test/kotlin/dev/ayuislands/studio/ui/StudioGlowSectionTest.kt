@@ -53,9 +53,11 @@ import dev.ayuislands.studio.session.StudioApplyCoordinator
 import dev.ayuislands.studio.session.StudioApplyLease
 import dev.ayuislands.studio.session.StudioDraftPolicy
 import dev.ayuislands.studio.session.StudioGlowEditing
-import dev.ayuislands.studio.session.StudioGlowPaneOperation
+import dev.ayuislands.studio.session.StudioGlowHolds
+import dev.ayuislands.studio.session.StudioGlowOperation
 import dev.ayuislands.studio.session.StudioGlowPanePlanning
 import dev.ayuislands.studio.session.StudioGlowProjection
+import dev.ayuislands.studio.session.StudioGlowTarget
 import dev.ayuislands.studio.session.StudioSessionRecords
 import dev.ayuislands.studio.session.Submission
 import io.mockk.every
@@ -305,16 +307,19 @@ class StudioGlowSectionTest {
                         val coordinator =
                             mountedCoordinator(store, io) { plan ->
                                 object : StudioApplyLease {
+                                    private val holds =
+                                        StudioGlowHolds { error("An unchanged environment requested a refresh") }
+
                                     override suspend fun qualifies(): Boolean = true
 
-                                    override suspend fun capture(owner: EffectOwner): StudioGlowPaneOperation? {
+                                    override suspend fun capture(owner: EffectOwner): StudioGlowOperation? {
                                         assertEquals(EffectOwner.GLOW, owner)
                                         val selection = plan.route.glow
                                         assertEquals(listOf(FieldAddress(StudioGlowField.SHAPE.key)), selection.fields)
                                         val appearance = plan.document.currents.global.appearance
                                         val settings = StudioGlowProjection.settings(appearance)
                                         val request =
-                                            StudioGlowPaneOperation.Request(manager, {}) { isEditor, current ->
+                                            StudioGlowTarget(manager) { isEditor, current ->
                                                 StudioGlowPanePlanning.edit(
                                                     selection,
                                                     settings,
@@ -323,8 +328,9 @@ class StudioGlowSectionTest {
                                                     current,
                                                 )
                                             }
-                                        return StudioGlowPaneOperation.capture(
+                                        return StudioGlowOperation.capture(
                                             listOf(request),
+                                            holds,
                                             StudioProcess(17, Instant.EPOCH),
                                             plan.document.header.transactionId,
                                             edt,
@@ -341,7 +347,8 @@ class StudioGlowSectionTest {
                                             candidate.runtime
                                         }
 
-                                    override suspend fun release(accepted: StudioDocument?) = Unit
+                                    override suspend fun release(accepted: StudioDocument?) =
+                                        withContext(edt) { holds.release() }
                                 }
                             }
                         val work = session.work.copy(drafts = StudioList(listOf(draft)))

@@ -7,7 +7,6 @@ import dev.ayuislands.glow.sameGlowColor
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.forPlayback
 import dev.ayuislands.settings.GlowSettings
-import dev.ayuislands.studio.model.FieldPart
 import dev.ayuislands.studio.model.GlowDependency
 import dev.ayuislands.studio.model.StudioGlowField
 import dev.ayuislands.studio.model.StudioGlowSelection
@@ -57,7 +56,7 @@ internal object StudioGlowPanePlanning {
         isEditor: Boolean,
         hasAccent: Boolean,
     ): Set<GlowPaneField> {
-        val addresses = selection.fields.filter { it.part == FieldPart.Value }.mapTo(mutableSetOf()) { it.field }
+        val addresses = selection.selectedSettingKeys()
         val style = StudioGlowStyleSlots.forStyle(settings.style)
         val selectsStyle = StudioGlowField.STYLE.key in addresses
         val placement = if (isEditor) StudioGlowField.EDITOR_PLACEMENT else StudioGlowField.TOOL_WINDOW_PLACEMENT

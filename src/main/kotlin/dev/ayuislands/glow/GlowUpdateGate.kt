@@ -23,7 +23,7 @@ internal class GlowUpdateGate(
     }
 
     inner class Hold(
-        private val focus: FocusRingManager.CallbackHold,
+        val focusCallbacks: FocusRingManager.CallbackHold,
         private var refreshRequested: Boolean,
     ) {
         val isActive: Boolean
@@ -38,7 +38,7 @@ internal class GlowUpdateGate(
             check(SwingUtilities.isEventDispatchThread()) { "Glow update holds must run on EDT" }
             if (synchronized(lock) { currentHold === this }) {
                 try {
-                    if (!isDisposed()) focus.release()
+                    if (!isDisposed()) focusCallbacks.release()
                 } finally {
                     synchronized(lock) {
                         if (currentHold === this) currentHold = null

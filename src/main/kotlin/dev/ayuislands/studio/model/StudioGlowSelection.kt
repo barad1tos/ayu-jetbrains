@@ -5,7 +5,14 @@ internal data class StudioGlowSelection(
     val fields: StudioList<FieldAddress> = StudioList(emptyList()),
     val dependencies: StudioList<GlowDependency> = StudioList(emptyList()),
     val shouldReclassifyLanguage: Boolean = false,
-)
+) {
+    fun selectedSettingKeys(): Set<LegacyFieldKey> =
+        fields
+            .asSequence()
+            .filter { it.field.source == LegacyStore.SETTINGS && it.part == FieldPart.Value }
+            .map { it.field }
+            .toSet()
+}
 
 internal enum class GlowDependency { ACCENT, AVAILABILITY }
 
