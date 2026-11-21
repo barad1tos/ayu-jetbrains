@@ -36,6 +36,20 @@ class FocusRingManager {
     internal inner class CallbackHold {
         private val captures = focusListeners.values.map(GlowFocusListener::captureCallbacks)
 
+        fun captureAppearance(
+            transform: (GlowFocusAppearance) -> GlowFocusAppearance,
+        ): List<GlowFocusListener.Checkpoint> {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow focus capture must run on EDT" }
+            check(callbackHold === this) { "Glow focus hold is unavailable" }
+            return buildList {
+                for ((component, listener) in focusListeners) {
+                    val isCurrent = { callbackHold === this@CallbackHold && focusListeners[component] === listener }
+                    val checkpoint = listener.captureAppearance(isCurrent, transform)
+                    if (checkpoint != null) add(checkpoint)
+                }
+            }
+        }
+
         fun release() {
             check(SwingUtilities.isEventDispatchThread()) { "Glow focus holds must run on EDT" }
             if (callbackHold !== this) return
