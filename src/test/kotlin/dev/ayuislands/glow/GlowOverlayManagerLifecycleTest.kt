@@ -58,6 +58,7 @@ import java.awt.event.ActionEvent
 import java.awt.event.ComponentEvent
 import java.awt.event.ComponentListener
 import javax.swing.JLayeredPane
+import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 import kotlin.test.AfterTest
@@ -1322,6 +1323,52 @@ class GlowOverlayManagerLifecycleTest {
         assertTrue(hold.release())
         listener.componentResized(resize)
         assertEquals(140, solidPane.width)
+    }
+
+    @Test
+    fun `accepted attachment settles its bounds and inherits existing focus after release`() {
+        val root = javax.swing.JRootPane()
+        val host =
+            object : JPanel() {
+                var showing = false
+
+                override fun isShowing(): Boolean = showing
+            }
+        root.contentPane.add(host)
+        host.setBounds(7, 9, 180, 90)
+        state.glowAnimation = GlowAnimation.NONE.name
+        val manager = GlowOverlayManager(stubProject("accepted-attachment"))
+        val oldPane = mockk<GlowGlassPane>(relaxed = true)
+        var focusDepartures = 0
+        every { oldPane.startFadeOut() } answers { focusDepartures++ }
+        seedOverlaysMapWithMocks(manager, oldPane, mockk(relaxed = true), mockk(relaxed = true), key = "existing")
+        setActiveGlow(manager, "existing")
+        val hold = manager.holdUpdates()
+        val appearance = GlowGlassPane(Color.CYAN, GlowStyle.SOFT, 60, 4).captureAppearance()
+        val attachment = hold.prepareAttachment(GlowOverlayAddition("Terminal", host, appearance))
+        val newPane = attachment.entry.glassPane
+        try {
+            attachment.apply()
+            assertEquals(Rectangle(), newPane.bounds)
+
+            val focusManager = mockk<KeyboardFocusManager>(relaxed = true)
+            mockkStatic(KeyboardFocusManager::class)
+            every { KeyboardFocusManager.getCurrentKeyboardFocusManager() } returns focusManager
+            every { focusManager.permanentFocusOwner } returns host
+            val scheduled = mutableListOf<Runnable>()
+            every { SwingUtilities.invokeLater(any()) } answers { scheduled += firstArg<Runnable>() }
+            attachment.accept()
+            assertTrue(scheduled.isEmpty(), "The hold still owns playback and layout")
+
+            host.showing = true
+            hold.release()
+            scheduled.toList().forEach(Runnable::run)
+
+            assertEquals(1 to Rectangle(7, 9, 180, 90), focusDepartures to newPane.bounds)
+        } finally {
+            newPane.stopAnimation()
+            manager.dispose()
+        }
     }
 
     @Test

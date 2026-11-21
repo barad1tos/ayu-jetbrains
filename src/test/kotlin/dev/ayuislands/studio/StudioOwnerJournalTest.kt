@@ -1573,6 +1573,7 @@ class StudioOwnerJournalTest {
                         }
                         true
                     }) { captureGlowAddition(mount, work, holds) }
+                assertEquals(2, qualifications, "Apply must qualify the journaled write before mounting")
                 val nativePane =
                     withContext(glowEdt) {
                         mount.layer.components
