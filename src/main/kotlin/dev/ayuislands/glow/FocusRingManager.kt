@@ -34,43 +34,78 @@ class FocusRingManager {
     }
 
     internal inner class CallbackHold {
-        private val captures = focusListeners.values.map(GlowFocusListener::captureCallbacks)
+        private val captures = focusListeners.values.associateWith(GlowFocusListener::captureCallbacks)
+        private val shared = mutableMapOf<GlowFocusListener, SharedGlowFocus>()
+        private var released = false
+
+        val isActive: Boolean get() = callbackHold === this && !released
+
+        fun listeners(): List<GlowFocusListener> = focusListeners.values.toList()
+
+        fun isRegistered(listener: GlowFocusListener): Boolean = focusListeners[listener.component] === listener
+
+        fun canCapture(listener: GlowFocusListener): Boolean = isActive && isRegistered(listener) && listener !in shared
+
+        fun share(
+            listener: GlowFocusListener,
+            focus: SharedGlowFocus,
+        ) {
+            shared[listener] = focus
+        }
 
         fun captureAppearance(
             transform: (GlowFocusAppearance) -> GlowFocusAppearance,
-        ): List<GlowFocusListener.Checkpoint> {
-            check(SwingUtilities.isEventDispatchThread()) { "Glow focus capture must run on EDT" }
-            check(callbackHold === this) { "Glow focus hold is unavailable" }
-            return buildList {
-                for ((component, listener) in focusListeners) {
-                    val isCurrent = { callbackHold === this@CallbackHold && focusListeners[component] === listener }
-                    val checkpoint = listener.captureAppearance(isCurrent, transform)
-                    if (checkpoint != null) add(checkpoint)
-                }
-            }
-        }
+        ): List<GlowFocusListener.Checkpoint> =
+            captureGlowFocus(listOf(this)) { _, appearance -> transform(appearance) }
 
         fun release() {
             check(SwingUtilities.isEventDispatchThread()) { "Glow focus holds must run on EDT" }
-            if (callbackHold !== this) return
-            val failures = mutableListOf<RuntimeException>()
+            if (!isActive) return
+            released = true
             try {
-                for (capture in captures) {
-                    try {
-                        capture.reconcile()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: RuntimeException) {
-                        failures.add(failure)
-                    }
-                }
+                reconcileCaptured()
+            } catch (cancelled: CancellationException) {
+                abandonShared()
+                throw cancelled
             } finally {
-                if (callbackHold === this) callbackHold = null
+                finishRelease()
+            }
+        }
+
+        private fun reconcileCaptured() {
+            val failures = mutableListOf<RuntimeException>()
+            for ((listener, capture) in captures) {
+                if (listener !in shared) reconcileStep(failures) { capture.reconcile() }
+            }
+            // A local border listener can synchronously dispatch focus to a shared field.
+            for ((listener, focus) in shared) {
+                reconcileStep(failures) { focus.release(listener) }
             }
             failures.firstOrNull()?.let { first ->
                 failures.drop(1).filterNot { it === first }.forEach(first::addSuppressed)
                 throw first
             }
+        }
+
+        private inline fun reconcileStep(
+            failures: MutableList<RuntimeException>,
+            action: () -> Unit,
+        ) {
+            try {
+                action()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: RuntimeException) {
+                failures.add(failure)
+            }
+        }
+
+        fun abandonShared() {
+            shared.values.forEach(SharedGlowFocus::abandon)
+        }
+
+        fun finishRelease() {
+            if (released && callbackHold === this && shared.values.all { it.isSettled }) callbackHold = null
         }
     }
 
@@ -132,6 +167,7 @@ class FocusRingManager {
     fun dispose() {
         removeFocusListeners()
         processedWindows.clear()
+        callbackHold?.release()
         callbackHold = null
     }
 

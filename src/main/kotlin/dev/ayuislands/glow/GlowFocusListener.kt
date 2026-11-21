@@ -12,7 +12,7 @@ import javax.swing.border.Border
 
 /** Owns a component's glow border and listener registrations. All callbacks run on the EDT. */
 internal class GlowFocusListener(
-    private val component: JComponent,
+    val component: JComponent,
     glowColor: Color,
     glowStyle: GlowStyle,
     baseIntensity: Int,
@@ -23,18 +23,29 @@ internal class GlowFocusListener(
     private var isAttached = false
     private var appearance = GlowFocusAppearance(glowColor, glowStyle, baseIntensity)
     private var ownership: Ownership? = null
-    private var returnedOwnedBaseline = false
+    private var returnedPeerBorder: Ownership? = null
+    var returnedOwnedBaseline = false
+        private set
 
-    private class Ownership(
+    class Ownership(
         val baseline: Border?,
         val installed: GlowFocusBorder,
     )
+
+    val currentAppearance: GlowFocusAppearance get() = appearance
+    val ownedBorder: Ownership? get() = ownership
+
+    fun forgetBorder(owner: Ownership) {
+        checkEdt()
+        if (ownership === owner) ownership = null
+    }
 
     private fun canChangeBorder(observed: Border?): Boolean =
         ownership?.let { observed === it.installed } ?: (observed !is GlowFocusBorder)
 
     fun captureCallbacks(): CallbackCheckpoint {
         returnedOwnedBaseline = false
+        returnedPeerBorder = null
         return CallbackCheckpoint()
     }
 
@@ -44,18 +55,22 @@ internal class GlowFocusListener(
         private val mayWrapBaseline = canChangeBorder(borderAtCapture)
 
         fun reconcile() {
+            val peerBorder = returnedPeerBorder
+            returnedPeerBorder = null
             if (!isAttached) return
             if (!component.hasFocus() || !appearance.enabled) {
-                restoreBorder()
+                restoreBorder()?.takeIf { !appearance.enabled }?.let(::transferRestoredBorder)
                 return
             }
             val current = component.border
+            val canWrapCapturedBorder = mayWrapBaseline && current === borderAtCapture
             val isReleasedBaseline =
                 returnedOwnedBaseline &&
                     ownedAtCapture != null &&
                     ownership == null &&
                     current === ownedAtCapture.baseline
-            if ((mayWrapBaseline && current === borderAtCapture) || isReleasedBaseline) applyBorder()
+            val isPeerBaseline = peerBorder?.let { it.installed === borderAtCapture && current === it.baseline } == true
+            if (canWrapCapturedBorder || isReleasedBaseline || isPeerBaseline) applyBorder()
         }
     }
 
@@ -65,27 +80,60 @@ internal class GlowFocusListener(
     ): Checkpoint? {
         checkTarget(isCurrent)
         val planned = transform(appearance)
-        return if (appearance.matches(planned)) null else Checkpoint(planned, isCurrent)
+        if (appearance.matches(planned)) return null
+        return capturePlanned(planned, observeBorder(), isCurrent)
+    }
+
+    fun capturePlanned(
+        planned: GlowFocusAppearance,
+        border: GlowFocusBorderEdit?,
+        isCurrent: () -> Boolean,
+    ): Checkpoint? {
+        checkTarget(isCurrent)
+        if (border != null) check(component.border === border.observed) { "Glow focus border changed before capture" }
+        val checkpoint = Checkpoint(planned, border, isCurrent)
+        return checkpoint.takeIf { it.hasChanges }
+    }
+
+    private fun observeBorder(): GlowFocusBorderEdit? {
+        val observed = component.border
+        if (!canChangeBorder(observed)) return null
+        val owner = ownership
+        return GlowFocusBorderEdit(observed, if (owner == null) observed else owner.baseline)
+    }
+
+    fun reconcileSharedBorder(
+        observed: Border?,
+        baseline: Border?,
+        showRing: Boolean,
+    ) {
+        checkEdt()
+        if (!isAttached || component.border !== observed) return
+        val owner = if (showRing) makeBorder(baseline, appearance) else null
+        installBorder(owner?.installed ?: baseline, owner)
     }
 
     inner class Checkpoint(
-        val planned: GlowFocusAppearance,
+        requested: GlowFocusAppearance,
+        private val border: GlowFocusBorderEdit?,
         private val isCurrent: () -> Boolean,
     ) {
         private val before = appearance
+        val planned = if (before.matches(requested)) before else requested
         private val beforeBorder = component.border
         private val beforeOwner = ownership
         private val wasFocused = component.hasFocus()
-        private val canWriteBorder = canChangeBorder(beforeBorder)
-        private val baseline = if (beforeOwner != null && canWriteBorder) beforeOwner.baseline else beforeBorder
+        private val baseline = if (border != null) border.baseline else beforeBorder
         private val plannedOwner =
-            if (canWriteBorder && wasFocused && planned.enabled) makeBorder(baseline, planned) else null
-        private val plannedBorder = if (canWriteBorder) plannedOwner?.installed ?: baseline else beforeBorder
+            if (border != null && wasFocused && planned.enabled) makeBorder(baseline, planned) else null
+        private val plannedBorder = if (border != null) plannedOwner?.installed ?: baseline else beforeBorder
         private var phase = GlowCheckpointPhase.PREPARED
-        private var appearanceState = GlowFieldState.PREPARED
+        private var appearanceState = GlowFieldState.PREPARED.takeIf { planned !== before }
         private var borderState = GlowFieldState.PREPARED.takeIf { plannedBorder !== beforeBorder }
         private var restoration: GlowFocusRestore? = null
         private var lastAttempt: GlowFocusRestore? = null
+
+        val hasChanges: Boolean get() = appearanceState != null || borderState != null
 
         val record: GlowFocusRecord
             get() =
@@ -97,7 +145,7 @@ internal class GlowFocusListener(
                     baseline,
                     phase,
                     buildMap {
-                        put(GlowFocusField.APPEARANCE, appearanceState)
+                        appearanceState?.let { put(GlowFocusField.APPEARANCE, it) }
                         borderState?.let { put(GlowFocusField.BORDER, it) }
                     },
                     restoration,
@@ -107,17 +155,19 @@ internal class GlowFocusListener(
             checkTarget(isCurrent)
             check(phase == GlowCheckpointPhase.PREPARED) { "Glow focus change already started" }
             check(appearance === before && ownership === beforeOwner) { "Glow focus state changed before apply" }
-            if (canWriteBorder) checkBorder(beforeBorder, wasFocused)
+            if (border != null) checkBorder(beforeBorder, wasFocused)
             phase = GlowCheckpointPhase.APPLYING
-            appearanceState = GlowFieldState.WRITING
-            appearance = planned
+            if (appearanceState != null) {
+                appearanceState = GlowFieldState.WRITING
+                appearance = planned
+            }
             if (borderState != null) {
                 borderState = GlowFieldState.WRITING
-                installBorder(plannedBorder, plannedOwner)
+                installCheckpointBorder(plannedBorder, plannedOwner)
             }
             checkTarget(isCurrent)
             check(appearance === planned) { "Glow focus appearance did not settle" }
-            if (canWriteBorder) checkBorder(plannedBorder, wasFocused)
+            if (border != null) checkBorder(plannedBorder, wasFocused)
             phase = GlowCheckpointPhase.APPLIED
         }
 
@@ -132,7 +182,7 @@ internal class GlowFocusListener(
             checkRestorable()
             if (phase == GlowCheckpointPhase.RESTORED) return
             if (!isAttached) {
-                appearanceState = appearanceState.afterDetach()
+                appearanceState = appearanceState?.afterDetach()
                 borderState = borderState?.afterDetach()
                 phase = GlowCheckpointPhase.RESTORED
                 return
@@ -205,7 +255,7 @@ internal class GlowFocusListener(
             check(component.hasFocus() == prepared.isFocused) { "Focus changed after preparing Glow restoration" }
             if (prepared.outcome == GlowFieldState.WRITING) {
                 lastAttempt = prepared
-                installBorder(prepared.desired, beforeOwner?.takeIf { it.installed === prepared.desired })
+                installCheckpointBorder(prepared.desired, restoredOwner(prepared.desired))
                 checkTarget(isCurrent)
                 check(component.border !== current) { "Glow focus restoration did not settle" }
                 check(component.hasFocus() == prepared.isFocused) { "Focus changed during Glow restoration" }
@@ -214,14 +264,24 @@ internal class GlowFocusListener(
             settleBorder(if (restored) GlowFieldState.RESTORED else GlowFieldState.FOREIGN)
         }
 
+        private fun installCheckpointBorder(
+            target: Border?,
+            owner: Ownership?,
+        ) {
+            val returnsBaseline = owner == null && target === baseline && component.border !== baseline
+            installBorder(target, owner, returnsBaseline)
+        }
+
         private fun settleBorder(outcome: GlowFieldState) {
             if (ownership === plannedOwner || ownership === beforeOwner) {
                 if (outcome == GlowFieldState.FOREIGN) returnedOwnedBaseline = false
-                ownership =
-                    beforeOwner?.takeIf { outcome == GlowFieldState.RESTORED && component.border === it.installed }
+                ownership = if (outcome == GlowFieldState.RESTORED) restoredOwner(component.border) else null
             }
             borderState = outcome
         }
+
+        private fun restoredOwner(observed: Border?): Ownership? =
+            beforeOwner?.takeIf { it.installed === observed || observed === beforeBorder }
 
         private fun checkRestorable() {
             checkEdt()
@@ -242,12 +302,25 @@ internal class GlowFocusListener(
         isAttached = false
         component.removeFocusListener(this)
         component.removeHierarchyListener(this)
-        restoreBorder()
+        val restored = restoreBorder()
         onDetached()
+        if (restored != null) transferRestoredBorder(restored)
+    }
+
+    private fun transferRestoredBorder(restored: Ownership) {
+        if (restored.baseline is GlowFocusBorder || component.border !== restored.baseline) return
+        val receiver = listeners().lastOrNull { it.isAttached && it.appearance.enabled } ?: return
+        if (!receiver.callbacksAllowed()) {
+            receiver.returnedPeerBorder = restored
+        } else if (component.hasFocus()) {
+            receiver.applyBorder()
+        }
     }
 
     override fun focusGained(event: FocusEvent) {
-        if (canHandle(event)) applyBorder()
+        if (!canHandle(event)) return
+        val selected = listeners().lastOrNull { it.isAttached && it.appearance.enabled && it.callbacksAllowed() }
+        if (selected === this) applyBorder()
     }
 
     override fun focusLost(event: FocusEvent) {
@@ -264,10 +337,22 @@ internal class GlowFocusListener(
     }
 
     private fun applyBorder() {
-        if (!appearance.enabled || ownership?.installed?.let { it === component.border } == true) return
-        val border = makeBorder(component.border, appearance)
+        val observed = component.border
+        if (!appearance.enabled || ownership?.installed?.let { it === observed } == true) return
+        val previous =
+            if (observed is GlowFocusBorder) {
+                listeners().firstOrNull { it.callbacksAllowed() && it.ownership?.installed === observed } ?: return
+            } else {
+                null
+            }
+        val previousBorder = previous?.ownership
+        val baseline = if (previousBorder == null) observed else previousBorder.baseline
+        val border = makeBorder(baseline, appearance)
         installBorder(border.installed, border)
+        if (previousBorder != null && component.border === border.installed) previous.forgetBorder(previousBorder)
     }
+
+    private fun listeners(): List<GlowFocusListener> = component.focusListeners.filterIsInstance<GlowFocusListener>()
 
     private fun makeBorder(
         baseline: Border?,
@@ -277,22 +362,20 @@ internal class GlowFocusListener(
     private fun installBorder(
         border: Border?,
         owner: Ownership?,
+        returnsBaseline: Boolean = false,
     ) {
-        val previous = ownership
-        returnedOwnedBaseline =
-            owner == null &&
-            previous != null &&
-            component.border === previous.installed &&
-            border === previous.baseline
+        returnedOwnedBaseline = returnsBaseline
         ownership = owner
         component.border = border
         component.repaint()
     }
 
-    private fun restoreBorder() {
-        val owner = ownership ?: return
+    private fun restoreBorder(): Ownership? {
+        val owner = ownership ?: return null
         ownership = null
-        if (component.border === owner.installed) installBorder(owner.baseline, null)
+        if (component.border !== owner.installed) return null
+        installBorder(owner.baseline, null, returnsBaseline = true)
+        return owner.takeIf { component.border === it.baseline }
     }
 
     private fun checkTarget(isCurrent: () -> Boolean) {
