@@ -229,6 +229,7 @@ class StudioOwnerJournalTest {
 
                     assertEquals(ApplySettlement.Accepted(work.journal.candidate), settled.settle())
                     withContext(glowEdt) {
+                        assertTrue(holds.none { it.isActive })
                         assertSame(border, field.border)
                         assertEquals(listOf(Color.MAGENTA, Color.MAGENTA), field.currentColors())
                     }
