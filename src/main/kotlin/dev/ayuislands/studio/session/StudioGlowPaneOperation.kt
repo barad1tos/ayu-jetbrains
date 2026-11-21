@@ -62,9 +62,9 @@ internal class StudioGlowPaneOperation private constructor(
         withContext(nativeDispatcher) {
             try {
                 if (!panesRestored) {
-                    settle(panes.asReversed()) { pane ->
+                    settleGlowActions(panes.asReversed()) { pane ->
                         pane.checkpoint.restore(
-                            blockedBy = StudioGlowPaneReceipts.blockedFields(pane.captured, blocked),
+                            blockedBy = blockedGlowFields(pane.captured, blocked),
                             targetRetired = pane.request.manager.isDisposed,
                         )
                     }
@@ -86,7 +86,7 @@ internal class StudioGlowPaneOperation private constructor(
         }
 
     private fun releaseHolds() {
-        settle(holds.keys.toList().asReversed()) { request ->
+        settleGlowActions(holds.keys.toList().asReversed()) { request ->
             if (holds.getValue(request).release()) request.requestRefresh()
             holds.remove(request)
         }
@@ -94,18 +94,6 @@ internal class StudioGlowPaneOperation private constructor(
 
     private fun observeReceipts() {
         receipts = StudioList(panes.flatMap { StudioGlowPaneReceipts.observe(it.captured, it.checkpoint.record) })
-    }
-
-    private fun <T> settle(
-        values: List<T>,
-        action: (T) -> Unit,
-    ) {
-        var failure: Throwable? = null
-        for (value in values) {
-            val problem = runCatchingPreservingCancellation { action(value) }.exceptionOrNull()
-            if (problem != null) failure = combineUiFailures(failure, problem)
-        }
-        failure?.let { throw it }
     }
 
     companion object {
@@ -135,4 +123,16 @@ internal class StudioGlowPaneOperation private constructor(
                 panes.takeIf { it.isNotEmpty() }?.let { StudioGlowPaneOperation(it, nativeDispatcher) }
             }
     }
+}
+
+internal fun <T> settleGlowActions(
+    values: List<T>,
+    action: (T) -> Unit,
+) {
+    var failure: Throwable? = null
+    for (value in values) {
+        val problem = runCatchingPreservingCancellation { action(value) }.exceptionOrNull()
+        if (problem != null) failure = combineUiFailures(failure, problem)
+    }
+    failure?.let { throw it }
 }

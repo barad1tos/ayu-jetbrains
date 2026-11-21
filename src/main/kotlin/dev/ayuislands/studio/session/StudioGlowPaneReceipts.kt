@@ -1,7 +1,5 @@
 package dev.ayuislands.studio.session
 
-import dev.ayuislands.glow.GlowCheckpointPhase
-import dev.ayuislands.glow.GlowFieldState
 import dev.ayuislands.glow.GlowPaneAppearance
 import dev.ayuislands.glow.GlowPaneField
 import dev.ayuislands.glow.GlowPaneRecord
@@ -12,7 +10,6 @@ import dev.ayuislands.studio.model.StudioProcess
 import dev.ayuislands.studio.persistence.NativeFieldIdentity
 import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.RestoreStatus
-import dev.ayuislands.studio.persistence.StudioReceiptPolicy
 
 /** The journal keeps evidence; only the retained native checkpoint can write a pane. */
 internal object StudioGlowPaneReceipts {
@@ -40,36 +37,7 @@ internal object StudioGlowPaneReceipts {
         record: GlowPaneRecord,
     ): List<PortableReceipt> =
         originals.map { (field, receipt) ->
-            receipt.copy(status = status(record.phase, record.fields.getValue(field)))
-        }
-
-    fun blockedFields(
-        originals: Map<GlowPaneField, PortableReceipt>,
-        blocked: List<PortableReceipt>,
-    ): Set<GlowPaneField> =
-        originals
-            .filterValues { original ->
-                blocked.any {
-                    it.identity.resource == original.identity.resource &&
-                        it.identity.field == original.identity.field &&
-                        !StudioReceiptPolicy.isTerminal(it)
-                }
-            }.keys
-
-    private fun status(
-        phase: GlowCheckpointPhase,
-        state: GlowFieldState,
-    ): RestoreStatus =
-        when (state) {
-            GlowFieldState.PREPARED -> RestoreStatus.PENDING
-            GlowFieldState.RESTORED -> RestoreStatus.RESTORED
-            GlowFieldState.FOREIGN -> RestoreStatus.FOREIGN
-            GlowFieldState.WRITING ->
-                if (phase == GlowCheckpointPhase.APPLIED || phase == GlowCheckpointPhase.ACCEPTED) {
-                    RestoreStatus.OWNED
-                } else {
-                    RestoreStatus.PENDING
-                }
+            receipt.copy(status = glowReceiptStatus(record.phase, record.fields.getValue(field)))
         }
 
     private fun value(

@@ -118,6 +118,8 @@ internal class GlowFocusListener(
         private val border: GlowFocusBorderEdit?,
         private val isCurrent: () -> Boolean,
     ) {
+        val listener: GlowFocusListener get() = this@GlowFocusListener
+
         private val before = appearance
         val planned = if (before.matches(requested)) before else requested
         private val beforeBorder = component.border
