@@ -1195,23 +1195,6 @@ class StudioOwnerJournalTest {
 
     private fun glowPane(color: Color): GlowGlassPane = GlowGlassPane(color, GlowStyle.SOFT, 40, 4)
 
-    private fun glowManager(vararg panes: GlowGlassPane): GlowOverlayManager {
-        val manager = GlowOverlayManager(mockk<Project>(relaxed = true))
-        val entries = GlowOverlayManager::class.java.getDeclaredField("overlays")
-        entries.isAccessible = true
-        val overlays = entries.get(manager)
-        val put = overlays.javaClass.getMethod("put", Any::class.java, Any::class.java)
-        val entryType = GlowOverlayManager::class.java.declaredClasses.single { it.simpleName == "OverlayEntry" }
-        val constructor = entryType.declaredConstructors.single { it.parameterCount == 5 }
-        constructor.isAccessible = true
-        panes.forEachIndexed { index, pane ->
-            val root = JLayeredPane()
-            root.add(pane)
-            put.invoke(overlays, "pane-$index", constructor.newInstance(pane, JPanel(), root, null, null))
-        }
-        return manager
-    }
-
     private fun widthRequest(
         manager: GlowOverlayManager,
         width: Int,
@@ -1352,4 +1335,21 @@ private class FailingJournalFiles(
         }
         files.replace(source, destination)
     }
+}
+
+internal fun glowManager(vararg panes: GlowGlassPane): GlowOverlayManager {
+    val manager = GlowOverlayManager(mockk<Project>(relaxed = true))
+    val entries = GlowOverlayManager::class.java.getDeclaredField("overlays")
+    entries.isAccessible = true
+    val overlays = entries.get(manager)
+    val put = overlays.javaClass.getMethod("put", Any::class.java, Any::class.java)
+    val entryType = GlowOverlayManager::class.java.declaredClasses.single { it.simpleName == "OverlayEntry" }
+    val constructor = entryType.declaredConstructors.single { it.parameterCount == 5 }
+    constructor.isAccessible = true
+    panes.forEachIndexed { index, pane ->
+        val root = JLayeredPane()
+        root.add(pane)
+        put.invoke(overlays, "pane-$index", constructor.newInstance(pane, JPanel(), root, null, null))
+    }
+    return manager
 }

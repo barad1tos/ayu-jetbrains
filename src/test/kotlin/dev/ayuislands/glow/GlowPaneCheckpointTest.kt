@@ -286,6 +286,69 @@ class GlowPaneCheckpointTest {
         }
 
     @Test
+    fun `a new style with the same width invalidates a prepared width write`() =
+        onEdt {
+            val before = originalAppearance()
+            val pane = newPane(before)
+            val target = before.copy(width = targetAppearance().width)
+            val checkpoint = GlowPaneCheckpoint(pane, target, setOf(GlowPaneField.WIDTH)) { true }
+            val foreign = before.copy(style = targetAppearance().style)
+            try {
+                pane.glowStyle = foreign.style
+
+                assertFailsWith<IllegalStateException> { checkpoint.apply() }
+                assertEquals(foreign, pane.captureAppearance())
+                assertEquals(mapOf(GlowPaneField.WIDTH to GlowFieldState.PREPARED), checkpoint.record.fields)
+                checkpoint.restore()
+                assertEquals(foreign, pane.captureAppearance())
+            } finally {
+                pane.stopAnimation()
+            }
+        }
+
+    @Test
+    fun `rollback does not restore a matching width on a foreign style`() =
+        onEdt {
+            val before = originalAppearance()
+            val pane = newPane(before)
+            val target = before.copy(width = targetAppearance().width)
+            val checkpoint = GlowPaneCheckpoint(pane, target, setOf(GlowPaneField.WIDTH)) { true }
+            val foreign = target.copy(style = targetAppearance().style)
+            try {
+                checkpoint.apply()
+                pane.glowStyle = foreign.style
+
+                checkpoint.restore()
+
+                assertEquals(foreign, pane.captureAppearance())
+                assertEquals(mapOf(GlowPaneField.WIDTH to GlowFieldState.FOREIGN), checkpoint.record.fields)
+            } finally {
+                pane.stopAnimation()
+            }
+        }
+
+    @Test
+    fun `accepted waveform edits retry a previously failed renderer`() =
+        onEdt {
+            val before = originalAppearance().copy(shape = GlowShape.WAVEFORM)
+            val pane = newPane(before)
+            val target = before.copy(waveform = before.waveform.copy(amplitude = before.waveform.amplitude + 1))
+            try {
+                pane.failRouteWaveform(IllegalStateException("Previous renderer failure"))
+                val checkpoint = GlowPaneCheckpoint(pane, target) { true }
+                checkpoint.apply()
+                assertFalse(pane.isWaveform)
+
+                checkpoint.accept()
+
+                assertEquals(target, pane.captureAppearance())
+                assertTrue(pane.isWaveform)
+            } finally {
+                pane.stopAnimation()
+            }
+        }
+
+    @Test
     fun `appearance rollback preserves an independent waveform failure`() =
         onEdt {
             val before = originalAppearance().copy(shape = GlowShape.WAVEFORM)

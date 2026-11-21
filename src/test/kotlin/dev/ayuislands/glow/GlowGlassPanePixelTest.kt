@@ -9,7 +9,7 @@ import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPainter
 import dev.ayuislands.glow.waveform.WaveformRenderPlan
-import dev.ayuislands.glow.waveform.brightnessAt
+import dev.ayuislands.glow.waveform.waveformBrightness
 import java.awt.Color
 import java.awt.event.ActionEvent
 import java.awt.image.BufferedImage
@@ -336,7 +336,7 @@ class GlowGlassPanePixelTest {
                 direction = TravelDirection.CLOCKWISE,
                 config = config,
                 energy = 0f,
-                brightness = config.brightnessAt(0f),
+                brightness = waveformBrightness(0f),
             ),
         )
 

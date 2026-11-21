@@ -465,7 +465,7 @@ internal class WaveformEngine(
                 config = config,
                 direction = direction,
                 trace = trace,
-                brightness = config.brightnessAt(energy),
+                brightness = waveformBrightness(energy),
                 energy = energy,
                 morphology = morphology,
             )
@@ -478,7 +478,7 @@ internal class WaveformEngine(
             WaveformFrame(
                 config = config,
                 direction = direction,
-                brightness = config.brightnessAt(0f),
+                brightness = waveformBrightness(0f),
                 morphology = morphology,
             )
 

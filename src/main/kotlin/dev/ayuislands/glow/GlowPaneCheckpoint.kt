@@ -20,6 +20,7 @@ internal class GlowPaneCheckpoint(
     }
 
     val before: GlowPaneAppearance = pane.captureAppearance()
+    private val hadWaveformFailure = pane.hasWaveformFailure
     val record: GlowPaneRecord
         get() = GlowPaneRecord(before, planned, phase, Collections.unmodifiableMap(LinkedHashMap(fields)))
     private var phase = GlowCheckpointPhase.PREPARED
@@ -28,6 +29,7 @@ internal class GlowPaneCheckpoint(
             .filter { it in selected && !GlowPaneFields.matches(it, before, planned) }
             .associateWith { GlowFieldState.PREPARED }
             .toMutableMap()
+    private val parameterStyle = if (GlowPaneField.STYLE in fields) planned.style else before.style
 
     val hasPending: Boolean
         get() = phase != GlowCheckpointPhase.ACCEPTED && GlowFieldState.WRITING in fields.values
@@ -39,7 +41,9 @@ internal class GlowPaneCheckpoint(
         phase = GlowCheckpointPhase.APPLYING
         fields.keys.forEachIndexed { index, field ->
             checkCurrent()
-            if (!GlowPaneFields.matches(field, pane.captureAppearance(), before)) {
+            val current = pane.captureAppearance()
+            check(hasParameterStyle(field, current)) { "Glow pane style changed before applying $field" }
+            if (!GlowPaneFields.matches(field, current, before)) {
                 fields[field] = GlowFieldState.FOREIGN
                 error("Glow pane changed before apply: $field")
             }
@@ -47,13 +51,11 @@ internal class GlowPaneCheckpoint(
             fields[field] = GlowFieldState.WRITING
             write(field, planned)
             checkCurrent()
-            check(
-                GlowPaneFields.matches(field, pane.captureAppearance(), planned),
-            ) { "Glow pane write did not settle: $field" }
+            check(matchesPlanned(field, pane.captureAppearance())) { "Glow pane write did not settle: $field" }
         }
         checkCurrent()
         val applied = pane.captureAppearance()
-        check(fields.keys.all { GlowPaneFields.matches(it, applied, planned) }) {
+        check(fields.keys.all { matchesPlanned(it, applied) }) {
             "Glow pane changed during apply"
         }
         phase = GlowCheckpointPhase.APPLIED
@@ -100,11 +102,26 @@ internal class GlowPaneCheckpoint(
         checkEdt()
         if (phase == GlowCheckpointPhase.ACCEPTED) return
         check(phase == GlowCheckpointPhase.APPLIED) { "Glow pane apply has not completed" }
-        if (GlowPaneField.SHAPE in fields && planned.shape == GlowShape.SOLID && isCurrent()) {
-            val current = pane.captureAppearance()
-            if (current.shape == GlowShape.SOLID) pane.configureWaveform(current.shape, current.waveform)
-        }
+        if (isCurrent()) settleWaveform()
         phase = GlowCheckpointPhase.ACCEPTED
+    }
+
+    private fun settleWaveform() {
+        val current = pane.captureAppearance()
+        if (current.shape == GlowShape.SOLID) {
+            if (GlowPaneField.SHAPE in fields && planned.shape == GlowShape.SOLID) {
+                pane.configureWaveform(current.shape, current.waveform)
+            }
+        } else if (hadWaveformFailure) {
+            val expected =
+                fields.keys.fold(before) { appearance, field ->
+                    GlowPaneFields.replace(field, appearance, planned)
+                }
+            val ownedChange = expected.shape != before.shape || expected.waveform != before.waveform
+            if (ownedChange && current.shape == expected.shape && current.waveform == expected.waveform) {
+                pane.configureWaveform(current.shape, current.waveform, retryUnchangedConfig = true)
+            }
+        }
     }
 
     private fun restoreField(
@@ -125,6 +142,10 @@ internal class GlowPaneCheckpoint(
                 checkCurrent()
                 val current = pane.captureAppearance()
                 when {
+                    !hasParameterStyle(field, current) -> {
+                        fields[field] = GlowFieldState.FOREIGN
+                    }
+
                     GlowPaneFields.matches(field, current, before) -> {
                         fields[field] = GlowFieldState.RESTORED
                     }
@@ -139,6 +160,7 @@ internal class GlowPaneCheckpoint(
                         val restored = pane.captureAppearance()
                         fields[field] =
                             when {
+                                !hasParameterStyle(field, restored) -> GlowFieldState.FOREIGN
                                 GlowPaneFields.matches(field, restored, before) -> GlowFieldState.RESTORED
                                 !GlowPaneFields.matches(field, restored, planned) -> GlowFieldState.FOREIGN
                                 else -> error("Glow pane restoration did not settle: $field")
@@ -148,6 +170,20 @@ internal class GlowPaneCheckpoint(
             }
         }
     }
+
+    private fun matchesPlanned(
+        field: GlowPaneField,
+        current: GlowPaneAppearance,
+    ): Boolean = hasParameterStyle(field, current) && GlowPaneFields.matches(field, current, planned)
+
+    private fun hasParameterStyle(
+        field: GlowPaneField,
+        current: GlowPaneAppearance,
+    ): Boolean =
+        when (field) {
+            GlowPaneField.WIDTH, GlowPaneField.INTENSITY -> current.style == parameterStyle
+            else -> true
+        }
 
     private fun write(
         field: GlowPaneField,

@@ -6,6 +6,7 @@ import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
+import dev.ayuislands.glow.resolveWaveformConfig
 import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
 import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
 import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
@@ -130,34 +131,37 @@ class AyuIslandsStatePropertyTest {
         assertEquals(GlowShape.SOLID.name, state.glowShape)
         assertEquals(WaveformMovement.CLOCKWISE.name, state.waveformDirection)
         assertEquals(WaveformBaseline.OUTSIDE.name, state.waveformBaseline)
-        assertEquals(1, state.effectiveTraceDensity())
-        assertEquals(LEGACY_TRACE_LENGTH, state.effectiveTraceLength())
-        assertEquals(LEGACY_AMPLITUDE, state.effectiveWaveformAmplitude())
-        assertEquals(LEGACY_INTENSITY, state.effectiveWaveformIntensity())
+        val defaults = resolveWaveformConfig(state)
+        assertEquals(1, defaults.traceDensity)
+        assertEquals(LEGACY_TRACE_LENGTH, defaults.traceLength)
+        assertEquals(LEGACY_AMPLITUDE, defaults.amplitude)
+        assertEquals(LEGACY_INTENSITY, defaults.intensity)
 
         state.waveformAmplitude = Int.MIN_VALUE
         state.waveformIntensity = Int.MAX_VALUE
         state.waveformTraceDensity = Int.MAX_VALUE
         state.waveformTraceLength = Int.MAX_VALUE
 
-        assertEquals(MIN_WAVEFORM_AMPLITUDE, state.effectiveWaveformAmplitude())
-        assertEquals(MAX_WAVEFORM_INTENSITY, state.effectiveWaveformIntensity())
-        assertEquals(MAX_TRACE_DENSITY, state.effectiveTraceDensity())
-        assertEquals(MAX_TRACE_LENGTH, state.effectiveTraceLength())
+        val clamped = resolveWaveformConfig(state)
+        assertEquals(MIN_WAVEFORM_AMPLITUDE, clamped.amplitude)
+        assertEquals(MAX_WAVEFORM_INTENSITY, clamped.intensity)
+        assertEquals(MAX_TRACE_DENSITY, clamped.traceDensity)
+        assertEquals(MAX_TRACE_LENGTH, clamped.traceLength)
 
         state.waveformAmplitude = Int.MAX_VALUE
-        assertEquals(MAX_WAVEFORM_AMPLITUDE, state.effectiveWaveformAmplitude())
+        assertEquals(MAX_WAVEFORM_AMPLITUDE, resolveWaveformConfig(state).amplitude)
 
         state.waveformAmplitude = 16
-        assertEquals(16, state.effectiveWaveformAmplitude())
+        assertEquals(16, resolveWaveformConfig(state).amplitude)
 
         state.waveformTraceDensity = Int.MIN_VALUE
         state.waveformTraceLength = Int.MIN_VALUE
-        assertEquals(1, state.effectiveTraceDensity())
-        assertEquals(MIN_TRACE_LENGTH, state.effectiveTraceLength())
+        val minimum = resolveWaveformConfig(state)
+        assertEquals(1, minimum.traceDensity)
+        assertEquals(MIN_TRACE_LENGTH, minimum.traceLength)
 
         state.waveformTraceLength = 360
-        assertEquals(360, state.effectiveTraceLength())
+        assertEquals(360, resolveWaveformConfig(state).traceLength)
         assertEquals(WaveformBaseline.CENTERED, WaveformBaseline.fromName("retired-value"))
     }
 
@@ -165,19 +169,19 @@ class AyuIslandsStatePropertyTest {
     fun `legacy waveform loop period deserializes safely and clamps corrupted persisted numbers`() {
         val state = AyuIslandsState()
 
-        assertEquals(LEGACY_LOOP_SECONDS, state.effectiveLoopSeconds())
+        assertEquals(LEGACY_LOOP_SECONDS, resolveWaveformConfig(state).loopSeconds)
 
         state.waveformLoopSeconds = Float.NEGATIVE_INFINITY
-        assertEquals(1.5f, state.effectiveLoopSeconds())
+        assertEquals(1.5f, resolveWaveformConfig(state).loopSeconds)
 
         state.waveformLoopSeconds = Float.POSITIVE_INFINITY
-        assertEquals(40f, state.effectiveLoopSeconds())
+        assertEquals(40f, resolveWaveformConfig(state).loopSeconds)
 
         state.waveformLoopSeconds = 3.7f
-        assertEquals(3.7f, state.effectiveLoopSeconds())
+        assertEquals(3.7f, resolveWaveformConfig(state).loopSeconds)
 
         state.waveformLoopSeconds = Float.NaN
-        assertEquals(20f, state.effectiveLoopSeconds())
+        assertEquals(20f, resolveWaveformConfig(state).loopSeconds)
     }
 
     @Test

@@ -36,7 +36,17 @@ internal val WaveformConfig.traceComplexCount: Int
 internal val WaveformConfig.effectiveTraceLength: Int
     get() = traceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH)
 
-internal fun WaveformConfig.brightnessAt(energy: Float): Float =
+/** Clamp only the installed configuration; saved waveform values stay untouched. */
+internal fun WaveformConfig.forPlayback(): WaveformConfig =
+    copy(
+        amplitude = amplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE),
+        intensity = intensity.coerceIn(MIN_WAVEFORM_INTENSITY, MAX_WAVEFORM_INTENSITY),
+        loopSeconds = loopSeconds.normalizedLoopSeconds(),
+        traceDensity = traceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY),
+        traceLength = effectiveTraceLength,
+    )
+
+internal fun waveformBrightness(energy: Float): Float =
     IDLE_BRIGHTNESS + energy.coerceIn(0f, 1f) * (1f - IDLE_BRIGHTNESS)
 
 internal fun Float.normalizedLoopSeconds(): Float =

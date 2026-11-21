@@ -131,7 +131,7 @@ class RouteLayerPixelTest {
             assertTrue(frame.signal.energy > 0.9f)
             assertTrue(frame.signal.brightness > 0.98f)
             assertEquals(
-                frame.signal.config.brightnessAt(frame.signal.energy),
+                waveformBrightness(frame.signal.energy),
                 frame.signal.brightness,
                 0.001f,
             )
@@ -186,7 +186,7 @@ class RouteLayerPixelTest {
             }
         frames.forEach { frame ->
             assertEquals(1f, frame.alpha)
-            assertEquals(frame.signal.config.brightnessAt(frame.signal.energy), frame.signal.brightness, 0.001f)
+            assertEquals(waveformBrightness(frame.signal.energy), frame.signal.brightness, 0.001f)
         }
     }
 
@@ -253,7 +253,7 @@ class RouteLayerPixelTest {
             )
         assertTrue(reboundMove <= testStyle().width, "exit rebind centroid moved $reboundMove pixels")
         frames.forEach { frame ->
-            assertEquals(frame.signal.config.brightnessAt(frame.signal.energy), frame.signal.brightness, 0.001f)
+            assertEquals(waveformBrightness(frame.signal.energy), frame.signal.brightness, 0.001f)
         }
     }
 
@@ -268,7 +268,7 @@ class RouteLayerPixelTest {
             assertTrue(frame.slices.any { slice -> slice.surfaceId == "Commit" })
             assertTrue(frame.slices.any { slice -> slice.surfaceId == "Problems" })
             assertEquals(1f, frame.alpha)
-            assertEquals(frame.signal.config.brightnessAt(frame.signal.energy), frame.signal.brightness, 0.001f)
+            assertEquals(waveformBrightness(frame.signal.energy), frame.signal.brightness, 0.001f)
         }
         images.forEach { image ->
             assertTrue(alphaMass(image, targetRegion) > 0L)
@@ -884,7 +884,7 @@ private fun assertBoundedPixels(
     }
     frames.forEach { frame ->
         assertTrue(frame.signal.energy > 0.9f)
-        assertEquals(frame.signal.config.brightnessAt(frame.signal.energy), frame.signal.brightness, 0.001f)
+        assertEquals(waveformBrightness(frame.signal.energy), frame.signal.brightness, 0.001f)
     }
 }
 

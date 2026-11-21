@@ -13,17 +13,8 @@ import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.DEFAULT_TRACE_DENSITY
-import dev.ayuislands.glow.waveform.MAX_TRACE_DENSITY
-import dev.ayuislands.glow.waveform.MAX_TRACE_LENGTH
-import dev.ayuislands.glow.waveform.MAX_WAVEFORM_AMPLITUDE
-import dev.ayuislands.glow.waveform.MAX_WAVEFORM_INTENSITY
-import dev.ayuislands.glow.waveform.MIN_TRACE_DENSITY
-import dev.ayuislands.glow.waveform.MIN_TRACE_LENGTH
-import dev.ayuislands.glow.waveform.MIN_WAVEFORM_AMPLITUDE
-import dev.ayuislands.glow.waveform.MIN_WAVEFORM_INTENSITY
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformMovement
-import dev.ayuislands.glow.waveform.normalizedLoopSeconds
 import dev.ayuislands.indent.IndentPreset
 import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.rotation.AccentRotationMode
@@ -635,10 +626,6 @@ class AyuIslandsState : BaseState() {
         }
     }
 
-    fun effectiveWaveformAmplitude(): Int = waveformAmplitude.coerceIn(MIN_WAVEFORM_AMPLITUDE, MAX_WAVEFORM_AMPLITUDE)
-
-    fun effectiveWaveformIntensity(): Int = waveformIntensity.coerceIn(MIN_WAVEFORM_INTENSITY, MAX_WAVEFORM_INTENSITY)
-
     fun isIslandEnabled(toolWindowId: String): Boolean =
         when (toolWindowId) {
             "Editor" -> glowEditor
@@ -736,12 +723,6 @@ private const val LEGACY_TRACE_LENGTH = 167
 private const val LEGACY_WAVEFORM_AMPLITUDE = 10
 private const val LEGACY_WAVEFORM_INTENSITY = 70
 private const val LEGACY_LOOP_SECONDS = 30f
-
-fun AyuIslandsState.effectiveTraceDensity(): Int = waveformTraceDensity.coerceIn(MIN_TRACE_DENSITY, MAX_TRACE_DENSITY)
-
-fun AyuIslandsState.effectiveTraceLength(): Int = waveformTraceLength.coerceIn(MIN_TRACE_LENGTH, MAX_TRACE_LENGTH)
-
-fun AyuIslandsState.effectiveLoopSeconds(): Float = waveformLoopSeconds.normalizedLoopSeconds()
 
 private fun AyuIslandsState.isAccentElementEnabled(id: AccentElementId): Boolean =
     when (id) {

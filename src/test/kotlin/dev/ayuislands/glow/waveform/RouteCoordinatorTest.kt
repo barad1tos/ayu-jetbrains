@@ -1290,7 +1290,7 @@ class RouteCoordinatorTest {
             assertEquals(target.samples.size, sampleDistances.distinct().size)
             assertTrue(successor.samples.maxOf(WaveformSample::distance) > 100f)
             assertEquals(1f, frame.alpha)
-            assertEquals(frame.signal.config.brightnessAt(frame.signal.energy), frame.signal.brightness, 0.001f)
+            assertEquals(waveformBrightness(frame.signal.energy), frame.signal.brightness, 0.001f)
             assertFiniteFrame(frame)
         }
         assertEquals("Problems", coordinator.snapshot.plannedTargetId)
