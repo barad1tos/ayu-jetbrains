@@ -6,6 +6,7 @@ import java.beans.PropertyChangeListener
 import javax.swing.BorderFactory
 import javax.swing.JTextField
 import javax.swing.SwingUtilities
+import javax.swing.border.Border
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -41,13 +42,13 @@ class GlowFocusCheckpointTest {
             val checkpoint = checkNotNull(listener.captureAppearance { it.copy(enabled = false) })
             checkpoint.apply()
             checkpoint.accept()
-            val nativeBorder = field.border
+            assertSame(field.nativeBorder, field.border)
 
             listener.focusLost(FocusEvent(field, FocusEvent.FOCUS_LOST))
             listener.focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
 
-            assertSame(checkpoint.record.baselineBorder, nativeBorder)
-            assertSame(nativeBorder, field.border)
+            assertSame(field.nativeBorder, checkpoint.record.baselineBorder)
+            assertSame(field.nativeBorder, field.border)
             assertFailsWith<IllegalStateException> { checkpoint.restore() }
         }
 
@@ -90,7 +91,7 @@ class GlowFocusCheckpointTest {
 
             checkpoint.restore()
 
-            assertSame(checkpoint.record.baselineBorder, field.border)
+            assertSame(field.nativeBorder, field.border)
             assertEquals(GlowFieldState.RESTORED, checkpoint.record.fields[GlowFocusField.BORDER])
         }
 
@@ -270,6 +271,7 @@ class GlowFocusCheckpointTest {
 }
 
 private class FocusedField : JTextField() {
+    val nativeBorder: Border? = border
     var focused = true
 
     override fun hasFocus(): Boolean = focused

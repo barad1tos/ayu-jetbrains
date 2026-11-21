@@ -212,6 +212,7 @@ class FocusRingManagerTest {
             windows += focusWindow(JPanel().apply { add(field) })
             manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
             val listener = addedFocusListener(field, baseline)
+            assertIs<GlowFocusBorder>(field.border)
             val originalPixels = paintCurrentBorder(field)
             val hold = manager.holdCallbacks()
 
@@ -304,6 +305,26 @@ class FocusRingManagerTest {
 
             assertSame(foreign, field.border)
             assertSame(listener, addedFocusListener(field, baseline))
+        }
+
+    @Test
+    fun `release does not wrap a glow border already owned by another manager`() =
+        withFocusWindows { manager, windows ->
+            val field = FocusField()
+            windows += focusWindow(JPanel().apply { add(field) })
+            manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+            field.isFocusSimulated = true
+            val otherManager = FocusRingManager()
+            try {
+                otherManager.initializeFocusRingGlow(Color.CYAN, GlowStyle.SOFT, 60)
+                val foreign = assertIs<GlowFocusBorder>(field.border)
+
+                manager.holdCallbacks().release()
+
+                assertSame(foreign, field.border)
+            } finally {
+                otherManager.dispose()
+            }
         }
 
     @Test

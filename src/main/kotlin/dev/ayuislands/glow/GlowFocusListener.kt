@@ -30,6 +30,9 @@ internal class GlowFocusListener(
         val installed: GlowFocusBorder,
     )
 
+    private fun canChangeBorder(observed: Border?): Boolean =
+        ownership?.let { observed === it.installed } ?: (observed !is GlowFocusBorder)
+
     fun captureCallbacks(): CallbackCheckpoint {
         returnedOwnedBaseline = false
         return CallbackCheckpoint()
@@ -38,7 +41,7 @@ internal class GlowFocusListener(
     inner class CallbackCheckpoint {
         private val borderAtCapture = component.border
         private val ownedAtCapture = ownership?.takeIf { it.installed === borderAtCapture }
-        private val mayWrapBaseline = ownership == null || ownedAtCapture != null
+        private val mayWrapBaseline = canChangeBorder(borderAtCapture)
 
         fun reconcile() {
             if (!isAttached) return
@@ -73,8 +76,7 @@ internal class GlowFocusListener(
         private val beforeBorder = component.border
         private val beforeOwner = ownership
         private val wasFocused = component.hasFocus()
-        private val canWriteBorder =
-            if (beforeOwner == null) beforeBorder !is GlowFocusBorder else beforeBorder === beforeOwner.installed
+        private val canWriteBorder = canChangeBorder(beforeBorder)
         private val baseline = if (beforeOwner != null && canWriteBorder) beforeOwner.baseline else beforeBorder
         private val plannedOwner =
             if (canWriteBorder && wasFocused && planned.enabled) makeBorder(baseline, planned) else null
