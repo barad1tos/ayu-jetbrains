@@ -536,9 +536,9 @@ class FocusRingManagerTest {
         }
 
     @Test
-    fun `holding one manager preserves the other manager's ring`() {
+    fun `partial holds preserve the other ring and reconcile focus loss`() {
         for (startsFocused in listOf(false, true)) {
-            withSharedManagers(focused = startsFocused) { field, firstManager, _, baseline ->
+            withSharedManagers(focused = startsFocused) { field, firstManager, secondManager, baseline ->
                 val hold = firstManager.holdCallbacks()
                 val checkpoint = hold.captureAppearance { it.copy(color = Color.RED) }.single()
                 assertEquals(setOf(GlowFocusField.APPEARANCE), checkpoint.record.fields.keys)
@@ -555,6 +555,18 @@ class FocusRingManagerTest {
                 assertSame(installed, field.border)
                 val expected = GlowFocusBorder(baseline, Color.CYAN, GlowStyle.SOFT, 60)
                 assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+
+                val visibleHold = secondManager.holdCallbacks()
+                val visibleEdit = visibleHold.captureAppearance { it.copy(color = Color.BLUE) }.single()
+                visibleEdit.apply()
+                visibleEdit.accept()
+                field.isFocusSimulated = false
+                field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
+                    it.focusLost(FocusEvent(field, FocusEvent.FOCUS_LOST))
+                }
+                assertSame(installed, field.border)
+                visibleHold.release()
+                assertSame(baseline, field.border)
             }
         }
     }

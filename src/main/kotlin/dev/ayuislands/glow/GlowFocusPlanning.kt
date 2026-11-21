@@ -107,6 +107,8 @@ internal class SharedGlowFocus(
     }
 
     fun enroll() {
+        // Incomplete groups keep each listener's ordinary focus reconciliation.
+        if (!matchesRegistrations(component.focusListeners.filterIsInstance<GlowFocusListener>())) return
         peers.forEach { it.hold.share(it.listener, this) }
     }
 
