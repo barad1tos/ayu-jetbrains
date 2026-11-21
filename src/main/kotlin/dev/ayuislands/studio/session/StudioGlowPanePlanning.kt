@@ -3,6 +3,7 @@ package dev.ayuislands.studio.session
 import dev.ayuislands.glow.GlowPaneAppearance
 import dev.ayuislands.glow.GlowPaneField
 import dev.ayuislands.glow.GlowPaneFields
+import dev.ayuislands.glow.sameGlowColor
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.forPlayback
 import dev.ayuislands.settings.GlowSettings
@@ -36,7 +37,7 @@ internal object StudioGlowPanePlanning {
     ): StudioGlowPaneOperation.Edit {
         val color =
             confirmedAccent?.takeIf { candidate ->
-                GlowDependency.ACCENT in selection.dependencies && !samePaneColor(actual.color, candidate)
+                GlowDependency.ACCENT in selection.dependencies && !sameGlowColor(actual.color, candidate)
             }
         val selected = selectFields(selection, settings, isEditor, color != null)
         if (selected.isEmpty()) return StudioGlowPaneOperation.Edit(actual, emptySet())
@@ -100,12 +101,4 @@ internal object StudioGlowPanePlanning {
                     traceLength = settings.waveformTraceLength,
                 ).forPlayback(),
         )
-
-    private fun samePaneColor(
-        actual: Color,
-        expected: Color,
-    ): Boolean {
-        val bothPlain = actual.javaClass == Color::class.java && expected.javaClass == Color::class.java
-        return actual === expected || (bothPlain && actual.rgb == expected.rgb)
-    }
 }
