@@ -344,7 +344,10 @@ class FocusRingManagerTest {
             assertEquals(Color.BLUE, writer.record.planned.color)
             assertSame(baseline, writer.record.baselineBorder)
             assertSame(original, field.border)
+            var writes = 0
+            field.addPropertyChangeListener("border") { writes++ }
             checkpoints.forEach { it.apply() }
+            assertEquals(1, writes)
             assertSame(writer.record.plannedBorder, field.border)
             val expected = GlowFocusBorder(baseline, Color.BLUE, GlowStyle.SOFT, 60)
             assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
@@ -430,7 +433,9 @@ class FocusRingManagerTest {
                 checkpoints.forEach { it.accept() }
                 shared.isFocusSimulated = true
                 other.isFocusSimulated = true
+                var callbacks = 0
                 other.addPropertyChangeListener("border") {
+                    callbacks++
                     shared.focusListeners.filterIsInstance<GlowFocusListener>().forEach { listener ->
                         listener.focusGained(FocusEvent(shared, FocusEvent.FOCUS_GAINED))
                     }
@@ -441,6 +446,8 @@ class FocusRingManagerTest {
                 first.release()
                 second.release()
 
+                assertEquals(1, callbacks)
+                assertIs<GlowFocusBorder>(other.border)
                 assertEquals(1, writes)
             } finally {
                 secondManager.dispose()
@@ -509,6 +516,93 @@ class FocusRingManagerTest {
     }
 
     @Test
+    fun `focusing an overlapping field installs one border and retains the original on close`() =
+        withSharedManagers(focused = false) { field, firstManager, secondManager, baseline ->
+            field.isFocusSimulated = true
+            var writes = 0
+            field.addPropertyChangeListener("border") { writes++ }
+            field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
+                it.focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
+            }
+
+            assertEquals(1, writes)
+            val installed = field.border
+            val expected = GlowFocusBorder(baseline, Color.CYAN, GlowStyle.SOFT, 60)
+            assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+            firstManager.dispose()
+            assertSame(installed, field.border)
+            secondManager.dispose()
+            assertSame(baseline, field.border)
+        }
+
+    @Test
+    fun `holding one manager preserves the other manager's ring`() {
+        for (startsFocused in listOf(false, true)) {
+            withSharedManagers(focused = startsFocused) { field, firstManager, _, baseline ->
+                val hold = firstManager.holdCallbacks()
+                val checkpoint = hold.captureAppearance { it.copy(color = Color.RED) }.single()
+                assertEquals(setOf(GlowFocusField.APPEARANCE), checkpoint.record.fields.keys)
+                checkpoint.apply()
+                field.isFocusSimulated = true
+                field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
+                    it.focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
+                }
+                val installed = field.border
+
+                checkpoint.accept()
+                hold.release()
+
+                assertSame(installed, field.border)
+                val expected = GlowFocusBorder(baseline, Color.CYAN, GlowStyle.SOFT, 60)
+                assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+            }
+        }
+    }
+
+    @Test
+    fun `focusing overlapping listeners preserves an unowned Glow border`() =
+        withSharedManagers(focused = false) { field, firstManager, _, baseline ->
+            val foreign = GlowFocusBorder(baseline, Color.GREEN, GlowStyle.SOFT, 65)
+            field.border = foreign
+            val hold = firstManager.holdCallbacks()
+            field.isFocusSimulated = true
+            field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
+                it.focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
+            }
+
+            hold.release()
+
+            assertSame(foreign, field.border)
+        }
+
+    @Test
+    fun `closing the visible owner hands back the exact border when the survivor releases`() {
+        for (replaceBorder in listOf(false, true)) {
+            withSharedManagers(focused = true) { field, firstManager, secondManager, baseline ->
+                val appliedHolds = listOf(firstManager.holdCallbacks(), secondManager.holdCallbacks())
+                val checkpoints = captureGlowFocus(appliedHolds) { _, actual -> actual.copy(intensity = 55) }
+                checkpoints.forEach { it.apply() }
+                checkpoints.forEach { it.accept() }
+                appliedHolds.forEach { it.release() }
+
+                val unrelatedHold = firstManager.holdCallbacks()
+                secondManager.dispose()
+                assertSame(baseline, field.border)
+                val foreign = EmptyBorder(6, 5, 4, 3)
+                if (replaceBorder) field.border = foreign
+                unrelatedHold.release()
+
+                if (replaceBorder) {
+                    assertSame(foreign, field.border)
+                } else {
+                    val expected = GlowFocusBorder(baseline, Color.ORANGE, GlowStyle.SOFT, 55)
+                    assertEquals(paintBorder(field, expected), paintCurrentBorder(field))
+                }
+            }
+        }
+    }
+
+    @Test
     fun `shared disable removes just the complete owned chain and leaves both listeners registered`() =
         withSharedField(focused = true) { field, first, second, baseline ->
             val listeners = field.focusListeners.toList()
@@ -564,11 +658,15 @@ class FocusRingManagerTest {
             assertEquals(2, checkpoints.size)
             assertTrue(checkpoints.none { GlowFocusField.BORDER in it.record.fields })
 
+            var writes = 0
+            field.addPropertyChangeListener("border") { writes++ }
             checkpoints.forEach { it.apply() }
+            assertEquals(0, writes)
             restoreSharedFocus(checkpoints)
             first.release()
             second.release()
 
+            assertEquals(0, writes)
             assertSame(foreign, field.border)
         }
 

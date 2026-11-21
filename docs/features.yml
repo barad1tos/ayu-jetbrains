@@ -332,11 +332,11 @@ categories:
             - src/main/kotlin/dev/ayuislands/settings/GlowGroupPanel.kt
             - src/main/kotlin/dev/ayuislands/settings/AyuIslandsEffectsPanel.kt
             - src/main/kotlin/dev/ayuislands/glow
-          last_verified_sha: "5b4131dc"
+          last_verified_sha: "2732dc14"
           last_verified_date: "2026-08-28"
           content_sha256: "3ef51add4539d9c82ce6ad559bce68f6d88fb97606986910ea9b9d13da64fef5"
 
-          sources_sha256: "a54fea644e5e69fbf11e358ba48608e43fb75a2a5171a27a6f2b42a8e598f9bf"
+          sources_sha256: "0dae4ea692a558b8cf986f140c1345b443be4adc676ea9afb0a16b99eab4fd17"
       - id: glow-waveform
         title: "ECG waveform glow"
         keyword: "Glow"

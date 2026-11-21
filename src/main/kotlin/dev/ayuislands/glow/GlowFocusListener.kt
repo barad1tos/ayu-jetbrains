@@ -23,6 +23,7 @@ internal class GlowFocusListener(
     private var isAttached = false
     private var appearance = GlowFocusAppearance(glowColor, glowStyle, baseIntensity)
     private var ownership: Ownership? = null
+    private var returnedPeerBorder: Ownership? = null
     var returnedOwnedBaseline = false
         private set
 
@@ -44,6 +45,7 @@ internal class GlowFocusListener(
 
     fun captureCallbacks(): CallbackCheckpoint {
         returnedOwnedBaseline = false
+        returnedPeerBorder = null
         return CallbackCheckpoint()
     }
 
@@ -53,18 +55,22 @@ internal class GlowFocusListener(
         private val mayWrapBaseline = canChangeBorder(borderAtCapture)
 
         fun reconcile() {
+            val peerBorder = returnedPeerBorder
+            returnedPeerBorder = null
             if (!isAttached) return
             if (!component.hasFocus() || !appearance.enabled) {
                 restoreBorder()
                 return
             }
             val current = component.border
+            val canWrapCapturedBorder = mayWrapBaseline && current === borderAtCapture
             val isReleasedBaseline =
                 returnedOwnedBaseline &&
                     ownedAtCapture != null &&
                     ownership == null &&
                     current === ownedAtCapture.baseline
-            if ((mayWrapBaseline && current === borderAtCapture) || isReleasedBaseline) applyBorder()
+            val isPeerBaseline = peerBorder?.let { it.installed === borderAtCapture && current === it.baseline } == true
+            if (canWrapCapturedBorder || isReleasedBaseline || isPeerBaseline) applyBorder()
         }
     }
 
@@ -298,19 +304,23 @@ internal class GlowFocusListener(
         component.removeHierarchyListener(this)
         val restored = restoreBorder()
         onDetached()
-        if (restored != null) transferRestoredBorder(restored.baseline)
+        if (restored != null) transferRestoredBorder(restored)
     }
 
-    private fun transferRestoredBorder(baseline: Border?) {
-        if (baseline is GlowFocusBorder || !component.hasFocus() || component.border !== baseline) return
-        component.focusListeners
-            .filterIsInstance<GlowFocusListener>()
-            .lastOrNull { it.isAttached && it.appearance.enabled && it.callbacksAllowed() }
-            ?.applyBorder()
+    private fun transferRestoredBorder(restored: Ownership) {
+        if (restored.baseline is GlowFocusBorder || component.border !== restored.baseline) return
+        val receiver = listeners().lastOrNull { it.isAttached && it.appearance.enabled } ?: return
+        if (!receiver.callbacksAllowed()) {
+            receiver.returnedPeerBorder = restored
+        } else if (component.hasFocus()) {
+            receiver.applyBorder()
+        }
     }
 
     override fun focusGained(event: FocusEvent) {
-        if (canHandle(event)) applyBorder()
+        if (!canHandle(event)) return
+        val selected = listeners().lastOrNull { it.isAttached && it.appearance.enabled && it.callbacksAllowed() }
+        if (selected === this) applyBorder()
     }
 
     override fun focusLost(event: FocusEvent) {
@@ -327,10 +337,22 @@ internal class GlowFocusListener(
     }
 
     private fun applyBorder() {
-        if (!appearance.enabled || ownership?.installed?.let { it === component.border } == true) return
-        val border = makeBorder(component.border, appearance)
+        val observed = component.border
+        if (!appearance.enabled || ownership?.installed?.let { it === observed } == true) return
+        val previous =
+            if (observed is GlowFocusBorder) {
+                listeners().firstOrNull { it.callbacksAllowed() && it.ownership?.installed === observed } ?: return
+            } else {
+                null
+            }
+        val previousBorder = previous?.ownership
+        val baseline = if (previousBorder == null) observed else previousBorder.baseline
+        val border = makeBorder(baseline, appearance)
         installBorder(border.installed, border)
+        if (previousBorder != null && component.border === border.installed) previous.forgetBorder(previousBorder)
     }
+
+    private fun listeners(): List<GlowFocusListener> = component.focusListeners.filterIsInstance<GlowFocusListener>()
 
     private fun makeBorder(
         baseline: Border?,
