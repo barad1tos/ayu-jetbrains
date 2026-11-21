@@ -1,6 +1,8 @@
 package dev.ayuislands.studio
 
 import com.intellij.openapi.project.Project
+import dev.ayuislands.glow.FocusRingManager
+import dev.ayuislands.glow.GlowFocusListener
 import dev.ayuislands.glow.GlowGlassPane
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPaneField
@@ -38,13 +40,17 @@ import dev.ayuislands.studio.session.OwnerRollback
 import dev.ayuislands.studio.session.RestoreContinuation
 import dev.ayuislands.studio.session.SettlementProblem
 import dev.ayuislands.studio.session.StudioApplySettlement
+import dev.ayuislands.studio.session.StudioGlowFocusOperation
 import dev.ayuislands.studio.session.StudioGlowPaneOperation
 import dev.ayuislands.studio.session.StudioNativeEvidence
 import dev.ayuislands.studio.session.StudioNativeWrite
 import dev.ayuislands.studio.session.StudioOwnerJournal
 import dev.ayuislands.studio.session.StudioOwnerOperation
 import dev.ayuislands.studio.session.StudioOwnerWork
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -55,6 +61,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.io.TempDir
 import java.awt.Color
+import java.awt.Window
 import java.io.IOException
 import java.nio.file.Path
 import java.time.Instant
@@ -62,6 +69,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import javax.swing.JLayeredPane
 import javax.swing.JPanel
+import javax.swing.JTextField
 import javax.swing.SwingUtilities
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -81,6 +89,152 @@ class StudioOwnerJournalTest {
 
     @AfterTest
     fun closeDispatcher() = ioDispatcher.close()
+
+    @Test
+    fun `shared Glow journals one border and writes no restoration before its evidence is durable`() =
+        runBlocking {
+            withFocusHolds { field, holds ->
+                val files = FailingJournalFiles(openStudioFiles(directory))
+                StudioAppearanceStore(files).use { store ->
+                    val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+                    val runner = ownerJournal(store)
+                    val original = withContext(glowEdt) { field.border }
+                    val previousColors = withContext(glowEdt) { field.currentColors() }
+                    var qualifications = 0
+
+                    val applied =
+                        runner.apply(
+                            work,
+                            qualifies = {
+                                if (++qualifications == 2) {
+                                    val receipts = withContext(ioDispatcher) { journalReceipts(store) }
+                                    assertEquals(3, receipts.size)
+                                    assertEquals(3, receipts.map { it.identity.resource }.distinct().size)
+                                    assertTrue(receipts.all { it.status == RestoreStatus.PENDING })
+                                    assertSame(original, field.border)
+                                }
+                                true
+                            },
+                        ) { captureFocus(work, holds) }
+                    assertEquals(OwnerApply.Completed, applied)
+                    val border = journalReceipts(store).single { it.identity.field.endsWith("/BORDER") }
+                    assertEquals(RestoreStatus.OWNED, border.status)
+                    val installed = withContext(glowEdt) { field.border.also { field.focused = false } }
+
+                    files.failNextReplace = true
+                    assertEquals(OwnerRollback.ReceiptFailed(EffectOwner.GLOW, StoreIssue.IO), runner.rollback(work))
+                    withContext(glowEdt) {
+                        assertSame(installed, field.border)
+                        assertTrue(holds.all { it.isActive })
+                    }
+                    assertEquals(OwnerRollback.Settled, runner.rollback(work))
+
+                    val receipts = journalReceipts(store)
+                    assertEquals(List(4) { RestoreStatus.RESTORED }, receipts.map { it.status })
+                    val restoration = receipts.single { it.id.endsWith("/restore/0") }
+                    assertEquals(border.identity, restoration.identity)
+                    val evidence = StudioNativeEvidence.fields(glowEvidenceValue(restoration.before))
+                    assertEquals(glowEvidenceValue(border.lastWritten), evidence["observed"])
+                    assertEquals(RawValue.BooleanValue(false), evidence["focused"])
+                    val originalBorder = StudioNativeEvidence.fields(glowEvidenceValue(border.before))
+                    val baseline = originalBorder.getValue("baseline")
+                    assertEquals(baseline, glowEvidenceValue(restoration.lastWritten))
+                    withContext(glowEdt) { assertEquals(previousColors, field.currentColors()) }
+                }
+            }
+        }
+
+    @Test
+    fun `focus moving after durable restore preparation creates new evidence on retry`() =
+        runBlocking {
+            withFocusHolds { field, holds ->
+                val files = FailingJournalFiles(openStudioFiles(directory))
+                StudioAppearanceStore(files).use { store ->
+                    val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+                    val runner = ownerJournal(store)
+                    val original = withContext(glowEdt) { field.border }
+                    val applied = runner.apply(work, qualifies = { true }) { captureFocus(work, holds) }
+                    assertEquals(OwnerApply.Completed, applied)
+                    val installed = withContext(glowEdt) { field.border.also { field.focused = false } }
+                    files.afterPendingReplace = { SwingUtilities.invokeAndWait { field.focused = true } }
+
+                    assertIs<OwnerRollback.OwnerFailed>(runner.rollback(work))
+                    withContext(glowEdt) { assertSame(installed, field.border) }
+                    val first = journalReceipts(store).single { it.id.endsWith("/restore/0") }
+                    assertEquals(RestoreStatus.PENDING, first.status)
+
+                    assertEquals(OwnerRollback.Settled, runner.rollback(work))
+                    withContext(glowEdt) { assertSame(original, field.border) }
+                    val receipts = journalReceipts(store)
+                    val retry = receipts.single { it.id.endsWith("/restore/1") }
+                    assertEquals(first.copy(status = RestoreStatus.RESTORED), receipts.single { it.id == first.id })
+                    val observed = StudioNativeEvidence.fields(glowEvidenceValue(retry.before))
+                    assertEquals(RawValue.BooleanValue(true), observed["focused"])
+                    assertTrue(first.lastWritten != retry.lastWritten)
+                    assertEquals(RestoreStatus.RESTORED, retry.status)
+                }
+            }
+        }
+
+    @Test
+    fun `a rejected focus receipt releases the outer scope without writing a border`() =
+        runBlocking {
+            withFocusHolds { field, holds ->
+                val files = FailingJournalFiles(openStudioFiles(directory))
+                StudioAppearanceStore(files).use { store ->
+                    val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+                    val runner = ownerJournal(store)
+                    val original = withContext(glowEdt) { field.border }
+                    files.failNextReplace = true
+                    val applied = runner.apply(work, qualifies = { true }) { captureFocus(work, holds) }
+                    assertEquals(OwnerApply.ReceiptFailed(EffectOwner.GLOW, StoreIssue.IO), applied)
+                    assertTrue(journalReceipts(store).isEmpty())
+                    val settlement =
+                        StudioApplySettlement(store, runner, ioDispatcher, work) { accepted ->
+                            assertNull(accepted)
+                            withContext(glowEdt) {
+                                assertTrue(holds.all { it.isActive })
+                                holds.asReversed().forEach { it.release() }
+                            }
+                        }
+
+                    assertEquals(ApplySettlement.NotAccepted, settlement.settle())
+                    withContext(glowEdt) {
+                        assertSame(original, field.border)
+                        assertTrue(holds.none { it.isActive })
+                    }
+                }
+            }
+        }
+
+    @Test
+    fun `accepting shared focus keeps the applied border through outer lease release`() =
+        runBlocking {
+            withFocusHolds { field, holds ->
+                StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+                    val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+                    val runner = ownerJournal(store)
+                    val applied = runner.apply(work, qualifies = { true }) { captureFocus(work, holds) }
+                    assertEquals(OwnerApply.Completed, applied)
+                    val border = withContext(glowEdt) { field.border }
+                    assertIs<CommitResult.Committed>(store.commit(work.journal.token, work.journal.candidate.runtime))
+                    val settled =
+                        StudioApplySettlement(store, runner, ioDispatcher, work) { accepted ->
+                            assertEquals(work.journal.candidate, accepted)
+                            withContext(glowEdt) {
+                                assertTrue(holds.all { it.isActive })
+                                holds.asReversed().forEach { it.release() }
+                            }
+                        }
+
+                    assertEquals(ApplySettlement.Accepted(work.journal.candidate), settled.settle())
+                    withContext(glowEdt) {
+                        assertSame(border, field.border)
+                        assertEquals(listOf(Color.MAGENTA, Color.MAGENTA), field.currentColors())
+                    }
+                }
+            }
+        }
 
     @Test
     fun `Glow journals selected pane settings before the setter and preserves a foreign edit on rollback`() {
@@ -1182,6 +1336,57 @@ class StudioOwnerJournalTest {
 
     private val glowEdt: CoroutineDispatcher = Executor(SwingUtilities::invokeLater).asCoroutineDispatcher()
 
+    private suspend fun withFocusHolds(
+        test: suspend (JournalFocusField, List<FocusRingManager.CallbackHold>) -> Unit,
+    ) {
+        val (field, managers, holds) =
+            withContext(glowEdt) {
+                val input = JournalFocusField()
+                val window = mockk<Window> { every { components } returns arrayOf(input) }
+                val focusManagers = listOf(FocusRingManager(), FocusRingManager())
+                mockkStatic(Window::class)
+                try {
+                    every { Window.getWindows() } returns arrayOf(window)
+                    focusManagers.first().initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+                    focusManagers.last().initializeFocusRingGlow(Color.CYAN, GlowStyle.SOFT, 60)
+                } finally {
+                    unmockkStatic(Window::class)
+                }
+                Triple(input, focusManagers, focusManagers.map { it.holdCallbacks() })
+            }
+        try {
+            test(field, holds)
+        } finally {
+            withContext(glowEdt) {
+                holds.asReversed().forEach { it.release() }
+                managers.asReversed().forEach { it.dispose() }
+            }
+        }
+    }
+
+    private suspend fun captureFocus(
+        work: StudioOwnerWork,
+        holds: List<FocusRingManager.CallbackHold>,
+    ): StudioOwnerOperation? =
+        StudioGlowFocusOperation.capture(
+            holds,
+            StudioProcess(17, Instant.EPOCH),
+            work.journal.token.transactionId,
+            glowEdt,
+        ) { _, before -> before.copy(color = Color.MAGENTA) }
+
+    private fun journalReceipts(store: StudioAppearanceStore): List<PortableReceipt> =
+        assertIs<StoreLoad.Recovering>(store.load()).journal.receipts
+
+    private class JournalFocusField : JTextField() {
+        var focused = true
+
+        override fun hasFocus(): Boolean = focused
+
+        fun currentColors(): List<Color> =
+            focusListeners.filterIsInstance<GlowFocusListener>().map { it.currentAppearance.color }
+    }
+
     private suspend fun captureGlow(
         work: StudioOwnerWork,
         vararg requests: StudioGlowPaneOperation.Request,
@@ -1308,6 +1513,7 @@ private class FailingJournalFiles(
     var failNextReplace = false
     var loseNextRemovalAcknowledgement = false
     var failNextStateRead = false
+    var afterPendingReplace: (() -> Unit)? = null
 
     override fun read(name: String): ByteArray? {
         if (failNextStateRead && name == "state.xml") {
@@ -1334,6 +1540,11 @@ private class FailingJournalFiles(
             throw IOException("Cannot replace the pending journal")
         }
         files.replace(source, destination)
+        if (destination == "pending.xml") {
+            val callback = afterPendingReplace
+            afterPendingReplace = null
+            callback?.invoke()
+        }
     }
 }
 
