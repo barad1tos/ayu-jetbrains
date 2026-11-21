@@ -254,6 +254,59 @@ class FocusRingManagerTest {
         }
 
     @Test
+    fun `an unfocused field draws the accepted appearance on its next focus gain`() =
+        withFocusWindows { manager, windows ->
+            val field = FocusField()
+            val nativeBorder = field.border
+            val baseline = listenerBaseline(field)
+            windows += focusWindow(JPanel().apply { add(field) })
+            manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+            val listener = addedFocusListener(field, baseline)
+            val hold = manager.holdCallbacks()
+            val checkpoint = hold.captureAppearance { it.copy(color = Color.CYAN) }.single()
+
+            assertEquals(setOf(GlowFocusField.APPEARANCE), checkpoint.record.fields.keys)
+            checkpoint.apply()
+            checkpoint.accept()
+            checkpoint.accept()
+            hold.release()
+            assertSame(nativeBorder, field.border)
+            assertEquals(GlowCheckpointPhase.ACCEPTED, checkpoint.record.phase)
+
+            field.isFocusSimulated = true
+            listener.focusGained(FocusEvent(field, FocusEvent.FOCUS_GAINED))
+            val expected = GlowFocusBorder(nativeBorder, Color.CYAN, GlowStyle.SOFT, 50)
+            val previous = GlowFocusBorder(nativeBorder, Color.ORANGE, GlowStyle.SOFT, 50)
+            val pixels = paintCurrentBorder(field)
+            assertEquals(paintBorder(field, expected), pixels)
+            assertNotEquals(paintBorder(field, previous), pixels)
+        }
+
+    @Test
+    fun `a border already replaced before capture stays outside Apply and release`() =
+        withFocusWindows { manager, windows ->
+            val field = FocusField().apply { isFocusSimulated = true }
+            val baseline = listenerBaseline(field)
+            windows += focusWindow(JPanel().apply { add(field) })
+            manager.initializeFocusRingGlow(Color.ORANGE, GlowStyle.SOFT, 50)
+            val listener = addedFocusListener(field, baseline)
+            val foreign = EmptyBorder(7, 6, 5, 4)
+            field.border = foreign
+            val hold = manager.holdCallbacks()
+            val checkpoint = hold.captureAppearance { it.copy(color = Color.CYAN) }.single()
+
+            assertEquals(setOf(GlowFocusField.APPEARANCE), checkpoint.record.fields.keys)
+            checkpoint.apply()
+            assertSame(foreign, field.border)
+            checkpoint.prepareRestore()
+            checkpoint.restore()
+            hold.release()
+
+            assertSame(foreign, field.border)
+            assertSame(listener, addedFocusListener(field, baseline))
+        }
+
+    @Test
     fun `release preserves a border installed by another writer during the hold`() =
         withFocusWindows { manager, windows ->
             val field = FocusField()

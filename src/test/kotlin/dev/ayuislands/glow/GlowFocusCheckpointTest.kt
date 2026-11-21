@@ -142,12 +142,43 @@ class GlowFocusCheckpointTest {
         }
 
     @Test
+    fun `canceling before the first write settles the checkpoint once and preserves a later border`() =
+        withField { field, listener ->
+            val before = field.border
+            val checkpoint = checkNotNull(listener.captureAppearance { it.copy(color = Color.GREEN) })
+
+            checkpoint.prepareRestore()
+            checkpoint.restore()
+            assertSame(before, field.border)
+            assertEquals(GlowCheckpointPhase.RESTORED, checkpoint.record.phase)
+            assertEquals(
+                setOf(GlowFieldState.RESTORED),
+                checkpoint.record.fields.values
+                    .toSet(),
+            )
+
+            val foreign = BorderFactory.createEmptyBorder(2, 1, 0, 3)
+            field.border = foreign
+            checkpoint.restore()
+            assertFailsWith<IllegalStateException> { checkpoint.apply() }
+            assertFailsWith<IllegalStateException> { checkpoint.accept() }
+            assertSame(foreign, field.border)
+        }
+
+    @Test
     fun `a newer border receipt blocks only the border while appearance can be restored`() =
         withField { field, listener ->
             val checkpoint = checkNotNull(listener.captureAppearance { it.copy(color = Color.GREEN) })
             checkpoint.apply()
             checkpoint.prepareRestore()
 
+            val blocked = assertFailsWith<IllegalStateException> { checkpoint.restore(GlowFocusField.entries.toSet()) }
+            assertEquals(1, blocked.suppressed.size)
+            assertEquals(
+                setOf(GlowFieldState.WRITING),
+                checkpoint.record.fields.values
+                    .toSet(),
+            )
             assertFailsWith<IllegalStateException> { checkpoint.restore(setOf(GlowFocusField.BORDER)) }
             assertSame(checkpoint.record.plannedBorder, field.border)
             assertEquals(GlowFieldState.RESTORED, checkpoint.record.fields[GlowFocusField.APPEARANCE])
@@ -157,6 +188,30 @@ class GlowFocusCheckpointTest {
             checkpoint.restore()
 
             assertSame(checkpoint.record.beforeBorder, field.border)
+        }
+
+    @Test
+    fun `a Swing callback can take ownership of the border during rollback`() =
+        withField { field, listener ->
+            val before = field.border
+            val foreign = BorderFactory.createEmptyBorder(1, 2, 3, 4)
+            val checkpoint = checkNotNull(listener.captureAppearance { it.copy(color = Color.GREEN) })
+            checkpoint.apply()
+            checkpoint.prepareRestore()
+            val replaceOnRestore =
+                PropertyChangeListener { change ->
+                    if (change.newValue === before) field.border = foreign
+                }
+
+            field.addPropertyChangeListener("border", replaceOnRestore)
+            try {
+                checkpoint.restore()
+                assertSame(foreign, field.border)
+                assertEquals(GlowFieldState.FOREIGN, checkpoint.record.fields[GlowFocusField.BORDER])
+                assertEquals(GlowFieldState.RESTORED, checkpoint.record.fields[GlowFocusField.APPEARANCE])
+            } finally {
+                field.removePropertyChangeListener("border", replaceOnRestore)
+            }
         }
 
     @Test
