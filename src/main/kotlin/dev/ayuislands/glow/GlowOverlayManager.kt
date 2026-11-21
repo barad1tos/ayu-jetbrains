@@ -164,7 +164,7 @@ class GlowOverlayManager(
             }
     }
 
-    private data class OverlayEntry(
+    internal data class OverlayEntry(
         val glassPane: GlowGlassPane,
         val host: JComponent,
         val layeredPane: JLayeredPane,
@@ -191,8 +191,39 @@ class GlowOverlayManager(
     internal inner class UpdateHold {
         private val hold = updates.hold()
         private var pausedTimers: List<GlowPlaybackTimer>? = null
+        private val acceptedAttachments = linkedMapOf<String, OverlayEntry>()
 
         val focusCallbacks: FocusRingManager.CallbackHold get() = hold.focusCallbacks
+
+        fun prepareAttachment(addition: GlowOverlayAddition): GlowOverlayAttachment {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow preparation must run on EDT" }
+            check(hold.isActive) { "Glow manager hold is unavailable" }
+            check(addition.id !in overlays) { "Glow target is already occupied" }
+            val host = addition.host
+            val root = checkNotNull(SwingUtilities.getRootPane(host)) { "Glow host has no root" }
+            check(host.width > 0 && host.height > 0) { "Glow host has no bounds" }
+            val layer: JLayeredPane = root.layeredPane
+            val entry = prepareOverlay(addition, layer)
+            return GlowOverlayAttachment(
+                addition.id,
+                entry,
+                overlays,
+                isHeld = { hold.isActive },
+                layout = {
+                    updateOverlayBounds(
+                        entry.glassPane,
+                        host,
+                        layer,
+                        shouldReportFallback = false,
+                        refreshRoute = false,
+                    )
+                },
+                requestRefresh = {
+                    check(!updates.admit()) { "Glow hold ended before accepting its attachment" }
+                    acceptedAttachments[addition.id] = entry
+                },
+            )
+        }
 
         /** Pause the current playback only after the owning operation is ready to write. */
         fun pausePlayback() {
@@ -216,7 +247,17 @@ class GlowOverlayManager(
             check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
             if (hold.isActive) pausedTimers?.forEach(GlowPlaybackTimer::resume)
             pausedTimers = null
-            return hold.release()
+            val refreshRequested = hold.release()
+            if (acceptedAttachments.isNotEmpty()) {
+                acceptedAttachments.forEach { (id, entry) ->
+                    scheduleBoundsSettling(entry.glassPane, entry.host, entry.layeredPane) {
+                        overlays[id] === entry && entry.glassPane.parent === entry.layeredPane
+                    }
+                }
+                acceptedAttachments.clear()
+                updates.queue(::refreshActiveGlow)
+            }
+            return refreshRequested
         }
     }
 
@@ -418,13 +459,8 @@ class GlowOverlayManager(
         glassPane: GlowGlassPane,
         host: JComponent,
         layeredPane: JLayeredPane,
-    ) = updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = true)
-
-    private fun updateOverlayBounds(
-        glassPane: GlowGlassPane,
-        host: JComponent,
-        layeredPane: JLayeredPane,
-        shouldReportFallback: Boolean,
+        shouldReportFallback: Boolean = true,
+        refreshRoute: Boolean = true,
     ) {
         if (!host.isShowing) return
         try {
@@ -467,21 +503,24 @@ class GlowOverlayManager(
         } catch (exception: RuntimeException) {
             log.debug("Component hierarchy changed during overlay bounds update", exception)
         }
-        routeController.scheduleGraphRefresh()
+        if (refreshRoute) routeController.scheduleGraphRefresh()
     }
 
     private fun scheduleBoundsSettling(
         glassPane: GlowGlassPane,
         host: JComponent,
         layeredPane: JLayeredPane,
+        isCurrent: () -> Boolean = { true },
     ) {
         updates.queue {
-            if (!host.isShowing) return@queue
+            if (!isCurrent() || !host.isShowing) return@queue
             updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = false)
             if (!glassPane.isEditorOverlay) return@queue
 
             updates.queue {
-                if (host.isShowing) updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = true)
+                if (isCurrent() && host.isShowing) {
+                    updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = true)
+                }
             }
         }
     }
@@ -510,32 +549,56 @@ class GlowOverlayManager(
         if (isExternalGlowBlocked(context, state, "attachOverlay($id)")) return
         val accentHex = resolveCurrentGlowAccentHex(project, state, context)
         val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+        val appearance =
+            GlowPaneAppearance(
+                color = safeDecodeColor(accentHex),
+                style = style,
+                intensity = state.getIntensityForStyle(style),
+                width = state.getWidthForStyle(style),
+                placement = resolveGlowPlacement(isEditorOverlay, state),
+                shape = GlowShape.fromName(state.glowShape),
+                waveform = resolveWaveformConfig(state),
+                isVisible = true,
+            )
+        val entry = prepareOverlay(GlowOverlayAddition(id, host, appearance, isEditorOverlay), layeredPane)
+        mountGlowOverlay(
+            entry,
+            layout = { updateOverlayBounds(entry.glassPane, host, layeredPane, shouldReportFallback = false) },
+        )
+        scheduleBoundsSettling(entry.glassPane, host, layeredPane)
+        overlays[id] = entry
+        routeController.scheduleGraphRefresh()
+        log.info(
+            "Glow overlay attached: $id (host: ${host.javaClass.simpleName}, " +
+                "chain: ${ComponentHierarchyUtils.describeAncestry(host)})",
+        )
+    }
 
+    private fun prepareOverlay(
+        addition: GlowOverlayAddition,
+        layeredPane: JLayeredPane,
+    ): OverlayEntry {
+        val host = addition.host
+        val appearance = addition.appearance
         val glassPane =
             GlowGlassPane(
-                glowColor = safeDecodeColor(accentHex),
-                glowStyle = style,
-                glowIntensity = state.getIntensityForStyle(style),
-                glowWidth = state.getWidthForStyle(style),
-                isEditorOverlay = isEditorOverlay,
-                glowPlacement = resolveGlowPlacement(isEditorOverlay, state),
+                glowColor = appearance.color,
+                glowStyle = appearance.style,
+                glowIntensity = appearance.intensity,
+                glowWidth = appearance.width,
+                isEditorOverlay = addition.isEditor,
+                glowPlacement = appearance.placement,
             )
-        if (isEditorOverlay) {
+        if (addition.isEditor) {
             glassPane.topSpansProvider = {
                 EditorTabGeometry.editorOverlayGeometry(host, shouldReportFallback = false).occupiedTopSpans
             }
         }
-        glassPane.configureWaveform(
-            GlowShape.fromName(state.glowShape),
-            resolveWaveformConfig(state),
-        )
+        glassPane.configureWaveform(appearance.shape, appearance.waveform)
+        glassPane.isVisible = appearance.isVisible
         if (routeController.isActive) {
             glassPane.configureRouteMode(enabled = true)
         }
-
-        layeredPane.setLayer(glassPane, JLayeredPane.PALETTE_LAYER)
-        layeredPane.add(glassPane)
-        updateOverlayBounds(glassPane, host, layeredPane, shouldReportFallback = false)
 
         val refreshBounds = {
             updates.dispatch { updateOverlayBounds(glassPane, host, layeredPane) }
@@ -545,25 +608,16 @@ class GlowOverlayManager(
                 override fun componentResized(e: ComponentEvent) = refreshBounds()
 
                 override fun componentMoved(e: ComponentEvent) = refreshBounds()
-            }
-        host.addComponentListener(compListener)
 
+                override fun componentShown(e: ComponentEvent) = refreshBounds()
+            }
         val boundsListener =
             object : HierarchyBoundsAdapter() {
                 override fun ancestorMoved(e: HierarchyEvent) = refreshBounds()
 
                 override fun ancestorResized(e: HierarchyEvent) = refreshBounds()
             }
-        host.addHierarchyBoundsListener(boundsListener)
-
-        scheduleBoundsSettling(glassPane, host, layeredPane)
-
-        overlays[id] = OverlayEntry(glassPane, host, layeredPane, compListener, boundsListener)
-        routeController.scheduleGraphRefresh()
-        log.info(
-            "Glow overlay attached: $id (host: ${host.javaClass.simpleName}, " +
-                "chain: ${ComponentHierarchyUtils.describeAncestry(host)})",
-        )
+        return OverlayEntry(glassPane, host, layeredPane, compListener, boundsListener)
     }
 
     private fun detachOverlayEntry(entry: OverlayEntry) {
