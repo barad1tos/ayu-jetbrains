@@ -15,8 +15,8 @@ import dev.ayuislands.glow.waveform.WaveformRenderPlan
 import dev.ayuislands.glow.waveform.WaveformTrack
 import dev.ayuislands.glow.waveform.WaveformTrackSpec
 import dev.ayuislands.glow.waveform.WaveformUpdate
-import dev.ayuislands.glow.waveform.brightnessAt
 import dev.ayuislands.glow.waveform.fixedDirection
+import dev.ayuislands.glow.waveform.waveformBrightness
 import java.awt.AlphaComposite
 import java.awt.Color
 import java.awt.Dimension
@@ -81,6 +81,9 @@ class GlowGlassPane(
     internal val isWaveform: Boolean
         get() = glowShape == GlowShape.WAVEFORM && !waveformFailed
 
+    internal val hasWaveformFailure: Boolean
+        get() = waveformFailed
+
     internal val usesWaveformBounds: Boolean
         get() = glowShape == GlowShape.WAVEFORM
 
@@ -122,7 +125,7 @@ class GlowGlassPane(
                             direction =
                                 waveformConfig.movement.fixedDirection
                                     ?: TravelDirection.CLOCKWISE,
-                            brightness = waveformConfig.brightnessAt(0f),
+                            brightness = waveformBrightness(0f),
                         ),
                 style = glowStyle,
                 intensity = glowIntensity,
@@ -197,22 +200,18 @@ class GlowGlassPane(
         shape: GlowShape,
         config: WaveformConfig,
         staged: Boolean = false,
+        retryUnchangedConfig: Boolean = false,
     ) {
-        val previousShape = glowShape
-        val previousConfig = waveformConfig
-        val geometryChanged = previousShape != shape || previousConfig != config
-        val shouldRetry =
-            !staged &&
-                waveformFailed &&
-                shape == GlowShape.WAVEFORM &&
-                (previousShape != GlowShape.WAVEFORM || previousConfig != config)
+        val geometryChanged = glowShape != shape || waveformConfig != config
+        val retryRequested = geometryChanged || retryUnchangedConfig
+        val shouldRetry = waveformFailed && shape == GlowShape.WAVEFORM && retryRequested
         glowShape = shape
         waveformConfig = config
         if (geometryChanged) {
             waveformFrame = null
             waveformPlan = null
         }
-        if (shouldRetry) {
+        if (!staged && shouldRetry) {
             applyTimerDirective(TimerDirective.STOP)
             waveformEngine = WaveformEngine(config)
             waveformFrame = null

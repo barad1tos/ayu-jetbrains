@@ -18,10 +18,10 @@ import dev.ayuislands.glow.waveform.WaveformEvent
 import dev.ayuislands.glow.waveform.WaveformFrame
 import dev.ayuislands.glow.waveform.WaveformPaintRequest
 import dev.ayuislands.glow.waveform.WaveformPainter
-import dev.ayuislands.glow.waveform.brightnessAt
 import dev.ayuislands.glow.waveform.fixedDirection
 import dev.ayuislands.glow.waveform.paint
 import dev.ayuislands.glow.waveform.traceComplexCount
+import dev.ayuislands.glow.waveform.waveformBrightness
 import java.awt.AlphaComposite
 import java.awt.BorderLayout
 import java.awt.Color
@@ -178,7 +178,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
                 waveformFrame.copy(
                     config = waveformConfig,
                     trace = waveformFrame.trace ?: restingPreviewFrame(waveformConfig).trace,
-                    brightness = waveformConfig.brightnessAt(waveformFrame.energy),
+                    brightness = waveformBrightness(waveformFrame.energy),
                 )
             } else {
                 previewEngine.handle(WaveformEvent.Deactivate)
@@ -280,7 +280,7 @@ class GlowGroupPanel : JPanel(BorderLayout()) {
                     anchorOffset = 0f,
                     history = List(config.traceComplexCount) { previewMorphology },
                 ),
-            brightness = config.brightnessAt(0f),
+            brightness = waveformBrightness(0f),
         )
 
     internal fun syncPreviewAnimation(

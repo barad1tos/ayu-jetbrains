@@ -27,10 +27,8 @@ import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.glow.waveform.WaveformRouteLayer
 import dev.ayuislands.glow.waveform.WindowBridgeCapability
+import dev.ayuislands.glow.waveform.forPlayback
 import dev.ayuislands.settings.AyuIslandsState
-import dev.ayuislands.settings.effectiveLoopSeconds
-import dev.ayuislands.settings.effectiveTraceDensity
-import dev.ayuislands.settings.effectiveTraceLength
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Window
@@ -556,12 +554,12 @@ internal fun resolveWaveformConfig(state: AyuIslandsState): WaveformConfig =
     WaveformConfig(
         movement = WaveformMovement.fromName(state.waveformDirection),
         baseline = WaveformBaseline.fromName(state.waveformBaseline),
-        traceDensity = state.effectiveTraceDensity(),
-        traceLength = state.effectiveTraceLength(),
-        amplitude = state.effectiveWaveformAmplitude(),
-        intensity = state.effectiveWaveformIntensity(),
-        loopSeconds = state.effectiveLoopSeconds(),
-    )
+        traceDensity = state.waveformTraceDensity,
+        traceLength = state.waveformTraceLength,
+        amplitude = state.waveformAmplitude,
+        intensity = state.waveformIntensity,
+        loopSeconds = state.waveformLoopSeconds,
+    ).forPlayback()
 
 private fun RouteSlice.relativeTo(origin: Point): RouteSlice =
     copy(

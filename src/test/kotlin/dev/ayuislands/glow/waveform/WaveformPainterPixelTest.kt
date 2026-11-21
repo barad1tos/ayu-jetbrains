@@ -123,7 +123,7 @@ class WaveformPainterPixelTest {
                 WaveformFrame(
                     direction = TravelDirection.CLOCKWISE,
                     config = config,
-                    brightness = config.brightnessAt(0f),
+                    brightness = waveformBrightness(0f),
                 ),
             )
         val peak =
