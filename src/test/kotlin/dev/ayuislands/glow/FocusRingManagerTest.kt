@@ -536,7 +536,7 @@ class FocusRingManagerTest {
         }
 
     @Test
-    fun `partial holds reconcile focus loss or hand the ring to the remaining owner`() {
+    fun `partial holds refresh the owned ring and reconcile focus loss or disablement`() {
         for (startsFocused in listOf(false, true)) {
             withSharedManagers(focused = startsFocused) { field, firstManager, secondManager, baseline ->
                 val hold = firstManager.holdCallbacks()
@@ -563,13 +563,18 @@ class FocusRingManagerTest {
                         .single()
                 visibleEdit.apply()
                 visibleEdit.accept()
+                val appliedBorder = field.border
                 if (!startsFocused) {
+                    val refreshed = GlowFocusBorder(baseline, Color.BLUE, GlowStyle.SOFT, 60)
+                    assertEquals(paintBorder(field, refreshed), paintCurrentBorder(field))
                     field.isFocusSimulated = false
                     field.focusListeners.filterIsInstance<GlowFocusListener>().forEach {
                         it.focusLost(FocusEvent(field, FocusEvent.FOCUS_LOST))
                     }
+                } else {
+                    assertSame(installed, appliedBorder)
                 }
-                assertSame(installed, field.border)
+                assertSame(appliedBorder, field.border)
                 visibleHold.release()
                 if (startsFocused) {
                     val remaining = GlowFocusBorder(baseline, Color.RED, GlowStyle.SOFT, 50)

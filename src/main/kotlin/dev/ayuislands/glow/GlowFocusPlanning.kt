@@ -53,7 +53,8 @@ private fun planGroup(peers: List<FocusPeer>): SharedGlowFocus {
     val hasPriorOwner = ordered.any { it.listener.ownedBorder != null }
     val hasOtherOwner = owner == null && (observed is GlowFocusBorder || hasPriorOwner)
     val baseline = traceBorder(observed, ordered.mapNotNull { it.listener.ownedBorder }).baseline
-    val canWrite = registrations.size == ordered.size && !hasOtherOwner
+    val refreshesOwnedBorder = owner?.let { it.planned.enabled && !it.before.matches(it.planned) } == true
+    val canWrite = !hasOtherOwner && (registrations.size == ordered.size || refreshesOwnedBorder)
     val border = if (canWrite) GlowFocusBorderEdit(observed, baseline) else null
     return SharedGlowFocus(component, ordered, border, owner)
 }
