@@ -328,14 +328,14 @@ class GlowPaneCheckpointTest {
         }
 
     @Test
-    fun `accepted waveform edits retry a previously failed renderer`() =
+    fun `accepted waveform edits retry a renderer that failed after capture`() =
         onEdt {
             val before = originalAppearance().copy(shape = GlowShape.WAVEFORM)
             val pane = newPane(before)
             val target = before.copy(waveform = before.waveform.copy(amplitude = before.waveform.amplitude + 1))
             try {
-                pane.failRouteWaveform(IllegalStateException("Previous renderer failure"))
                 val checkpoint = GlowPaneCheckpoint(pane, target) { true }
+                pane.failRouteWaveform(IllegalStateException("Renderer failure after capture"))
                 checkpoint.apply()
                 assertFalse(pane.isWaveform)
 

@@ -20,7 +20,6 @@ internal class GlowPaneCheckpoint(
     }
 
     val before: GlowPaneAppearance = pane.captureAppearance()
-    private val hadWaveformFailure = pane.hasWaveformFailure
     val record: GlowPaneRecord
         get() = GlowPaneRecord(before, planned, phase, Collections.unmodifiableMap(LinkedHashMap(fields)))
     private var phase = GlowCheckpointPhase.PREPARED
@@ -112,7 +111,7 @@ internal class GlowPaneCheckpoint(
             if (GlowPaneField.SHAPE in fields && planned.shape == GlowShape.SOLID) {
                 pane.configureWaveform(current.shape, current.waveform)
             }
-        } else if (hadWaveformFailure) {
+        } else if (pane.hasWaveformFailure) {
             val expected =
                 fields.keys.fold(before) { appearance, field ->
                     GlowPaneFields.replace(field, appearance, planned)
