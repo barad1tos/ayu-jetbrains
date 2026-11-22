@@ -44,9 +44,7 @@ internal object StudioNativeEvidence {
     }
 
     fun readProcess(native: NativeValue): StudioProcess {
-        val payload = fields(requireNotNull(native as? NativeValue.Present).value)
-        require(payload.keys == setOf("version", "process", "value") && payload["version"] == RawValue.Integer(1))
-        val identity = fields(payload.getValue("process"))
+        val identity = fields(envelopeFields(native).getValue("process"))
         require(identity.keys == setOf("pid", "start"))
         val pid = requireNotNull(identity["pid"] as? RawValue.LongValue).value
         val rawStart = identity.getValue("start")
@@ -62,6 +60,14 @@ internal object StudioNativeEvidence {
                 Instant.ofEpochSecond(seconds, nanos.toLong())
             }
         return StudioProcess(pid, start)
+    }
+
+    fun readValue(native: NativeValue): RawValue = envelopeFields(native).getValue("value")
+
+    private fun envelopeFields(native: NativeValue): Map<String, RawValue> {
+        val payload = fields(requireNotNull(native as? NativeValue.Present).value)
+        require(payload.keys == setOf("version", "process", "value") && payload["version"] == RawValue.Integer(1))
+        return payload
     }
 
     fun fields(value: RawValue): Map<String, RawValue> {

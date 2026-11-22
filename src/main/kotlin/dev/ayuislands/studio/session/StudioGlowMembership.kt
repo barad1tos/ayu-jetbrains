@@ -116,7 +116,7 @@ internal class StudioGlowMembership private constructor(
         ): PortableReceipt {
             val entry = overlay.entry
             val resource = tokens.token(entry.glassPane)
-            val identity = NativeFieldIdentity(resource, "glow/overlay/membership", owner)
+            val identity = NativeFieldIdentity(resource, GLOW_MEMBERSHIP_FIELD, owner)
             val boundsToken = entry.hierarchyBoundsListener?.let(tokens::token)
             val members =
                 listOf(
@@ -136,7 +136,7 @@ internal class StudioGlowMembership private constructor(
                     }
                 }
             return PortableReceipt(
-                id = "$resource/membership",
+                id = glowMembershipReceiptId(resource),
                 owner = EffectOwner.GLOW,
                 identity = identity,
                 before = StudioNativeEvidence.envelope(process, before),
