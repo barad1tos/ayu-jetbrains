@@ -14,11 +14,14 @@ import com.intellij.util.messages.MessageBus
 import com.intellij.util.messages.MessageBusConnection
 import com.intellij.util.xmlb.XmlSerializer
 import dev.ayuislands.accent.AccentContext
+import dev.ayuislands.accent.AccentHex
 import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.GlowSettings
+import dev.ayuislands.settings.loadGlowSettings
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -30,6 +33,7 @@ import io.mockk.slot
 import io.mockk.unmockkConstructor
 import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import java.awt.Color
 import java.awt.EventQueue
 import java.awt.KeyboardFocusManager
@@ -45,6 +49,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -194,6 +199,94 @@ class GlowOverlayManagerPublicLifecycleTest {
     }
 
     @Test
+    fun `accepted Glow survives the next update and tool window reattachment`() {
+        environment.onEdt {
+            val first = environment.hostFixture()
+            val second = environment.secondaryRoot()
+            val legacyXml = environment.stateXml()
+            val manager = environment.createManager(first)
+            var accepted: GlowRuntimeInput? = null
+            manager.acceptedGlowSource = { accepted }
+            manager.initialize()
+            environment.drainUiCallbacks()
+
+            val before = first.singleOverlay()
+            assertConfiguredPane(before, Rectangle(20, 30, 300, 200))
+            accepted =
+                GlowRuntimeInput(
+                    settings =
+                        GlowSettings(
+                            enabled = true,
+                            shape = GlowShape.WAVEFORM,
+                            width = mapOf(GlowStyle.SOFT to 13),
+                            intensity = mapOf(GlowStyle.SOFT to 78),
+                            toolWindowPlacement = GlowPlacement.SIDE_EDGES,
+                            islandToggles = mapOf("Project" to true),
+                        ),
+                    externalAllowed = false,
+                    accent = AccentHex.require("#FFA659"),
+                )
+
+            manager.updateGlow(AccentHex.require("#5CCFE6"))
+            environment.drainUiCallbacks()
+            assertAcceptedPane(first.singleOverlay())
+
+            first.root.contentPane.remove(first.host)
+            second.contentPane.add(first.host)
+            layoutHostInRoot(second, first.host)
+            environment.publishSetLayout()
+            environment.drainUiCallbacks()
+
+            assertNull(before.parent)
+            assertAcceptedPane(second.singleOverlay())
+
+            accepted = null
+            manager.updateGlow()
+            environment.drainUiCallbacks()
+            assertConfiguredPane(second.singleOverlay(), Rectangle(20, 30, 300, 200))
+            assertFalse(second.singleOverlay().isWaveform)
+            assertEquals(legacyXml, environment.stateXml())
+        }
+    }
+
+    @Test
+    fun `accepted None stops the running solid animation`() {
+        mockkConstructor(GlowAnimator::class)
+        try {
+            environment.onEdt {
+                environment.state.glowAnimation = GlowAnimation.REACTIVE.name
+                val legacyXml = environment.stateXml()
+                val fixture = environment.hostFixture()
+                val manager = environment.createManager(fixture)
+                environment.focusToolWindow()
+                manager.initialize()
+                environment.drainUiCallbacks()
+                verify(exactly = 1) { anyConstructed<GlowAnimator>().start(GlowAnimation.REACTIVE, any(), any()) }
+
+                val settings =
+                    loadGlowSettings(
+                        environment.state,
+                        environment.state.glowPreset ?: GlowPreset.WHISPER.name,
+                        GlowIsland.entries.map(GlowIsland::id),
+                    ).copy(animation = GlowAnimation.NONE)
+                manager.acceptedGlowSource = {
+                    GlowRuntimeInput(settings, externalAllowed = false, accent = AccentHex.require("#FFA659"))
+                }
+                manager.updateGlow()
+                environment.drainUiCallbacks()
+                manager.input.onKeystroke()
+
+                verify(exactly = 1) { anyConstructed<GlowAnimator>().dispose() }
+                verify(exactly = 0) { anyConstructed<GlowAnimator>().onKeystroke() }
+                assertEquals(1.0f, fixture.singleOverlay().animationAlpha)
+                assertEquals(legacyXml, environment.stateXml())
+            }
+        } finally {
+            unmockkConstructor(GlowAnimator::class)
+        }
+    }
+
+    @Test
     fun `placement preview stays transient and disposal prevents late overlay resurrection`() {
         environment.onEdt {
             val fixture = environment.hostFixture()
@@ -252,6 +345,14 @@ class GlowOverlayManagerPublicLifecycleTest {
         assertEquals(9, pane.glowWidth)
         assertEquals(GlowPlacement.ISLAND, pane.glowPlacement)
         assertEquals(expectedBounds, pane.bounds)
+    }
+
+    private fun assertAcceptedPane(pane: GlowGlassPane) {
+        assertEquals(Color(0xFFA659), pane.glowColor)
+        assertEquals(13, pane.glowWidth)
+        assertEquals(78, pane.glowIntensity)
+        assertEquals(GlowPlacement.SIDE_EDGES, pane.glowPlacement)
+        assertTrue(pane.isWaveform)
     }
 
     private fun assertSameIdentityOrder(
@@ -357,6 +458,10 @@ private class PublicLifecycleEnvironment(
     fun hostFixture(): ToolWindowHostFixture = fixture
 
     fun secondaryRoot(): JRootPane = spareRoot
+
+    fun focusToolWindow() {
+        every { focusManager.permanentFocusOwner } returns fixture.content
+    }
 
     fun createManager(hostFixture: ToolWindowHostFixture): GlowOverlayManager {
         val project = mockk<Project>(relaxed = true)

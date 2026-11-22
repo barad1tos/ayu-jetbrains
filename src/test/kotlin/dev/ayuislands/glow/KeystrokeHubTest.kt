@@ -49,6 +49,7 @@ class KeystrokeHubTest {
         mockkStatic(ActionManager::class)
         every { ActionManager.getInstance() } returns actionManager
         every { project.getService(GlowOverlayManager::class.java) } returns manager
+        every { project.getServiceIfCreated(GlowOverlayManager::class.java) } returns null
         every { manager.input } returns input
         every { dataContext.getData(CommonDataKeys.PROJECT) } returns project
     }
@@ -100,6 +101,18 @@ class KeystrokeHubTest {
         hub.actionListener.beforeEditorTyping('b', dataContext)
 
         verify(exactly = 0) { input.onKeystroke() }
+        verify(exactly = 0) { project.getService(GlowOverlayManager::class.java) }
+    }
+
+    @Test
+    fun `existing manager receives typing without consulting disabled legacy preferences`() {
+        state.glowEnabled = false
+        every { project.getServiceIfCreated(GlowOverlayManager::class.java) } returns manager
+
+        KeystrokeHub().actionListener.beforeEditorTyping('a', dataContext)
+
+        verify(exactly = 1) { input.onKeystroke() }
+        verify(exactly = 0) { project.getService(GlowOverlayManager::class.java) }
     }
 
     @Test

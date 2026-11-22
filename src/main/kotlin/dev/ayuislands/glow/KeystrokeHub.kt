@@ -65,8 +65,12 @@ class KeystrokeHub internal constructor(
     private fun route(project: Project?) {
         if (project == null) return
         if (!licenseAllowsInput()) return
-        if (!AyuIslandsSettings.getInstance().state.glowEnabled) return
-        GlowOverlayManager.getInstance(project).input.onKeystroke()
+        val manager =
+            project.getServiceIfCreated(GlowOverlayManager::class.java) ?: run {
+                if (!AyuIslandsSettings.getInstance().state.glowEnabled) return
+                GlowOverlayManager.getInstance(project)
+            }
+        manager.input.onKeystroke()
     }
 
     private fun licenseAllowsInput(): Boolean {

@@ -27,7 +27,7 @@ import dev.ayuislands.glow.waveform.WaveformEdge
 import dev.ayuislands.glow.waveform.WaveformMovement
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
-import dev.ayuislands.settings.AyuIslandsState
+import dev.ayuislands.settings.GlowSettings
 import java.awt.Color
 import java.awt.Component
 import java.awt.KeyboardFocusManager
@@ -59,6 +59,7 @@ class GlowOverlayManager(
 
     private val focusRingManager = FocusRingManager()
     private val updates = GlowUpdateGate({ disposed }, focusRingManager::holdCallbacks)
+    private val runtime = GlowRuntimeSource { AyuIslandsSettings.getInstance().state }
     private val routeController =
         RouteController(
             project = project,
@@ -68,7 +69,8 @@ class GlowOverlayManager(
                 }
             },
             focusedSurfaceId = { activeGlowId },
-            state = { AyuIslandsSettings.getInstance().state },
+            enabledIslands = runtime::enabledIslands,
+            waveform = runtime::waveform,
             onFailure = { exception -> log.warn("Chaotic waveform route render failed", exception) },
             allowGraphRefresh = { updates.admit() },
         )
@@ -191,6 +193,12 @@ class GlowOverlayManager(
 
     internal fun holdUpdates(): UpdateHold = UpdateHold()
 
+    internal var acceptedGlowSource: () -> GlowRuntimeInput?
+        get() = runtime.readAccepted
+        set(value) {
+            runtime.readAccepted = value
+        }
+
     internal inner class UpdateHold {
         private val hold = updates.hold()
         private var pausedTimers: List<GlowPlaybackTimer>? = null
@@ -308,8 +316,7 @@ class GlowOverlayManager(
         GlowInputSink(
             keystroke = keystroke@{
                 if (!updates.admit(invalidates = false)) return@keystroke
-                val state = AyuIslandsSettings.getInstance().state
-                if (!state.glowEnabled) return@keystroke
+                val animation = runtime.keystrokeAnimation() ?: return@keystroke
                 if (routeController.handle(RouteEvent.Keystroke(System.currentTimeMillis()))) {
                     return@keystroke
                 }
@@ -317,9 +324,8 @@ class GlowOverlayManager(
                 if (glassPane.isWaveform) {
                     glassPane.onWaveformKeystroke()
                 } else {
-                    val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
                     if (animator == null && animation == GlowAnimation.REACTIVE) {
-                        startAnimationIfConfigured(glassPane)
+                        startAnimationIfConfigured(glassPane, animation)
                     }
                     animator?.onKeystroke()
                 }
@@ -336,8 +342,8 @@ class GlowOverlayManager(
         if (!updates.admit()) return
         if (!LicenseChecker.isLicensedOrGrace()) return
 
-        val settings = AyuIslandsSettings.getInstance()
-        if (!settings.state.glowEnabled) {
+        val render = runtime.render()
+        if (!render.settings.enabled) {
             log.info("Glow disabled, skipping overlay initialization")
             return
         }
@@ -347,7 +353,7 @@ class GlowOverlayManager(
             log.info("No accent context detected, skipping glow initialization")
             return
         }
-        if (context == AccentContext.External && !settings.state.isExternalGlowAllowed()) {
+        if (context == AccentContext.External && !render.externalAllowed) {
             log.info("External glow disabled, skipping overlay initialization")
             return
         }
@@ -477,8 +483,9 @@ class GlowOverlayManager(
     }
 
     private fun initializeFocusRingGlow() {
-        val state = AyuIslandsSettings.getInstance().state
-        if (!state.glowFocusRing) return
+        val render = runtime.render()
+        val settings = render.settings
+        if (!settings.focusRing) return
 
         // Pattern A — log-once gate. AccentContext.detect() returns null only when
         // no Ayu Islands accent context is active; without the diagnostic, a user reporting
@@ -489,11 +496,11 @@ class GlowOverlayManager(
                 log.debug("AccentContext.detect() returned null in initializeFocusRingGlow, skipping focus-ring glow")
                 return
             }
-        if (isExternalGlowBlocked(context, state, "initializeFocusRingGlow")) return
-        val accentHex = resolveCurrentGlowAccentHex(project, state, context)
-        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+        if (isExternalGlowBlocked(context, render, "initializeFocusRingGlow")) return
+        val accentHex = render.accentHex(null) { AccentResolver.resolve(project, context) }
+        val style = settings.style
         val accent = safeDecodeColor(accentHex)
-        val intensity = state.getIntensityForStyle(style)
+        val intensity = settings.intensity.getValue(style)
 
         focusRingManager.initializeFocusRingGlow(accent, style, intensity)
     }
@@ -573,10 +580,12 @@ class GlowOverlayManager(
         host: JComponent,
         isEditorOverlay: Boolean = false,
     ) {
-        val state = AyuIslandsSettings.getInstance().state
-        if (disposed || !state.glowEnabled || !LicenseChecker.isLicensedOrGrace()) return
+        if (disposed || !LicenseChecker.isLicensedOrGrace()) return
         if (overlays.containsKey(id)) return
         if (host.width == 0 || host.height == 0) return
+        val render = runtime.render()
+        val settings = render.settings
+        if (!settings.enabled) return
 
         val rootPane = SwingUtilities.getRootPane(host) ?: return
         val layeredPane = rootPane.layeredPane
@@ -589,18 +598,18 @@ class GlowOverlayManager(
                 log.debug("AccentContext.detect() returned null in attachOverlay($id), skipping overlay attach")
                 return
             }
-        if (isExternalGlowBlocked(context, state, "attachOverlay($id)")) return
-        val accentHex = resolveCurrentGlowAccentHex(project, state, context)
-        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+        if (isExternalGlowBlocked(context, render, "attachOverlay($id)")) return
+        val accentHex = render.accentHex(null) { AccentResolver.resolve(project, context) }
+        val style = settings.style
         val appearance =
             GlowPaneAppearance(
                 color = safeDecodeColor(accentHex),
                 style = style,
-                intensity = state.getIntensityForStyle(style),
-                width = state.getWidthForStyle(style),
-                placement = resolveGlowPlacement(isEditorOverlay, state),
-                shape = GlowShape.fromName(state.glowShape),
-                waveform = resolveWaveformConfig(state),
+                intensity = settings.intensity.getValue(style),
+                width = settings.width.getValue(style),
+                placement = resolveGlowPlacement(isEditorOverlay, settings),
+                shape = settings.shape,
+                waveform = settings.waveformConfig(),
                 isVisible = true,
             )
         val entry = prepareOverlay(GlowOverlayAddition(id, host, appearance, isEditorOverlay), layeredPane)
@@ -699,8 +708,7 @@ class GlowOverlayManager(
         val id = toolWindow.id
         if (overlays.containsKey(id)) return
 
-        val state = AyuIslandsSettings.getInstance().state
-        if (!state.isIslandEnabled(id)) return
+        if (!runtime.isIslandEnabled(id)) return
 
         val host = toolWindowGlowHost(toolWindow) ?: return
         attachOverlay(id, host)
@@ -714,8 +722,7 @@ class GlowOverlayManager(
             return
         }
 
-        val state = AyuIslandsSettings.getInstance().state
-        if (!state.isIslandEnabled(editorId)) return
+        if (!runtime.isIslandEnabled(editorId)) return
 
         val host = editorGlowHost(project) ?: return
         attachOverlay(editorId, host, isEditorOverlay = true)
@@ -738,23 +745,24 @@ class GlowOverlayManager(
         }
     }
 
-    private fun startAnimationIfConfigured(glassPane: GlowGlassPane) {
+    private fun startAnimationIfConfigured(
+        glassPane: GlowGlassPane,
+        requested: GlowAnimation? = null,
+    ) {
+        animator?.let { Disposer.dispose(it) }
+        animator = null
         if (glassPane.isWaveform) {
-            animator?.let { Disposer.dispose(it) }
-            animator = null
             glassPane.animationAlpha = 1.0f
             glassPane.activateWaveform(PowerSaveMode.isEnabled())
             return
         }
         glassPane.deactivateWaveform()
-        val state = AyuIslandsSettings.getInstance().state
-        val animation = GlowAnimation.fromName(state.glowAnimation ?: GlowAnimation.NONE.name)
+        val animation = requested ?: runtime.animation()
         if (animation == GlowAnimation.NONE) {
             glassPane.animationAlpha = 1.0f
             return
         }
 
-        animator?.let { Disposer.dispose(it) }
         animator =
             GlowAnimator().also { anim ->
                 Disposer.register(this, anim)
@@ -779,13 +787,13 @@ class GlowOverlayManager(
             return
         }
 
-        val settings = AyuIslandsSettings.getInstance()
-        val state = settings.state
-        if (!state.glowEnabled) {
+        val render = runtime.render()
+        val settings = render.settings
+        if (!settings.enabled) {
             removeAllOverlays()
             return
         }
-        if (context == AccentContext.External && !state.isExternalGlowAllowed()) {
+        if (context == AccentContext.External && !render.externalAllowed) {
             removeAllOverlays()
             return
         }
@@ -800,29 +808,27 @@ class GlowOverlayManager(
             }
         }
 
-        val accentHex =
-            appliedAccent?.value
-                ?: resolveCurrentGlowAccentHex(project, state, context)
+        val accentHex = render.accentHex(appliedAccent) { AccentResolver.resolve(project, context) }
         val accent = safeDecodeColor(accentHex)
-        val style = GlowStyle.fromName(state.glowStyle ?: GlowStyle.SOFT.name)
+        val style = settings.style
+        val config = settings.waveformConfig()
 
-        updateOverlayStyles(state, accent, style)
+        updateOverlayStyles(settings, accent, config)
         repaintProjectTabs(project)
 
-        val intensity = state.getIntensityForStyle(style)
-        focusRingManager.updateFocusRingGlow(accent, style, intensity, state.glowFocusRing)
+        val intensity = settings.intensity.getValue(style)
+        focusRingManager.updateFocusRingGlow(accent, style, intensity, settings.focusRing)
 
-        val config = resolveWaveformConfig(state)
-        updateRouteLifecycle(state, config)
+        updateRouteLifecycle(settings, config)
 
         log.info("Glow overlays updated: style=$style, accent=$accentHex")
     }
 
     private fun updateRouteLifecycle(
-        state: AyuIslandsState,
+        settings: GlowSettings,
         config: WaveformConfig,
     ) {
-        if (GlowShape.fromName(state.glowShape) == GlowShape.WAVEFORM &&
+        if (settings.shape == GlowShape.WAVEFORM &&
             config.movement == WaveformMovement.CHAOTIC
         ) {
             attachVisibleToolWindowOverlays()
@@ -866,29 +872,30 @@ class GlowOverlayManager(
         toolWindowPlacement: GlowPlacement?,
     ) {
         if (!updates.admit(invalidates = false)) return
-        val state = AyuIslandsSettings.getInstance().state
+        val settings = runtime.render().settings
         for ((glassPane) in overlays.values) {
             val isEditor = glassPane.isEditorOverlay
             glassPane.glowPlacement =
                 (if (isEditor) editorPlacement else toolWindowPlacement)
-                    ?: resolveGlowPlacement(isEditorOverlay = isEditor, state = state)
+                    ?: resolveGlowPlacement(isEditorOverlay = isEditor, settings = settings)
             glassPane.repaint()
         }
     }
 
     private fun updateOverlayStyles(
-        state: AyuIslandsState,
+        settings: GlowSettings,
         accent: Color,
-        style: GlowStyle,
+        config: WaveformConfig,
     ) {
+        val style = settings.style
         for ((glassPane, host, layeredPane) in overlays.values) {
             glassPane.glowColor = accent
             glassPane.glowStyle = style
-            glassPane.glowIntensity = state.getIntensityForStyle(style)
-            glassPane.glowWidth = state.getWidthForStyle(style)
+            glassPane.glowIntensity = settings.intensity.getValue(style)
+            glassPane.glowWidth = settings.width.getValue(style)
             glassPane.glowPlacement =
-                resolveGlowPlacement(isEditorOverlay = glassPane.isEditorOverlay, state = state)
-            glassPane.configureWaveform(GlowShape.fromName(state.glowShape), resolveWaveformConfig(state))
+                resolveGlowPlacement(isEditorOverlay = glassPane.isEditorOverlay, settings = settings)
+            glassPane.configureWaveform(settings.shape, config)
             updateOverlayBounds(glassPane, host, layeredPane)
             glassPane.repaint()
         }
@@ -972,26 +979,20 @@ private fun clippedWaveformEdges(
 
 private fun isExternalGlowBlocked(
     context: AccentContext,
-    state: AyuIslandsState,
+    render: GlowRenderInput,
     callSite: String,
 ): Boolean {
-    if (context != AccentContext.External || state.isExternalGlowAllowed()) return false
+    if (context != AccentContext.External || render.externalAllowed) return false
     logger<GlowOverlayManager>().debug("External glow disabled, skipping $callSite")
     return true
 }
 
-private fun resolveCurrentGlowAccentHex(
-    project: Project,
-    state: AyuIslandsState,
-    context: AccentContext,
-): String = state.trustedCachedAccent()?.value ?: AccentResolver.resolve(project, context)
-
 private fun resolveGlowPlacement(
     isEditorOverlay: Boolean,
-    state: AyuIslandsState,
+    settings: GlowSettings,
 ): GlowPlacement =
     if (isEditorOverlay) {
-        GlowPlacement.fromName(state.glowEditorPlacement)
+        settings.editorPlacement
     } else {
-        GlowPlacement.fromName(state.glowToolWindowPlacement)
+        settings.toolWindowPlacement
     }
