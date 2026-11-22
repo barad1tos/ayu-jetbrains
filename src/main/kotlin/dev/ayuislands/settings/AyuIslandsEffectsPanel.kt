@@ -9,6 +9,7 @@ import com.intellij.ui.dsl.builder.Row
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowIsland
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
@@ -697,7 +698,7 @@ class AyuIslandsEffectsPanel : SettingsParticipant {
         private const val DEFAULT_WIDTH = 4
         private const val WIDTH_MAJOR_TICK = 2
         private const val FALLBACK_COLOR_HEX = "#FFCC66"
-        private val ISLAND_IDS = listOf("Editor", "Project", "Terminal", "Run", "Debug", "Git", "Services")
+        private val ISLAND_IDS = GlowIsland.entries.map(GlowIsland::id)
     }
 }
 

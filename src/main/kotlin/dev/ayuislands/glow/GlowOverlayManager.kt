@@ -9,7 +9,6 @@ import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
-import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
 import com.intellij.openapi.util.Disposer
@@ -108,7 +107,6 @@ class GlowOverlayManager(
     private var animator: GlowAnimator? = null
 
     companion object {
-        private const val EDITOR_ID = "Editor"
         private const val DEFAULT_ACCENT_HEX = "#FFCC66"
         private val hubFailureLogged = AtomicBoolean(false)
 
@@ -172,6 +170,11 @@ class GlowOverlayManager(
         val hierarchyBoundsListener: HierarchyBoundsAdapter? = null,
     )
 
+    internal data class OverlayObservation(
+        val mounted: List<String>,
+        val hosts: Map<String, JComponent>,
+    )
+
     private var messageBusConnected = false
 
     internal val paneTargets: List<GlowPaneTarget>
@@ -195,6 +198,18 @@ class GlowOverlayManager(
         private var removedOverlay = false
 
         val focusCallbacks: FocusRingManager.CallbackHold get() = hold.focusCallbacks
+
+        fun observeMembership(enabled: Set<GlowIsland>): OverlayObservation {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow membership must be observed on EDT" }
+            check(hold.isActive) { "Glow manager hold is unavailable" }
+            val mounted =
+                overlays
+                    .filterValues { entry ->
+                        entry.glassPane.parent === entry.layeredPane
+                    }.keys
+                    .toList()
+            return OverlayObservation(mounted, availableGlowHosts(project, enabled, overlays.keys))
+        }
 
         fun prepareAttachment(addition: GlowOverlayAddition): GlowOverlayAttachment {
             check(SwingUtilities.isEventDispatchThread()) { "Glow preparation must run on EDT" }
@@ -686,30 +701,23 @@ class GlowOverlayManager(
         val state = AyuIslandsSettings.getInstance().state
         if (!state.isIslandEnabled(id)) return
 
-        val component = toolWindow.component
-        if (!component.isDisplayable) return
-
-        val host = ComponentHierarchyUtils.findGlowHost(component)
+        val host = toolWindowGlowHost(toolWindow) ?: return
         attachOverlay(id, host)
     }
 
     private fun attachEditorOverlayIfNeeded() {
-        overlays[EDITOR_ID]?.let { entry ->
+        val editorId = GlowIsland.EDITOR.id
+        overlays[editorId]?.let { entry ->
             updateOverlayBounds(entry.glassPane, entry.host, entry.layeredPane)
             entry.glassPane.repaint()
             return
         }
 
         val state = AyuIslandsSettings.getInstance().state
-        if (!state.isIslandEnabled(EDITOR_ID)) return
+        if (!state.isIslandEnabled(editorId)) return
 
-        val editorRoot =
-            FileEditorManager.getInstance(project).selectedEditor?.component
-                ?: FileEditorManagerEx.getInstanceEx(project).component
-                ?: return
-        val host = ComponentHierarchyUtils.findEditorHost(editorRoot) ?: return
-        if (!host.isDisplayable) return
-        attachOverlay(EDITOR_ID, host, isEditorOverlay = true)
+        val host = editorGlowHost(project) ?: return
+        attachOverlay(editorId, host, isEditorOverlay = true)
     }
 
     private fun moveGlowFocus(

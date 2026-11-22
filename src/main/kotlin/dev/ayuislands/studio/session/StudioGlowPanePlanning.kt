@@ -50,6 +50,22 @@ internal object StudioGlowPanePlanning {
         return StudioGlowPaneOperation.Edit(planned, changed)
     }
 
+    fun newAppearance(
+        settings: GlowSettings,
+        accent: Color,
+        isEditor: Boolean,
+    ): GlowPaneAppearance =
+        GlowPaneAppearance(
+            color = accent,
+            style = settings.style,
+            intensity = settings.intensity.getValue(settings.style),
+            width = settings.width.getValue(settings.style),
+            placement = if (isEditor) settings.editorPlacement else settings.toolWindowPlacement,
+            shape = settings.shape,
+            waveform = waveform(settings),
+            isVisible = true,
+        )
+
     private fun selectFields(
         selection: StudioGlowSelection,
         settings: GlowSettings,
@@ -89,15 +105,17 @@ internal object StudioGlowPanePlanning {
             width = if (GlowPaneField.WIDTH in selected) settings.width.getValue(settings.style) else actual.width,
             placement = if (isEditor) settings.editorPlacement else settings.toolWindowPlacement,
             shape = settings.shape,
-            waveform =
-                WaveformConfig(
-                    movement = settings.waveformMovement,
-                    baseline = settings.waveformBaseline,
-                    amplitude = settings.waveformAmplitude,
-                    intensity = settings.waveformIntensity,
-                    loopSeconds = settings.waveformLoopSeconds,
-                    traceDensity = settings.waveformTraceDensity,
-                    traceLength = settings.waveformTraceLength,
-                ).forPlayback(),
+            waveform = waveform(settings),
         )
+
+    private fun waveform(settings: GlowSettings): WaveformConfig =
+        WaveformConfig(
+            movement = settings.waveformMovement,
+            baseline = settings.waveformBaseline,
+            amplitude = settings.waveformAmplitude,
+            intensity = settings.waveformIntensity,
+            loopSeconds = settings.waveformLoopSeconds,
+            traceDensity = settings.waveformTraceDensity,
+            traceLength = settings.waveformTraceLength,
+        ).forPlayback()
 }

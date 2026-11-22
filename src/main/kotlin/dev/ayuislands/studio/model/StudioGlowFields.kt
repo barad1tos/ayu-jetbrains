@@ -1,5 +1,6 @@
 package dev.ayuislands.studio.model
 
+import dev.ayuislands.glow.GlowIsland
 import dev.ayuislands.glow.GlowStyle
 
 internal enum class StudioGlowField(
@@ -39,16 +40,19 @@ internal enum class StudioGlowField(
 }
 
 internal enum class StudioGlowTarget(
-    val islandId: String,
+    val island: GlowIsland,
     val field: StudioGlowField,
 ) {
-    EDITOR("Editor", StudioGlowField.EDITOR),
-    PROJECT("Project", StudioGlowField.PROJECT),
-    TERMINAL("Terminal", StudioGlowField.TERMINAL),
-    RUN("Run", StudioGlowField.RUN),
-    DEBUG("Debug", StudioGlowField.DEBUG),
-    GIT("Git", StudioGlowField.GIT),
-    SERVICES("Services", StudioGlowField.SERVICES),
+    EDITOR(GlowIsland.EDITOR, StudioGlowField.EDITOR),
+    PROJECT(GlowIsland.PROJECT, StudioGlowField.PROJECT),
+    TERMINAL(GlowIsland.TERMINAL, StudioGlowField.TERMINAL),
+    RUN(GlowIsland.RUN, StudioGlowField.RUN),
+    DEBUG(GlowIsland.DEBUG, StudioGlowField.DEBUG),
+    GIT(GlowIsland.GIT, StudioGlowField.GIT),
+    SERVICES(GlowIsland.SERVICES, StudioGlowField.SERVICES),
+    ;
+
+    val islandId: String get() = island.id
 }
 
 internal enum class StudioGlowStyleSlots(

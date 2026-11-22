@@ -1,6 +1,8 @@
 package dev.ayuislands.studio
 
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.wm.ToolWindow
+import com.intellij.openapi.wm.ToolWindowManager
 import dev.ayuislands.glow.FocusRingManager
 import dev.ayuislands.glow.GlowAnimation
 import dev.ayuislands.glow.GlowAnimator
@@ -1546,8 +1548,11 @@ class StudioOwnerJournalTest {
         val host =
             object : JPanel() {
                 override fun isShowing(): Boolean = true
+
+                override fun isDisplayable(): Boolean = true
             }
-        val manager = GlowOverlayManager(mockk<Project>(relaxed = true))
+        private val project = mockk<Project>(relaxed = true)
+        val manager = GlowOverlayManager(project)
         val appearance =
             GlowPaneAppearance(
                 Color.MAGENTA,
@@ -1561,6 +1566,13 @@ class StudioOwnerJournalTest {
             )
 
         init {
+            val windows = mockk<ToolWindowManager>()
+            val terminal = mockk<ToolWindow>()
+            every { project.getService(ToolWindowManager::class.java) } returns windows
+            every { windows.toolWindowIdSet } returns linkedSetOf("Terminal", "Project")
+            every { windows.getToolWindow("Terminal") } returns terminal
+            every { terminal.isVisible } returns true
+            every { terminal.component } returns host
             root.contentPane.add(host)
             host.setBounds(7, 9, 180, 90)
             layer.setBounds(0, 0, 400, 300)
@@ -1696,20 +1708,31 @@ class StudioOwnerJournalTest {
         mount: GlowMount,
         work: StudioOwnerWork,
         holds: StudioGlowHolds,
-    ): StudioOwnerOperation? {
-        val target =
-            StudioGlowTarget(
-                mount.manager,
-                additions = listOf(GlowOverlayAddition("Terminal", mount.host, mount.appearance)),
-            )
-        return StudioGlowOperation.capture(
-            listOf(target),
+    ): StudioOwnerOperation? =
+        StudioGlowOperation.capture(
+            listOf(planTerminal(mount, enabled = true)),
             holds,
             StudioProcess(17, Instant.EPOCH),
             work.journal.token.transactionId,
             glowEdt,
         )
-    }
+
+    private fun planTerminal(
+        mount: GlowMount,
+        enabled: Boolean,
+    ): StudioGlowTarget =
+        StudioGlowPlanning.target(
+            mount.manager,
+            StudioGlowSelection(fields = StudioList(listOf(FieldAddress(StudioGlowField.TERMINAL.key)))),
+            GlowSettings(
+                enabled = true,
+                intensity = mapOf(GlowStyle.SOFT to mount.appearance.intensity),
+                width = mapOf(GlowStyle.SOFT to mount.appearance.width),
+                islandToggles = mapOf("Terminal" to enabled, "Project" to true),
+            ),
+            StudioGlowPlanning.Accents(mount.appearance.color.takeIf { enabled }, null),
+            available = true,
+        )
 
     private suspend fun verifyGlowMountAcceptance() {
         val mount = withContext(glowEdt) { GlowMount() }
@@ -1806,7 +1829,7 @@ class StudioOwnerJournalTest {
             StudioAppearanceStore(openStudioFiles(directory)).use { store ->
                 val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
                 val runner = ownerJournal(store)
-                val target = StudioGlowTarget(mount.manager, retirements = listOf("Terminal"))
+                val target = planTerminal(mount, enabled = false)
                 var qualifications = 0
                 val result =
                     runner.apply(work, qualifies = {
@@ -2066,7 +2089,7 @@ class StudioOwnerJournalTest {
                                 selection,
                                 settings,
                                 StudioGlowPlanning.Accents(pane = null, focus = Color.MAGENTA),
-                                focusAvailable = true,
+                                available = true,
                             )
                         val focusTarget =
                             StudioGlowPlanning.target(
@@ -2074,7 +2097,7 @@ class StudioOwnerJournalTest {
                                 selection,
                                 settings,
                                 StudioGlowPlanning.Accents(pane = null, focus = Color.GREEN),
-                                focusAvailable = true,
+                                available = true,
                             )
                         StudioGlowOperation.capture(
                             listOf(paneTarget, focusTarget, StudioGlowTarget(untouchedPeer)),
