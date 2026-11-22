@@ -72,14 +72,7 @@ class RouteControllerTest {
         every {
             anyConstructed<CrossWindowBridge>().show(any(), any(), any(), any<List<RouteSlice>>(), any())
         } just Runs
-        val controller =
-            RouteController(
-                project = mockk<Project>(relaxed = true),
-                overlays = { emptyList() },
-                focusedSurfaceId = { null },
-                state = { AyuIslandsState() },
-                onFailure = {},
-            )
+        val controller = controller()
         val first = connector("Editor", "Commit")
         val second = connector("Commit", "Project")
         seedBridgeTarget(controller, first)
@@ -296,14 +289,17 @@ class RouteControllerTest {
         }
     }
 
-    private fun controller(): RouteController =
-        RouteController(
+    private fun controller(): RouteController {
+        val runtime = GlowRuntimeSource(::AyuIslandsState)
+        return RouteController(
             project = mockk<Project>(relaxed = true),
             overlays = { emptyList() },
             focusedSurfaceId = { null },
-            state = { AyuIslandsState() },
+            enabledIslands = runtime::enabledIslands,
+            waveform = runtime::waveform,
             onFailure = {},
         )
+    }
 
     private fun seedCoordinator(
         controller: RouteController,

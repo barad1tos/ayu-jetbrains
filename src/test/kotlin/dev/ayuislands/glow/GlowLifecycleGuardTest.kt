@@ -93,10 +93,10 @@ class GlowLifecycleGuardTest {
         val focusBody = extractFunctionBody("fun initializeFocusRingGlow(")
         val attachBody = extractFunctionBody("fun attachOverlay(")
 
-        if (!focusBody.contains("isExternalGlowBlocked(context, state, \"initializeFocusRingGlow\")")) {
+        if (!focusBody.contains("isExternalGlowBlocked(context, render, \"initializeFocusRingGlow\")")) {
             fail("initializeFocusRingGlow must guard AccentContext.External through isExternalGlowBlocked")
         }
-        if (!attachBody.contains("isExternalGlowBlocked(context, state, \"attachOverlay($")) {
+        if (!attachBody.contains("isExternalGlowBlocked(context, render, \"attachOverlay($")) {
             fail("attachOverlay must guard AccentContext.External through isExternalGlowBlocked")
         }
     }

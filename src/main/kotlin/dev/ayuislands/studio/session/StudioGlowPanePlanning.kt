@@ -4,8 +4,7 @@ import dev.ayuislands.glow.GlowPaneAppearance
 import dev.ayuislands.glow.GlowPaneField
 import dev.ayuislands.glow.GlowPaneFields
 import dev.ayuislands.glow.sameGlowColor
-import dev.ayuislands.glow.waveform.WaveformConfig
-import dev.ayuislands.glow.waveform.forPlayback
+import dev.ayuislands.glow.waveformConfig
 import dev.ayuislands.settings.GlowSettings
 import dev.ayuislands.studio.model.GlowDependency
 import dev.ayuislands.studio.model.StudioGlowField
@@ -62,7 +61,7 @@ internal object StudioGlowPanePlanning {
             width = settings.width.getValue(settings.style),
             placement = if (isEditor) settings.editorPlacement else settings.toolWindowPlacement,
             shape = settings.shape,
-            waveform = waveform(settings),
+            waveform = settings.waveformConfig(),
             isVisible = true,
         )
 
@@ -105,17 +104,6 @@ internal object StudioGlowPanePlanning {
             width = if (GlowPaneField.WIDTH in selected) settings.width.getValue(settings.style) else actual.width,
             placement = if (isEditor) settings.editorPlacement else settings.toolWindowPlacement,
             shape = settings.shape,
-            waveform = waveform(settings),
+            waveform = settings.waveformConfig(),
         )
-
-    private fun waveform(settings: GlowSettings): WaveformConfig =
-        WaveformConfig(
-            movement = settings.waveformMovement,
-            baseline = settings.waveformBaseline,
-            amplitude = settings.waveformAmplitude,
-            intensity = settings.waveformIntensity,
-            loopSeconds = settings.waveformLoopSeconds,
-            traceDensity = settings.waveformTraceDensity,
-            traceLength = settings.waveformTraceLength,
-        ).forPlayback()
 }

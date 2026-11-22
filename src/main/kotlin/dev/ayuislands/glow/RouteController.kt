@@ -61,7 +61,8 @@ internal class RouteController(
     private val project: Project,
     private val overlays: () -> List<RouteOverlay>,
     private val focusedSurfaceId: () -> String?,
-    private val state: () -> AyuIslandsState,
+    private val enabledIslands: () -> (String) -> Boolean,
+    private val waveform: () -> WaveformConfig,
     private val onFailure: (RuntimeException) -> Unit,
     private val allowGraphRefresh: () -> Boolean = { true },
 ) {
@@ -181,12 +182,12 @@ internal class RouteController(
     }
 
     private fun buildGraph(): RouteGraph {
-        val currentState = state()
+        val isIslandEnabled = enabledIslands()
         val currentOverlays = overlays()
         routeOverlays = currentOverlays
         val surfaces =
             currentOverlays.mapNotNull { overlay ->
-                if (!currentState.isIslandEnabled(overlay.id)) return@mapNotNull null
+                if (!isIslandEnabled(overlay.id)) return@mapNotNull null
                 if (!overlay.host.isShowing || !overlay.host.isDisplayable) return@mapNotNull null
                 if (overlay.pane.width <= 0 || overlay.pane.height <= 0) return@mapNotNull null
                 val window = SwingUtilities.getWindowAncestor(overlay.host) ?: return@mapNotNull null
@@ -393,7 +394,7 @@ internal class RouteController(
                 UIManager
                     .getInt(ISLAND_ARC_KEY)
                     .let { if (it > 0) it else DEFAULT_ARC_FALLBACK },
-            config = resolveWaveformConfig(state()),
+            config = waveform(),
         )
     }
 
