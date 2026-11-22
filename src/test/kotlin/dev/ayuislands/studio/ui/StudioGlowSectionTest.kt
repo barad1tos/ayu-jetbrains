@@ -307,8 +307,7 @@ class StudioGlowSectionTest {
                         val coordinator =
                             mountedCoordinator(store, io) { plan ->
                                 object : StudioApplyLease {
-                                    private val holds =
-                                        StudioGlowHolds { error("An unchanged environment requested a refresh") }
+                                    private val holds = StudioGlowHolds()
 
                                     override suspend fun qualifies(): Boolean = true
 
@@ -348,7 +347,9 @@ class StudioGlowSectionTest {
                                         }
 
                                     override suspend fun release(accepted: StudioDocument?) =
-                                        withContext(edt) { holds.release() }
+                                        withContext(edt) {
+                                            holds.release { error("An unchanged environment requested a refresh") }
+                                        }
                                 }
                             }
                         val work = session.work.copy(drafts = StudioList(listOf(draft)))
