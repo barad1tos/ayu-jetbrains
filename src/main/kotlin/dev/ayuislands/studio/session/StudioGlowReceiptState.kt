@@ -2,9 +2,24 @@ package dev.ayuislands.studio.session
 
 import dev.ayuislands.glow.GlowCheckpointPhase
 import dev.ayuislands.glow.GlowFieldState
+import dev.ayuislands.studio.persistence.NativeFieldIdentity
 import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.RestoreStatus
 import dev.ayuislands.studio.persistence.StudioReceiptPolicy
+
+internal const val GLOW_PANE_PREFIX = "glow/pane/"
+internal const val GLOW_FOCUS_PREFIX = "glow/focus/"
+internal const val GLOW_MEMBERSHIP_FIELD = "glow/overlay/membership"
+
+internal fun glowFieldReceiptId(identity: NativeFieldIdentity): String =
+    "${identity.ownerToken}/${identity.resource}/${identity.field}"
+
+internal fun glowMembershipReceiptId(resource: String): String = "$resource/membership"
+
+internal fun glowRestoreReceiptId(
+    originalId: String,
+    sequence: Int,
+): String = "$originalId/restore/$sequence"
 
 internal fun glowReceiptStatus(
     phase: GlowCheckpointPhase,

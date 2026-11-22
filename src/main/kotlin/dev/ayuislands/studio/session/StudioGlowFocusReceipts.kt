@@ -24,7 +24,7 @@ internal class StudioGlowFocusReceipts(
     ): Map<GlowFocusField, PortableReceipt> =
         record.fields.mapValues { (field, _) ->
             val resource = if (field == GlowFocusField.BORDER) component else listener
-            val identity = NativeFieldIdentity(resource, "glow/focus/${field.name}", ownerToken)
+            val identity = NativeFieldIdentity(resource, GLOW_FOCUS_PREFIX + field.name, ownerToken)
             val before =
                 when (field) {
                     GlowFocusField.APPEARANCE -> appearance(record.before)
@@ -40,7 +40,7 @@ internal class StudioGlowFocusReceipts(
                     GlowFocusField.BORDER -> reference(record.plannedBorder)
                 }
             PortableReceipt(
-                id = "$ownerToken/$resource/${identity.field}",
+                id = glowFieldReceiptId(identity),
                 owner = EffectOwner.GLOW,
                 identity = identity,
                 before = StudioNativeEvidence.envelope(process, before),
@@ -61,7 +61,7 @@ internal class StudioGlowFocusReceipts(
                 "focused" to RawValue.BooleanValue(prepared.isFocused),
             )
         return original.copy(
-            id = "${original.id}/restore/$sequence",
+            id = glowRestoreReceiptId(original.id, sequence),
             before = StudioNativeEvidence.envelope(process, evidence),
             lastWritten = StudioNativeEvidence.envelope(process, reference(prepared.desired)),
             status = RestoreStatus.PENDING,

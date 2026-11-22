@@ -21,9 +21,9 @@ internal object StudioGlowPaneReceipts {
         tokens: StudioNativeTokens,
     ): Map<GlowPaneField, PortableReceipt> =
         record.fields.mapValues { (field, _) ->
-            val identity = NativeFieldIdentity(resource, "glow/pane/${field.name}", ownerToken)
+            val identity = NativeFieldIdentity(resource, GLOW_PANE_PREFIX + field.name, ownerToken)
             PortableReceipt(
-                id = "$ownerToken/$resource/${identity.field}",
+                id = glowFieldReceiptId(identity),
                 owner = EffectOwner.GLOW,
                 identity = identity,
                 before = StudioNativeEvidence.envelope(process, value(field, record.before, tokens)),
