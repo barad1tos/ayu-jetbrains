@@ -8,6 +8,7 @@ import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.accent.TintIntensity
 import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowIsland
 import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowPreset
 import dev.ayuislands.glow.GlowShape
@@ -627,29 +628,30 @@ class AyuIslandsState : BaseState() {
     }
 
     fun isIslandEnabled(toolWindowId: String): Boolean =
-        when (toolWindowId) {
-            "Editor" -> glowEditor
-            "Project" -> glowProject
-            "Terminal" -> glowTerminal
-            "Run" -> glowRun
-            "Debug" -> glowDebug
-            "Git", "Version Control", "Commit" -> glowGit
-            "Services" -> glowServices
-            else -> false
+        when (GlowIsland.fromId(toolWindowId)) {
+            GlowIsland.EDITOR -> glowEditor
+            GlowIsland.PROJECT -> glowProject
+            GlowIsland.TERMINAL -> glowTerminal
+            GlowIsland.RUN -> glowRun
+            GlowIsland.DEBUG -> glowDebug
+            GlowIsland.GIT -> glowGit
+            GlowIsland.SERVICES -> glowServices
+            null -> false
         }
 
     fun setIslandEnabled(
         toolWindowId: String,
         enabled: Boolean,
     ) {
-        when (toolWindowId) {
-            "Editor" -> glowEditor = enabled
-            "Project" -> glowProject = enabled
-            "Terminal" -> glowTerminal = enabled
-            "Run" -> glowRun = enabled
-            "Debug" -> glowDebug = enabled
-            "Git", "Version Control", "Commit" -> glowGit = enabled
-            "Services" -> glowServices = enabled
+        when (GlowIsland.fromId(toolWindowId)) {
+            GlowIsland.EDITOR -> glowEditor = enabled
+            GlowIsland.PROJECT -> glowProject = enabled
+            GlowIsland.TERMINAL -> glowTerminal = enabled
+            GlowIsland.RUN -> glowRun = enabled
+            GlowIsland.DEBUG -> glowDebug = enabled
+            GlowIsland.GIT -> glowGit = enabled
+            GlowIsland.SERVICES -> glowServices = enabled
+            null -> Unit
         }
     }
 

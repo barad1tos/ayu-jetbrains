@@ -1,7 +1,6 @@
 package dev.ayuislands.studio.session
 
 import dev.ayuislands.glow.GlowFocusAppearance
-import dev.ayuislands.glow.GlowOverlayAddition
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowPaneAppearance
 import dev.ayuislands.studio.model.StudioList
@@ -14,8 +13,7 @@ import kotlinx.coroutines.withContext
 internal data class StudioGlowTarget(
     val manager: GlowOverlayManager,
     val focusEdit: ((GlowFocusAppearance) -> GlowFocusAppearance)? = null,
-    val additions: List<GlowOverlayAddition> = emptyList(),
-    val retirements: List<String> = emptyList(),
+    val membership: StudioGlowMembership.Request? = null,
     val paneEdit: ((isEditor: Boolean, current: GlowPaneAppearance) -> StudioGlowPaneOperation.Edit)? = null,
 )
 

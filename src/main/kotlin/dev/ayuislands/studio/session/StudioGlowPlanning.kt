@@ -31,11 +31,15 @@ internal object StudioGlowPlanning {
         selection: StudioGlowSelection,
         settings: GlowSettings,
         accents: Accents,
-        focusAvailable: Boolean,
-    ): StudioGlowTarget =
-        StudioGlowTarget(manager, focusEdit(selection, settings, accents.focus, focusAvailable)) { isEditor, actual ->
-            StudioGlowPanePlanning.edit(selection, settings, accents.pane, isEditor, actual)
-        }
+        available: Boolean,
+    ): StudioGlowTarget {
+        val membership = StudioGlowMembershipPlanning.select(selection, settings, available)
+        return StudioGlowTarget(
+            manager,
+            focusEdit(selection, settings, accents.focus, available),
+            membership?.let { StudioGlowMembership.Request(it, settings, accents.pane) },
+        ) { isEditor, actual -> StudioGlowPanePlanning.edit(selection, settings, accents.pane, isEditor, actual) }
+    }
 
     /** An absent edit lets pane-only work leave focus callbacks running until it needs a pane hold. */
     fun focusEdit(

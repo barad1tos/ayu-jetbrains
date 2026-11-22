@@ -1,9 +1,12 @@
 package dev.ayuislands.studio.session
 
+import dev.ayuislands.glow.GlowIsland
+import dev.ayuislands.glow.GlowOverlayAddition
 import dev.ayuislands.glow.GlowOverlayAttachment
 import dev.ayuislands.glow.GlowOverlayChange
 import dev.ayuislands.glow.GlowOverlayManager
 import dev.ayuislands.glow.GlowOverlayRetirement
+import dev.ayuislands.settings.GlowSettings
 import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.StudioList
@@ -13,12 +16,19 @@ import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.RestoreStatus
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import java.awt.Color
 
 /** Journals native pane membership separately from playback and appearance. */
 internal class StudioGlowMembership private constructor(
     private val changes: List<Change>,
     private val nativeDispatcher: CoroutineDispatcher,
 ) : StudioOwnerOperation {
+    data class Request(
+        val selection: StudioGlowMembershipPlanning.Selection,
+        val settings: GlowSettings,
+        val accent: Color?,
+    )
+
     private data class Change(
         val overlay: GlowOverlayChange,
         val hold: GlowOverlayManager.UpdateHold,
@@ -68,15 +78,34 @@ internal class StudioGlowMembership private constructor(
             val tokens = StudioNativeTokens(owner)
             val changes =
                 targets.flatMap { target ->
-                    val ids = target.additions.map { it.id } + target.retirements
-                    require(ids.distinct().size == ids.size) { "Conflicting Glow membership changes" }
-                    if (ids.isEmpty()) return@flatMap emptyList()
+                    val request = target.membership ?: return@flatMap emptyList()
                     val hold = holds.hold(target.manager)
-                    val added = target.additions.map(hold::prepareAttachment)
-                    val retired = target.retirements.map(hold::prepareRetirement)
-                    (added + retired).map { overlay -> Change(overlay, hold, receipt(overlay, owner, process, tokens)) }
+                    prepareChanges(hold, request).map { overlay ->
+                        Change(overlay, hold, receipt(overlay, owner, process, tokens))
+                    }
                 }
             return changes.takeIf { it.isNotEmpty() }?.let { StudioGlowMembership(it, nativeDispatcher) }
+        }
+
+        private fun prepareChanges(
+            hold: GlowOverlayManager.UpdateHold,
+            request: Request,
+        ): List<GlowOverlayChange> {
+            val accent = request.accent
+            val observed = hold.observeMembership(if (accent == null) emptySet() else request.selection.enabled)
+            val delta = request.selection.plan(observed.mounted, observed.hosts.keys)
+            val additions =
+                if (accent == null) {
+                    emptyList()
+                } else {
+                    delta.additions.map { id ->
+                        val isEditor = id == GlowIsland.EDITOR.id
+                        val appearance = StudioGlowPanePlanning.newAppearance(request.settings, accent, isEditor)
+                        val addition = GlowOverlayAddition(id, observed.hosts.getValue(id), appearance, isEditor)
+                        hold.prepareAttachment(addition)
+                    }
+                }
+            return additions + delta.retirements.map(hold::prepareRetirement)
         }
 
         private fun receipt(
