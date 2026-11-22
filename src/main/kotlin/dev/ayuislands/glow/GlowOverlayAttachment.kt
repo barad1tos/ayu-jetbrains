@@ -12,22 +12,36 @@ internal data class GlowOverlayAddition(
     val isEditor: Boolean = false,
 )
 
+/** One native membership change retained until Apply has a durable outcome. */
+internal sealed interface GlowOverlayChange {
+    val id: String
+    val entry: GlowOverlayManager.OverlayEntry
+    val phase: GlowCheckpointPhase
+    val state: GlowFieldState
+
+    fun apply()
+
+    fun restore(isBlocked: Boolean)
+
+    fun accept()
+}
+
 /** Keeps exact native membership until the journal commits or restores the addition. */
 internal class GlowOverlayAttachment(
-    val id: String,
-    val entry: GlowOverlayManager.OverlayEntry,
+    override val id: String,
+    override val entry: GlowOverlayManager.OverlayEntry,
     private val entries: MutableMap<String, GlowOverlayManager.OverlayEntry>,
     private val isHeld: () -> Boolean,
     private val layout: () -> Unit,
     private val requestRefresh: () -> Unit,
-) {
-    var phase = GlowCheckpointPhase.PREPARED
+) : GlowOverlayChange {
+    override var phase = GlowCheckpointPhase.PREPARED
         private set
 
-    var state = GlowFieldState.PREPARED
+    override var state = GlowFieldState.PREPARED
         private set
 
-    fun apply() {
+    override fun apply() {
         checkEdt()
         check(phase == GlowCheckpointPhase.PREPARED) { "Glow attachment has already started" }
         checkHost()
@@ -40,14 +54,15 @@ internal class GlowOverlayAttachment(
         phase = GlowCheckpointPhase.APPLIED
     }
 
-    fun restore(isBlocked: Boolean) {
+    override fun restore(isBlocked: Boolean) {
         checkEdt()
         check(phase != GlowCheckpointPhase.ACCEPTED) { "Accepted Glow attachment cannot be restored" }
         if (phase == GlowCheckpointPhase.RESTORED) return
         if (state == GlowFieldState.WRITING) {
             check(!isBlocked) { "A newer receipt owns this Glow attachment" }
             phase = GlowCheckpointPhase.RESTORING
-            removeOwnedMembership()
+            unmountGlowOverlay(entry)
+            if (entries[id] === entry) entries.remove(id)
         }
         state =
             if (state == GlowFieldState.WRITING && (entries[id] != null || entry.glassPane.parent != null)) {
@@ -58,7 +73,7 @@ internal class GlowOverlayAttachment(
         phase = GlowCheckpointPhase.RESTORED
     }
 
-    fun accept() {
+    override fun accept() {
         checkEdt()
         if (phase == GlowCheckpointPhase.ACCEPTED) return
         check(phase == GlowCheckpointPhase.APPLIED) { "Glow attachment has not completed" }
@@ -66,24 +81,6 @@ internal class GlowOverlayAttachment(
         checkListeners()
         requestRefresh()
         phase = GlowCheckpointPhase.ACCEPTED
-    }
-
-    private fun removeOwnedMembership() {
-        val (pane, host, layer) = entry
-        val componentListener = entry.componentListener
-        val boundsListener = entry.hierarchyBoundsListener
-        componentListener?.let(host::removeComponentListener)
-        boundsListener?.let(host::removeHierarchyBoundsListener)
-        val bounds = pane.bounds
-        if (pane.parent === layer) {
-            layer.remove(pane)
-            layer.repaint(bounds)
-        }
-        check(pane.parent !== layer) { "Glow pane remains mounted" }
-        check(host.componentListeners.none { it === componentListener }) { "Glow component listener remains mounted" }
-        check(host.hierarchyBoundsListeners.none { it === boundsListener }) { "Glow bounds listener remains mounted" }
-        if (pane.parent == null) pane.stopAnimation()
-        if (entries[id] === entry) entries.remove(id)
     }
 
     private fun verifyOwned(mounted: Boolean) {
@@ -112,6 +109,23 @@ internal class GlowOverlayAttachment(
     private fun checkEdt() {
         check(SwingUtilities.isEventDispatchThread()) { "Glow attachment must run on EDT" }
     }
+}
+
+internal fun unmountGlowOverlay(entry: GlowOverlayManager.OverlayEntry) {
+    val (pane, host, layer) = entry
+    val componentListener = entry.componentListener
+    val boundsListener = entry.hierarchyBoundsListener
+    host.removeComponentListener(componentListener)
+    host.removeHierarchyBoundsListener(boundsListener)
+    val bounds = pane.bounds
+    if (pane.parent === layer) {
+        layer.remove(pane)
+        layer.repaint(bounds)
+    }
+    check(pane.parent !== layer) { "Glow pane remains mounted" }
+    check(host.componentListeners.none { it === componentListener }) { "Glow component listener remains mounted" }
+    check(host.hierarchyBoundsListeners.none { it === boundsListener }) { "Glow bounds listener remains mounted" }
+    if (pane.parent == null) pane.stopAnimation()
 }
 
 internal fun mountGlowOverlay(

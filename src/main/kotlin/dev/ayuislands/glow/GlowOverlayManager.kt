@@ -192,6 +192,7 @@ class GlowOverlayManager(
         private val hold = updates.hold()
         private var pausedTimers: List<GlowPlaybackTimer>? = null
         private val acceptedAttachments = linkedMapOf<String, OverlayEntry>()
+        private var acceptedRetirement = false
 
         val focusCallbacks: FocusRingManager.CallbackHold get() = hold.focusCallbacks
 
@@ -225,6 +226,28 @@ class GlowOverlayManager(
             )
         }
 
+        fun prepareRetirement(id: String): GlowOverlayRetirement {
+            check(SwingUtilities.isEventDispatchThread()) { "Glow preparation must run on EDT" }
+            check(hold.isActive) { "Glow manager hold is unavailable" }
+            val entry = checkNotNull(overlays[id]) { "Glow retirement target is unavailable" }
+            return GlowOverlayRetirement(
+                id,
+                entry,
+                overlays,
+                isHeld = { hold.isActive },
+                isDisposed = { disposed },
+                requestRefresh = {
+                    check(!updates.admit()) { "Glow hold ended before accepting its retirement" }
+                    if (activeGlowId == id) {
+                        animator?.let(Disposer::dispose)
+                        animator = null
+                        activeGlowId = null
+                    }
+                    acceptedRetirement = true
+                },
+            )
+        }
+
         /** Pause the current playback only after the owning operation is ready to write. */
         fun pausePlayback() {
             check(SwingUtilities.isEventDispatchThread()) { "Glow playback must run on EDT" }
@@ -248,6 +271,7 @@ class GlowOverlayManager(
             if (hold.isActive) pausedTimers?.forEach(GlowPlaybackTimer::resume)
             pausedTimers = null
             val refreshRequested = hold.release()
+            val refreshFocus = acceptedAttachments.isNotEmpty() || acceptedRetirement
             if (acceptedAttachments.isNotEmpty()) {
                 acceptedAttachments.forEach { (id, entry) ->
                     scheduleBoundsSettling(entry.glassPane, entry.host, entry.layeredPane) {
@@ -255,6 +279,9 @@ class GlowOverlayManager(
                     }
                 }
                 acceptedAttachments.clear()
+            }
+            if (refreshFocus) {
+                acceptedRetirement = false
                 updates.queue(::refreshActiveGlow)
             }
             return refreshRequested

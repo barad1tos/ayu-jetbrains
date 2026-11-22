@@ -2,6 +2,8 @@ package dev.ayuislands.studio
 
 import com.intellij.openapi.project.Project
 import dev.ayuislands.glow.FocusRingManager
+import dev.ayuislands.glow.GlowAnimation
+import dev.ayuislands.glow.GlowAnimator
 import dev.ayuislands.glow.GlowFocusListener
 import dev.ayuislands.glow.GlowGlassPane
 import dev.ayuislands.glow.GlowOverlayAddition
@@ -14,6 +16,8 @@ import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.WaveformBaseline
 import dev.ayuislands.glow.waveform.WaveformConfig
 import dev.ayuislands.glow.waveform.WaveformMovement
+import dev.ayuislands.settings.AyuIslandsSettings
+import dev.ayuislands.settings.AyuIslandsState
 import dev.ayuislands.settings.GlowSettings
 import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.FieldAddress
@@ -60,7 +64,9 @@ import dev.ayuislands.studio.session.StudioOwnerOperation
 import dev.ayuislands.studio.session.StudioOwnerWork
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.mockkStatic
+import io.mockk.unmockkObject
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -72,6 +78,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.io.TempDir
 import java.awt.Color
+import java.awt.Component
+import java.awt.DefaultKeyboardFocusManager
+import java.awt.KeyboardFocusManager
 import java.awt.Rectangle
 import java.awt.Window
 import java.awt.event.ComponentListener
@@ -88,6 +97,7 @@ import javax.swing.JPanel
 import javax.swing.JRootPane
 import javax.swing.JTextField
 import javax.swing.SwingUtilities
+import javax.swing.Timer
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -122,6 +132,46 @@ class StudioOwnerJournalTest {
     @Test
     fun `committed Glow waits for its pane and exact listeners before releasing the hold`() =
         runBlocking { verifyGlowMountAcceptance() }
+
+    @Test
+    fun `Glow retirement preserves attached membership when Apply is cancelled`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.ABORTED) }
+
+    @Test
+    fun `cancelling Glow retirement keeps an already hidden pane hidden`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.HIDDEN) }
+
+    @Test
+    fun `Glow retires exact membership only once Apply is committed`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.ACCEPTED) }
+
+    @Test
+    fun `Glow retirement releases its registration after another parent takes the pane`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.REPARENTED) }
+
+    @Test
+    fun `cancelling Glow retirement leaves a reparented pane untouched`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.MOVED_BEFORE_CANCEL) }
+
+    @Test
+    fun `accepting Glow retirement preserves a pane made visible by another writer`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.RESHOWN) }
+
+    @Test
+    fun `closing a project settles its cancelled Glow retirement`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.CLOSED_BEFORE_CANCEL) }
+
+    @Test
+    fun `closing a project settles its confirmed Glow retirement`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.CLOSED_BEFORE_COMMIT) }
+
+    @Test
+    fun `accepting active retirement stops playback and updates focus to the surviving pane`() =
+        runBlocking { verifyRetirementPlayback(accept = true) }
+
+    @Test
+    fun `cancelling active retirement resumes playback on the same pane`() =
+        runBlocking { verifyRetirementPlayback(accept = false) }
 
     @Test
     fun `one Glow owner restores focus before pane playback after an interrupted Apply`() =
@@ -1529,14 +1579,14 @@ class StudioOwnerJournalTest {
             assertTrue(manager.paneTargets.isEmpty())
         }
 
-        fun attached(): GlowGlassPane {
+        fun attached(visible: Boolean = true): GlowGlassPane {
             val pane = manager.paneTargets.single().pane
             assertSame(layer, pane.parent)
             assertEquals(JLayeredPane.PALETTE_LAYER.toInt(), layer.getLayer(pane))
             assertEquals(initialChildren, layer.components.filterNot { it === pane })
             assertEquals(initialComponents.size + 1, host.componentListeners.size)
             assertEquals(initialBounds.size + 1, host.hierarchyBoundsListeners.size)
-            assertEquals(appearance, pane.captureAppearance())
+            assertEquals(appearance.copy(isVisible = visible), pane.captureAppearance())
             assertEquals(Rectangle(7, 9, 180, 90), pane.bounds)
             return pane
         }
@@ -1713,6 +1763,224 @@ class StudioOwnerJournalTest {
         val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(settlement.settle())
         assertIs<OwnerAcceptance.OwnerFailed>(assertIs<SettlementProblem.AcceptOwners>(pending.problem).result)
         withContext(glowEdt) { assertFailsWith<IllegalStateException> { mount.manager.holdUpdates() } }
+    }
+
+    private enum class GlowRetirementOutcome(
+        val committed: Boolean,
+        val reparented: Boolean = false,
+        val closed: Boolean = false,
+    ) {
+        ABORTED(false),
+        HIDDEN(false),
+        ACCEPTED(true),
+        REPARENTED(true, reparented = true),
+        MOVED_BEFORE_CANCEL(false, reparented = true),
+        RESHOWN(true),
+        CLOSED_BEFORE_CANCEL(false, closed = true),
+        CLOSED_BEFORE_COMMIT(true, closed = true),
+        ;
+
+        fun verifySettlement(settled: ApplySettlement) {
+            if (committed) {
+                assertIs<ApplySettlement.Accepted>(settled)
+            } else {
+                assertEquals(ApplySettlement.NotAccepted, settled)
+            }
+        }
+    }
+
+    private suspend fun verifyGlowRetirement(outcome: GlowRetirementOutcome) {
+        val mount = withContext(glowEdt) { GlowMount() }
+        val holds = StudioGlowHolds {}
+        try {
+            val wasVisible = outcome != GlowRetirementOutcome.HIDDEN
+            val pane = withContext(glowEdt) { seedRetiringPane(mount).apply { isVisible = wasVisible } }
+            val order = withContext(glowEdt) { mount.layer.components.toList() }
+            val componentListener = withContext(glowEdt) { mount.addedComponentListener() }
+            val boundsListener = withContext(glowEdt) { mount.addedBoundsListener() }
+            StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+                val work = StudioOwnerWork(prepare(store, catalogTestDocument(), listOf(EffectOwner.GLOW)))
+                val runner = ownerJournal(store)
+                val target = StudioGlowTarget(mount.manager, retirements = listOf("Terminal"))
+                var qualifications = 0
+                val result =
+                    runner.apply(work, qualifies = {
+                        if (++qualifications == 2) {
+                            val receipt = withContext(ioDispatcher) { journalReceipts(store).single() }
+                            verifyRetirementEvidence(receipt, wasVisible)
+                            assertEquals(wasVisible, pane.isVisible)
+                        }
+                        true
+                    }) {
+                        StudioGlowOperation.capture(
+                            listOf(target),
+                            holds,
+                            StudioProcess(17, Instant.EPOCH),
+                            work.journal.token.transactionId,
+                            glowEdt,
+                        )
+                    }
+                assertEquals(OwnerApply.Completed, result)
+                assertEquals(2, qualifications, "The prepared receipt must be observed before visibility changes")
+                withContext(glowEdt) {
+                    assertFalse(pane.isVisible)
+                    assertSame(mount.layer, pane.parent)
+                    val registered = mount.manager.paneTargets.single()
+                    assertSame(pane, registered.pane)
+                    assertEquals(order, mount.layer.components.toList())
+                    assertSame(componentListener, mount.addedComponentListener())
+                    assertSame(boundsListener, mount.addedBoundsListener())
+                }
+                val foreign =
+                    withContext(glowEdt) {
+                        if (outcome == GlowRetirementOutcome.RESHOWN) pane.isVisible = true
+                        if (outcome.closed) mount.manager.dispose()
+                        if (outcome.reparented) JPanel().apply { add(pane) } else null
+                    }
+                if (outcome.committed) {
+                    assertIs<CommitResult.Committed>(store.commit(work.journal.token, work.journal.candidate.runtime))
+                }
+                val settlement =
+                    StudioApplySettlement(store, runner, ioDispatcher, work) {
+                        withContext(glowEdt) { holds.release() }
+                    }
+                outcome.verifySettlement(settlement.settle())
+                withContext(glowEdt) {
+                    when (outcome) {
+                        GlowRetirementOutcome.ABORTED, GlowRetirementOutcome.HIDDEN, GlowRetirementOutcome.RESHOWN -> {
+                            assertSame(pane, mount.attached(wasVisible))
+                            assertEquals(order, mount.layer.components.toList())
+                            assertSame(componentListener, mount.addedComponentListener())
+                            assertSame(boundsListener, mount.addedBoundsListener())
+                        }
+                        GlowRetirementOutcome.ACCEPTED, GlowRetirementOutcome.REPARENTED,
+                        GlowRetirementOutcome.CLOSED_BEFORE_CANCEL, GlowRetirementOutcome.CLOSED_BEFORE_COMMIT,
+                        -> {
+                            mount.verifyEmpty()
+                            assertSame(foreign, pane.parent)
+                        }
+                        GlowRetirementOutcome.MOVED_BEFORE_CANCEL -> {
+                            assertSame(requireNotNull(foreign), pane.parent)
+                            assertEquals(mount.appearance.copy(isVisible = false), pane.captureAppearance())
+                        }
+                    }
+                }
+            }
+        } finally {
+            withContext(glowEdt) {
+                holds.release()
+                if (!mount.manager.isDisposed) mount.manager.dispose()
+            }
+        }
+    }
+
+    private fun verifyRetirementEvidence(
+        receipt: PortableReceipt,
+        wasVisible: Boolean,
+    ) {
+        assertEquals(EffectOwner.GLOW, receipt.owner)
+        assertEquals("glow/overlay/membership", receipt.identity.field)
+        assertEquals(RestoreStatus.PENDING, receipt.status)
+        val process = StudioProcess(17, Instant.EPOCH)
+        assertEquals(process, StudioNativeEvidence.readProcess(receipt.before))
+        assertEquals(process, StudioNativeEvidence.readProcess(receipt.lastWritten))
+        val before = StudioNativeEvidence.fields(glowEvidenceValue(receipt.before))
+        val planned = StudioNativeEvidence.fields(glowEvidenceValue(receipt.lastWritten))
+        assertEquals(setOf("id", "host", "layer", "componentListener", "boundsListener", "visible"), before.keys)
+        assertEquals(RawValue.Text("Terminal"), before["id"])
+        assertEquals(RawValue.BooleanValue(wasVisible), before["visible"])
+        assertEquals(before + ("visible" to RawValue.BooleanValue(false)), planned)
+    }
+
+    private fun seedRetiringPane(mount: GlowMount): GlowGlassPane {
+        val hold = mount.manager.holdUpdates()
+        val addition = GlowOverlayAddition("Terminal", mount.host, mount.appearance)
+        try {
+            val attachment = hold.prepareAttachment(addition)
+            attachment.apply()
+            attachment.accept()
+            return mount.attached()
+        } finally {
+            hold.release()
+        }
+    }
+
+    private class RetirementFocus : DefaultKeyboardFocusManager() {
+        var focused: Component? = null
+
+        override fun getPermanentFocusOwner(): Component? = focused
+    }
+
+    private suspend fun verifyRetirementPlayback(accept: Boolean) {
+        val settings = mockk<AyuIslandsSettings>()
+        every { settings.state } returns AyuIslandsState().apply { glowAnimation = GlowAnimation.REACTIVE.name }
+        mockkObject(AyuIslandsSettings.Companion)
+        every { AyuIslandsSettings.getInstance() } returns settings
+        val focus = RetirementFocus()
+        val (mount, survivor, previousFocus) =
+            withContext(glowEdt) {
+                val mount = GlowMount()
+                val survivor = JPanel().apply { setBounds(200, 9, 180, 90) }
+                mount.host.parent.add(survivor)
+                val previousFocus = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                focus.focused = mount.host
+                KeyboardFocusManager.setCurrentKeyboardFocusManager(focus)
+                Triple(mount, survivor, previousFocus)
+            }
+        try {
+            val pane = withContext(glowEdt) { seedRetiringPane(mount) }
+            val timer =
+                withContext(glowEdt) {
+                    val animator = mount.manager.readPlayingAnimator()
+                    val timerField = GlowAnimator::class.java.getDeclaredField("timer").apply { isAccessible = true }
+                    val timer = assertIs<Timer>(timerField.get(animator))
+                    val hold = mount.manager.holdUpdates()
+                    val remaining = hold.prepareAttachment(GlowOverlayAddition("Project", survivor, mount.appearance))
+                    remaining.apply()
+                    remaining.accept()
+                    hold.release()
+                    timer
+                }
+            withContext(glowEdt) {
+                assertTrue(timer.isRunning)
+                val hold = mount.manager.holdUpdates()
+                val retirement = hold.prepareRetirement("Terminal")
+                hold.pausePlayback()
+                retirement.apply()
+                assertFalse(timer.isRunning)
+                assertFalse(pane.isVisible)
+                if (accept) {
+                    focus.focused = survivor
+                    retirement.accept()
+                } else {
+                    retirement.restore(isBlocked = false)
+                }
+                hold.release()
+            }
+            withContext(glowEdt) {
+                val active = GlowOverlayManager::class.java.getDeclaredField("activeGlowId")
+                active.isAccessible = true
+                if (accept) {
+                    assertEquals(false to "Project", timer.isRunning to active.get(mount.manager))
+                    assertNull(pane.parent)
+                } else {
+                    assertTrue(timer.isRunning)
+                    assertSame(mount.layer, pane.parent)
+                    assertTrue(pane.isVisible)
+                }
+            }
+        } finally {
+            withContext(glowEdt) {
+                mount.manager.dispose()
+                KeyboardFocusManager.setCurrentKeyboardFocusManager(previousFocus)
+            }
+            unmockkObject(AyuIslandsSettings.Companion)
+        }
+    }
+
+    private fun GlowOverlayManager.readPlayingAnimator(): GlowAnimator {
+        val field = GlowOverlayManager::class.java.getDeclaredField("animator").apply { isAccessible = true }
+        return assertIs<GlowAnimator>(field.get(this))
     }
 
     private suspend fun verifyCombinedGlow(accept: Boolean) {
