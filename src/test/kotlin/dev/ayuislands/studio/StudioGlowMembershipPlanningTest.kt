@@ -65,7 +65,7 @@ class StudioGlowMembershipPlanningTest {
     fun `availability and the global toggle share ownership while keeping saved island choices`() {
         val selection = StudioGlowSelection(dependencies = StudioList(listOf(GlowDependency.AVAILABILITY)))
         val mounted = listOf("Commit", "Project", "Structure")
-        val eligible = setOf("Editor", "Terminal", "Git")
+        val eligible = setOf("Editor", "Project", "Terminal", "Git")
 
         val unavailable = plan(selection, defaults, false, mounted, eligible)
         val disabled =
@@ -81,7 +81,7 @@ class StudioGlowMembershipPlanningTest {
         assertEquals(listOf("Commit", "Project"), unavailable.retirements)
         assertTrue(unavailable.additions.isEmpty())
         assertEquals(unavailable, disabled)
-        assertEquals(listOf("Editor"), reenabled.additions)
+        assertEquals(listOf("Editor", "Project"), reenabled.additions)
         assertTrue(reenabled.retirements.isEmpty())
         assertEquals(
             mapOf("Editor" to true, "Git" to false, "Project" to true, "Terminal" to false),

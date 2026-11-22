@@ -397,20 +397,20 @@ class AyuIslandsEffectsPanel : SettingsParticipant {
                     )
                     // Row 1: Editor | Terminal | Git
                     threeColumnsRow(
-                        { islandCheckbox("Editor", licensed) },
-                        { islandCheckbox("Terminal", licensed) },
-                        { islandCheckbox("Git", licensed) },
+                        { islandCheckbox(GlowIsland.EDITOR, licensed) },
+                        { islandCheckbox(GlowIsland.TERMINAL, licensed) },
+                        { islandCheckbox(GlowIsland.GIT, licensed) },
                     )
                     // Row 2: Project | Run | Services
                     threeColumnsRow(
-                        { islandCheckbox("Project", licensed) },
-                        { islandCheckbox("Run", licensed) },
-                        { islandCheckbox("Services", licensed) },
+                        { islandCheckbox(GlowIsland.PROJECT, licensed) },
+                        { islandCheckbox(GlowIsland.RUN, licensed) },
+                        { islandCheckbox(GlowIsland.SERVICES, licensed) },
                     )
                     // Row 3: (empty) | Debug | (empty)
                     threeColumnsRow(
                         { },
-                        { islandCheckbox("Debug", licensed) },
+                        { islandCheckbox(GlowIsland.DEBUG, licensed) },
                         { },
                     )
                 }
@@ -480,9 +480,10 @@ class AyuIslandsEffectsPanel : SettingsParticipant {
     }
 
     private fun Row.islandCheckbox(
-        islandId: String,
+        island: GlowIsland,
         licensed: Boolean,
     ) {
+        val islandId = island.id
         val cb = checkBox(islandId)
         cb.component.isSelected = section.pending.islandToggles[islandId] ?: false
         cb.component.isEnabled = licensed && section.pending.enabled

@@ -208,6 +208,7 @@ class GlowOverlayManager(
                         entry.glassPane.parent === entry.layeredPane
                     }.keys
                     .toList()
+            // Native settlement owns the registration even when its pane has been detached.
             return OverlayObservation(mounted, availableGlowHosts(project, enabled, overlays.keys))
         }
 
