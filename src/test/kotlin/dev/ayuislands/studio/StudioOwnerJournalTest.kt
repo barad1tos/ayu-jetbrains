@@ -154,6 +154,10 @@ class StudioOwnerJournalTest {
         runBlocking { verifyGlowRetirement(GlowRetirementOutcome.MOVED_BEFORE_CANCEL) }
 
     @Test
+    fun `cancelling Glow retirement restores visibility after its host changes roots`() =
+        runBlocking { verifyGlowRetirement(GlowRetirementOutcome.HOST_MOVED_BEFORE_CANCEL) }
+
+    @Test
     fun `accepting Glow retirement preserves a pane made visible by another writer`() =
         runBlocking { verifyGlowRetirement(GlowRetirementOutcome.RESHOWN) }
 
@@ -1775,6 +1779,7 @@ class StudioOwnerJournalTest {
         ACCEPTED(true),
         REPARENTED(true, reparented = true),
         MOVED_BEFORE_CANCEL(false, reparented = true),
+        HOST_MOVED_BEFORE_CANCEL(false),
         RESHOWN(true),
         CLOSED_BEFORE_CANCEL(false, closed = true),
         CLOSED_BEFORE_COMMIT(true, closed = true),
@@ -1831,12 +1836,7 @@ class StudioOwnerJournalTest {
                     assertSame(componentListener, mount.addedComponentListener())
                     assertSame(boundsListener, mount.addedBoundsListener())
                 }
-                val foreign =
-                    withContext(glowEdt) {
-                        if (outcome == GlowRetirementOutcome.RESHOWN) pane.isVisible = true
-                        if (outcome.closed) mount.manager.dispose()
-                        if (outcome.reparented) JPanel().apply { add(pane) } else null
-                    }
+                val foreign = withContext(glowEdt) { moveRetirementTarget(outcome, mount, pane) }
                 if (outcome.committed) {
                     assertIs<CommitResult.Committed>(store.commit(work.journal.token, work.journal.candidate.runtime))
                 }
@@ -1860,8 +1860,22 @@ class StudioOwnerJournalTest {
                             assertSame(foreign, pane.parent)
                         }
                         GlowRetirementOutcome.MOVED_BEFORE_CANCEL -> {
+                            mount.verifyEmpty()
                             assertSame(requireNotNull(foreign), pane.parent)
                             assertEquals(mount.appearance.copy(isVisible = false), pane.captureAppearance())
+                            val hold = mount.manager.holdUpdates()
+                            try {
+                                hold.prepareAttachment(GlowOverlayAddition("Terminal", mount.host, mount.appearance))
+                            } finally {
+                                hold.release()
+                            }
+                        }
+                        GlowRetirementOutcome.HOST_MOVED_BEFORE_CANCEL -> {
+                            assertSame(requireNotNull(foreign), mount.host.parent)
+                            assertSame(mount.layer, pane.parent)
+                            assertEquals(mount.appearance, pane.captureAppearance())
+                            assertSame(componentListener, mount.addedComponentListener())
+                            assertSame(boundsListener, mount.addedBoundsListener())
                         }
                     }
                 }
@@ -1871,6 +1885,24 @@ class StudioOwnerJournalTest {
                 holds.release()
                 if (!mount.manager.isDisposed) mount.manager.dispose()
             }
+        }
+    }
+
+    private fun moveRetirementTarget(
+        outcome: GlowRetirementOutcome,
+        mount: GlowMount,
+        pane: GlowGlassPane,
+    ): JPanel? {
+        if (outcome == GlowRetirementOutcome.RESHOWN) pane.isVisible = true
+        if (outcome.closed) mount.manager.dispose()
+        return when {
+            outcome.reparented -> JPanel().apply { add(pane) }
+            outcome == GlowRetirementOutcome.HOST_MOVED_BEFORE_CANCEL ->
+                JPanel().apply {
+                    JRootPane().contentPane = this
+                    add(mount.host)
+                }
+            else -> null
         }
     }
 
@@ -1955,7 +1987,8 @@ class StudioOwnerJournalTest {
                 } else {
                     retirement.restore(isBlocked = false)
                 }
-                hold.release()
+                val refreshRequested = hold.release()
+                if (accept) assertTrue(refreshRequested, "Membership removal must request a runtime refresh")
             }
             withContext(glowEdt) {
                 val active = GlowOverlayManager::class.java.getDeclaredField("activeGlowId")

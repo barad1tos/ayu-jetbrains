@@ -192,7 +192,7 @@ class GlowOverlayManager(
         private val hold = updates.hold()
         private var pausedTimers: List<GlowPlaybackTimer>? = null
         private val acceptedAttachments = linkedMapOf<String, OverlayEntry>()
-        private var acceptedRetirement = false
+        private var removedOverlay = false
 
         val focusCallbacks: FocusRingManager.CallbackHold get() = hold.focusCallbacks
 
@@ -237,13 +237,13 @@ class GlowOverlayManager(
                 isHeld = { hold.isActive },
                 isDisposed = { disposed },
                 requestRefresh = {
-                    check(!updates.admit()) { "Glow hold ended before accepting its retirement" }
+                    check(!updates.admit()) { "Glow hold ended before settling overlay retirement" }
                     if (activeGlowId == id) {
                         animator?.let(Disposer::dispose)
                         animator = null
                         activeGlowId = null
                     }
-                    acceptedRetirement = true
+                    removedOverlay = true
                 },
             )
         }
@@ -271,7 +271,7 @@ class GlowOverlayManager(
             if (hold.isActive) pausedTimers?.forEach(GlowPlaybackTimer::resume)
             pausedTimers = null
             val refreshRequested = hold.release()
-            val refreshFocus = acceptedAttachments.isNotEmpty() || acceptedRetirement
+            val refreshFocus = acceptedAttachments.isNotEmpty() || removedOverlay
             if (acceptedAttachments.isNotEmpty()) {
                 acceptedAttachments.forEach { (id, entry) ->
                     scheduleBoundsSettling(entry.glassPane, entry.host, entry.layeredPane) {
@@ -281,7 +281,7 @@ class GlowOverlayManager(
                 acceptedAttachments.clear()
             }
             if (refreshFocus) {
-                acceptedRetirement = false
+                removedOverlay = false
                 updates.queue(::refreshActiveGlow)
             }
             return refreshRequested

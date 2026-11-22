@@ -17,7 +17,7 @@ internal class GlowOverlayRetirement(
             pane,
             pane.captureAppearance().copy(isVisible = false),
             setOf(GlowPaneField.VISIBILITY),
-            ::isMounted,
+            ::ownsMountedPane,
         )
 
     private var settlement: Settlement? = null
@@ -39,10 +39,12 @@ internal class GlowOverlayRetirement(
         check(phase != GlowCheckpointPhase.ACCEPTED) { "Accepted Glow retirement cannot be restored" }
         if (settlement != null) return
         val field = GlowPaneField.VISIBILITY
+        val stillMounted = ownsMountedPane()
         visibility.restore(
             blockedBy = if (isBlocked) setOf(field) else emptySet(),
-            targetRetired = !isMounted(),
+            targetRetired = !stillMounted,
         )
+        if (!stillMounted && isHeld() && entries[id] === entry) removeRegistration()
         val visibilityWasLost = visibility.record.fields[field] == GlowFieldState.FOREIGN
         settlement = if (visibilityWasLost) Settlement.FOREIGN else Settlement.RESTORED
     }
@@ -52,21 +54,22 @@ internal class GlowOverlayRetirement(
         if (phase == GlowCheckpointPhase.ACCEPTED) return
         check(phase == GlowCheckpointPhase.APPLIED) { "Glow retirement has not completed" }
         val isOwned = !isDisposed() && entries[id] === entry && (pane.parent !== entry.layeredPane || !pane.isVisible)
-        if (isOwned) {
-            unmountGlowOverlay(entry)
-            if (entries[id] === entry) {
-                entries.remove(id)
-                requestRefresh()
-            }
-        }
+        if (isOwned) removeRegistration()
         settlement = if (isOwned) Settlement.ACCEPTED else Settlement.RELINQUISHED
     }
 
-    private fun isMounted(): Boolean =
+    private fun removeRegistration() {
+        unmountGlowOverlay(entry)
+        if (entries[id] === entry) {
+            entries.remove(id)
+            requestRefresh()
+        }
+    }
+
+    private fun ownsMountedPane(): Boolean =
         isHeld() &&
             entries[id] === entry &&
-            pane.parent === entry.layeredPane &&
-            SwingUtilities.getRootPane(entry.host)?.layeredPane === entry.layeredPane
+            pane.parent === entry.layeredPane
 
     private fun checkCanSettle() {
         check(SwingUtilities.isEventDispatchThread()) { "Glow retirement must run on EDT" }
