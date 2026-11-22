@@ -15,6 +15,7 @@ internal data class StudioGlowTarget(
     val manager: GlowOverlayManager,
     val focusEdit: ((GlowFocusAppearance) -> GlowFocusAppearance)? = null,
     val additions: List<GlowOverlayAddition> = emptyList(),
+    val retirements: List<String> = emptyList(),
     val paneEdit: ((isEditor: Boolean, current: GlowPaneAppearance) -> StudioGlowPaneOperation.Edit)? = null,
 )
 
@@ -66,8 +67,8 @@ internal class StudioGlowOperation private constructor(
                     } else {
                         null
                     }
-                val mounts = StudioGlowMounts.capture(targets, holds, process, transactionId, nativeDispatcher)
-                val surfaces = listOfNotNull(panes, focus, mounts)
+                val membership = StudioGlowMembership.capture(targets, holds, process, transactionId, nativeDispatcher)
+                val surfaces = listOfNotNull(panes, focus, membership)
                 surfaces.takeIf { it.isNotEmpty() }?.let(::StudioGlowOperation)
             }
     }
