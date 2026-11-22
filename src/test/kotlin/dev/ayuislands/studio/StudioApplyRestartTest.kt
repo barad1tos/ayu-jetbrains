@@ -115,12 +115,16 @@ class StudioApplyRestartTest {
     }
 
     @Test
-    fun `terminal Glow receipts cannot retire a journal with an invalid identity`() {
-        val ownerToken = "glow/$OTHER"
-        val wrongIdentity = NativeFieldIdentity("$ownerToken/invalid", "glow/pane/WIDTH", ownerToken)
-        val original = glowReceipts().first()
-        val record = original.copy(id = "unrelated", identity = wrongIdentity, status = RestoreStatus.RESTORED)
-        assertGlowJournalRetained(listOf(record))
+    fun `terminal Glow receipts with a mismatched ID leave the journal recoverable`() {
+        val pane = glowReceipts().first()
+        assertGlowJournalRetained(listOf(pane.copy(id = "unrelated", status = RestoreStatus.RESTORED)))
+    }
+
+    @Test
+    fun `a malformed Glow resource leaves its journal recoverable`() {
+        val pane = glowReceipts().first()
+        val malformed = pane.identity.copy(resource = "${pane.identity.ownerToken}/invalid")
+        assertGlowJournalRetained(listOf(pane.copy(id = glowFieldReceiptId(malformed), identity = malformed)))
     }
 
     @Test
