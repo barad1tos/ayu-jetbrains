@@ -6,9 +6,7 @@ import dev.ayuislands.glow.GlowOverlayManager
 import javax.swing.SwingUtilities
 
 /** Apply's lease owns both pane playback and focus callbacks for each affected manager. */
-internal class StudioGlowHolds(
-    private val refresh: (GlowOverlayManager) -> Unit,
-) {
+internal class StudioGlowHolds {
     private val held = linkedMapOf<GlowOverlayManager, GlowOverlayManager.UpdateHold>()
     private val pendingRefresh = linkedSetOf<GlowOverlayManager>()
     private var releasing = false
@@ -20,7 +18,7 @@ internal class StudioGlowHolds(
     }
 
     /** End all holds before refreshing. Failed steps remain pending for the next settlement attempt. */
-    fun release() {
+    fun release(refresh: (GlowOverlayManager) -> Unit) {
         checkEdt()
         releasing = true
         settleGlowActions(held.keys.toList().asReversed()) { manager ->
