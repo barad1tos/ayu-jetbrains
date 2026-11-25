@@ -1,45 +1,65 @@
 package dev.ayuislands.settings
 
+import dev.ayuislands.toolwindow.AutoFitCalculator
+
 internal enum class WorkspaceSurface(
+    val title: String,
     val modeField: String,
     val minimumField: String,
     val maximumField: String,
     val fixedField: String,
+    val maximumLowerBound: Int,
 ) {
     PROJECT(
+        "Project View",
         "projectPanelWidthMode",
         "projectPanelAutoFitMinWidth",
         "autoFitMaxWidth",
         "projectPanelFixedWidth",
+        AutoFitCalculator.MIN_PROJECT_AUTOFIT_WIDTH,
     ),
     COMMIT(
+        "Commit Panel",
         "commitPanelWidthMode",
         "commitPanelAutoFitMinWidth",
         "autoFitCommitMaxWidth",
         "commitPanelFixedWidth",
+        AutoFitCalculator.MIN_COMMIT_AUTOFIT_WIDTH,
     ),
     GIT(
+        "Git Panel",
         "gitPanelWidthMode",
         "gitPanelAutoFitMinWidth",
         "gitPanelAutoFitMaxWidth",
         "gitPanelFixedWidth",
+        AutoFitCalculator.MIN_GIT_AUTOFIT_WIDTH,
     ),
 }
 
 internal enum class WorkspaceToggle(
     val field: String,
+    val title: String,
+    val description: String,
 ) {
     EDITOR_VERTICAL_SCROLLBAR(
         "hideEditorVScrollbar",
+        "Hide vertical scrollbar",
+        "Remove the vertical scrollbar from the editor gutter",
     ),
     EDITOR_HORIZONTAL_SCROLLBAR(
         "hideEditorHScrollbar",
+        "Hide horizontal scrollbar",
+        "Remove the bottom scrollbar from the editor",
     ),
     PROJECT_ROOT_PATH(
         "hideProjectRootPath",
+        "Hide filesystem path",
+        "Remove the directory path shown next to the project name",
     ),
     PROJECT_HORIZONTAL_SCROLLBAR(
         "hideProjectViewHScrollbar",
+        "Hide horizontal scrollbar",
+        "Remove the bottom scrollbar from the Project tool window",
     ),
 }
 
@@ -90,6 +110,13 @@ internal data class WorkspaceSettings(
             WorkspaceToggle.PROJECT_HORIZONTAL_SCROLLBAR -> hideProjectHorizontal
         }
 }
+
+internal data class WorkspacePanelView(
+    val settings: WorkspaceSettings,
+    val preview: WorkspaceSettings,
+    val isEditable: Boolean,
+    val isLicensed: Boolean,
+)
 
 internal sealed interface WorkspacePanelEvent {
     data class Toggle(
