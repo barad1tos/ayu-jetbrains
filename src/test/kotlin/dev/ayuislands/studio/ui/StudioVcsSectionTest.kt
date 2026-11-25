@@ -21,6 +21,7 @@ import dev.ayuislands.studio.session.StudioVcsEditing
 import dev.ayuislands.studio.session.StudioVcsProjection
 import dev.ayuislands.studio.session.vcsField
 import dev.ayuislands.vcs.VcsColorCategory
+import dev.ayuislands.vcs.VcsColorPalette
 import dev.ayuislands.vcs.VcsColorPreset
 import dev.ayuislands.vcs.VcsIntensity
 import dev.ayuislands.vcs.VcsWriteMode
@@ -43,6 +44,7 @@ import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JSlider
 import javax.swing.SwingUtilities
+import javax.swing.plaf.basic.BasicHTML
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
@@ -117,10 +119,11 @@ class StudioVcsSectionTest {
             assertTrue(visibleSliders(root).isEmpty())
             section.content.preview(PreviewMode.DRAFT)
             val sample = descendants(root).filterIsInstance<VcsColorPreviewComponent>().single()
-            assertEquals(0, sample.intensityForTest(VcsColorCategory.DIFF_VIEWER))
+            assertEquals(VcsColorPalette.stock("DIFF_INSERTED", AyuVariant.MIRAGE), diffColor(sample))
             master(root).doClick()
             section.render(view(before, working))
             assertEquals(before.appearance, working.appearance)
+            assertEquals(18, sample.intensityForTest(VcsColorCategory.DIFF_VIEWER))
             assertEquals(4, visibleSliders(root).size)
             assertEquals(groups, descendants(root).filterIsInstance<TitledSeparator>())
             assertEquals(listOf(VcsSection.MERGE to false), opened)
@@ -130,7 +133,7 @@ class StudioVcsSectionTest {
     @Test
     fun `successive slider edits update the working draft and preserve an unavailable preset`() {
         SwingUtilities.invokeAndWait {
-            val rawName = "Future VCS preset"
+            val rawName = "<html>Future VCS preset</html>"
             val initial =
                 StudioDraftPolicy.edit(
                     draft(),
@@ -150,7 +153,30 @@ class StudioVcsSectionTest {
             assertEquals(75, requested.intensities.getValue(VcsColorCategory.CONFLICT_MARKERS))
             assertEquals(rawName, requested.presets.getValue(VcsSection.BLAME))
             assertEquals(initial.appearance.accent, working.appearance.accent)
-            assertTrue(descendants(root).filterIsInstance<JLabel>().any { rawName in it.toolTipText.orEmpty() })
+            val presetHelp = descendants(root).filterIsInstance<JLabel>().single { rawName in it.toolTipText.orEmpty() }
+            assertFalse(BasicHTML.isHTMLString(presetHelp.toolTipText), "The complete raw name must stay literal")
+        }
+    }
+
+    @Test
+    fun `the intensity readout matches the slider while preserving the saved value`() {
+        SwingUtilities.invokeAndWait {
+            val raw = -19
+            val initial =
+                StudioDraftPolicy.edit(
+                    draft(),
+                    FieldAddress(vcsField("vcsDiffIntensity")),
+                    FieldValue.Present(RawValue.Integer(raw)),
+                )
+            val section = section()
+            val root = section.content.component
+            section.render(view(initial))
+            val slider = visibleSliders(root).first()
+            assertEquals(0, slider.value)
+            val readout = descendants(root).filterIsInstance<JLabel>().single { it.text == slider.value.toString() }
+            assertEquals("Saved intensity: $raw", readout.toolTipText)
+            val stored = StudioVcsProjection.settings(initial.appearance)
+            assertEquals(raw, stored.intensities.getValue(VcsColorCategory.DIFF_VIEWER))
         }
     }
 

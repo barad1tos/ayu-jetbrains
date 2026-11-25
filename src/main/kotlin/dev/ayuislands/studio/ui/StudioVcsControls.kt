@@ -85,16 +85,19 @@ internal class StudioVcsControls(
         variant: AyuVariant,
         snapshot: VcsColorSnapshot,
     ) {
-        sample.updatePreview(
-            variant,
-            VcsPreviewIntensities(
-                diffViewer = snapshot.intensityFor(VcsColorCategory.DIFF_VIEWER).percent,
-                projectView = snapshot.intensityFor(VcsColorCategory.PROJECT_VIEW_FILE_STATUS).percent,
-                editorGutter = snapshot.intensityFor(VcsColorCategory.EDITOR_GUTTER).percent,
-                conflictMarkers = snapshot.intensityFor(VcsColorCategory.CONFLICT_MARKERS).percent,
-                blameGutter = snapshot.intensityFor(VcsColorCategory.BLAME_GUTTER).percent,
-            ),
-        )
+        val intensities =
+            if (snapshot.enabled) {
+                VcsPreviewIntensities(
+                    diffViewer = snapshot.intensityFor(VcsColorCategory.DIFF_VIEWER).percent,
+                    projectView = snapshot.intensityFor(VcsColorCategory.PROJECT_VIEW_FILE_STATUS).percent,
+                    editorGutter = snapshot.intensityFor(VcsColorCategory.EDITOR_GUTTER).percent,
+                    conflictMarkers = snapshot.intensityFor(VcsColorCategory.CONFLICT_MARKERS).percent,
+                    blameGutter = snapshot.intensityFor(VcsColorCategory.BLAME_GUTTER).percent,
+                )
+            } else {
+                null
+            }
+        sample.updatePreview(variant, intensities)
         stockColors.set(!snapshot.enabled)
     }
 
@@ -142,7 +145,8 @@ private class VcsPresetControls(
         val preset = VcsColorPreset.entries.firstOrNull { it.name == name }
         selectedPreset.set(preset)
         unavailable.set(preset == null)
-        unavailablePreset.toolTipText = if (preset == null) name else null
+        // A literal prefix keeps Swing from treating an imported name as HTML.
+        unavailablePreset.toolTipText = if (preset == null) name?.let { "Saved preset: $it" } else null
         unavailablePreset.accessibleContext.accessibleDescription = unavailablePreset.toolTipText
         customVisible.set(preset == VcsColorPreset.CUSTOM || !gate.isUnlocked)
         for ((category, intensity) in intensities) {
@@ -185,9 +189,11 @@ private class VcsIntensityControl(
         gate: PremiumFeatureGate,
         isEditable: Boolean,
     ) {
-        slider.value = rawValue
+        val displayed = VcsIntensity.of(rawValue).percent
+        slider.value = displayed
         slider.applyPremiumLock(gate, isEditable)
-        readout.text = rawValue.toString()
+        readout.text = displayed.toString()
+        readout.toolTipText = if (displayed == rawValue) null else "Saved intensity: $rawValue"
         val metrics = readout.getFontMetrics(readout.font)
         val width = maxOf(metrics.stringWidth(VcsIntensity.MAX.toString()), metrics.stringWidth(readout.text))
         readout.preferredSize = Dimension(width, metrics.height)
