@@ -1,4 +1,4 @@
-package dev.ayuislands.settings
+package dev.ayuislands.studio.ui
 
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.ui.ComboBox
@@ -9,8 +9,14 @@ import com.intellij.ui.dsl.builder.panel
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.commitpanel.CommitPathShortener
 import dev.ayuislands.commitpanel.CommitPathShorteningRequest
-import dev.ayuislands.studio.ui.StudioResponsiveLayout
-import dev.ayuislands.studio.ui.StudioUiTokens
+import dev.ayuislands.settings.CommitPathDisplayMode
+import dev.ayuislands.settings.PanelWidthMode
+import dev.ayuislands.settings.WorkspacePanelEvent
+import dev.ayuislands.settings.WorkspacePanelView
+import dev.ayuislands.settings.WorkspaceSettings
+import dev.ayuislands.settings.WorkspaceSurface
+import dev.ayuislands.settings.WorkspaceToggle
+import dev.ayuislands.settings.WorkspaceWidth
 import dev.ayuislands.toolwindow.AutoFitCalculator
 import java.awt.BorderLayout
 import java.awt.Dimension
@@ -28,7 +34,7 @@ import javax.swing.UIManager
 private const val UNSET_MODE = "not set"
 
 /** Render explicit Workspace facts without reading services or changing the working values. */
-internal class WorkspaceControls(
+internal class StudioWorkspaceControls(
     private val onEvent: (WorkspacePanelEvent) -> Unit,
 ) : JPanel(BorderLayout()) {
     private var rendered: WorkspacePanelView? = null
@@ -38,8 +44,8 @@ internal class WorkspaceControls(
     private val toggles = WorkspaceToggle.entries.associateWith { JCheckBox(it.title) }
     private val widths = WorkspaceSurface.entries.associateWith { WidthControls(it, ::emit) }
     private val pathMode = modeCombo()
-    private val pathMinimum = widthSpinner("Commit path minimum hidden levels")
-    private val pathMaximum = widthSpinner("Commit path maximum hidden levels")
+    private val pathMinimum = WorkspaceSpinner("Commit path minimum hidden levels", PATH_LEVEL_RANGE, 1)
+    private val pathMaximum = WorkspaceSpinner("Commit path maximum hidden levels", PATH_LEVEL_RANGE, 1)
 
     init {
         for ((target, checkbox) in toggles) {
@@ -57,12 +63,8 @@ internal class WorkspaceControls(
             val selection = pathMode.selectedItem as? CommitPathDisplayMode
             if (pathMode.isEnabled && selection != null) emit(WorkspacePanelEvent.PathMode(selection))
         }
-        pathMinimum.addChangeListener {
-            if (pathMinimum.isEnabled) emit(WorkspacePanelEvent.PathMinimum(pathMinimum.value as Int))
-        }
-        pathMaximum.addChangeListener {
-            if (pathMaximum.isEnabled) emit(WorkspacePanelEvent.PathMaximum(pathMaximum.value as Int))
-        }
+        pathMinimum.onEdit { emit(WorkspacePanelEvent.PathMinimum(it)) }
+        pathMaximum.onEdit { emit(WorkspacePanelEvent.PathMaximum(it)) }
         add(panel { buildRows() }, BorderLayout.CENTER)
     }
 
@@ -143,8 +145,8 @@ internal class WorkspaceControls(
         val commitMode = PanelWidthMode.entries.firstOrNull { it.name == settings.commit.mode }
         pathMode.isEnabled = editable && commitMode != null && commitMode != PanelWidthMode.DEFAULT
         val levelsEnabled = pathMode.isEnabled && settings.paths.mode == CommitPathDisplayMode.INLINE.name
-        pathMinimum.model = numberModel(settings.paths.minimum, 0, MAX_PATH_LEVELS, 1)
-        pathMaximum.model = numberModel(settings.paths.maximum, 0, MAX_PATH_LEVELS, 1)
+        pathMinimum.render(settings.paths.minimum)
+        pathMaximum.render(settings.paths.maximum)
         pathMinimum.isEnabled = levelsEnabled
         pathMaximum.isEnabled = levelsEnabled
     }
@@ -156,7 +158,7 @@ internal class WorkspaceControls(
     }
 
     private companion object {
-        const val MAX_PATH_LEVELS = 20
+        val PATH_LEVEL_RANGE = 0..20
     }
 }
 
@@ -165,9 +167,9 @@ private class WidthControls(
     private val emit: (WorkspacePanelEvent) -> Unit,
 ) {
     val mode = modeCombo()
-    private val minimum = widthSpinner("${surface.title} minimum width")
-    private val maximum = widthSpinner("${surface.title} maximum width")
-    private val fixed = widthSpinner("${surface.title} fixed width")
+    private val minimum = widthSpinner("minimum", MINIMUM_WIDTH)
+    private val maximum = widthSpinner("maximum", surface.maximumLowerBound)
+    private val fixed = widthSpinner("fixed", AutoFitCalculator.MIN_FIXED_WIDTH)
     private val minimumLabel = JLabel("min").apply { labelFor = minimum }
     private val maximumLabel = JLabel("max px").apply { labelFor = maximum }
     private val fixedLabel = JLabel("px").apply { labelFor = fixed }
@@ -187,21 +189,9 @@ private class WidthControls(
             val selected = mode.selectedItem as? PanelWidthMode
             if (mode.isEnabled && selected != null) emit(WorkspacePanelEvent.Mode(surface, selected))
         }
-        minimum.addChangeListener {
-            if (minimum.isEnabled) {
-                emit(
-                    WorkspacePanelEvent.Minimum(surface, minimum.value as Int),
-                )
-            }
-        }
-        maximum.addChangeListener {
-            if (maximum.isEnabled) {
-                emit(
-                    WorkspacePanelEvent.Maximum(surface, maximum.value as Int),
-                )
-            }
-        }
-        fixed.addChangeListener { if (fixed.isEnabled) emit(WorkspacePanelEvent.Fixed(surface, fixed.value as Int)) }
+        minimum.onEdit { emit(WorkspacePanelEvent.Minimum(surface, it)) }
+        maximum.onEdit { emit(WorkspacePanelEvent.Maximum(surface, it)) }
+        fixed.onEdit { emit(WorkspacePanelEvent.Fixed(surface, it)) }
     }
 
     fun render(
@@ -211,9 +201,9 @@ private class WidthControls(
     ) {
         selectMode(mode, PanelWidthMode.entries, values.mode)
         mode.isEnabled = editable
-        minimum.model = numberModel(values.minimum, MINIMUM_WIDTH, MAXIMUM_WIDTH, WIDTH_STEP)
-        maximum.model = numberModel(values.maximum, surface.maximumLowerBound, MAXIMUM_WIDTH, WIDTH_STEP)
-        fixed.model = numberModel(values.fixed, AutoFitCalculator.MIN_FIXED_WIDTH, MAXIMUM_WIDTH, WIDTH_STEP)
+        minimum.render(values.minimum)
+        maximum.render(values.maximum)
+        fixed.render(values.fixed)
         minimum.isEnabled = editable
         maximum.isEnabled = editable
         fixed.isEnabled = editable
@@ -226,6 +216,11 @@ private class WidthControls(
         fixedLabel.isVisible = fixedVisible
         fixed.isVisible = fixedVisible
     }
+
+    private fun widthSpinner(
+        kind: String,
+        lowerBound: Int,
+    ): WorkspaceSpinner = WorkspaceSpinner("${surface.title} $kind width", lowerBound..MAXIMUM_WIDTH, WIDTH_STEP)
 
     private companion object {
         const val MINIMUM_WIDTH = 50
@@ -276,15 +271,23 @@ private fun <T : Enum<T>> selectMode(
     combo.toolTipText = modeLabel(selected)
 }
 
-private fun widthSpinner(name: String): JSpinner =
-    JSpinner(SpinnerNumberModel(0, null, null, 1)).apply { accessibleContext.accessibleName = name }
+private class WorkspaceSpinner(
+    name: String,
+    private val range: IntRange,
+    private val step: Int,
+) : JSpinner() {
+    init {
+        getAccessibleContext().accessibleName = name
+    }
 
-private fun numberModel(
-    value: Int,
-    minimum: Int,
-    maximum: Int,
-    step: Int,
-): SpinnerNumberModel = SpinnerNumberModel(value, minOf(value, minimum), maxOf(value, maximum), step)
+    fun onEdit(accept: (Int) -> Unit) {
+        addChangeListener { if (isEnabled) accept((value as Int).coerceIn(range)) }
+    }
+
+    fun render(stored: Int) {
+        model = SpinnerNumberModel(stored, minOf(stored, range.first), maxOf(stored, range.last), step)
+    }
+}
 
 /** A local structural illustration; dimensions are labels, never measurements of real tool windows. */
 private class WorkspaceSample : JPanel() {
@@ -312,12 +315,12 @@ private class WorkspaceSample : JPanel() {
         val editor = Rectangle(halfWidth + gap, 0, width - halfWidth - gap, halfHeight)
         val commit = Rectangle(0, halfHeight + gap, halfWidth, height - halfHeight - gap)
         val git = Rectangle(halfWidth + gap, halfHeight + gap, width - halfWidth - gap, height - halfHeight - gap)
-        drawPane(graphics, project, "Project View", widthSummary(value.project))
+        val projectPath = if (value.hideProjectRootPath) "project" else "project ~/workspace/project"
+        val commitPath = pathSample(value, graphics, commit.width - gap * 2)
+        drawPane(graphics, project, "Project View", widthSummary(value.project), projectPath)
         drawPane(graphics, editor, "Editor", "Main.kt")
-        drawPane(graphics, commit, "Commit Panel", widthSummary(value.commit))
+        drawPane(graphics, commit, "Commit Panel", widthSummary(value.commit), commitPath)
         drawPane(graphics, git, "Git Panel", widthSummary(value.git))
-        drawDetail(graphics, project, if (value.hideProjectRootPath) "project" else "project ~/workspace/project")
-        drawDetail(graphics, commit, pathSample(value, graphics, commit.width - gap * 2))
         drawScrollbars(graphics, project, vertical = true, horizontal = !value.hideProjectHorizontal)
         drawScrollbars(graphics, editor, vertical = !value.hideEditorVertical, horizontal = !value.hideEditorHorizontal)
     }
@@ -327,28 +330,17 @@ private class WorkspaceSample : JPanel() {
         bounds: Rectangle,
         title: String,
         detail: String,
+        path: String? = null,
     ) {
         val pane = graphics.create(bounds.x, bounds.y, bounds.width, bounds.height)
         try {
             pane.color = UIManager.getColor("Separator.foreground") ?: foreground
             pane.drawRect(0, 0, bounds.width - 1, bounds.height - 1)
             pane.color = foreground
+            val lineHeight = pane.fontMetrics.height
             pane.drawString(title, spacing.fieldGap, pane.fontMetrics.ascent + spacing.fieldGap)
-            pane.drawString(detail, spacing.fieldGap, pane.fontMetrics.height * 2 + spacing.fieldGap)
-        } finally {
-            pane.dispose()
-        }
-    }
-
-    private fun drawDetail(
-        graphics: Graphics,
-        bounds: Rectangle,
-        text: String,
-    ) {
-        val pane = graphics.create(bounds.x, bounds.y, bounds.width, bounds.height)
-        try {
-            pane.color = foreground
-            pane.drawString(text, spacing.fieldGap, pane.fontMetrics.height * DETAIL_LINE + spacing.fieldGap)
+            pane.drawString(detail, spacing.fieldGap, lineHeight * 2 + spacing.fieldGap)
+            if (path != null) pane.drawString(path, spacing.fieldGap, lineHeight * DETAIL_LINE + spacing.fieldGap)
         } finally {
             pane.dispose()
         }

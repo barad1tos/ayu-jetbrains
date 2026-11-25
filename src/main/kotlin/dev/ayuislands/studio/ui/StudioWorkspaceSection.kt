@@ -1,6 +1,5 @@
 package dev.ayuislands.studio.ui
 
-import dev.ayuislands.settings.WorkspaceControls
 import dev.ayuislands.settings.WorkspacePanelEvent
 import dev.ayuislands.settings.WorkspacePanelView
 import dev.ayuislands.settings.WorkspaceSettings
@@ -10,12 +9,12 @@ import dev.ayuislands.studio.model.StudioFields
 import dev.ayuislands.studio.model.StudioSettingsSection
 import dev.ayuislands.studio.session.StudioWorkspaceEditing
 
-/** Routes Workspace edits to shared working fields and keeps the preview local to Settings. */
+/** The host supplies its latest working fields when it evaluates each shared edit. */
 internal class StudioWorkspaceSection(
-    private val stage: (List<SharedIntent.Field>) -> Unit,
+    private val stage: ((StudioFields) -> List<SharedIntent.Field>) -> Unit,
     private val unlock: () -> Unit,
 ) {
-    private val controls = WorkspaceControls(::edit)
+    private val controls = StudioWorkspaceControls(::edit)
     private var presentation: WorkspacePresentation? = null
     private var mode = PreviewMode.CURRENT
     val content = StudioSectionContent(StudioSettingsSection.WORKSPACE, controls, ::preview)
@@ -28,7 +27,7 @@ internal class StudioWorkspaceSection(
         require(view.settings == StudioWorkspaceEditing.settings(fields)) {
             "Workspace view belongs to another shared snapshot"
         }
-        val rendered = WorkspacePresentation(fields, currentPreview, view.preview)
+        val rendered = WorkspacePresentation(currentPreview, view.preview)
         presentation = rendered
         controls.render(view.copy(preview = rendered.preview(mode)))
     }
@@ -44,14 +43,11 @@ internal class StudioWorkspaceSection(
             unlock()
             return
         }
-        val fields = presentation?.fields ?: return
-        val edits = StudioWorkspaceEditing.edits(fields, event)
-        if (edits.isNotEmpty()) stage(edits)
+        stage { working -> StudioWorkspaceEditing.edits(working, event) }
     }
 }
 
 private data class WorkspacePresentation(
-    val fields: StudioFields,
     val current: WorkspaceSettings,
     val draft: WorkspaceSettings,
 ) {

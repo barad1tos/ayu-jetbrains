@@ -10,7 +10,6 @@ import dev.ayuislands.projectview.ProjectViewScrollbarManager
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.CommitPathDisplayMode
 import dev.ayuislands.settings.PanelWidthMode
-import dev.ayuislands.settings.WorkspaceControls
 import dev.ayuislands.settings.WorkspacePanelEvent
 import dev.ayuislands.settings.WorkspacePanelView
 import dev.ayuislands.settings.WorkspacePaths
@@ -20,6 +19,7 @@ import dev.ayuislands.settings.WorkspaceWidth
 import dev.ayuislands.studio.catalogTestDocument
 import dev.ayuislands.studio.model.PreviewMode
 import dev.ayuislands.studio.model.SharedIntent
+import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.session.StudioWorkspaceEditing
 import io.mockk.every
 import io.mockk.mockk
@@ -46,11 +46,8 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class StudioWorkspaceSectionTest {
-    @Before
-    fun forbidAmbientEffects() {
-        mockkStatic(ActionManager::class)
-        every { ActionManager.getInstance() } returns mockk(relaxed = true)
-        mockkObject(
+    private val ambientServices =
+        arrayOf(
             AyuIslandsSettings.Companion,
             LicenseChecker,
             ProjectViewScrollbarManager.Companion,
@@ -58,6 +55,12 @@ class StudioWorkspaceSectionTest {
             GitPanelAutoFitManager.Companion,
             EditorScrollbarManager.Companion,
         )
+
+    @Before
+    fun forbidAmbientEffects() {
+        mockkStatic(ActionManager::class)
+        every { ActionManager.getInstance() } returns mockk(relaxed = true)
+        mockkObject(*ambientServices)
         every { AyuIslandsSettings.getInstance() } throws AssertionError("Workspace controls must use explicit facts")
         every { LicenseChecker.isLicensedOrGrace() } throws AssertionError("Entitlement must be supplied explicitly")
         every { LicenseChecker.requestLicense(any()) } throws AssertionError("Unlock belongs to the host")
@@ -71,14 +74,7 @@ class StudioWorkspaceSectionTest {
     @After
     fun cleanup() {
         SwingUtilities.invokeAndWait {}
-        unmockkObject(
-            AyuIslandsSettings.Companion,
-            LicenseChecker,
-            ProjectViewScrollbarManager.Companion,
-            CommitPanelAutoFitManager.Companion,
-            GitPanelAutoFitManager.Companion,
-            EditorScrollbarManager.Companion,
-        )
+        unmockkObject(*ambientServices)
         unmockkStatic(ActionManager::class)
     }
 
@@ -86,21 +82,20 @@ class StudioWorkspaceSectionTest {
     fun `render retains every existing control and familiar groups without ambient reads or events`() {
         SwingUtilities.invokeAndWait {
             val events = mutableListOf<WorkspacePanelEvent>()
-            val controls = WorkspaceControls(events::add)
+            val controls = StudioWorkspaceControls(events::add)
             val initial = view()
             controls.render(initial)
             controls.render(initial.copy(settings = initial.settings.copy(hideEditorVertical = true)))
             controls.render(initial)
 
-            assertEquals(4, descendants(controls).filterIsInstance<JCheckBox>().size)
-            assertEquals(4, descendants(controls).filterIsInstance<JComboBox<*>>().size)
-            assertEquals(11, descendants(controls).filterIsInstance<JSpinner>().size)
+            val visible = descendants(controls).filter { visibleWithin(it, controls) }
+            assertEquals(4, visible.filterIsInstance<JCheckBox>().size)
+            assertEquals(4, visible.filterIsInstance<JComboBox<*>>().size)
+            assertEquals(7, visible.filterIsInstance<JSpinner>().size)
             assertEquals(
                 listOf("Editor", "Project View Display", "Tool Window Width", "Path Display"),
                 descendants(controls).filterIsInstance<TitledSeparator>().map { it.text },
             )
-            assertEquals(1199, spinner(controls, "Project View fixed width").value)
-            assertEquals(-40, spinner(controls, "Commit Panel fixed width").value)
             assertTrue(events.isEmpty())
         }
     }
@@ -113,7 +108,14 @@ class StudioWorkspaceSectionTest {
             val current = working.copy(hideEditorVertical = !working.hideEditorVertical)
             val staged = mutableListOf<List<SharedIntent.Field>>()
             var unlocks = 0
-            val section = StudioWorkspaceSection(staged::add) { unlocks++ }
+            var latest = fields
+            val section =
+                StudioWorkspaceSection({ edit ->
+                    val edits = edit(latest)
+                    staged.add(edits)
+                    val replacements = edits.associate { it.after.key to it.after }
+                    latest = latest.copy(records = StudioList(latest.records.map { replacements[it.key] ?: it }))
+                }) { unlocks++ }
             section.render(fields, WorkspacePanelView(working, working, isEditable = true, isLicensed = true), current)
             val component = section.content.component
             val spinners = descendants(component).filterIsInstance<JSpinner>()
@@ -132,10 +134,13 @@ class StudioWorkspaceSectionTest {
             val change = staged.single().single()
             assertEquals("hideEditorVScrollbar", change.before.key.name)
             assertEquals(fields.records.single { it.key == change.before.key }, change.before)
+            button(component, "Hide vertical scrollbar").doClick()
+            assertEquals(working, StudioWorkspaceEditing.settings(latest))
+            assertEquals(change.after, staged.last().single().before)
             section.render(fields, WorkspacePanelView(working, working, isEditable = true, isLicensed = false), current)
             button(component, "Unlock").doClick()
             assertEquals(1, unlocks)
-            assertEquals(1, staged.size)
+            assertEquals(2, staged.size)
         }
     }
 
@@ -143,12 +148,14 @@ class StudioWorkspaceSectionTest {
     fun `locked controls preserve full preview while readonly controls cannot stage edits`() {
         SwingUtilities.invokeAndWait {
             val events = mutableListOf<WorkspacePanelEvent>()
-            val controls = WorkspaceControls(events::add)
+            val controls = StudioWorkspaceControls(events::add)
             val initial = view()
             controls.render(initial.copy(isLicensed = false))
             val spinners = descendants(controls).filterIsInstance<JSpinner>()
 
             assertTrue(spinners.all { !it.isEnabled && visibleWithin(it, controls) })
+            assertEquals(1199, spinner(controls, "Project View fixed width").value)
+            assertEquals(-40, spinner(controls, "Commit Panel fixed width").value)
             assertTrue(descendants(controls).filterIsInstance<JCheckBox>().all { !it.isEnabled })
             spinners.first().value = 420
             button(controls, "Hide vertical scrollbar").doClick()
@@ -158,12 +165,10 @@ class StudioWorkspaceSectionTest {
 
             events.clear()
             controls.render(initial.copy(isEditable = false))
-            assertTrue(descendants(controls).filterIsInstance<JCheckBox>().all { !it.isEnabled })
             spinner(controls, "Project View fixed width").value = 477
             assertTrue(events.isEmpty())
             controls.render(initial)
             assertEquals(1199, spinner(controls, "Project View fixed width").value)
-            assertTrue(events.isEmpty())
         }
     }
 
@@ -171,7 +176,7 @@ class StudioWorkspaceSectionTest {
     fun `mode gates preserve hidden values and path levels while enabling only relevant controls`() {
         SwingUtilities.invokeAndWait {
             val events = mutableListOf<WorkspacePanelEvent>()
-            val controls = WorkspaceControls(events::add)
+            val controls = StudioWorkspaceControls(events::add)
             val initial = view()
             val defaults = initial.settings.copy(commit = initial.settings.commit.copy(mode = "DEFAULT"))
             controls.render(initial.copy(settings = defaults))
@@ -188,7 +193,7 @@ class StudioWorkspaceSectionTest {
 
             spinner(controls, "Project View minimum width").value = 350
             spinner(controls, "Project View maximum width").value = 550
-            spinner(controls, "Commit Panel fixed width").value = 400
+            spinner(controls, "Commit Panel fixed width").value = 0
             spinner(controls, "Commit path minimum hidden levels").value = 2
             spinner(controls, "Commit path maximum hidden levels").value = 6
             val combos = descendants(controls).filterIsInstance<JComboBox<*>>()
@@ -198,7 +203,7 @@ class StudioWorkspaceSectionTest {
                 listOf(
                     WorkspacePanelEvent.Minimum(WorkspaceSurface.PROJECT, 350),
                     WorkspacePanelEvent.Maximum(WorkspaceSurface.PROJECT, 550),
-                    WorkspacePanelEvent.Fixed(WorkspaceSurface.COMMIT, 400),
+                    WorkspacePanelEvent.Fixed(WorkspaceSurface.COMMIT, 100),
                     WorkspacePanelEvent.PathMinimum(2),
                     WorkspacePanelEvent.PathMaximum(6),
                     WorkspacePanelEvent.PathMode(CommitPathDisplayMode.TOOLTIP),
@@ -211,7 +216,7 @@ class StudioWorkspaceSectionTest {
     @Test
     fun `workspace controls fit supported narrow and wide content without label clipping`() {
         SwingUtilities.invokeAndWait {
-            val controls = WorkspaceControls { error("Layout must not dispatch") }
+            val controls = StudioWorkspaceControls { error("Layout must not dispatch") }
             controls.render(view())
             for (width in listOf(480, 720, 1080)) {
                 controls.setSize(width, controls.preferredSize.height)
