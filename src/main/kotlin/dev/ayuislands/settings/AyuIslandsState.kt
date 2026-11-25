@@ -21,6 +21,7 @@ import dev.ayuislands.integration.IntegrationOwnership
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.vcs.VcsColorCategory
 import dev.ayuislands.vcs.VcsColorPreset
+import dev.ayuislands.vcs.VcsColorRules
 import dev.ayuislands.vcs.VcsIntensity
 import java.io.File
 
@@ -480,40 +481,9 @@ class AyuIslandsState : BaseState() {
     var vcsBranchesPopupIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
     var vcsCommitHighlightIntensity by property(VcsColorPreset.AMBIENT_SLIDER)
 
-    /**
-     * Returns the preset governing [category], falling back to
-     * [VcsColorPreset.AMBIENT] on unknown / corrupted strings. Mirrors the
-     * [effectiveChromeTintIntensity] discipline — Ambient is the no-op
-     * default so corrupted persisted XML never accidentally tints surfaces
-     * the user didn't opt into. Maps each color category to the owning
-     * section's preset field — DIFF_VIEWER / PROJECT_VIEW_FILE_STATUS /
-     * EDITOR_GUTTER read [vcsDiffPreset], CONFLICT_MARKERS reads
-     * [vcsMergePreset], BLAME_GUTTER reads [vcsBlamePreset]. Placeholder
-     * categories (MERGE_3WAY, INLINE_DIFF_POPUP, LOCAL_HISTORY,
-     * BRANCH_INDICATOR, BRANCHES_POPUP, COMMIT_HIGHLIGHTS) default to
-     * AMBIENT until their respective sections wire up in a future release.
-     */
+    /** Resolves the category's section preset with Ambient as the fallback. */
     fun effectiveVcsPresetFor(category: VcsColorCategory): VcsColorPreset =
-        when (category) {
-            VcsColorCategory.DIFF_VIEWER,
-            VcsColorCategory.PROJECT_VIEW_FILE_STATUS,
-            VcsColorCategory.EDITOR_GUTTER,
-            -> VcsColorPreset.byName(vcsDiffPreset)
-
-            VcsColorCategory.CONFLICT_MARKERS,
-            VcsColorCategory.MERGE_3WAY,
-            VcsColorCategory.INLINE_DIFF_POPUP,
-            -> VcsColorPreset.byName(vcsMergePreset)
-
-            VcsColorCategory.BLAME_GUTTER,
-            VcsColorCategory.LOCAL_HISTORY,
-            -> VcsColorPreset.byName(vcsBlamePreset)
-
-            VcsColorCategory.BRANCH_INDICATOR,
-            VcsColorCategory.BRANCHES_POPUP,
-            VcsColorCategory.COMMIT_HIGHLIGHTS,
-            -> VcsColorPreset.AMBIENT
-        }
+        VcsColorRules.preset(category, vcsDiffPreset, vcsMergePreset, vcsBlamePreset)
 
     /**
      * Returns the per-category intensity map snapshot for the applier. The
@@ -544,17 +514,10 @@ class AyuIslandsState : BaseState() {
      * When [vcsColorEnabled] is `false` the helper short-circuits to `0` so the
      * applier returns the stock XML color.
      */
-    fun effectiveVcsIntensityFor(category: VcsColorCategory): VcsIntensity {
-        if (!vcsColorEnabled) return VcsIntensity.of(0)
-        val preset = effectiveVcsPresetFor(category)
-        val raw =
-            if (preset == VcsColorPreset.CUSTOM) {
-                effectiveVcsPerCategoryIntensities().getValue(category)
-            } else {
-                preset.intensityFor(category)
-            }
-        return VcsIntensity.of(raw)
-    }
+    fun effectiveVcsIntensityFor(category: VcsColorCategory): VcsIntensity =
+        VcsColorRules.intensity(vcsColorEnabled, category, effectiveVcsPresetFor(category)) {
+            effectiveVcsPerCategoryIntensities().getValue(category)
+        }
 
     fun isToggleEnabled(id: AccentElementId): Boolean =
         if (id.group == AccentGroup.CHROME) {
