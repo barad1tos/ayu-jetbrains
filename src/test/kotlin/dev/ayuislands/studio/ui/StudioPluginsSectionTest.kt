@@ -181,7 +181,12 @@ class StudioPluginsSectionTest {
 
     @Test
     fun `custom color cancellation stages nothing and selection uses the same Manual edit`() {
-        val initial = fields("externalThemeAccentSource" to RawValue.Text("AUTOMATIC"))
+        val savedAccent = AccentHex.require("#A15E33")
+        val initial =
+            fields(
+                "externalThemeAccentSource" to RawValue.Text("AUTOMATIC"),
+                "externalThemeAccent" to RawValue.Text(savedAccent.value),
+            )
         SwingUtilities.invokeAndWait {
             val draft = PluginDraft(initial)
             val seen = mutableListOf<AccentHex?>()
@@ -196,7 +201,7 @@ class StudioPluginsSectionTest {
             discloseInheritance(root)
             button(root, "Custom…").doClick()
             assertEquals(0, draft.batches)
-            assertEquals(listOf(AccentHex.of(StudioPluginsEditing.settings(initial).externalAccent)), seen)
+            assertEquals(listOf<AccentHex?>(savedAccent), seen)
             chosen = AccentHex.require("#112233")
             button(root, "Custom…").doClick()
             assertEquals(1, draft.batches)
