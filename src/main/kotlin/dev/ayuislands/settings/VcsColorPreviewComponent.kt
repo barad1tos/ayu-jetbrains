@@ -41,16 +41,17 @@ internal data class VcsPreviewIntensities(
 /** Unified visual preview for every VCS color category exposed by the VCS settings tab. */
 internal class VcsColorPreviewComponent(
     private var variant: AyuVariant,
-    private var intensities: VcsPreviewIntensities = VcsPreviewIntensities(),
+    private var intensities: VcsPreviewIntensities? = VcsPreviewIntensities(),
 ) : JComponent() {
     init {
         isOpaque = false
         toolTipText = "VCS color preview"
     }
 
+    /** Omit the customization intensities to render the original theme palette. */
     fun updatePreview(
         variant: AyuVariant,
-        intensities: VcsPreviewIntensities,
+        intensities: VcsPreviewIntensities?,
     ) {
         this.variant = variant
         this.intensities = intensities
@@ -226,8 +227,9 @@ internal class VcsColorPreviewComponent(
             VcsColorPalette.entriesFor(category).first {
                 it.keyName == keyName && it.mode == mode
             }
+        val intensity = intensities?.valueFor(category) ?: return entry.stockFor(variant)
         val (base, target) = VcsColorPalette.endpoints(entry, variant)
-        return VcsColorBlender.blend(base, target, VcsIntensity.of(intensities.valueFor(category)))
+        return VcsColorBlender.blend(base, target, VcsIntensity.of(intensity))
     }
 
     private fun editorSurface(): Color =
@@ -272,7 +274,7 @@ internal class VcsColorPreviewComponent(
     ): Color = previewColor(category, keyName, mode)
 
     @TestOnly
-    internal fun intensityForTest(category: VcsColorCategory): Int = intensities.valueFor(category)
+    internal fun intensityForTest(category: VcsColorCategory): Int? = intensities?.valueFor(category)
 
     @TestOnly
     internal fun blameRowKeysForTest(): List<Pair<String?, String>> =
