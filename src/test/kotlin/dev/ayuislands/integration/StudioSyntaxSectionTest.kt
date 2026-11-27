@@ -156,7 +156,7 @@ class StudioSyntaxSectionTest {
 
     @Test
     fun `current and draft style the same native Java editor without changing its source scheme`() {
-        val palette = mirageSyntaxPalette()
+        val palette = syntaxPalette("Mirage")
         lateinit var editor: EditorEx
         inSection { fixture ->
             val manager = EditorColorsManager.getInstance()
@@ -200,11 +200,11 @@ class StudioSyntaxSectionTest {
 
     @Test
     fun `named sample restores a previously owned inherited token and keeps a newer external value`() {
-        val palette = mirageSyntaxPalette()
+        val palette = syntaxPalette("Mirage")
         inSection { fixture ->
             val global = EditorColorsManager.getInstance().globalScheme
             val source = global.clone() as EditorColorsScheme
-            val key = TextAttributesKey.createTextAttributesKey("CSS.BRACES", DefaultLanguageHighlighterColors.BRACES)
+            val key = TextAttributesKey.createTextAttributesKey("DART_BRACES", DefaultLanguageHighlighterColors.BRACES)
             val baseline = fixture.prepareSample(source, palette).scheme
             val original = baseline.getAttributes(key)?.clone()
             val owned = TextAttributes(Color.MAGENTA, null, null, null, Font.BOLD)
@@ -222,6 +222,11 @@ class StudioSyntaxSectionTest {
                 assertEquals(metadata, source.metaProperties.toMap())
 
                 source.setAttributes(key, external)
+                fixture.selectCustom()
+                fixture.edit(StudioSyntaxEdit.Style("Dart", PrimitiveCategory.OPERATOR, FontStyleOverride.BOLD))
+                val custom = fixture.prepareSample(global, palette)
+                assertEquals(Font.BOLD, custom.scheme.getAttributes(key)?.fontType)
+
                 val changed = fixture.prepareSample(source, palette)
                 assertEquals(external, changed.scheme.getAttributes(key))
                 assertEquals(external, source.getAttributes(key))
@@ -233,15 +238,34 @@ class StudioSyntaxSectionTest {
         }
     }
 
-    private fun mirageSyntaxPalette(): SyntaxIntensityApplicator.Request {
+    @Test
+    fun `Ignore files sample reflects the shared Plugins setting for the Light palette`() {
+        val palette = syntaxPalette("Light")
+        inSection { fixture ->
+            val source = EditorColorsManager.getInstance().globalScheme
+            val key = TextAttributesKey.find("IGNORE.VALUE")
+            val original = source.getAttributes(key)?.clone()
+            val enabled = fixture.prepareSample(source, palette)
+            val disabled = fixture.prepareSample(source, palette, ignorePluginColorsEnabled = false)
+            val enabledAttributes = enabled.scheme.getAttributes(key)
+            val disabledAttributes = disabled.scheme.getAttributes(key)
+
+            assertEquals(AyuVariant.LIGHT, disabled.variant)
+            assertEquals(Color(0x4CBF99).rgb, enabledAttributes?.foregroundColor?.rgb)
+            assertEquals(Color(0x5C9F30).rgb, disabledAttributes?.foregroundColor?.rgb)
+            assertEquals(original, source.getAttributes(key))
+        }
+    }
+
+    private fun syntaxPalette(variant: String): SyntaxIntensityApplicator.Request {
         val loader = SyntaxOverlayLoader.getInstance()
         return SyntaxIntensityApplicator.Request(
             preset = SyntaxPreset.AMBIENT,
-            variantName = "Mirage",
-            editorBg = RgbBlend.fallbackEditorBgFor("Mirage"),
-            baseline = loader.loadBaselineForVariant("Mirage"),
-            overlay = loader.loadOverlayForVariant("Mirage"),
-            fallbacks = loader.fallbacksFor("Mirage"),
+            variantName = variant,
+            editorBg = RgbBlend.fallbackEditorBgFor(variant),
+            baseline = loader.loadBaselineForVariant(variant),
+            overlay = loader.loadOverlayForVariant(variant),
+            fallbacks = loader.fallbacksFor(variant),
         )
     }
 
@@ -284,7 +308,14 @@ class StudioSyntaxSectionTest {
         fun prepareSample(
             scheme: EditorColorsScheme,
             palette: SyntaxIntensityApplicator.Request,
-        ) = StudioSyntaxPreview.prepare(AyuVariant.MIRAGE, scheme, palette, working.appearance, isLicensed = true)
+            ignorePluginColorsEnabled: Boolean = true,
+        ) = StudioSyntaxPreview.prepare(
+            scheme,
+            palette,
+            working.appearance,
+            isLicensed = true,
+            ignorePluginColorsEnabled = ignorePluginColorsEnabled,
+        )
 
         fun render(
             language: String = "Kotlin",

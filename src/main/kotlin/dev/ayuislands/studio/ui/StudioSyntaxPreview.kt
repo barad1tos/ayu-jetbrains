@@ -4,9 +4,11 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.studio.model.AppearanceSnapshot
 import dev.ayuislands.studio.session.StudioSyntaxProjection
+import dev.ayuislands.syntax.IgnoreSyntaxColors
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.effective
+import dev.ayuislands.syntax.materializedKeys
 import dev.ayuislands.theme.EditorSchemeOverrides
 import dev.ayuislands.theme.EditorSchemeOwner
 
@@ -23,12 +25,13 @@ internal data class StudioSyntaxComparison(
 /** Prepare native sample attributes using the same preset rules as runtime syntax. */
 internal object StudioSyntaxPreview {
     fun prepare(
-        variant: AyuVariant,
         source: EditorColorsScheme,
         palette: SyntaxIntensityApplicator.Request,
         appearance: AppearanceSnapshot,
         isLicensed: Boolean,
+        ignorePluginColorsEnabled: Boolean,
     ): StudioSyntaxSample {
+        val variant = AyuVariant.entries.first { it.name.equals(palette.variantName, ignoreCase = true) }
         val config = StudioSyntaxProjection.config(appearance)
         val request =
             palette.copy(
@@ -39,9 +42,15 @@ internal object StudioSyntaxPreview {
                 customEmphasis = config.customEmphasis,
                 readabilityOptions = config.readabilityOptions.effective(isLicensed),
             )
-        val colors = SyntaxIntensityApplicator.compute(request)
-        val detached = EditorSchemeOverrides.Preview.copyWithoutOwnedAttributes(source, EditorSchemeOwner.Syntax)
-        colors.forEach(detached::setAttributes)
+        val computed = SyntaxIntensityApplicator.compute(request)
+        val colors = IgnoreSyntaxColors.resolve(computed, request.variantName, ignorePluginColorsEnabled)
+        val detached =
+            EditorSchemeOverrides.Preview.copyWithAttributes(
+                source,
+                EditorSchemeOwner.Syntax,
+                colors,
+                request.materializedKeys(computed.keys),
+            )
         return StudioSyntaxSample(variant, detached)
     }
 }

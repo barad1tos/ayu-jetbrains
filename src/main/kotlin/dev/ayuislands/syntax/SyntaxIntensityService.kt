@@ -10,7 +10,6 @@ import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.colors.impl.AbstractColorsScheme
 import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.progress.ProcessCanceledException
-import com.intellij.ui.JBColor
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -275,7 +274,12 @@ class SyntaxIntensityService {
         return SyntaxSchemeChange(
             scheme = scheme,
             label = label,
-            attributes = applyIgnorePluginPreference(computed.attributes, context, variantTag),
+            attributes =
+                IgnoreSyntaxColors.resolve(
+                    computed.attributes,
+                    variantTag,
+                    context.ignorePluginSyntaxColorsEnabled,
+                ),
             materializedKeys = computed.materializedKeys,
         )
     }
@@ -446,7 +450,12 @@ class SyntaxIntensityService {
         return SyntaxSchemeChange(
             scheme = active,
             label = active.name,
-            attributes = applyIgnorePluginPreference(computed.attributes, context, variant),
+            attributes =
+                IgnoreSyntaxColors.resolve(
+                    computed.attributes,
+                    variant,
+                    context.ignorePluginSyntaxColorsEnabled,
+                ),
             materializedKeys = computed.materializedKeys,
         )
     }
@@ -482,38 +491,8 @@ class SyntaxIntensityService {
                 fallbacks = fallbacks,
             )
         loggedCapabilityMisses.remove(variantTag)
-        val materializedKeys =
-            computed.keys
-                .filterTo(linkedSetOf()) { key ->
-                    val source = overlay[key] ?: baseline[key]
-                    source?.foregroundColor == null &&
-                        (key.externalName in fallbacks || key.fallbackAttributeKey != null)
-                }.mapTo(linkedSetOf()) { it.externalName }
-        return SchemeComputation(computed, materializedKeys)
+        return SchemeComputation(computed, request.materializedKeys(computed.keys))
     }
-
-    private fun applyIgnorePluginPreference(
-        computed: Map<TextAttributesKey, TextAttributes>,
-        context: ApplyContext,
-        variantTag: String,
-    ): Map<TextAttributesKey, TextAttributes> {
-        if (context.ignorePluginSyntaxColorsEnabled) return computed
-
-        val result = LinkedHashMap(computed)
-        for (keyName in IGNORE_PLUGIN_KEY_NAMES) {
-            val key = TextAttributesKey.find(keyName)
-            result[key] = ignorePluginStockAttributes(variantTag, keyName)
-        }
-        return result
-    }
-
-    private fun ignorePluginStockAttributes(
-        variantTag: String,
-        keyName: String,
-    ): TextAttributes =
-        (if (variantTag == "Light") IGNORE_PLUGIN_DEFAULT_STOCK else IGNORE_PLUGIN_DARCULA_STOCK)
-            .getValue(keyName)
-            .toTextAttributes()
 
     /**
      * Map a named or `_@user_`-derived Ayu active scheme name to its overlay
@@ -749,90 +728,6 @@ class SyntaxIntensityService {
                 "PACKAGE_PRIVATE_REFERENCE",
                 "PRIVATE_REFERENCE",
             )
-
-        private const val IGNORE_COMMENT_KEY = "IGNORE.COMMENT"
-        private const val IGNORE_SECTION_KEY = "IGNORE.SECTION"
-        private const val IGNORE_HEADER_KEY = "IGNORE.HEADER"
-        private const val IGNORE_NEGATION_KEY = "IGNORE.NEGATION"
-        private const val IGNORE_BRACKET_KEY = "IGNORE.BRACKET"
-        private const val IGNORE_SLASH_KEY = "IGNORE.SLASH"
-        private const val IGNORE_SYNTAX_KEY = "IGNORE.SYNTAX"
-        private const val IGNORE_VALUE_KEY = "IGNORE.VALUE"
-        private const val IGNORE_UNUSED_ENTRY_KEY = "IGNORE.UNUSED_ENTRY"
-
-        private val IGNORE_PLUGIN_KEY_NAMES =
-            listOf(
-                IGNORE_COMMENT_KEY,
-                IGNORE_SECTION_KEY,
-                IGNORE_HEADER_KEY,
-                IGNORE_NEGATION_KEY,
-                IGNORE_BRACKET_KEY,
-                IGNORE_SLASH_KEY,
-                IGNORE_SYNTAX_KEY,
-                IGNORE_VALUE_KEY,
-                IGNORE_UNUSED_ENTRY_KEY,
-            )
-
-        private val IGNORE_PLUGIN_DARCULA_STOCK =
-            mapOf(
-                IGNORE_COMMENT_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080),
-                IGNORE_SECTION_KEY to IgnorePluginStockStyle(foregroundRgb = 0x8C8C8C, backgroundRgb = 0x3A3A3A),
-                IGNORE_HEADER_KEY to
-                    IgnorePluginStockStyle(
-                        foregroundRgb = 0x8C8C8C,
-                        backgroundRgb = 0x3A3A3A,
-                        fontType = Font.BOLD,
-                    ),
-                IGNORE_NEGATION_KEY to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
-                IGNORE_BRACKET_KEY to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
-                IGNORE_SLASH_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080),
-                IGNORE_SYNTAX_KEY to
-                    IgnorePluginStockStyle(
-                        foregroundRgb = 0xACACAC,
-                        backgroundRgb = 0x4A4A4A,
-                        fontType = Font.BOLD,
-                    ),
-                IGNORE_VALUE_KEY to IgnorePluginStockStyle(foregroundRgb = 0x629755),
-                IGNORE_UNUSED_ENTRY_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
-            )
-
-        private val IGNORE_PLUGIN_DEFAULT_STOCK =
-            mapOf(
-                IGNORE_COMMENT_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080),
-                IGNORE_SECTION_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080, backgroundRgb = 0xECFAEB),
-                IGNORE_HEADER_KEY to
-                    IgnorePluginStockStyle(
-                        foregroundRgb = 0x808080,
-                        backgroundRgb = 0xECFAEB,
-                        fontType = Font.BOLD,
-                    ),
-                IGNORE_NEGATION_KEY to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
-                IGNORE_BRACKET_KEY to IgnorePluginStockStyle(foregroundRgb = 0xCC7832, fontType = Font.BOLD),
-                IGNORE_SLASH_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080),
-                IGNORE_SYNTAX_KEY to
-                    IgnorePluginStockStyle(
-                        foregroundRgb = 0xACACAC,
-                        backgroundRgb = 0x4A4A4A,
-                        fontType = Font.BOLD,
-                    ),
-                IGNORE_VALUE_KEY to IgnorePluginStockStyle(foregroundRgb = 0x5C9F30),
-                IGNORE_UNUSED_ENTRY_KEY to IgnorePluginStockStyle(foregroundRgb = 0x808080, fontType = Font.ITALIC),
-            )
-
-        private data class IgnorePluginStockStyle(
-            val foregroundRgb: Int,
-            val backgroundRgb: Int? = null,
-            val fontType: Int = Font.PLAIN,
-        ) {
-            // Same value in both themes on purpose: these replicate the .ignore plugin's
-            // own stock colours, which do not vary with the IDE theme.
-            fun toTextAttributes(): TextAttributes =
-                TextAttributes().also { attributes ->
-                    attributes.foregroundColor = JBColor(foregroundRgb, foregroundRgb)
-                    attributes.backgroundColor = backgroundRgb?.let { JBColor(it, it) }
-                    attributes.fontType = fontType
-                }
-        }
 
         fun getInstance(): SyntaxIntensityService {
             val app = ApplicationManager.getApplication()

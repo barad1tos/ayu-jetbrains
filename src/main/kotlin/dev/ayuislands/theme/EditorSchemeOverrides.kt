@@ -113,25 +113,42 @@ internal object EditorSchemeOverrides {
     }
 
     object Preview {
-        /** Restore still-owned attributes on a detached copy without changing scheme ownership. */
-        fun copyWithoutOwnedAttributes(
+        /** Apply sample attributes to a detached scheme, respecting ownership of inherited keys. */
+        fun copyWithAttributes(
             source: EditorColorsScheme,
             owner: EditorSchemeOwner,
+            attributes: Map<TextAttributesKey, TextAttributes>,
+            materializedKeys: Set<String>,
         ): EditorColorsScheme =
             synchronized(lock) {
                 val copy = source.clone() as EditorColorsScheme
                 check(copy !== source) { "The preview requires a detached color scheme" }
-                val remembered = states[source].orEmpty()
-                val entries = remembered.keys.asSequence() + OverrideMetadata.entries(source)
-                for (entry in entries.filterIsInstance<SchemeEntry.AttributesEntry>().distinct()) {
-                    val state = remembered[entry] ?: OverrideMetadata.read(source, entry)
-                    val owned = state as? OverrideState.Owned ?: continue
-                    if (owned.owner == owner && read(source, entry) == owned.lastWritten) {
-                        writeValue(copy, entry, owned.original)
-                    }
+                val protectedKeys = restoreOwnedAttributes(source, copy, owner)
+                for ((key, value) in attributes) {
+                    val name = key.externalName
+                    if (name !in materializedKeys || name !in protectedKeys) copy.setAttributes(key, value)
                 }
                 copy
             }
+
+        private fun restoreOwnedAttributes(
+            source: EditorColorsScheme,
+            copy: EditorColorsScheme,
+            owner: EditorSchemeOwner,
+        ): Set<String> {
+            val protectedKeys = mutableSetOf<String>()
+            val remembered = states[source].orEmpty()
+            val entries = remembered.keys.asSequence() + OverrideMetadata.entries(source)
+            for (entry in entries.filterIsInstance<SchemeEntry.AttributesEntry>().distinct()) {
+                val state = remembered[entry] ?: OverrideMetadata.read(source, entry) ?: continue
+                if (state is OverrideState.Owned && state.owner == owner && read(source, entry) == state.lastWritten) {
+                    writeValue(copy, entry, state.original)
+                } else {
+                    protectedKeys += entry.key.externalName
+                }
+            }
+            return protectedKeys
+        }
     }
 
     fun observeElementEnabled(
