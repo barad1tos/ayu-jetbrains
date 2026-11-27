@@ -4,6 +4,7 @@ import com.intellij.ui.JBColor
 import com.intellij.util.ui.JBUI
 import dev.ayuislands.font.FontDetector
 import dev.ayuislands.font.FontPreset
+import dev.ayuislands.font.FontSettings
 import dev.ayuislands.font.FontWeight
 import java.awt.Color
 import java.awt.Dimension
@@ -34,12 +35,14 @@ class FontPreviewComponent : JComponent() {
     private var lineSpacing: Float = FontPreset.AMBIENT.lineSpacing
     private var enableLigatures: Boolean = FontPreset.AMBIENT.enableLigatures
     private var fontWeight: FontWeight = FontPreset.AMBIENT.defaultWeight
+    private var baselineAccent: Color? = null
 
     fun updatePreset(
         preset: FontPreset,
         installed: Boolean,
     ) {
         currentPreset = preset
+        baselineAccent = null
         fontInstalled = installed
         fontSize = preset.fontSize
         lineSpacing = preset.lineSpacing
@@ -70,6 +73,20 @@ class FontPreviewComponent : JComponent() {
         fontWeight = newWeight
         revalidate()
         repaint()
+    }
+
+    /** Show an already-resolved font without consulting the detector or the editor scheme. */
+    internal fun updateSample(
+        settings: FontSettings,
+        family: String,
+        installed: Boolean,
+        accent: Color,
+    ) {
+        currentPreset = settings.preset
+        resolvedFontFamily = family
+        fontInstalled = installed
+        baselineAccent = Color(accent.red, accent.green, accent.blue, BASELINE_ALPHA)
+        updateSettings(settings.fontSize, settings.lineSpacing, settings.enableLigatures, settings.weight)
     }
 
     override fun getPreferredSize(): Dimension = Dimension(JBUI.scale(PANEL_WIDTH), preferredPreviewHeight())
@@ -237,8 +254,16 @@ class FontPreviewComponent : JComponent() {
                 g2.fillRect(x, rowY, codeWidth, lineHeight)
             }
             val baseline = rowY + (lineHeight - metrics.height) / 2 + metrics.ascent
+            val textX = x + JBUI.scale(CODE_LEFT_PADDING)
+            if (index == 0) {
+                baselineAccent?.let { accent ->
+                    g2.color = accent
+                    val lineY = baseline + JBUI.scale(1)
+                    g2.drawLine(textX, lineY, textX + metrics.stringWidth(line), lineY)
+                }
+            }
             g2.color = codeTextColor(index)
-            g2.drawString(line, x + JBUI.scale(CODE_LEFT_PADDING), baseline)
+            g2.drawString(line, textX, baseline)
             rowY += lineHeight
         }
         g2.clip = previousClip
@@ -325,6 +350,7 @@ class FontPreviewComponent : JComponent() {
         const val CODE_LEFT_PADDING = 14
         const val SHADOW_OFFSET = 2
         const val HIGHLIGHT_INSET = 6
+        const val BASELINE_ALPHA = 96
         const val ADDED_LINE_INDEX = 1
         const val RETURN_LINE_INDEX = 3
         const val FALLBACK_SURFACE_COLOR = 0x1F2430

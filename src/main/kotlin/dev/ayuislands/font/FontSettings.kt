@@ -12,6 +12,14 @@ internal enum class FontSettingSlot {
     val index: Int get() = ordinal
 }
 
+internal object FontEditorLimits {
+    const val MIN_SIZE = 8
+    const val MAX_SIZE = 30
+    const val MIN_SPACING = 0.8
+    const val MAX_SPACING = 2.0
+    const val SPACING_STEP = 0.1
+}
+
 /** Resolved font settings ready for application. */
 data class FontSettings(
     val preset: FontPreset,
