@@ -69,6 +69,12 @@ enum class FontPreset(
 
     val isCurated: Boolean get() = this != CUSTOM
 
+    /** Use the same canonical-first priority as legacy migration while retaining the original key. */
+    internal fun customizationKey(keys: Set<String>): String {
+        if (name in keys) return name
+        return LEGACY_NAMES.entries.firstOrNull { (legacy, target) -> target == name && legacy in keys }?.key ?: name
+    }
+
     companion object {
         private val LEGACY_NAMES =
             mapOf(
