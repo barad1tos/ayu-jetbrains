@@ -100,7 +100,7 @@ private const val CP_LANG_KW_INTENT = 0.18f
 // >50 moves L toward 0.5 (louder) and <50 away (quieter). The applicator's
 // transformForeground owns the clamp; this function deliberately does NOT
 // pre-clamp.
-private const val SLIDER_MID = 50
+internal const val SYNTAX_SLIDER_MIDPOINT = 50
 private const val MAX_SAT_SWING = 0.40f
 private const val MAX_LIGHT_SWING = 0.17f
 
@@ -316,7 +316,7 @@ object SyntaxPresetCurves {
      * pre-clamp.
      */
     fun sliderToCurve(value: Int): CategoryCurve {
-        val t = (value - SLIDER_MID) / SLIDER_MID.toFloat()
+        val t = (value - SYNTAX_SLIDER_MIDPOINT) / SYNTAX_SLIDER_MIDPOINT.toFloat()
         return CategoryCurve(t * MAX_SAT_SWING, t * MAX_LIGHT_SWING)
     }
 

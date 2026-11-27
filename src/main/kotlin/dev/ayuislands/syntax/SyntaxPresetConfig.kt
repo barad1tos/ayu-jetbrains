@@ -46,6 +46,26 @@ data class SyntaxPresetConfig(
     val customEmphasis: Map<String, Map<String, Int>> = emptyMap(),
 )
 
+/** Requested Syntax settings retain the encoded cells and preset names for the settings controls. */
+internal data class SyntaxSettings(
+    val selectedPreset: String?,
+    val subordinatePreset: String?,
+    val customOverrides: Map<String, String>,
+    val customStyles: Map<String, String>,
+    val customEmphasis: Map<String, String>,
+    val readability: SyntaxReadabilityOptions,
+) {
+    fun toPresetConfig(): SyntaxPresetConfig =
+        SyntaxPresetConfig(
+            selectedPreset = selectedPreset ?: SyntaxPreset.AMBIENT.name,
+            subordinatePreset = subordinatePreset ?: SyntaxPreset.AMBIENT.name,
+            customOverrides = SyntaxCellCodec.decode(customOverrides) { it.toIntOrNull() },
+            customStyles = SyntaxCellCodec.decode(customStyles) { FontStyleOverride.fromName(it)?.fontType },
+            customEmphasis = SyntaxCellCodec.decode(customEmphasis) { FontEmphasis.fromName(it)?.fontType },
+            readabilityOptions = readability,
+        )
+}
+
 /**
  * Global readability modifiers layered on top of the selected syntax preset.
  *

@@ -21,12 +21,14 @@ import dev.ayuislands.syntax.SyntaxLanguageRegistry
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.SyntaxPresetConfig
 import dev.ayuislands.syntax.SyntaxReadabilityOptions
+import dev.ayuislands.syntax.SyntaxSettings
 import org.jetbrains.annotations.TestOnly
 import javax.swing.JButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
 import javax.swing.JLabel
 import javax.swing.JSlider
+import dev.ayuislands.syntax.SYNTAX_SLIDER_MIDPOINT as SLIDER_MID
 
 /**
  * Settings tab — 5-pill preset row matching the Glow / VCS / Font franchise.
@@ -646,19 +648,15 @@ class AyuIslandsSyntaxPanel internal constructor(
         button.isEnabled = hasLanguageCustomizations
     }
 
-    private fun pendingConfig(): SyntaxPresetConfig {
-        val nestedOverrides = SyntaxCellCodec.decode(pendingOverrides) { it.toIntOrNull() }
-        val nestedStyles = SyntaxCellCodec.decode(pendingStyles) { FontStyleOverride.fromName(it)?.fontType }
-        val nestedEmphasis = SyntaxCellCodec.decode(pendingEmphasis) { FontEmphasis.fromName(it)?.fontType }
-        return SyntaxPresetConfig(
+    private fun pendingConfig(): SyntaxPresetConfig =
+        SyntaxSettings(
             selectedPreset = pendingPreset.name,
-            customOverrides = nestedOverrides,
             subordinatePreset = pendingSubordinate.name,
-            customStyles = nestedStyles,
-            readabilityOptions = readabilityOptions(),
-            customEmphasis = nestedEmphasis,
-        )
-    }
+            customOverrides = pendingOverrides,
+            customStyles = pendingStyles,
+            customEmphasis = pendingEmphasis,
+            readability = readabilityOptions(),
+        ).toPresetConfig()
 
     private fun openEditingSession() {
         editingSession?.dispose()
@@ -728,7 +726,6 @@ class AyuIslandsSyntaxPanel internal constructor(
     }
 
     private companion object {
-        private const val SLIDER_MID = 50
         private const val PREMIUM_CONTROL_TOOLTIP = "Pro Feature"
         private const val DEFAULT_PREVIEW_LANGUAGE = "Kotlin"
         private const val SEGMENTED_PRESENTATIONS_METHOD =
