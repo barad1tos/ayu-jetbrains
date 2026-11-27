@@ -5,8 +5,10 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorColorsScheme
 import com.intellij.openapi.editor.colors.TextAttributesKey
 import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.editor.markup.TextAttributes
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.ApplicationRule
+import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.ui.EditorTextField
 import com.intellij.ui.TitledSeparator
 import com.intellij.ui.components.ActionLink
@@ -31,8 +33,12 @@ import dev.ayuislands.syntax.RgbBlend
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxOverlayLoader
 import dev.ayuislands.syntax.SyntaxPreset
+import dev.ayuislands.theme.EditorSchemeOverrides
+import dev.ayuislands.theme.EditorSchemeOwner
+import dev.ayuislands.theme.OverrideWriteResult
 import org.junit.Rule
 import org.junit.Test
+import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.Font
@@ -150,16 +156,7 @@ class StudioSyntaxSectionTest {
 
     @Test
     fun `current and draft style the same native Java editor without changing its source scheme`() {
-        val loader = SyntaxOverlayLoader.getInstance()
-        val palette =
-            SyntaxIntensityApplicator.Request(
-                preset = SyntaxPreset.AMBIENT,
-                variantName = "Mirage",
-                editorBg = RgbBlend.fallbackEditorBgFor("Mirage"),
-                baseline = loader.loadBaselineForVariant("Mirage"),
-                overlay = loader.loadOverlayForVariant("Mirage"),
-                fallbacks = loader.fallbacksFor("Mirage"),
-            )
+        val palette = mirageSyntaxPalette()
         lateinit var editor: EditorEx
         inSection { fixture ->
             val manager = EditorColorsManager.getInstance()
@@ -195,7 +192,57 @@ class StudioSyntaxSectionTest {
             assertEquals(original, global.getAttributes(keyword))
             assertEquals(0, fixture.edits)
         }
-        SwingUtilities.invokeAndWait { assertTrue(editor.isDisposed) }
+        SwingUtilities.invokeAndWait {
+            PlatformTestUtil.dispatchAllEventsInIdeEventQueue()
+            assertTrue(editor.isDisposed)
+        }
+    }
+
+    @Test
+    fun `named sample restores a previously owned inherited token and keeps a newer external value`() {
+        val palette = mirageSyntaxPalette()
+        inSection { fixture ->
+            val global = EditorColorsManager.getInstance().globalScheme
+            val source = global.clone() as EditorColorsScheme
+            val key = TextAttributesKey.createTextAttributesKey("CSS.BRACES", DefaultLanguageHighlighterColors.BRACES)
+            val baseline = fixture.prepareSample(source, palette).scheme
+            val original = baseline.getAttributes(key)?.clone()
+            val owned = TextAttributes(Color.MAGENTA, null, null, null, Font.BOLD)
+            val external = TextAttributes(Color.GREEN, null, null, null, Font.ITALIC)
+            try {
+                assertEquals(
+                    OverrideWriteResult.APPLIED,
+                    EditorSchemeOverrides.writeAttributes(source, EditorSchemeOwner.Syntax, key, owned),
+                )
+                val metadata = source.metaProperties.toMap()
+
+                val reset = fixture.prepareSample(source, palette)
+                assertEquals(original, reset.scheme.getAttributes(key))
+                assertEquals(owned, source.getAttributes(key))
+                assertEquals(metadata, source.metaProperties.toMap())
+
+                source.setAttributes(key, external)
+                val changed = fixture.prepareSample(source, palette)
+                assertEquals(external, changed.scheme.getAttributes(key))
+                assertEquals(external, source.getAttributes(key))
+                assertEquals(metadata, source.metaProperties.toMap())
+            } finally {
+                EditorSchemeOverrides.restore(source, EditorSchemeOwner.Syntax)
+                EditorSchemeOverrides.rearm(EditorSchemeOwner.Syntax, listOf(source), mapOf(source to emptySet()))
+            }
+        }
+    }
+
+    private fun mirageSyntaxPalette(): SyntaxIntensityApplicator.Request {
+        val loader = SyntaxOverlayLoader.getInstance()
+        return SyntaxIntensityApplicator.Request(
+            preset = SyntaxPreset.AMBIENT,
+            variantName = "Mirage",
+            editorBg = RgbBlend.fallbackEditorBgFor("Mirage"),
+            baseline = loader.loadBaselineForVariant("Mirage"),
+            overlay = loader.loadOverlayForVariant("Mirage"),
+            fallbacks = loader.fallbacksFor("Mirage"),
+        )
     }
 
     private fun inSection(test: (Fixture) -> Unit) {

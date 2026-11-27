@@ -112,6 +112,28 @@ internal object EditorSchemeOverrides {
         }
     }
 
+    object Preview {
+        /** Restore still-owned attributes on a detached copy without changing scheme ownership. */
+        fun copyWithoutOwnedAttributes(
+            source: EditorColorsScheme,
+            owner: EditorSchemeOwner,
+        ): EditorColorsScheme =
+            synchronized(lock) {
+                val copy = source.clone() as EditorColorsScheme
+                check(copy !== source) { "The preview requires a detached color scheme" }
+                val remembered = states[source].orEmpty()
+                val entries = remembered.keys.asSequence() + OverrideMetadata.entries(source)
+                for (entry in entries.filterIsInstance<SchemeEntry.AttributesEntry>().distinct()) {
+                    val state = remembered[entry] ?: OverrideMetadata.read(source, entry)
+                    val owned = state as? OverrideState.Owned ?: continue
+                    if (owned.owner == owner && read(source, entry) == owned.lastWritten) {
+                        writeValue(copy, entry, owned.original)
+                    }
+                }
+                copy
+            }
+    }
+
     fun observeElementEnabled(
         id: AccentElementId,
         isEnabled: Boolean,
@@ -886,13 +908,7 @@ internal object EditorSchemeOverrides {
     }
 
     private fun hydrate(scheme: EditorColorsScheme) {
-        scheme.metaProperties
-            .stringPropertyNames()
-            .filter { it.startsWith(METADATA_PREFIX) }
-            .forEach { key ->
-                val entry = SchemeEntry.fromMetadataKey(key) ?: return@forEach
-                hydrate(scheme, entry)
-            }
+        OverrideMetadata.entries(scheme).forEach { hydrate(scheme, it) }
     }
 
     private fun hydrate(
@@ -901,10 +917,25 @@ internal object EditorSchemeOverrides {
     ) {
         val schemeStates = states.getOrPut(scheme) { mutableMapOf() }
         if (entry in schemeStates) return
-        scheme.metaProperties
-            .getProperty(entry.metadataKey)
-            .takeIf { it?.contains(';') == true }
-            ?.let { encoded -> schemeStates[entry] = OverrideCodec.decode(encoded) }
+        OverrideMetadata.read(scheme, entry)?.let { schemeStates[entry] = it }
+    }
+
+    private object OverrideMetadata {
+        fun entries(scheme: EditorColorsScheme): Sequence<SchemeEntry> =
+            scheme.metaProperties
+                .stringPropertyNames()
+                .asSequence()
+                .filter { it.startsWith(METADATA_PREFIX) }
+                .mapNotNull { SchemeEntry.fromMetadataKey(it) }
+
+        fun read(
+            scheme: EditorColorsScheme,
+            entry: SchemeEntry,
+        ): OverrideState? =
+            scheme.metaProperties
+                .getProperty(entry.metadataKey)
+                .takeIf { it?.contains(';') == true }
+                ?.let(OverrideCodec::decode)
     }
 
     internal sealed interface SchemeEntry {

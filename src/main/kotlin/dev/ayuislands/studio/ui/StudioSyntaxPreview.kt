@@ -7,6 +7,8 @@ import dev.ayuislands.studio.session.StudioSyntaxProjection
 import dev.ayuislands.syntax.SyntaxIntensityApplicator
 import dev.ayuislands.syntax.SyntaxPreset
 import dev.ayuislands.syntax.effective
+import dev.ayuislands.theme.EditorSchemeOverrides
+import dev.ayuislands.theme.EditorSchemeOwner
 
 internal class StudioSyntaxSample(
     val variant: AyuVariant,
@@ -38,7 +40,7 @@ internal object StudioSyntaxPreview {
                 readabilityOptions = config.readabilityOptions.effective(isLicensed),
             )
         val colors = SyntaxIntensityApplicator.compute(request)
-        val detached = source.clone() as EditorColorsScheme
+        val detached = EditorSchemeOverrides.Preview.copyWithoutOwnedAttributes(source, EditorSchemeOwner.Syntax)
         colors.forEach(detached::setAttributes)
         return StudioSyntaxSample(variant, detached)
     }
