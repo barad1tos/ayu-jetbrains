@@ -29,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.awt.Color
 import java.awt.Font
+import java.awt.Window
 import java.util.Properties
 
 /**
@@ -159,6 +160,22 @@ class VcsColorApplierTest {
 
         verify(exactly = 0) { mockScheme.setColor(any<ColorKey>(), any()) }
         verify(exactly = 0) { mockScheme.setAttributes(any<TextAttributesKey>(), any()) }
+    }
+
+    @Test
+    fun `applying VCS colors repaints only showing windows`() {
+        state.vcsColorEnabled = true
+        val showingWindow = mockk<Window>(relaxed = true)
+        val hiddenWindow = mockk<Window>(relaxed = true)
+        every { showingWindow.isShowing } returns true
+        every { hiddenWindow.isShowing } returns false
+        mockkStatic(Window::class)
+        every { Window.getWindows() } returns arrayOf(showingWindow, hiddenWindow)
+
+        VcsColorApplier.applyCurrentScheme()
+
+        verify(exactly = 1) { showingWindow.repaint() }
+        verify(exactly = 0) { hiddenWindow.repaint() }
     }
 
     @Test
