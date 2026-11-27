@@ -40,6 +40,7 @@ internal data class StudioPluginsPreviewView(
     val minimapAccent: Color?,
     val indentEnabled: Boolean,
     val indentColors: StudioList<Color>,
+    val indentErrorColor: Color?,
 )
 
 /** Prepare comparison pixels from shared settings and supplied observations. */
@@ -50,6 +51,8 @@ internal object StudioPluginsPreview {
     ): StudioPluginsPreviewView {
         val indentEnabled = settings.isEnabled(StudioPluginsToggle.INDENT_RAINBOW_INTEGRATION)
         val minimapEnabled = settings.isEnabled(StudioPluginsToggle.CODE_GLANCE_INTEGRATION)
+        val highlightErrors = settings.isEnabled(StudioPluginsToggle.INDENT_ERRORS)
+        val indentPalette = if (indentEnabled) indentColors(settings, facts, highlightErrors) else emptyList()
         val ignore =
             if (settings.isEnabled(StudioPluginsToggle.IGNORE_SYNTAX_COLORS)) facts.ayuIgnore else facts.nativeIgnore
         return StudioPluginsPreviewView(
@@ -57,25 +60,25 @@ internal object StudioPluginsPreview {
             minimapEnabled = minimapEnabled,
             minimapAccent = facts.accent?.takeIf { minimapEnabled }?.toColor(),
             indentEnabled = indentEnabled,
-            indentColors = if (indentEnabled) indentColors(settings, facts) else StudioList(emptyList()),
+            // The runtime palette reserves its first slot for malformed indentation.
+            indentColors = StudioList(indentPalette.drop(1)),
+            indentErrorColor = indentPalette.firstOrNull().takeIf { highlightErrors },
         )
     }
 
     private fun indentColors(
         settings: StudioPluginsSettings,
         facts: StudioPluginsPreviewFacts,
-    ): StudioList<Color> {
-        val accent = facts.accent ?: return StudioList(emptyList())
+        highlightErrors: Boolean,
+    ): List<Color> {
+        val accent = facts.accent ?: return emptyList()
         val palette =
             facts.variant?.let { IndentPalette.forAccent(accent.value, it) }
                 ?: IndentPalette.forExternalAccent(accent.value)
         val alpha = IndentPreset.effectiveAlpha(settings.indentPreset, settings.indentAlpha)
-        val highlightErrors = settings.isEnabled(StudioPluginsToggle.INDENT_ERRORS)
-        val colors =
-            palette.toColorStrings(alpha, highlightErrors).map { encoded ->
-                Color(encoded.toUInt(HEX_RADIX).toInt(), true)
-            }
-        return StudioList(colors)
+        return palette.toColorStrings(alpha, highlightErrors).map { encoded ->
+            Color(encoded.toUInt(HEX_RADIX).toInt(), true)
+        }
     }
 
     private const val HEX_RADIX = 16
@@ -183,7 +186,7 @@ internal class StudioPluginSample(
         }
         val padding = JBUI.scale(PADDING)
         val gap = JBUI.scale(INDENT_GAP)
-        val bandWidth = ((width - padding * 2) / INDENT_BANDS).coerceAtLeast(gap + 1)
+        val bandWidth = ((width - padding * 2) / (INDENT_BANDS + 1)).coerceAtLeast(gap + 1)
         sample.indentColors.take(INDENT_BANDS).forEachIndexed { index, color ->
             canvas.color = color
             canvas.fillRect(
@@ -191,6 +194,15 @@ internal class StudioPluginSample(
                 JBUI.scale(INDENT_TOP),
                 bandWidth - gap,
                 JBUI.scale(INDENT_HEIGHT),
+            )
+        }
+        sample.indentErrorColor?.let { errorColor ->
+            canvas.color = errorColor
+            canvas.fillRect(
+                padding + INDENT_BANDS * bandWidth,
+                JBUI.scale(INDENT_TOP + INDENT_HEIGHT - INDENT_ERROR_HEIGHT),
+                bandWidth - gap,
+                JBUI.scale(INDENT_ERROR_HEIGHT),
             )
         }
     }
@@ -224,5 +236,6 @@ internal class StudioPluginSample(
         const val INDENT_GAP = 3
         const val INDENT_TOP = 32
         const val INDENT_HEIGHT = 40
+        const val INDENT_ERROR_HEIGHT = 12
     }
 }
