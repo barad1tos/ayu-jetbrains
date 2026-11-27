@@ -1,26 +1,41 @@
 package dev.ayuislands.integration
 
+import com.intellij.openapi.editor.DefaultLanguageHighlighterColors
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.editor.colors.EditorColorsScheme
+import com.intellij.openapi.editor.colors.TextAttributesKey
+import com.intellij.openapi.editor.ex.EditorEx
 import com.intellij.openapi.util.Disposer
 import com.intellij.testFramework.ApplicationRule
+import com.intellij.ui.EditorTextField
 import com.intellij.ui.TitledSeparator
 import com.intellij.ui.components.ActionLink
+import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.settings.SyntaxCapabilityEvidence
 import dev.ayuislands.settings.SyntaxCapabilityState
 import dev.ayuislands.studio.catalogTestDocument
 import dev.ayuislands.studio.catalogTestWork
 import dev.ayuislands.studio.model.DraftRecord
+import dev.ayuislands.studio.model.PreviewMode
 import dev.ayuislands.studio.model.StudioSyntaxEdit
 import dev.ayuislands.studio.session.StudioSyntaxEditing
 import dev.ayuislands.studio.session.StudioSyntaxProjection
 import dev.ayuislands.studio.ui.StudioSyntaxAction
+import dev.ayuislands.studio.ui.StudioSyntaxComparison
+import dev.ayuislands.studio.ui.StudioSyntaxPreview
 import dev.ayuislands.studio.ui.StudioSyntaxSection
 import dev.ayuislands.studio.ui.StudioSyntaxView
+import dev.ayuislands.syntax.FontStyleOverride
 import dev.ayuislands.syntax.PrimitiveCategory
+import dev.ayuislands.syntax.RgbBlend
+import dev.ayuislands.syntax.SyntaxIntensityApplicator
+import dev.ayuislands.syntax.SyntaxOverlayLoader
 import dev.ayuislands.syntax.SyntaxPreset
 import org.junit.Rule
 import org.junit.Test
 import java.awt.Component
 import java.awt.Container
+import java.awt.Font
 import java.awt.event.ActionEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
@@ -34,6 +49,7 @@ import javax.swing.KeyStroke
 import javax.swing.SwingUtilities
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -65,7 +81,7 @@ class StudioSyntaxSectionTest {
             fixture.checkBox("Quiet operators").doClick()
             val saved = fixture.working
             fixture.render(licensed = false)
-            fixture.link("Unlock Pro").doClick()
+            fixture.link("Unlock").doClick()
             assertEquals(listOf<StudioSyntaxAction>(StudioSyntaxAction.Unlock), fixture.actions)
             fixture.render()
             assertEquals(saved, fixture.working)
@@ -132,6 +148,56 @@ class StudioSyntaxSectionTest {
             assertEquals(0, fixture.edits)
         }
 
+    @Test
+    fun `current and draft style the same native Java editor without changing its source scheme`() {
+        val loader = SyntaxOverlayLoader.getInstance()
+        val palette =
+            SyntaxIntensityApplicator.Request(
+                preset = SyntaxPreset.AMBIENT,
+                variantName = "Mirage",
+                editorBg = RgbBlend.fallbackEditorBgFor("Mirage"),
+                baseline = loader.loadBaselineForVariant("Mirage"),
+                overlay = loader.loadOverlayForVariant("Mirage"),
+                fallbacks = loader.fallbacksFor("Mirage"),
+            )
+        lateinit var editor: EditorEx
+        inSection { fixture ->
+            val manager = EditorColorsManager.getInstance()
+            val global = manager.globalScheme
+            val keyword =
+                TextAttributesKey.createTextAttributesKey("JAVA_KEYWORD", DefaultLanguageHighlighterColors.KEYWORD)
+            val original = global.getAttributes(keyword)?.clone()
+            fixture.selectCustom()
+            fixture.edit(StudioSyntaxEdit.Style("Java", PrimitiveCategory.KEYWORD, FontStyleOverride.PLAIN))
+            val current = fixture.prepareSample(global, palette)
+            fixture.edit(StudioSyntaxEdit.Style("Java", PrimitiveCategory.KEYWORD, FontStyleOverride.BOLD))
+            val draft = fixture.prepareSample(global, palette)
+
+            fixture.section.content.preview(PreviewMode.DRAFT)
+            fixture.comparison = StudioSyntaxComparison(current, draft)
+            fixture.render(language = "Java")
+            val sample = fixture.components.filterIsInstance<EditorTextField>().single()
+            editor = requireNotNull(sample.getEditor(true))
+            assertEquals(Font.BOLD, editor.javaKeywordStyle())
+            assertNotSame(draft.scheme, editor.colorsScheme)
+
+            fixture.section.content.preview(PreviewMode.CURRENT)
+            assertSame(editor, sample.getEditor(true))
+            assertEquals(Font.PLAIN, editor.javaKeywordStyle())
+            val shown = editor.highlighter
+            fixture.render(language = "Java")
+            assertSame(shown, editor.highlighter)
+            fixture.section.content.preview(PreviewMode.DRAFT)
+            assertEquals(Font.BOLD, editor.javaKeywordStyle())
+            assertEquals(Font.PLAIN, current.scheme.getAttributes(keyword)?.fontType)
+            assertEquals(Font.BOLD, draft.scheme.getAttributes(keyword)?.fontType)
+            assertSame(global, manager.globalScheme)
+            assertEquals(original, global.getAttributes(keyword))
+            assertEquals(0, fixture.edits)
+        }
+        SwingUtilities.invokeAndWait { assertTrue(editor.isDisposed) }
+    }
+
     private fun inSection(test: (Fixture) -> Unit) {
         SwingUtilities.invokeAndWait {
             val fixture = Fixture()
@@ -148,6 +214,7 @@ class StudioSyntaxSectionTest {
             private set
         var edits = 0
             private set
+        var comparison: StudioSyntaxComparison? = null
         val actions = mutableListOf<StudioSyntaxAction>()
         val section =
             StudioSyntaxSection(
@@ -167,6 +234,11 @@ class StudioSyntaxSectionTest {
             working = StudioSyntaxEditing.edit(working, edit)
         }
 
+        fun prepareSample(
+            scheme: EditorColorsScheme,
+            palette: SyntaxIntensityApplicator.Request,
+        ) = StudioSyntaxPreview.prepare(AyuVariant.MIRAGE, scheme, palette, working.appearance, isLicensed = true)
+
         fun render(
             language: String = "Kotlin",
             licensed: Boolean = true,
@@ -175,7 +247,10 @@ class StudioSyntaxSectionTest {
             capability: SyntaxCapabilityState =
                 SyntaxCapabilityState.Confirmed(language, SyntaxCapabilityEvidence(language, categories)),
         ) {
-            section.render(StudioSyntaxView(working.appearance, language, capability, categories, editable, licensed))
+            section.render(
+                StudioSyntaxView(working.appearance, language, capability, categories, editable, licensed),
+                comparison,
+            )
         }
 
         fun preset(preset: SyntaxPreset) =
@@ -193,6 +268,12 @@ class StudioSyntaxSectionTest {
                 .filter { slider -> generateSequence<Component>(slider) { it.parent }.all(Component::isVisible) }
                 .toList()
     }
+}
+
+private fun EditorEx.javaKeywordStyle(): Int {
+    val offset = document.text.indexOf("public final class")
+    assertTrue(offset >= 0, "The native Java preview must include the sample class")
+    return highlighter.createIterator(offset).textAttributes.fontType
 }
 
 private fun descendants(component: Component): Sequence<Component> {

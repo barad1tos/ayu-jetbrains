@@ -347,19 +347,19 @@ class SyntaxIntensityService {
      */
     private fun enforceCustomGate(preset: SyntaxPreset): SyntaxPreset {
         if (preset != SyntaxPreset.CUSTOM) return preset
-        if (LicenseChecker.isLicensedOrGrace()) return preset
-        if (unlicensedCustomLogged.compareAndSet(false, true)) {
+        val effectivePreset = preset.effective(LicenseChecker.isLicensedOrGrace())
+        if (effectivePreset != preset && unlicensedCustomLogged.compareAndSet(false, true)) {
             log.warn(
                 "Syntax intensity CUSTOM preset requested without license — normalizing to AMBIENT. " +
                     "If this is reproducible from a normal UI flow, the panel-level gate has a leak.",
             )
         }
-        return SyntaxPreset.AMBIENT
+        return effectivePreset
     }
 
     private fun enforceReadabilityGate(readabilityOptions: SyntaxReadabilityOptions): SyntaxReadabilityOptions {
         if (readabilityOptions == SyntaxReadabilityOptions.DEFAULT) return readabilityOptions
-        return if (LicenseChecker.isLicensedOrGrace()) readabilityOptions else SyntaxReadabilityOptions.DEFAULT
+        return readabilityOptions.effective(LicenseChecker.isLicensedOrGrace())
     }
 
     /**

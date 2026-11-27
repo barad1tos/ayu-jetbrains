@@ -26,11 +26,14 @@ import dev.ayuislands.syntax.SyntaxSettings
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import javax.swing.JButton
+import javax.swing.JComponent
 import javax.swing.JPanel
 
 /** Stable native controls with explicit draft and language capability inputs. */
 internal class StudioSyntaxControls(
     private var languageExpanded: Boolean,
+    private val sample: JComponent,
+    private val showPrimitive: (PrimitiveCategory) -> Unit,
     private val onAction: (StudioSyntaxAction) -> Unit,
     private val onEdit: (StudioSyntaxEdit) -> Unit,
 ) : JPanel(BorderLayout()) {
@@ -144,7 +147,8 @@ internal class StudioSyntaxControls(
                 },
             ).resizableColumn().align(Align.FILL)
         }
-        row { link("Unlock Pro") { if (locked.get()) onAction(StudioSyntaxAction.Unlock) } }.visibleIf(locked)
+        row { link("Unlock") { if (locked.get()) onAction(StudioSyntaxAction.Unlock) } }.visibleIf(locked)
+        row { cell(sample).resizableColumn().align(Align.FILL) }
         row { link("Per-key tuning in Color Scheme editor") { onAction(StudioSyntaxAction.OpenColorScheme) } }
         val languageGroup =
             collapsibleGroup("Language Customization") {
@@ -234,7 +238,9 @@ internal class StudioSyntaxControls(
         edit: (String) -> StudioSyntaxEdit,
     ) {
         if (!canEditLanguage()) return
-        if (category in availability.availableFor(selectedLanguage)) onEdit(edit(selectedLanguage))
+        if (category !in availability.availableFor(selectedLanguage)) return
+        onEdit(edit(selectedLanguage))
+        showPrimitive(category)
     }
 }
 

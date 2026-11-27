@@ -50,6 +50,7 @@ internal class SyntaxPreviewComponent(
     private var language: String = DEFAULT_LANGUAGE,
     private val previewCodeLoader: (String) -> String = ::loadPreviewCode,
     private val previewResolver: NativePreviewResolver = NativePreviewResolver(),
+    private var sampleScheme: EditorColorsScheme? = null,
     private val previewFileFactory: (String, FileType, CharSequence) -> VirtualFile = ::createPreviewFile,
 ) : JComponent(),
     Disposable {
@@ -79,8 +80,10 @@ internal class SyntaxPreviewComponent(
     fun updatePreview(
         variant: AyuVariant,
         language: String = this.language,
+        sampleScheme: EditorColorsScheme? = this.sampleScheme,
     ) {
         this.variant = variant
+        this.sampleScheme = sampleScheme
         val nextLanguage = normalizeLanguage(language)
         val nextSample = sampleFor(nextLanguage)
         if (nextLanguage != this.language || nextSample != previewSample) {
@@ -192,7 +195,8 @@ internal class SyntaxPreviewComponent(
     }
 
     private fun previewColorsScheme(currentScheme: EditorColorsScheme): EditorColorsScheme {
-        val previewScheme = EditorColorsManager.getInstance().globalScheme.clone() as EditorColorsScheme
+        val source = sampleScheme ?: EditorColorsManager.getInstance().globalScheme
+        val previewScheme = source.clone() as EditorColorsScheme
         previewScheme.fontPreferences = currentScheme.fontPreferences
         previewScheme.editorFontName = currentScheme.editorFontName
         previewScheme.editorFontSize = currentScheme.editorFontSize
