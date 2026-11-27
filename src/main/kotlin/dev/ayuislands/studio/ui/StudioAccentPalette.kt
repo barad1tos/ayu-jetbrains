@@ -17,7 +17,7 @@ import javax.swing.JToggleButton
 internal class StudioAccentPalette(
     onSelect: (AccentHex) -> Unit,
     onCustom: () -> Unit,
-    onShuffle: () -> Unit,
+    onShuffle: (() -> Unit)? = null,
 ) : JPanel() {
     private val selection = ButtonGroup()
     private val swatches =
@@ -35,7 +35,7 @@ internal class StudioAccentPalette(
                 }
         }
     private val custom = JButton("Custom…").apply { addActionListener { onCustom() } }
-    private val shuffle = JButton("Shuffle").apply { addActionListener { onShuffle() } }
+    private val shuffle = onShuffle?.let { action -> JButton("Shuffle").apply { addActionListener { action() } } }
 
     init {
         val spacing = StudioUiTokens.spacing()
@@ -52,7 +52,7 @@ internal class StudioAccentPalette(
             JPanel(FlowLayout(FlowLayout.LEADING, spacing.fieldGap, 0)).apply {
                 isOpaque = false
                 add(custom)
-                add(shuffle)
+                shuffle?.let { add(it) }
             },
             BorderLayout.SOUTH,
         )
@@ -67,7 +67,7 @@ internal class StudioAccentPalette(
         if (button == null) selection.clearSelection() else button.isSelected = true
         swatches.values.forEach { it.isEnabled = editable }
         custom.isEnabled = editable
-        shuffle.isEnabled = editable
+        shuffle?.isEnabled = editable
         custom.icon = selected?.let { ColorIcon(JBUI.scale(SWATCH_ICON_SIZE), it.toColor()) }
     }
 
