@@ -59,6 +59,12 @@ internal class SyntaxControlGrid(
         }
     }
 
+    fun buildSingleColumn(panel: Panel) {
+        with(panel) {
+            COLUMN_GROUPS.flatten().forEach { buildGroup(it) }
+        }
+    }
+
     private fun Panel.buildGroup(categoryGroup: CategoryGroup) {
         groupRows[categoryGroup.group] =
             group(categoryGroup.title) {

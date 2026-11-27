@@ -28,7 +28,10 @@ internal class SyntaxCategoryAvailability(
         snapshot = snapshot.copy(actuatedByLanguage = actuatedByLanguage)
     }
 
-    fun refreshRows(language: String) {
+    fun refreshRows(
+        language: String,
+        isEditable: Boolean = true,
+    ) {
         val availableCategories = availableFor(language)
         visibilityChanged(availableCategories)
         for (category in PrimitiveCategory.entries) {
@@ -40,11 +43,17 @@ internal class SyntaxCategoryAvailability(
                     "$language highlighter does not expose ${category.displayName}"
                 }
             applyAvailability(categoryLabels[category], isAvailable, reason)
-            applyAvailability(sliders[category], isAvailable, reason)
+            applyAvailability(sliders[category], isAvailable, reason, isEditable = isEditable)
             applyAvailability(sliderLabels[category], isAvailable, reason)
-            applyAvailability(resetButtons[category], isAvailable, reason, updateVisibility = false)
+            applyAvailability(
+                resetButtons[category],
+                isAvailable,
+                reason,
+                updateVisibility = false,
+                isEditable = isEditable,
+            )
             styleControls[category]?.let { control ->
-                control.setAvailable(isAvailable, reason)
+                control.setAvailable(isAvailable && isEditable, reason)
                 control.component.isVisible = isAvailable
             }
         }
@@ -53,18 +62,22 @@ internal class SyntaxCategoryAvailability(
     fun availableFor(language: String): Set<PrimitiveCategory> = snapshot.availableFor(language)
 
     fun showCapability(state: SyntaxCapabilityState?) {
-        val nativeConfirmed =
-            when (state) {
-                is SyntaxCapabilityState.Confirmed -> state.evidence.confirmedCells.toSet()
-                is SyntaxCapabilityState.Incompatible -> state.confirmedCells.toSet()
-                is SyntaxCapabilityState.Checking,
-                is SyntaxCapabilityState.SupportUnavailable,
-                is SyntaxCapabilityState.TemporarilyUnavailable,
-                null,
-                -> emptySet()
-            }
-        snapshot = snapshot.copy(nativeConfirmed = nativeConfirmed)
+        snapshot = snapshot.copy(nativeConfirmed = state.confirmedCategories())
         state?.languageId?.let(::refreshRows)
+    }
+
+    fun render(
+        language: String,
+        state: SyntaxCapabilityState?,
+        actuated: Set<PrimitiveCategory>?,
+        isEditable: Boolean,
+    ) {
+        snapshot =
+            SyntaxAvailabilitySnapshot(
+                nativeConfirmed = state?.takeIf { it.languageId == language }.confirmedCategories(),
+                actuatedByLanguage = actuated?.let { mapOf(language to it.toSet()) },
+            )
+        refreshRows(language, isEditable)
     }
 
     private fun applyAvailability(
@@ -72,12 +85,24 @@ internal class SyntaxCategoryAvailability(
         isAvailable: Boolean,
         reason: String?,
         updateVisibility: Boolean = true,
+        isEditable: Boolean = true,
     ) {
-        component?.isEnabled = isAvailable
+        component?.isEnabled = isAvailable && isEditable
         if (updateVisibility) component?.isVisible = isAvailable
         component?.toolTipText = reason
     }
 }
+
+private fun SyntaxCapabilityState?.confirmedCategories(): Set<PrimitiveCategory> =
+    when (this) {
+        is SyntaxCapabilityState.Confirmed -> evidence.confirmedCells.toSet()
+        is SyntaxCapabilityState.Incompatible -> confirmedCells.toSet()
+        is SyntaxCapabilityState.Checking,
+        is SyntaxCapabilityState.SupportUnavailable,
+        is SyntaxCapabilityState.TemporarilyUnavailable,
+        null,
+        -> emptySet()
+    }
 
 internal data class SyntaxAvailabilitySnapshot(
     val nativeConfirmed: Set<PrimitiveCategory>? = null,
