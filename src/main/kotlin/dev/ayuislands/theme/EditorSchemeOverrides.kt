@@ -112,6 +112,45 @@ internal object EditorSchemeOverrides {
         }
     }
 
+    object Preview {
+        /** Apply sample attributes to a detached scheme, respecting ownership of inherited keys. */
+        fun copyWithAttributes(
+            source: EditorColorsScheme,
+            owner: EditorSchemeOwner,
+            attributes: Map<TextAttributesKey, TextAttributes>,
+            materializedKeys: Set<String>,
+        ): EditorColorsScheme =
+            synchronized(lock) {
+                val copy = source.clone() as EditorColorsScheme
+                check(copy !== source) { "The preview requires a detached color scheme" }
+                val protectedKeys = restoreOwnedAttributes(source, copy, owner)
+                for ((key, value) in attributes) {
+                    val name = key.externalName
+                    if (name !in materializedKeys || name !in protectedKeys) copy.setAttributes(key, value)
+                }
+                copy
+            }
+
+        private fun restoreOwnedAttributes(
+            source: EditorColorsScheme,
+            copy: EditorColorsScheme,
+            owner: EditorSchemeOwner,
+        ): Set<String> {
+            val protectedKeys = mutableSetOf<String>()
+            val remembered = states[source].orEmpty()
+            val entries = remembered.keys.asSequence() + OverrideMetadata.entries(source)
+            for (entry in entries.filterIsInstance<SchemeEntry.AttributesEntry>().distinct()) {
+                val state = remembered[entry] ?: OverrideMetadata.read(source, entry) ?: continue
+                if (state is OverrideState.Owned && state.owner == owner && read(source, entry) == state.lastWritten) {
+                    writeValue(copy, entry, state.original)
+                } else {
+                    protectedKeys += entry.key.externalName
+                }
+            }
+            return protectedKeys
+        }
+    }
+
     fun observeElementEnabled(
         id: AccentElementId,
         isEnabled: Boolean,
@@ -886,13 +925,7 @@ internal object EditorSchemeOverrides {
     }
 
     private fun hydrate(scheme: EditorColorsScheme) {
-        scheme.metaProperties
-            .stringPropertyNames()
-            .filter { it.startsWith(METADATA_PREFIX) }
-            .forEach { key ->
-                val entry = SchemeEntry.fromMetadataKey(key) ?: return@forEach
-                hydrate(scheme, entry)
-            }
+        OverrideMetadata.entries(scheme).forEach { hydrate(scheme, it) }
     }
 
     private fun hydrate(
@@ -901,10 +934,25 @@ internal object EditorSchemeOverrides {
     ) {
         val schemeStates = states.getOrPut(scheme) { mutableMapOf() }
         if (entry in schemeStates) return
-        scheme.metaProperties
-            .getProperty(entry.metadataKey)
-            .takeIf { it?.contains(';') == true }
-            ?.let { encoded -> schemeStates[entry] = OverrideCodec.decode(encoded) }
+        OverrideMetadata.read(scheme, entry)?.let { schemeStates[entry] = it }
+    }
+
+    private object OverrideMetadata {
+        fun entries(scheme: EditorColorsScheme): Sequence<SchemeEntry> =
+            scheme.metaProperties
+                .stringPropertyNames()
+                .asSequence()
+                .filter { it.startsWith(METADATA_PREFIX) }
+                .mapNotNull { SchemeEntry.fromMetadataKey(it) }
+
+        fun read(
+            scheme: EditorColorsScheme,
+            entry: SchemeEntry,
+        ): OverrideState? =
+            scheme.metaProperties
+                .getProperty(entry.metadataKey)
+                .takeIf { it?.contains(';') == true }
+                ?.let(OverrideCodec::decode)
     }
 
     internal sealed interface SchemeEntry {

@@ -10,6 +10,13 @@ import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
+internal fun SyntaxIntensityApplicator.Request.materializedKeys(keys: Set<TextAttributesKey>): Set<String> =
+    keys
+        .filterTo(linkedSetOf()) { key ->
+            val source = overlay[key] ?: baseline[key]
+            source?.foregroundColor == null && (key.externalName in fallbacks || key.fallbackAttributeKey != null)
+        }.mapTo(linkedSetOf()) { it.externalName }
+
 /**
  * Pure-compute per-key HSL transform from
  * `(preset, customOverrides, variantName, editorBg, baseline, overlay)` to

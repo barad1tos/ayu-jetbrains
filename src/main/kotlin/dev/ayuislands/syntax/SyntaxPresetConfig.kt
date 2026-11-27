@@ -85,3 +85,9 @@ data class SyntaxReadabilityOptions(
         val DEFAULT: SyntaxReadabilityOptions = SyntaxReadabilityOptions()
     }
 }
+
+internal fun SyntaxPreset.effective(isLicensed: Boolean): SyntaxPreset =
+    if (this == SyntaxPreset.CUSTOM && !isLicensed) SyntaxPreset.AMBIENT else this
+
+internal fun SyntaxReadabilityOptions.effective(isLicensed: Boolean): SyntaxReadabilityOptions =
+    if (isLicensed) this else SyntaxReadabilityOptions.DEFAULT
