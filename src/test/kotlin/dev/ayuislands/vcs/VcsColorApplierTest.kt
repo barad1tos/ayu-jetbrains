@@ -170,7 +170,7 @@ class VcsColorApplierTest {
         every { showingWindow.isShowing } returns true
         every { hiddenWindow.isShowing } returns false
         mockkStatic(Window::class)
-        every { Window.getWindows() } returns arrayOf(showingWindow, hiddenWindow)
+        every { Window.getWindows() } returns arrayOf(hiddenWindow, showingWindow)
 
         VcsColorApplier.applyCurrentScheme()
 
