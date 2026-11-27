@@ -8,7 +8,6 @@ import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.progress.ProgressIndicator
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
@@ -18,6 +17,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
 import java.awt.Font
+import java.awt.FontFormatException
 import java.awt.GraphicsEnvironment
 import java.io.File
 import java.io.IOException
@@ -60,6 +60,7 @@ object FontInstaller {
         DROPDOWN_STALE,
         APPLY_FAILED,
         PREMIUM_REQUIRED,
+        BUSY,
         UNKNOWN,
     }
 
@@ -112,13 +113,10 @@ object FontInstaller {
             fail(entry, project, FailureKind.PREMIUM_REQUIRED, onComplete, null)
             return
         }
-        val task =
-            object : Task.Backgroundable(project, "Installing ${entry.displayName}…", true) {
-                override fun run(indicator: ProgressIndicator) {
-                    runPipeline(entry, project, indicator, applyPreset, onComplete)
-                }
-            }
-        ProgressManager.getInstance().run(task)
+        val onBusy = { fail(entry, project, FailureKind.BUSY, onComplete, null) }
+        queueFontOperation(project, "Installing ${entry.displayName}…", onComplete, onBusy) { indicator, complete ->
+            runPipeline(entry, project, indicator, applyPreset, complete)
+        }
     }
 
     /** Apply a preset without any download work — used when the font is already installed. */
@@ -189,27 +187,34 @@ object FontInstaller {
             return fail(entry, project, extractionFailureKind(e, zipFile), onComplete, e)
         }
 
-        indicator.text = "Installing…"
-        val installedFiles: List<File>
-        try {
-            installedFiles = copyToPlatformFontDir(extracted)
-        } catch (e: IOException) {
-            return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, e)
-        }
+        val (font, installedFiles) =
+            try {
+                // Load the font before replacing any user files. The stream form retains its own bytes.
+                val candidate =
+                    try {
+                        extracted.first().inputStream().use { Font.createFont(Font.TRUETYPE_FONT, it) }
+                    } catch (e: FontFormatException) {
+                        return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
+                    } catch (e: IOException) {
+                        return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
+                    }
+                indicator.text = "Installing…"
+                val files =
+                    try {
+                        copyToPlatformFontDir(extracted)
+                    } catch (e: IOException) {
+                        return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, e)
+                    }
+                candidate to files
+            } finally {
+                cleanupQuietly(extractDir)
+            }
 
-        cleanupQuietly(extractDir)
-
-        val canonicalFamily: String
-        try {
-            canonicalFamily = registerFont(installedFiles)
-        } catch (e: java.awt.FontFormatException) {
-            return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
-        } catch (e: IOException) {
-            return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
-        }
-
+        val graphics = GraphicsEnvironment.getLocalGraphicsEnvironment()
+        graphics.registerFont(font)
+        val canonicalFamily = font.family
         LOG.info("Font installed: $canonicalFamily (preset=${preset.name})")
-        val families = GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames
+        val families = graphics.availableFontFamilyNames
         val registration =
             Registration(
                 canonicalFamily,
@@ -314,16 +319,6 @@ object FontInstaller {
             Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             target
         }
-    }
-
-    /** Registers the first installed font file with the JVM's graphics environment. */
-    @TestOnly
-    @Throws(java.awt.FontFormatException::class, IOException::class)
-    internal fun registerFont(installedFiles: List<File>): String {
-        val first = installedFiles.first()
-        val font = Font.createFont(Font.TRUETYPE_FONT, first)
-        GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font)
-        return font.family
     }
 
     @TestOnly
@@ -444,6 +439,7 @@ object FontInstaller {
                     "Open Settings → Editor → Font to pick ${entry.familyName}."
             FailureKind.PREMIUM_REQUIRED ->
                 "Ayu Islands Pro license is required to install or reinstall fonts from Settings."
+            FailureKind.BUSY -> FONT_OPERATION_BUSY
             FailureKind.UNKNOWN ->
                 "Unexpected error. Please report at $GH_ISSUES_URL."
         }

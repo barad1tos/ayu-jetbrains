@@ -21,9 +21,11 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.Font
 import java.awt.GraphicsEnvironment
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.net.SocketException
 import java.net.UnknownHostException
 import java.util.zip.ZipEntry
@@ -47,6 +49,9 @@ import kotlin.test.assertTrue
  */
 class FontInstallerTest {
     private val tmpRoot: File = createTempDirectory("ayu-font-installer-test").toFile()
+    private val whisper = FontCatalog.requirePreset(FontPreset.WHISPER)
+    private val installedFont = File(tmpRoot, "installed/VictorMono-Light.ttf")
+    private val archiveContents = byteArrayOf(1, 2, 3)
 
     @BeforeTest
     fun setUp() {
@@ -310,39 +315,104 @@ class FontInstallerTest {
     @Test
     fun `resource installation records the files and leaves font preferences and the editor alone`() {
         val state = registrationState()
-        val entry = FontCatalog.requirePreset(FontPreset.WHISPER)
-        val consent = acceptedInstallConsent(entry)
-        val directory = File(tmpRoot, "installed")
-        val filename = "VictorMono-Light.ttf"
-        val fontFile = File(directory, filename)
-        val payload = byteArrayOf(1, 2, 3)
-        val tasks = mutableListOf<Task.Backgroundable>()
-        val results = mutableListOf<FontInstaller.InstallResult>()
-        val progress = mockk<ProgressManager>()
+        val tasks = captureCachedInstallTasks()
+        val graphics = mockInstalledFamily(whisper.familyName)
+
+        val result = installResource(tasks)
+
+        assertEquals(FontInstaller.InstallResult.Success(whisper.familyName), result)
+        assertTrue(archiveContents.contentEquals(installedFont.readBytes()))
+        assertTrue(whisper.familyName in state.installedFonts)
+        assertContains(state.installedFontFiles.getValue(whisper.familyName), installedFont.absolutePath)
+        assertEquals(FontPreset.NEON.name, state.fontPresetName)
+        verify(exactly = 1) { graphics.registerFont(any()) }
+        verify(exactly = 0) { FontPresetApplicator.applyInstalled(any()) }
+        verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
+    }
+
+    @Test
+    fun `a malformed archive font leaves the user's existing file and inventory intact`() {
+        val state = registrationState()
+        installedFont.parentFile.mkdirs()
+        installedFont.writeText("existing font")
+
+        val result = installResource(captureCachedInstallTasks()) as FontInstaller.InstallResult.Failure
+
+        assertEquals(FontInstaller.FailureKind.REGISTER_FAILED, result.kind)
+        assertEquals("existing font", installedFont.readText())
+        assertTrue(state.installedFontFiles.isEmpty())
+    }
+
+    @Test
+    fun `delete can proceed after reinstall finishes updating inventory`() {
+        val state = registrationState()
+        val family = whisper.familyName
+        installedFont.parentFile.mkdirs()
+        installedFont.writeText("existing font")
+        state.installedFontFiles[family] = installedFont.absolutePath
+        state.installedFonts.add(family)
+        val tasks = captureCachedInstallTasks()
+        mockInstalledFamily(family)
+        val app = ApplicationManager.getApplication()
+        val pending = mutableListOf<Runnable>()
+        every { app.invokeLater(capture(pending)) } answers { }
+
+        FontInstaller.install(whisper, acceptedInstallConsent(whisper), project = null, applyPreset = false) { }
+        tasks.single().run(mockk(relaxed = true))
+        val completeInstall = pending.removeFirst()
+        var rejected: FontUninstaller.UninstallResult? = null
+        try {
+            FontUninstaller.uninstall(whisper.preset, project = null) { rejected = it }
+            tasks.last().run(mockk(relaxed = true))
+            assertTrue(installedFont.exists())
+        } finally {
+            completeInstall.run()
+        }
+        pending.removeFirst().run()
+        assertTrue(rejected is FontUninstaller.UninstallResult.Failure)
+        verify(exactly = 1) { Notifications.Bus.notify(any<Notification>(), null) }
+        assertEquals(installedFont.absolutePath, state.installedFontFiles[family])
+
+        every { FontPresetApplicator.revert(family) } answers { }
+        FontUninstaller.uninstall(whisper.preset, project = null) { }
+        tasks.last().run(mockk(relaxed = true))
+        pending.single().run()
+        assertFalse(installedFont.exists())
+        assertTrue(state.installedFontFiles.isEmpty())
+    }
+
+    private fun mockInstalledFamily(family: String): GraphicsEnvironment {
         val graphics = mockk<GraphicsEnvironment>()
+        val font = mockk<Font>()
+        mockkStatic(Font::class, GraphicsEnvironment::class)
+        every { Font.createFont(Font.TRUETYPE_FONT, any<InputStream>()) } returns font
+        every { font.family } returns family
+        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns graphics
+        every { graphics.registerFont(font) } returns true
+        every { graphics.availableFontFamilyNames } returns arrayOf(family)
+        return graphics
+    }
+
+    private fun captureCachedInstallTasks(): List<Task.Backgroundable> {
+        makeZip("ayu-fonts/VictorMonoAll.zip", mapOf(installedFont.name to archiveContents))
+        val tasks = mutableListOf<Task.Backgroundable>()
+        val progress = mockk<ProgressManager>()
         mockkObject(FontInstaller)
-        mockkStatic(PathManager::class, ProgressManager::class, GraphicsEnvironment::class, Notifications.Bus::class)
+        mockkStatic(PathManager::class, ProgressManager::class, Notifications.Bus::class)
         every { PathManager.getTempPath() } returns tmpRoot.absolutePath
         every { ProgressManager.getInstance() } returns progress
         every { progress.run(capture(tasks)) } answers { }
-        every { FontInstaller.platformFontDir() } returns directory
-        every { FontInstaller.registerFont(listOf(fontFile)) } returns entry.familyName
-        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns graphics
-        every { graphics.availableFontFamilyNames } returns arrayOf(entry.familyName)
+        every { FontInstaller.platformFontDir() } returns installedFont.parentFile
         every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
-        makeZip("ayu-fonts/VictorMonoAll.zip", mapOf(filename to payload))
+        return tasks
+    }
 
-        FontInstaller.install(entry, consent, project = null, applyPreset = false) { results.add(it) }
+    private fun installResource(tasks: List<Task.Backgroundable>): FontInstaller.InstallResult {
+        val consent = acceptedInstallConsent(whisper)
+        val results = mutableListOf<FontInstaller.InstallResult>()
+        FontInstaller.install(whisper, consent, project = null, applyPreset = false) { results.add(it) }
         tasks.single().run(mockk(relaxed = true))
-
-        val success = FontInstaller.InstallResult.Success(entry.familyName)
-        assertEquals(listOf<FontInstaller.InstallResult>(success), results)
-        assertTrue(payload.contentEquals(fontFile.readBytes()))
-        assertTrue(entry.familyName in state.installedFonts)
-        assertContains(state.installedFontFiles.getValue(entry.familyName), fontFile.absolutePath)
-        assertEquals(FontPreset.NEON.name, state.fontPresetName)
-        verify(exactly = 0) { FontPresetApplicator.applyInstalled(any()) }
-        verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
+        return results.single()
     }
 
     @Test

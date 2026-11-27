@@ -6,7 +6,6 @@ import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.progress.ProgressIndicator
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import dev.ayuislands.settings.AyuIslandsSettings
@@ -116,13 +115,10 @@ object FontUninstaller {
                     )
                     return
                 }
-        val task =
-            object : Task.Backgroundable(project, "Removing ${entry.displayName}…", true) {
-                override fun run(indicator: ProgressIndicator) {
-                    runUninstallPipeline(entry, project, indicator, onComplete)
-                }
-            }
-        ProgressManager.getInstance().run(task)
+        val onBusy = { finishUninstallFailure(entry, project, onComplete, FONT_OPERATION_BUSY) }
+        queueFontOperation(project, "Removing ${entry.displayName}…", onComplete, onBusy) { indicator, complete ->
+            runUninstallPipeline(entry, project, indicator, complete)
+        }
     }
 
     @TestOnly
