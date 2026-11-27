@@ -163,6 +163,11 @@ class StudioSyntaxDraftTest {
             val appearance = migrate(source).currents.global.appearance
             val studioConfig = StudioSyntaxProjection.config(appearance)
             assertEquals(legacyConfig, studioConfig, selection)
+            assertEquals(
+                SyntaxReadabilityOptions(dimComments = true, quietOperators = true),
+                studioConfig.readabilityOptions,
+                selection,
+            )
             assertEquals(selection, StudioSyntaxProjection.settings(appearance).selectedPreset)
             assertEquals(selection ?: "AMBIENT", studioConfig.selectedPreset)
             assertEquals(if (selection == null) "AMBIENT" else "CYBERPUNK", studioConfig.subordinatePreset)
