@@ -21,9 +21,16 @@ enum class IndentPreset(
 
         fun fromName(name: String): IndentPreset = entries.firstOrNull { it.name == name } ?: CUSTOM
 
+        internal fun effectiveAlpha(
+            name: String?,
+            customAlpha: Int,
+        ): Int = (fromName(name ?: AMBIENT.name).alpha ?: customAlpha).coerceIn(1, MAX_ALPHA)
+
         fun detect(alpha: Int): IndentPreset =
             entries.firstOrNull { preset ->
                 preset != CUSTOM && preset.alpha == alpha
             } ?: CUSTOM
+
+        private const val MAX_ALPHA = 255
     }
 }

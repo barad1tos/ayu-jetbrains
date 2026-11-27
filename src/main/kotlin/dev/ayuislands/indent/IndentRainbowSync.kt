@@ -28,7 +28,6 @@ object IndentRainbowSync {
     private const val IR_PLUGIN_ID = "indent-rainbow.indent-rainbow"
     private const val SYNC_FAILED = "IR sync failed"
     private const val RESTORE_FAILED = "IR restore failed"
-    private const val MAX_ALPHA_VALUE = 255
 
     // Cached reflection objects (resolved once per session)
     @Volatile private var irConfig: Any? = null
@@ -119,12 +118,7 @@ object IndentRainbowSync {
         val enumValue =
             customEnumValue ?: return schemaFailure(state, SYNC_FAILED, "CUSTOM palette enum is unavailable")
 
-        val preset =
-            IndentPreset.fromName(
-                state.indentPresetName ?: IndentPreset.AMBIENT.name,
-            )
-        val rawAlpha = preset.alpha ?: state.indentCustomAlpha
-        val alpha = rawAlpha.coerceIn(1, MAX_ALPHA_VALUE)
+        val alpha = IndentPreset.effectiveAlpha(state.indentPresetName, state.indentCustomAlpha)
         val colorStrings =
             palette.toColorStrings(
                 alpha,

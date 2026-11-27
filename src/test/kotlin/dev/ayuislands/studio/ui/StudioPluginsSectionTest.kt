@@ -3,10 +3,12 @@ package dev.ayuislands.studio.ui
 import com.intellij.openapi.actionSystem.ActionManager
 import com.intellij.ui.TitledSeparator
 import dev.ayuislands.accent.AccentHex
+import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ExternalAccentSource
 import dev.ayuislands.licensing.LicenseChecker
 import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.studio.catalogTestDocument
+import dev.ayuislands.studio.model.PreviewMode
 import dev.ayuislands.studio.model.RawValue
 import dev.ayuislands.studio.model.SharedIntent
 import dev.ayuislands.studio.model.StudioFields
@@ -22,9 +24,11 @@ import io.mockk.unmockkStatic
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.awt.Color
 import java.awt.Component
 import java.awt.Container
 import java.awt.event.MouseEvent
+import java.awt.image.BufferedImage
 import javax.swing.AbstractButton
 import javax.swing.JCheckBox
 import javax.swing.JComboBox
@@ -208,6 +212,89 @@ class StudioPluginsSectionTest {
             assertEquals(setOf("externalThemeAccent", "externalThemeAccentSource"), draft.lastChanged.toSet())
             assertEquals(RawValue.Text("#112233"), value(draft.working, "externalThemeAccent"))
         }
+    }
+
+    @Test
+    fun `Current and Draft repaint each installed sample while controls keep the working values`() {
+        val current = previewFields(ayuIgnore = false, alpha = 46)
+        val draft = previewFields(ayuIgnore = true, alpha = 113)
+        val observations =
+            StudioPluginsComparison(
+                current,
+                previewFacts("#59C2FF"),
+                previewFacts("#F28779"),
+            )
+        SwingUtilities.invokeAndWait {
+            val section = section(stage = { error("Comparing samples must not stage an edit") })
+            section.render(draft, installed, isEditable = true, comparison = observations)
+            val root = section.content.component
+            val samples = descendants(root).filterIsInstance<StudioPluginSample>()
+            assertEquals(3, samples.size)
+            assertTrue(samples.all { visibleWithin(it, root) })
+            assertTrue(checkbox(root, ".ignore syntax colors").isSelected)
+            val currentPixels = samples.map(::pixels)
+
+            section.content.preview(PreviewMode.DRAFT)
+            for ((sample, baseline) in samples.zip(currentPixels)) assertFalse(baseline.contentEquals(pixels(sample)))
+            assertTrue(checkbox(root, ".ignore syntax colors").isSelected)
+
+            section.content.preview(PreviewMode.CURRENT)
+            for ((sample, baseline) in samples.zip(currentPixels)) assertTrue(baseline.contentEquals(pixels(sample)))
+            val missing = installed.copy(hasCodeGlance = false, hasIndentRainbow = false)
+            section.render(draft, missing, isEditable = true, comparison = observations)
+            val visible = samples.filter { visibleWithin(it, root) }
+            assertEquals(listOf(".ignore color sample"), visible.map { it.accessibleContext.accessibleName })
+        }
+    }
+
+    @Test
+    fun `preview derives the native indent color ramp without normalizing the raw draft`() {
+        val custom = previewFields(ayuIgnore = true, alpha = 310)
+        val available = previewFacts("#59C2FF")
+        val view = StudioPluginsPreview.prepare(StudioPluginsEditing.settings(custom), available)
+        assertEquals(255, view.indentColors.maxOf { it.alpha })
+        assertEquals(RawValue.Integer(310), value(custom, "indentCustomAlpha"))
+        val unspecifiedPreset = previewFields(ayuIgnore = false, alpha = 310, preset = RawValue.Null)
+        val fallback = StudioPluginsPreview.prepare(StudioPluginsEditing.settings(unspecifiedPreset), available)
+        assertEquals(46, fallback.indentColors.maxOf { it.alpha })
+        val unavailable =
+            StudioPluginsPreview.prepare(StudioPluginsEditing.settings(custom), available.copy(accent = null))
+        assertTrue(unavailable.indentColors.isEmpty())
+        assertEquals(null, unavailable.minimapAccent)
+    }
+
+    private fun previewFields(
+        ayuIgnore: Boolean,
+        alpha: Int,
+        preset: RawValue = RawValue.Text("CUSTOM"),
+    ): StudioFields =
+        fields(
+            "ignorePluginSyntaxColorsEnabled" to RawValue.BooleanValue(ayuIgnore),
+            "cgpIntegrationEnabled" to RawValue.BooleanValue(true),
+            "irIntegrationEnabled" to RawValue.BooleanValue(true),
+            "indentPresetName" to preset,
+            "indentCustomAlpha" to RawValue.Integer(alpha),
+        )
+
+    private fun previewFacts(hex: String): StudioPluginsPreviewFacts =
+        StudioPluginsPreviewFacts(
+            AccentHex.require(hex),
+            AyuVariant.MIRAGE,
+            StudioList(listOf(StudioPluginCodeLine("# Generated files", Color.GRAY))),
+            StudioList(listOf(StudioPluginCodeLine("# Generated files", Color.GREEN))),
+        )
+
+    private fun pixels(component: JComponent): IntArray {
+        val size = component.preferredSize
+        component.size = size
+        val image = BufferedImage(size.width, size.height, BufferedImage.TYPE_INT_ARGB)
+        val graphics = image.createGraphics()
+        try {
+            component.paint(graphics)
+        } finally {
+            graphics.dispose()
+        }
+        return image.getRGB(0, 0, size.width, size.height, null, 0, size.width)
     }
 
     private fun mount(section: StudioPluginsSection): JTabbedPane {

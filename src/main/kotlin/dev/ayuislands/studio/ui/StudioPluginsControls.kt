@@ -46,6 +46,9 @@ internal class StudioPluginsControls(
     private val indentDetails = AtomicBooleanProperty(false)
     private val alphaVisible = AtomicBooleanProperty(false)
     private val unavailablePreset = AtomicBooleanProperty(false)
+    private val ignoreSampleVisible = AtomicBooleanProperty(false)
+    private val minimapSampleVisible = AtomicBooleanProperty(false)
+    private val indentSampleVisible = AtomicBooleanProperty(false)
     private val locked = AtomicBooleanProperty(false)
     private val missing = AtomicBooleanProperty(false)
     private val indentEditable = AtomicBooleanProperty(false)
@@ -63,6 +66,9 @@ internal class StudioPluginsControls(
             }
         }
     private val palette = StudioAccentPalette(::selectAccent, ::selectCustom)
+    private val ignoreSample = StudioPluginSample(StudioPluginSampleKind.IGNORE)
+    private val minimapSample = StudioPluginSample(StudioPluginSampleKind.MINIMAP)
+    private val indentSample = StudioPluginSample(StudioPluginSampleKind.INDENT)
     private var renderedAccent: AccentHex? = null
     private var isRendering = false
     private var isEditable = false
@@ -145,6 +151,15 @@ internal class StudioPluginsControls(
         unavailablePreset.set(indentDetails.get() && chosenPreset == null)
     }
 
+    fun showPreview(view: StudioPluginsPreviewView?) {
+        ignoreSampleVisible.set(view != null)
+        minimapSampleVisible.set(view != null && codeGlanceVisible.get())
+        indentSampleVisible.set(view != null && indentVisible.get())
+        ignoreSample.render(view)
+        minimapSample.render(view)
+        indentSample.render(view)
+    }
+
     private fun renderToggles(
         settings: StudioPluginsSettings,
         gate: PremiumFeatureGate,
@@ -206,7 +221,9 @@ internal class StudioPluginsControls(
             row { comment(PLUGIN_LOCKED_DESCRIPTION) }.visibleIf(locked)
             row { link("Unlock Pro") { if (locked.get()) unlock() } }.visibleIf(locked)
             row { cell(toggles.getValue(IGNORE_SYNTAX_COLORS)).comment("Use Ayu colors for .ignore files") }
+            row { cell(ignoreSample).align(Align.FILL).resizableColumn() }.visibleIf(ignoreSampleVisible)
             integrationRow(CODE_GLANCE_INTEGRATION, StudioPluginTarget.CODE_GLANCE, codeGlanceVisible)
+            row { cell(minimapSample).align(Align.FILL).resizableColumn() }.visibleIf(minimapSampleVisible)
             integrationRow(INDENT_RAINBOW_INTEGRATION, StudioPluginTarget.INDENT_RAINBOW, indentVisible)
             row("Preset") {
                 segmentedButton<IndentPreset?>(IndentPreset.entries) { text = it?.displayName.orEmpty() }.bind(preset)
@@ -220,6 +237,7 @@ internal class StudioPluginsControls(
                 cell(alpha)
                 cell(alphaReadout)
             }.visibleIf(alphaVisible)
+            row { cell(indentSample).align(Align.FILL).resizableColumn() }.visibleIf(indentSampleVisible)
             row {
                 comment("Install CodeGlance Pro or Indent Rainbow for premium accent color sync.")
             }.visibleIf(missing)
