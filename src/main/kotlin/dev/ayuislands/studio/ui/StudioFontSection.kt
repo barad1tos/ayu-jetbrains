@@ -6,10 +6,14 @@ import dev.ayuislands.font.FontStatus
 import dev.ayuislands.studio.model.AppearanceSnapshot
 import dev.ayuislands.studio.model.DraftRecord
 import dev.ayuislands.studio.model.PreviewMode
+import dev.ayuislands.studio.model.SharedIntent
+import dev.ayuislands.studio.model.StudioFields
 import dev.ayuislands.studio.model.StudioSettingsSection
 import dev.ayuislands.studio.session.StudioFontEditing
 import dev.ayuislands.studio.session.StudioFontProjection
 import dev.ayuislands.studio.session.StudioFontSettings
+import dev.ayuislands.studio.session.StudioFontTerminal
+import dev.ayuislands.studio.session.StudioFontTerminalPolicy
 import java.awt.Color
 
 internal data class StudioCuratedFont(
@@ -39,14 +43,31 @@ internal data class StudioFontView(
     val draft: StudioFontAppearance,
     val availability: StudioFontAvailability,
     val editable: Boolean,
+    val system: StudioFields,
+    val manualInstall: Boolean,
 )
 
 internal enum class StudioFontOperation { INSTALL, REINSTALL, DELETE }
 
 internal sealed interface StudioFontAction {
+    sealed interface Resource : StudioFontAction
+
     data class ManageFont(
         val preset: FontPreset,
         val operation: StudioFontOperation,
+    ) : Resource
+
+    data class CopyInstallCommand(
+        val preset: FontPreset,
+    ) : Resource
+
+    data class OpenInstallTerminal(
+        val preset: FontPreset,
+        val terminal: StudioFontTerminal,
+    ) : Resource
+
+    data class SelectTerminal(
+        val terminal: StudioFontTerminal,
     ) : StudioFontAction
 
     data class DiscloseCustomize(
@@ -65,10 +86,18 @@ internal data class StudioFontSample(
 internal class StudioFontSection(
     customizeExpanded: Boolean,
     stage: ((DraftRecord) -> DraftRecord) -> Unit,
+    stageSystem: ((StudioFields) -> List<SharedIntent.Field>) -> Unit,
     onAction: (StudioFontAction) -> Unit,
 ) {
+    private val handleAction: (StudioFontAction) -> Unit = { action ->
+        if (action is StudioFontAction.SelectTerminal) {
+            stageSystem { system -> StudioFontTerminalPolicy.edit(system, action.terminal) }
+        } else {
+            onAction(action)
+        }
+    }
     private val controls =
-        StudioFontControls(customizeExpanded, onAction) { edit ->
+        StudioFontControls(customizeExpanded, handleAction) { edit ->
             stage { draft -> StudioFontEditing.edit(draft, edit) }
         }
     private var mode = PreviewMode.CURRENT
@@ -81,7 +110,13 @@ internal class StudioFontSection(
         val draft = StudioFontProjection.settings(view.draft.appearance)
         currentSample = sample(current, view.availability, view.current.accent)
         draftSample = sample(draft, view.availability, view.draft.accent)
-        controls.render(draft, view.availability, view.editable)
+        controls.render(
+            draft,
+            view.availability,
+            view.editable,
+            view.manualInstall,
+            StudioFontTerminalPolicy.selected(view.system),
+        )
         preview(mode)
     }
 

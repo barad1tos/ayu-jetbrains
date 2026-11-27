@@ -6,8 +6,8 @@ import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.progress.ProgressIndicator
-import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.SystemInfo
@@ -17,6 +17,7 @@ import dev.ayuislands.settings.AyuIslandsSettings
 import dev.ayuislands.settings.AyuIslandsState
 import org.jetbrains.annotations.TestOnly
 import java.awt.Font
+import java.awt.FontFormatException
 import java.awt.GraphicsEnvironment
 import java.io.File
 import java.io.IOException
@@ -59,6 +60,7 @@ object FontInstaller {
         DROPDOWN_STALE,
         APPLY_FAILED,
         PREMIUM_REQUIRED,
+        BUSY,
         UNKNOWN,
     }
 
@@ -72,6 +74,12 @@ object FontInstaller {
             val message: String,
         ) : InstallResult()
     }
+
+    internal data class Registration(
+        val family: String,
+        val files: List<File>,
+        val availableInJvm: Boolean,
+    )
 
     /**
      * Full install pipeline. Shows background progress, runs off-EDT, fires
@@ -87,6 +95,15 @@ object FontInstaller {
         consent: FontInstallConsent.InstallConsent,
         project: Project?,
         onComplete: (InstallResult) -> Unit,
+    ) = install(entry, consent, project, applyPreset = true, onComplete)
+
+    /** With [applyPreset] false, installation only registers the font and updates inventory. */
+    internal fun install(
+        entry: FontCatalog.Entry,
+        consent: FontInstallConsent.InstallConsent,
+        project: Project?,
+        applyPreset: Boolean,
+        onComplete: (InstallResult) -> Unit,
     ) {
         FontCatalog.requireCanonicalEntry(entry)
         require(consent.matches(entry)) {
@@ -96,13 +113,10 @@ object FontInstaller {
             fail(entry, project, FailureKind.PREMIUM_REQUIRED, onComplete, null)
             return
         }
-        val task =
-            object : Task.Backgroundable(project, "Installing ${entry.displayName}…", true) {
-                override fun run(indicator: ProgressIndicator) {
-                    runPipeline(entry, entry.preset, project, indicator, onComplete)
-                }
-            }
-        ProgressManager.getInstance().run(task)
+        val onBusy = { fail(entry, project, FailureKind.BUSY, onComplete, null) }
+        queueFontOperation(project, "Installing ${entry.displayName}…", onComplete, onBusy) { indicator, complete ->
+            runPipeline(entry, project, indicator, applyPreset, complete)
+        }
     }
 
     /** Apply a preset without any download work — used when the font is already installed. */
@@ -145,11 +159,12 @@ object FontInstaller {
 
     private fun runPipeline(
         entry: FontCatalog.Entry,
-        preset: FontPreset,
         project: Project?,
         indicator: ProgressIndicator,
+        applyPreset: Boolean,
         onComplete: (InstallResult) -> Unit,
     ) {
+        val preset = entry.preset
         indicator.text = "Resolving download URL…"
         val url = resolveDownloadUrl(entry)
 
@@ -172,27 +187,41 @@ object FontInstaller {
             return fail(entry, project, extractionFailureKind(e, zipFile), onComplete, e)
         }
 
-        indicator.text = "Installing…"
-        val installedFiles: List<File>
-        try {
-            installedFiles = copyToPlatformFontDir(extracted)
-        } catch (e: IOException) {
-            return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, e)
-        }
+        val (font, installedFiles) =
+            try {
+                // Load the font before replacing any user files. The stream form retains its own bytes.
+                val candidate =
+                    try {
+                        extracted.first().inputStream().use { Font.createFont(Font.TRUETYPE_FONT, it) }
+                    } catch (e: FontFormatException) {
+                        return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
+                    } catch (e: IOException) {
+                        return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
+                    }
+                indicator.text = "Installing…"
+                val files =
+                    try {
+                        copyToPlatformFontDir(extracted)
+                    } catch (e: IOException) {
+                        return fail(entry, project, FailureKind.PERMISSION_DENIED, onComplete, e)
+                    }
+                candidate to files
+            } finally {
+                cleanupQuietly(extractDir)
+            }
 
-        cleanupQuietly(extractDir)
-
-        val canonicalFamily: String
-        try {
-            canonicalFamily = registerFont(installedFiles)
-        } catch (e: java.awt.FontFormatException) {
-            return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
-        } catch (e: IOException) {
-            return fail(entry, project, FailureKind.REGISTER_FAILED, onComplete, e)
-        }
-
+        val graphics = GraphicsEnvironment.getLocalGraphicsEnvironment()
+        graphics.registerFont(font)
+        val canonicalFamily = font.family
         LOG.info("Font installed: $canonicalFamily (preset=${preset.name})")
-        persistAndApply(entry, project, canonicalFamily, installedFiles, onComplete)
+        val families = graphics.availableFontFamilyNames
+        val registration =
+            Registration(
+                canonicalFamily,
+                installedFiles,
+                entry.familyName in families || canonicalFamily in families,
+            )
+        completeRegistration(entry, project, registration, applyPreset, onComplete)
     }
 
     @TestOnly
@@ -292,16 +321,6 @@ object FontInstaller {
         }
     }
 
-    /** Registers the first installed font file with the JVM's graphics environment. */
-    @TestOnly
-    @Throws(java.awt.FontFormatException::class, IOException::class)
-    internal fun registerFont(installedFiles: List<File>): String {
-        val first = installedFiles.first()
-        val font = Font.createFont(Font.TRUETYPE_FONT, first)
-        GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font)
-        return font.family
-    }
-
     @TestOnly
     internal fun cleanupQuietly(directory: File) {
         try {
@@ -311,37 +330,36 @@ object FontInstaller {
         }
     }
 
-    private fun persistAndApply(
+    internal fun completeRegistration(
         entry: FontCatalog.Entry,
         project: Project?,
-        canonicalFamily: String,
-        installedFiles: List<File>,
+        registration: Registration,
+        applyPreset: Boolean,
         onComplete: (InstallResult) -> Unit,
     ) {
-        val ge = GraphicsEnvironment.getLocalGraphicsEnvironment()
-        val dropdownStale =
-            !ge.availableFontFamilyNames.contains(entry.familyName) &&
-                !ge.availableFontFamilyNames.contains(canonicalFamily)
-
-        if (dropdownStale) {
+        val (family, files, availableInJvm) = registration
+        if (!availableInJvm) {
             notify(entry, project, FailureKind.DROPDOWN_STALE, NotificationType.WARNING)
-            ApplicationManager.getApplication().invokeLater {
-                persistFontState(canonicalFamily, installedFiles)
-                onComplete(InstallResult.Success(canonicalFamily))
-            }
-            return
         }
 
         ApplicationManager.getApplication().invokeLater {
+            if (!applyPreset || !availableInJvm) {
+                persistFontState(family, files)
+                onComplete(InstallResult.Success(family))
+                return@invokeLater
+            }
             try {
-                persistFontState(canonicalFamily, installedFiles)
+                persistFontState(family, files)
                 FontPresetApplicator.applyInstalled(FontSettings.decode(null, entry.preset))
-                verifyApplied(entry, canonicalFamily, project)
-                onComplete(InstallResult.Success(canonicalFamily))
+                val activeFamily = EditorColorsManager.getInstance().globalScheme.editorFontName
+                if (activeFamily != entry.familyName && activeFamily != family) {
+                    notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
+                }
+                onComplete(InstallResult.Success(family))
             } catch (e: RuntimeException) {
                 LOG.warn("FontPresetApplicator.apply failed", e)
                 notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
-                onComplete(InstallResult.Success(canonicalFamily))
+                onComplete(InstallResult.Success(family))
             }
         }
     }
@@ -359,21 +377,6 @@ object FontInstaller {
         // seeder runs treat this family as first-class again.
         state.explicitlyUninstalledFonts.remove(canonicalFamily)
         FontDetector.invalidateCache()
-    }
-
-    private fun verifyApplied(
-        entry: FontCatalog.Entry,
-        canonicalFamily: String,
-        project: Project?,
-    ) {
-        val active =
-            com.intellij.openapi.editor.colors.EditorColorsManager
-                .getInstance()
-                .globalScheme
-                .editorFontName
-        if (active != entry.familyName && active != canonicalFamily) {
-            notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
-        }
     }
 
     private fun fail(
@@ -436,6 +439,7 @@ object FontInstaller {
                     "Open Settings → Editor → Font to pick ${entry.familyName}."
             FailureKind.PREMIUM_REQUIRED ->
                 "Ayu Islands Pro license is required to install or reinstall fonts from Settings."
+            FailureKind.BUSY -> FONT_OPERATION_BUSY
             FailureKind.UNKNOWN ->
                 "Unexpected error. Please report at $GH_ISSUES_URL."
         }
