@@ -17,6 +17,7 @@ import dev.ayuislands.settings.FontPreviewComponent
 import dev.ayuislands.settings.fontWeightCombo
 import dev.ayuislands.studio.model.StudioFontEdit
 import dev.ayuislands.studio.session.StudioFontSettings
+import dev.ayuislands.studio.session.StudioFontTerminal
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import javax.swing.DefaultComboBoxModel
@@ -59,6 +60,7 @@ internal class StudioFontControls(
     private val unavailableLabel = JBLabel()
     private val sample = FontPreviewComponent().apply { accessibleContext?.accessibleName = "Font preview" }
     private val resources = FontResourceControls(::manage)
+    private val manual = FontManualInstallControls(::emitAction)
     private var choices = emptyList<String>()
     private var isRendering = false
 
@@ -81,6 +83,7 @@ internal class StudioFontControls(
                 row { cell(summary) }.visibleIf(available)
                 row { cell(sample).resizableColumn().align(Align.FILL) }
                 row { cell(resources).resizableColumn().align(Align.FILL) }
+                row { cell(manual).resizableColumn().align(Align.FILL) }
                 val customize =
                     collapsibleGroup("Customize") {
                         row { cell(typography).resizableColumn().align(Align.FILL) }.enabledIf(editable)
@@ -102,6 +105,8 @@ internal class StudioFontControls(
         state: StudioFontSettings,
         availability: StudioFontAvailability,
         isEditable: Boolean,
+        manualInstall: Boolean,
+        terminal: StudioFontTerminal,
     ) {
         isRendering = true
         try {
@@ -119,7 +124,9 @@ internal class StudioFontControls(
             unavailableLabel.text = "Saved preset unavailable (${state.presetName.orEmpty()})"
             if (resolved != null) renderSettings(resolved, availability)
             val preset = resolved?.preset?.takeIf { state.enabled && it.isCurated }
-            resources.render(preset, preset?.let { availability.curated[it]?.status }, isEditable)
+            val status = preset?.let { availability.curated[it]?.status }
+            resources.render(preset, status, isEditable)
+            manual.render(preset.takeIf { manualInstall && status == FontStatus.NOT_INSTALLED }, terminal, isEditable)
         } finally {
             isRendering = false
         }
@@ -173,8 +180,10 @@ internal class StudioFontControls(
     private fun manage(
         preset: FontPreset,
         operation: StudioFontOperation,
-    ) {
-        if (!isRendering && editable.get()) onAction(StudioFontAction.ManageFont(preset, operation))
+    ) = emitAction(StudioFontAction.ManageFont(preset, operation))
+
+    private fun emitAction(action: StudioFontAction) {
+        if (!isRendering && editable.get()) onAction(action)
     }
 }
 
@@ -223,6 +232,53 @@ private class FontResourceControls(
             val link = event.source as? ActionLink
             if (link?.isVisible == true && link.isEnabled) preset?.let { onManage(it, operation) }
         }
+}
+
+private class FontManualInstallControls(
+    private val onAction: (StudioFontAction) -> Unit,
+) : JPanel(BorderLayout()) {
+    private val command = JBLabel()
+    private val terminal = ComboBox(StudioFontTerminal.entries.map { it.displayName }.toTypedArray())
+    private val copy = ActionLink("Copy") { offeredPreset?.let { onAction(StudioFontAction.CopyInstallCommand(it)) } }
+    private val open =
+        ActionLink("Open Terminal") {
+            offeredPreset?.let { onAction(StudioFontAction.OpenInstallTerminal(it, selectedTerminal())) }
+        }
+    private var offeredPreset: FontPreset? = null
+
+    init {
+        isOpaque = false
+        terminal.addActionListener { onAction(StudioFontAction.SelectTerminal(selectedTerminal())) }
+        add(
+            panel {
+                row { cell(command) }
+                row {
+                    cell(copy)
+                    cell(open)
+                    cell(fields("Terminal" to terminal)).resizableColumn().align(Align.FILL)
+                }
+            },
+            BorderLayout.CENTER,
+        )
+    }
+
+    fun render(
+        preset: FontPreset?,
+        selectedTerminal: StudioFontTerminal,
+        editable: Boolean,
+    ) {
+        val text = preset?.let(::fontInstallCommand)
+        offeredPreset = preset.takeIf { text != null }
+        isVisible = text != null
+        command.text = text.orEmpty()
+        terminal.selectedItem = selectedTerminal.displayName
+        terminal.isEnabled = editable
+        copy.isEnabled = editable
+        open.isEnabled = editable
+    }
+
+    private fun selectedTerminal(): StudioFontTerminal =
+        StudioFontTerminal.entries.getOrNull(terminal.selectedIndex) ?: StudioFontTerminal.BUILTIN
 }
 
 private fun fields(vararg entries: Pair<String, JComponent>): JPanel =

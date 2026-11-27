@@ -6,6 +6,7 @@ import com.intellij.notification.Notifications
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
@@ -73,6 +74,12 @@ object FontInstaller {
         ) : InstallResult()
     }
 
+    internal data class Registration(
+        val family: String,
+        val files: List<File>,
+        val availableInJvm: Boolean,
+    )
+
     /**
      * Full install pipeline. Shows background progress, runs off-EDT, fires
      * the [onComplete] callback on the EDT with either a [InstallResult.Success]
@@ -87,6 +94,15 @@ object FontInstaller {
         consent: FontInstallConsent.InstallConsent,
         project: Project?,
         onComplete: (InstallResult) -> Unit,
+    ) = install(entry, consent, project, applyPreset = true, onComplete)
+
+    /** With [applyPreset] false, installation only registers the font and updates inventory. */
+    internal fun install(
+        entry: FontCatalog.Entry,
+        consent: FontInstallConsent.InstallConsent,
+        project: Project?,
+        applyPreset: Boolean,
+        onComplete: (InstallResult) -> Unit,
     ) {
         FontCatalog.requireCanonicalEntry(entry)
         require(consent.matches(entry)) {
@@ -99,7 +115,7 @@ object FontInstaller {
         val task =
             object : Task.Backgroundable(project, "Installing ${entry.displayName}…", true) {
                 override fun run(indicator: ProgressIndicator) {
-                    runPipeline(entry, entry.preset, project, indicator, onComplete)
+                    runPipeline(entry, project, indicator, applyPreset, onComplete)
                 }
             }
         ProgressManager.getInstance().run(task)
@@ -145,11 +161,12 @@ object FontInstaller {
 
     private fun runPipeline(
         entry: FontCatalog.Entry,
-        preset: FontPreset,
         project: Project?,
         indicator: ProgressIndicator,
+        applyPreset: Boolean,
         onComplete: (InstallResult) -> Unit,
     ) {
+        val preset = entry.preset
         indicator.text = "Resolving download URL…"
         val url = resolveDownloadUrl(entry)
 
@@ -192,7 +209,14 @@ object FontInstaller {
         }
 
         LOG.info("Font installed: $canonicalFamily (preset=${preset.name})")
-        persistAndApply(entry, project, canonicalFamily, installedFiles, onComplete)
+        val families = GraphicsEnvironment.getLocalGraphicsEnvironment().availableFontFamilyNames
+        val registration =
+            Registration(
+                canonicalFamily,
+                installedFiles,
+                entry.familyName in families || canonicalFamily in families,
+            )
+        completeRegistration(entry, project, registration, applyPreset, onComplete)
     }
 
     @TestOnly
@@ -311,37 +335,36 @@ object FontInstaller {
         }
     }
 
-    private fun persistAndApply(
+    internal fun completeRegistration(
         entry: FontCatalog.Entry,
         project: Project?,
-        canonicalFamily: String,
-        installedFiles: List<File>,
+        registration: Registration,
+        applyPreset: Boolean,
         onComplete: (InstallResult) -> Unit,
     ) {
-        val ge = GraphicsEnvironment.getLocalGraphicsEnvironment()
-        val dropdownStale =
-            !ge.availableFontFamilyNames.contains(entry.familyName) &&
-                !ge.availableFontFamilyNames.contains(canonicalFamily)
-
-        if (dropdownStale) {
+        val (family, files, availableInJvm) = registration
+        if (!availableInJvm) {
             notify(entry, project, FailureKind.DROPDOWN_STALE, NotificationType.WARNING)
-            ApplicationManager.getApplication().invokeLater {
-                persistFontState(canonicalFamily, installedFiles)
-                onComplete(InstallResult.Success(canonicalFamily))
-            }
-            return
         }
 
         ApplicationManager.getApplication().invokeLater {
+            if (!applyPreset || !availableInJvm) {
+                persistFontState(family, files)
+                onComplete(InstallResult.Success(family))
+                return@invokeLater
+            }
             try {
-                persistFontState(canonicalFamily, installedFiles)
+                persistFontState(family, files)
                 FontPresetApplicator.applyInstalled(FontSettings.decode(null, entry.preset))
-                verifyApplied(entry, canonicalFamily, project)
-                onComplete(InstallResult.Success(canonicalFamily))
+                val activeFamily = EditorColorsManager.getInstance().globalScheme.editorFontName
+                if (activeFamily != entry.familyName && activeFamily != family) {
+                    notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
+                }
+                onComplete(InstallResult.Success(family))
             } catch (e: RuntimeException) {
                 LOG.warn("FontPresetApplicator.apply failed", e)
                 notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
-                onComplete(InstallResult.Success(canonicalFamily))
+                onComplete(InstallResult.Success(family))
             }
         }
     }
@@ -359,21 +382,6 @@ object FontInstaller {
         // seeder runs treat this family as first-class again.
         state.explicitlyUninstalledFonts.remove(canonicalFamily)
         FontDetector.invalidateCache()
-    }
-
-    private fun verifyApplied(
-        entry: FontCatalog.Entry,
-        canonicalFamily: String,
-        project: Project?,
-    ) {
-        val active =
-            com.intellij.openapi.editor.colors.EditorColorsManager
-                .getInstance()
-                .globalScheme
-                .editorFontName
-        if (active != entry.familyName && active != canonicalFamily) {
-            notify(entry, project, FailureKind.APPLY_FAILED, NotificationType.WARNING)
-        }
     }
 
     private fun fail(

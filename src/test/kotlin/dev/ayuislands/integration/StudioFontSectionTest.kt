@@ -3,6 +3,7 @@ package dev.ayuislands.integration
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.testFramework.ApplicationRule
 import com.intellij.ui.components.ActionLink
+import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontPreset
 import dev.ayuislands.font.FontStatus
 import dev.ayuislands.font.FontWeight
@@ -11,9 +12,14 @@ import dev.ayuislands.studio.catalogTestDocument
 import dev.ayuislands.studio.catalogTestWork
 import dev.ayuislands.studio.model.DraftRecord
 import dev.ayuislands.studio.model.PreviewMode
+import dev.ayuislands.studio.model.RawValue
+import dev.ayuislands.studio.model.SharedIntent
+import dev.ayuislands.studio.model.StudioFields
 import dev.ayuislands.studio.model.StudioFontEdit
+import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.session.StudioFontEditing
 import dev.ayuislands.studio.session.StudioFontProjection
+import dev.ayuislands.studio.session.StudioFontTerminal
 import dev.ayuislands.studio.ui.StudioCuratedFont
 import dev.ayuislands.studio.ui.StudioFontAction
 import dev.ayuislands.studio.ui.StudioFontAppearance
@@ -98,6 +104,34 @@ class StudioFontSectionTest {
         }
 
     @Test
+    fun `manual install keeps the terminal choice shared and runs only on explicit gestures`() =
+        inSection { fixture ->
+            fixture.edit(StudioFontEdit.Preset(FontPreset.NEON))
+            fixture.setSavedTerminal("FUTURE_TERMINAL")
+            fixture.render(manualInstall = true)
+            val slug = FontCatalog.requirePreset(FontPreset.NEON).brewCaskSlug
+            assertTrue(fixture.hasLabel("brew install --cask $slug"))
+            assertEquals(RawValue.Text("FUTURE_TERMINAL"), fixture.terminal.value)
+            assertEquals(0, fixture.sharedEdits)
+
+            fixture.combo("Terminal").selectedItem = StudioFontTerminal.SYSTEM.displayName
+            fixture.render(manualInstall = true)
+            fixture.link("Copy").doClick()
+            fixture.link("Open Terminal").doClick()
+
+            assertEquals(RawValue.Text("SYSTEM"), fixture.terminal.value)
+            assertEquals(1, fixture.sharedEdits)
+            assertEquals(
+                listOf<StudioFontAction>(
+                    StudioFontAction.CopyInstallCommand(FontPreset.NEON),
+                    StudioFontAction.OpenInstallTerminal(FontPreset.NEON, StudioFontTerminal.SYSTEM),
+                ),
+                fixture.actions,
+            )
+            assertEquals(0, fixture.emittedEdits)
+        }
+
+    @Test
     fun `installation gestures describe the observed health and leave the draft unchanged`() =
         inSection { fixture ->
             fixture.render()
@@ -145,11 +179,15 @@ class StudioFontSectionTest {
     }
 
     private class Fixture {
-        private val initial = catalogTestWork(catalogTestDocument()).drafts.single()
+        private val document = catalogTestDocument()
+        private val initial = catalogTestWork(document).drafts.single()
+        private var system = document.shared.system
         var draft = StudioFontEditing.edit(initial, StudioFontEdit.Enable(true))
             private set
         private val accepted = draft.appearance
         var emittedEdits = 0
+            private set
+        var sharedEdits = 0
             private set
         val actions = mutableListOf<StudioFontAction>()
         val section =
@@ -159,13 +197,23 @@ class StudioFontSectionTest {
                     draft = update(draft)
                     emittedEdits++
                 },
+                stageSystem = { update: (StudioFields) -> List<SharedIntent.Field> ->
+                    for (edit in update(system)) {
+                        val records = system.records.map { if (it.key == edit.after.key) edit.after else it }
+                        system = system.copy(records = StudioList(records))
+                        sharedEdits++
+                    }
+                },
                 onAction = { actions.add(it) },
             )
 
         private val components get() = descendants(section.content.component)
         val preview get() = components.filterIsInstance<FontPreviewComponent>().single()
 
-        fun render(editable: Boolean = true) {
+        fun render(
+            editable: Boolean = true,
+            manualInstall: Boolean = false,
+        ) {
             section.render(
                 StudioFontView(
                     current = StudioFontAppearance(accepted, Color(0xFFCC66)),
@@ -181,12 +229,23 @@ class StudioFontSectionTest {
                             families = listOf("Monospaced", "Dialog"),
                         ),
                     editable = editable,
+                    system = system,
+                    manualInstall = manualInstall,
                 ),
             )
         }
 
         fun edit(edit: StudioFontEdit) {
             draft = StudioFontEditing.edit(draft, edit)
+        }
+
+        val terminal get() = system.records.single { it.key.name == "fontInstallTerminal" }
+
+        fun setSavedTerminal(value: String) {
+            val field = terminal
+            val records =
+                system.records.map { if (it.key == field.key) it.copy(value = RawValue.Text(value)) else it }
+            system = system.copy(records = StudioList(records))
         }
 
         fun selectPreset(preset: FontPreset) {
@@ -200,6 +259,8 @@ class StudioFontSectionTest {
 
         fun showsSummary(family: String): Boolean =
             components.filterIsInstance<JLabel>().any { it.text?.startsWith("$family · ") == true }
+
+        fun hasLabel(text: String): Boolean = components.filterIsInstance<JLabel>().any { it.text == text }
 
         fun spinner(label: String) = field(label) as JSpinner
 

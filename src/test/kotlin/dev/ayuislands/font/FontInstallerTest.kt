@@ -6,6 +6,9 @@ import com.intellij.notification.Notifications
 import com.intellij.openapi.application.Application
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
+import com.intellij.openapi.editor.colors.EditorColorsManager
+import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.MessageDialogBuilder
 import com.intellij.openapi.util.SystemInfo
@@ -18,6 +21,7 @@ import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import java.awt.GraphicsEnvironment
 import java.io.File
 import java.io.IOException
 import java.net.SocketException
@@ -301,6 +305,85 @@ class FontInstallerTest {
         FontInstaller.applyOnly(FontPreset.AMBIENT, project = null)
 
         verify(exactly = 1) { FontPresetApplicator.applyInstalled(any()) }
+    }
+
+    @Test
+    fun `resource installation records the files and leaves font preferences and the editor alone`() {
+        val state = registrationState()
+        val entry = FontCatalog.requirePreset(FontPreset.WHISPER)
+        val consent = acceptedInstallConsent(entry)
+        val directory = File(tmpRoot, "installed")
+        val filename = "VictorMono-Light.ttf"
+        val fontFile = File(directory, filename)
+        val payload = byteArrayOf(1, 2, 3)
+        val tasks = mutableListOf<Task.Backgroundable>()
+        val results = mutableListOf<FontInstaller.InstallResult>()
+        val progress = mockk<ProgressManager>()
+        val graphics = mockk<GraphicsEnvironment>()
+        mockkObject(FontInstaller)
+        mockkStatic(PathManager::class, ProgressManager::class, GraphicsEnvironment::class, Notifications.Bus::class)
+        every { PathManager.getTempPath() } returns tmpRoot.absolutePath
+        every { ProgressManager.getInstance() } returns progress
+        every { progress.run(capture(tasks)) } answers { }
+        every { FontInstaller.platformFontDir() } returns directory
+        every { FontInstaller.registerFont(listOf(fontFile)) } returns entry.familyName
+        every { GraphicsEnvironment.getLocalGraphicsEnvironment() } returns graphics
+        every { graphics.availableFontFamilyNames } returns arrayOf(entry.familyName)
+        every { Notifications.Bus.notify(any<Notification>(), null) } answers { }
+        makeZip("ayu-fonts/VictorMonoAll.zip", mapOf(filename to payload))
+
+        FontInstaller.install(entry, consent, project = null, applyPreset = false) { results.add(it) }
+        tasks.single().run(mockk(relaxed = true))
+
+        val success = FontInstaller.InstallResult.Success(entry.familyName)
+        assertEquals(listOf<FontInstaller.InstallResult>(success), results)
+        assertTrue(payload.contentEquals(fontFile.readBytes()))
+        assertTrue(entry.familyName in state.installedFonts)
+        assertContains(state.installedFontFiles.getValue(entry.familyName), fontFile.absolutePath)
+        assertEquals(FontPreset.NEON.name, state.fontPresetName)
+        verify(exactly = 0) { FontPresetApplicator.applyInstalled(any()) }
+        verify(exactly = 0) { Notifications.Bus.notify(any<Notification>(), null) }
+    }
+
+    @Test
+    fun `legacy installation applies the verified family after recording the files`() {
+        val state = registrationState()
+        val entry = FontCatalog.requirePreset(FontPreset.AMBIENT)
+        val installed = File(tmpRoot, "MapleMono.ttf")
+        val colors = mockk<EditorColorsManager>()
+        mockkStatic(EditorColorsManager::class)
+        every { EditorColorsManager.getInstance() } returns colors
+        every { colors.globalScheme.editorFontName } returns entry.familyName
+        every { FontPresetApplicator.applyInstalled(any()) } answers {
+            assertContains(state.installedFontFiles.getValue(entry.familyName), installed.absolutePath)
+        }
+        val results = mutableListOf<FontInstaller.InstallResult>()
+
+        FontInstaller.completeRegistration(
+            entry,
+            project = null,
+            registration = FontInstaller.Registration(entry.familyName, listOf(installed), availableInJvm = true),
+            applyPreset = true,
+        ) { results.add(it) }
+
+        verify(exactly = 1) { FontPresetApplicator.applyInstalled(match { it.preset == entry.preset }) }
+        verify(exactly = 1) { colors.globalScheme.editorFontName }
+        val success = FontInstaller.InstallResult.Success(entry.familyName)
+        assertEquals(listOf<FontInstaller.InstallResult>(success), results)
+    }
+
+    private fun registrationState(): AyuIslandsState {
+        mockkStatic(ApplicationManager::class)
+        mockkObject(AyuIslandsSettings.Companion, FontPresetApplicator)
+        val app = mockk<Application>(relaxed = true)
+        every { ApplicationManager.getApplication() } returns app
+        every { app.invokeLater(any()) } answers { firstArg<Runnable>().run() }
+        val service = mockk<AyuIslandsSettings>()
+        val state = AyuIslandsState().apply { fontPresetName = FontPreset.NEON.name }
+        every { AyuIslandsSettings.getInstance() } returns service
+        every { service.state } returns state
+        every { FontPresetApplicator.applyInstalled(any()) } answers { }
+        return state
     }
 
     @Test
