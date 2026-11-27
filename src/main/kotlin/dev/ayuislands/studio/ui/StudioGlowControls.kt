@@ -27,13 +27,10 @@ import dev.ayuislands.studio.model.StudioGlowEdit
 import dev.ayuislands.studio.model.StudioGlowTarget
 import dev.ayuislands.studio.model.StudioList
 import java.awt.BorderLayout
-import java.awt.FlowLayout
-import javax.swing.ButtonGroup
 import javax.swing.JCheckBox
 import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.JSlider
-import javax.swing.JToggleButton
 
 internal class StudioGlowControls(
     private val onEdit: (StudioGlowEdit) -> Unit,
@@ -46,11 +43,16 @@ internal class StudioGlowControls(
     private val editing = AtomicBooleanProperty(false)
     private val editingEffects = AtomicBooleanProperty(false)
     private val locked = AtomicBooleanProperty(false)
-    private val preset = GlowChoice(GlowPreset.entries, GlowPreset::displayName) { emit(StudioGlowEdit.Preset(it)) }
+    private val preset =
+        StudioChoiceButtons(GlowPreset.entries, GlowPreset::displayName) { emit(StudioGlowEdit.Preset(it)) }
     private val editorPlacement =
-        GlowChoice(GlowPlacement.entries, GlowPlacement::displayName) { emit(StudioGlowEdit.EditorPlacement(it)) }
+        StudioChoiceButtons(GlowPlacement.entries, GlowPlacement::displayName) {
+            emit(StudioGlowEdit.EditorPlacement(it))
+        }
     private val toolPlacement =
-        GlowChoice(GlowPlacement.entries, GlowPlacement::displayName) { emit(StudioGlowEdit.ToolWindowPlacement(it)) }
+        StudioChoiceButtons(GlowPlacement.entries, GlowPlacement::displayName) {
+            emit(StudioGlowEdit.ToolWindowPlacement(it))
+        }
     private val enable = JCheckBox("Enable glow")
     private val contour = GlowGroupPanel()
     private val badges = mutableMapOf<String, Cell<JLabel>>()
@@ -251,34 +253,6 @@ internal class StudioGlowControls(
         const val MAX_WIDTH = 16
         const val INTENSITY_TICK = 25
         const val WIDTH_TICK = 2
-    }
-}
-
-private class GlowChoice<T>(
-    choices: List<T>,
-    label: (T) -> String,
-    onSelect: (T) -> Unit,
-) : JPanel(FlowLayout(FlowLayout.LEADING, 0, 0)) {
-    private val buttons =
-        choices.associateWith { choice ->
-            JToggleButton(label(choice)).apply { addActionListener { onSelect(choice) } }
-        }
-
-    init {
-        isOpaque = false
-        val group = ButtonGroup()
-        for (button in buttons.values) {
-            group.add(button)
-            add(button)
-        }
-    }
-
-    fun render(
-        selected: T,
-        editable: Boolean,
-    ) {
-        buttons.getValue(selected).isSelected = true
-        buttons.values.forEach { it.isEnabled = editable }
     }
 }
 
