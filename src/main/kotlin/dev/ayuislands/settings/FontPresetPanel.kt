@@ -6,13 +6,13 @@ import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.observable.properties.AtomicBooleanProperty
 import com.intellij.openapi.ui.ComboBox
 import com.intellij.openapi.wm.ToolWindowManager
-import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.dsl.builder.Align
 import com.intellij.ui.dsl.builder.Panel
 import com.intellij.ui.dsl.builder.SegmentedButton
 import dev.ayuislands.accent.AccentApplicator
 import dev.ayuislands.font.FontCatalog
 import dev.ayuislands.font.FontDetector
+import dev.ayuislands.font.FontEditorLimits
 import dev.ayuislands.font.FontInstallConsent
 import dev.ayuislands.font.FontInstaller
 import dev.ayuislands.font.FontPreset
@@ -25,7 +25,6 @@ import dev.ayuislands.licensing.LicenseChecker
 import java.awt.datatransfer.StringSelection
 import javax.swing.JCheckBox
 import javax.swing.JLabel
-import javax.swing.JList
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
@@ -34,11 +33,6 @@ class FontPresetPanel : SettingsParticipant {
     private companion object {
         private val LOG = logger<FontPresetPanel>()
         val IS_MAC: Boolean = System.getProperty("os.name").lowercase().contains("mac")
-        const val MIN_FONT_SIZE = 8
-        const val MAX_FONT_SIZE = 30
-        const val MIN_LINE_SPACING = 0.8
-        const val MAX_LINE_SPACING = 2.0
-        const val LINE_SPACING_STEP = 0.1
     }
 
     // Core state
@@ -431,8 +425,8 @@ class FontPresetPanel : SettingsParticipant {
             val sizeModel =
                 SpinnerNumberModel(
                     currentSettings.fontSize.toInt(),
-                    MIN_FONT_SIZE,
-                    MAX_FONT_SIZE,
+                    FontEditorLimits.MIN_SIZE,
+                    FontEditorLimits.MAX_SIZE,
                     1,
                 )
             val spinner = JSpinner(sizeModel)
@@ -448,9 +442,9 @@ class FontPresetPanel : SettingsParticipant {
             val spacingModel =
                 SpinnerNumberModel(
                     currentSettings.lineSpacing.toDouble(),
-                    MIN_LINE_SPACING,
-                    MAX_LINE_SPACING,
-                    LINE_SPACING_STEP,
+                    FontEditorLimits.MIN_SPACING,
+                    FontEditorLimits.MAX_SPACING,
+                    FontEditorLimits.SPACING_STEP,
                 )
             val spSpinner = JSpinner(spacingModel)
             spSpinner.addChangeListener {
@@ -462,19 +456,7 @@ class FontPresetPanel : SettingsParticipant {
             cell(spSpinner)
 
             label("Weight:")
-            val wCombo = ComboBox(FontWeight.entries.toTypedArray())
-            wCombo.renderer =
-                object : SimpleListCellRenderer<FontWeight>() {
-                    override fun customize(
-                        list: JList<out FontWeight>,
-                        value: FontWeight?,
-                        index: Int,
-                        selected: Boolean,
-                        hasFocus: Boolean,
-                    ) {
-                        text = value?.displayName.orEmpty()
-                    }
-                }
+            val wCombo = fontWeightCombo()
             wCombo.selectedItem = currentSettings.weight
             wCombo.addActionListener {
                 if (!suppressListeners) {
