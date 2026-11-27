@@ -1,6 +1,7 @@
 package dev.ayuislands.studio.ui
 
 import dev.ayuislands.accent.AccentHex
+import dev.ayuislands.studio.model.PreviewMode
 import dev.ayuislands.studio.model.SharedIntent
 import dev.ayuislands.studio.model.StudioFields
 import dev.ayuislands.studio.model.StudioSettingsSection
@@ -10,6 +11,12 @@ internal data class StudioPluginsAvailability(
     val isLicensed: Boolean,
     val hasCodeGlance: Boolean,
     val hasIndentRainbow: Boolean,
+)
+
+internal data class StudioPluginsComparison(
+    val currentFields: StudioFields,
+    val current: StudioPluginsPreviewFacts,
+    val draft: StudioPluginsPreviewFacts,
 )
 
 internal enum class StudioPluginTarget(
@@ -34,14 +41,38 @@ internal class StudioPluginsSection(
             openPlugin = openPlugin,
             unlock = unlock,
         )
-    val content = StudioSectionContent(StudioSettingsSection.PLUGINS, controls) {}
+    private var previews: PluginsPreviews? = null
+    private var mode = PreviewMode.CURRENT
+    val content = StudioSectionContent(StudioSettingsSection.PLUGINS, controls, ::selectPreview)
 
     fun render(
         fields: StudioFields,
         availability: StudioPluginsAvailability,
         isEditable: Boolean,
         chromeBadgePending: Boolean = false,
+        comparison: StudioPluginsComparison? = null,
     ) {
-        controls.render(StudioPluginsEditing.settings(fields), availability, isEditable, chromeBadgePending)
+        val draft = StudioPluginsEditing.settings(fields)
+        previews =
+            comparison?.let {
+                val current = StudioPluginsEditing.settings(it.currentFields)
+                PluginsPreviews(
+                    StudioPluginsPreview.prepare(current, it.current),
+                    StudioPluginsPreview.prepare(draft, it.draft),
+                )
+            }
+        controls.render(draft, availability, isEditable, chromeBadgePending)
+        selectPreview(mode)
+    }
+
+    private fun selectPreview(selected: PreviewMode) {
+        mode = selected
+        val next = if (selected == PreviewMode.CURRENT) previews?.current else previews?.draft
+        controls.showPreview(next)
     }
 }
+
+private data class PluginsPreviews(
+    val current: StudioPluginsPreviewView,
+    val draft: StudioPluginsPreviewView,
+)
