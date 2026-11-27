@@ -257,10 +257,16 @@ jobs:
           fail_ci_if_error: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Set up uv for test timing export
+        if: success()
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: scripts/uv.lock
       - name: Summarize test timings
         if: success()
         run: >-
-          python3 scripts/summarize-test-timings.py
+          uv run --project scripts --locked --no-dev python scripts/summarize-test-timings.py
           --results-dir build/test-results
           --output build/reports/ci-test-timings.json
       - name: Upload test timings

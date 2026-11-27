@@ -8,9 +8,11 @@ import json
 import math
 import re
 import sys
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import TypedDict
+from xml.etree.ElementTree import ParseError
+
+from defusedxml.ElementTree import parse as parse_xml
 
 TEST_TASKS = ("integrationTest", "test")
 SUITE_NAME = re.compile(r"[\w$]+(?:\.[\w$]+)*")
@@ -27,11 +29,13 @@ class SuiteTiming(TypedDict):
 
 
 def read_suite_timing(task: str, report: Path) -> SuiteTiming:
-    suite = ET.parse(report).getroot()
+    suite = parse_xml(report, forbid_dtd=True).getroot()
+    if suite is None or suite.tag != "testsuite":
+        raise ValueError("Invalid test suite element")
     name = suite.attrib["name"]
     seconds = float(suite.attrib["time"])
-    if suite.tag != "testsuite" or SUITE_NAME.fullmatch(name) is None:
-        raise ValueError("Invalid test suite name or element")
+    if SUITE_NAME.fullmatch(name) is None:
+        raise ValueError("Invalid test suite name")
     if not math.isfinite(seconds) or seconds < 0:
         raise ValueError("Invalid suite duration")
 
@@ -68,7 +72,7 @@ def main() -> int:
             if not reports:
                 raise ValueError("No suite reports")
             timings.extend(read_suite_timing(task, report) for report in reports)
-        except (ET.ParseError, KeyError, OSError, ValueError):
+        except (ParseError, KeyError, OSError, ValueError):
             print(f"Could not summarize {task} JUnit reports.", file=sys.stderr)
             return 1
 

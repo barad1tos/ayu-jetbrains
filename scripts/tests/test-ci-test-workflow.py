@@ -77,14 +77,25 @@ class CiTestWorkflowTest(unittest.TestCase):
             "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository",
             steps["Upload coverage to Codecov"]["if"],
         )
-        self.assertIn("Summarize test timings", steps)
-        self.assertIn("Upload test timings", steps)
+        timing_steps = (
+            "Set up uv for test timing export",
+            "Summarize test timings",
+            "Upload test timings",
+        )
         self.assertEqual(
-            "python3 scripts/summarize-test-timings.py --results-dir build/test-results --output "
-            + TIMINGS_PATH,
+            ["Upload coverage to Codecov", *timing_steps],
+            [
+                name
+                for name in steps
+                if name in ("Upload coverage to Codecov", *timing_steps)
+            ],
+        )
+        self.assertEqual(
+            "uv run --project scripts --locked --no-dev python scripts/summarize-test-timings.py "
+            "--results-dir build/test-results --output " + TIMINGS_PATH,
             steps["Summarize test timings"]["run"],
         )
-        for name in ("Summarize test timings", "Upload test timings"):
+        for name in timing_steps:
             self.assertIn(
                 steps[name].get("if"), (None, "${{ success() }}", "success()")
             )
@@ -180,6 +191,21 @@ class TestTimingReportTest(unittest.TestCase):
             "private-stderr-marker",
         ):
             self.assertNotIn(marker, report + result.stdout + result.stderr)
+
+    def test_rejects_doctype_declarations(self) -> None:
+        results, output = self.timing_paths()
+        write_report(results, "test", junit_report("dev.ayuislands.UnitTest"))
+        write_report(
+            results,
+            "integrationTest",
+            "<!DOCTYPE testsuite>" + junit_report("dev.ayuislands.SampleTest"),
+        )
+
+        result = summarize(results, output)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("integrationTest JUnit reports", result.stderr)
+        self.assertFalse(output.exists())
 
     def test_rejects_missing_or_invalid_phase(self) -> None:
         results, output = self.timing_paths()
