@@ -495,6 +495,49 @@ class StudioApplyCoordinatorTest {
         }
 
     @Test
+    fun `the next command settles an accepted appointment with a retained journal`() =
+        exercise(
+            document = rotationDocument(resume = RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM)),
+        ) { fixture ->
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.PersistCheckpoint>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+            fixture.rejectNextCleanup()
+
+            val first = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(first.execution.settlement)
+            val surviving = assertIs<StoreLoad.Recovering>(fixture.store.load())
+            assertEquals(pending.document, surviving.document)
+            val repeat = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            assertEquals(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost), repeat.execution)
+            val ready = assertIs<StoreLoad.Ready>(fixture.store.load())
+            assertEquals(pending.document, ready.document)
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(emptyList(), fixture.events)
+        }
+
+    @Test
+    fun `retry settles an appointment whose commit acknowledgement was lost`() =
+        exercise(
+            document = rotationDocument(resume = RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM)),
+        ) { fixture ->
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.PersistCheckpoint>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+            fixture.loseNextCommitAcknowledgement()
+
+            val first = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            assertIs<ApplySettlement.RecoveryRequired>(first.execution.settlement)
+            val retried = requireNotNull(fixture.coordinator.retry(APPLY))
+            val accepted = assertIs<ApplySettlement.Accepted>(retried.settlement).document
+            assertEquals(command.proposed.checkpoint, accepted.runtime.rotation)
+            assertEquals(fixture.initial.currents, accepted.currents)
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(emptyList(), fixture.events)
+        }
+
+    @Test
     fun `rotation retains an unreadable preparation and rolls it back before the next command`() =
         exercise(document = rotationDocument()) { fixture ->
             val mode = AccentRotationMode.PRESET
@@ -764,7 +807,7 @@ class StudioApplyCoordinatorTest {
         ): StudioRotationCommands =
             StudioRotationCommands(
                 store = store,
-                submitSchedule = coordinator::submitRotationCommand,
+                submitSchedule = coordinator::submitRotationSchedule,
                 ioDispatcher = ioDispatcher,
                 observe = observe,
                 submitStep = { prepare ->
@@ -869,6 +912,14 @@ class StudioApplyCoordinatorTest {
             files.readFailurePath = "pending.xml"
         }
 
+        fun rejectNextCleanup() {
+            files.rejectCleanup = true
+        }
+
+        fun loseNextCommitAcknowledgement() {
+            files.publicationFault = PublicationFault.ACKNOWLEDGEMENT_LOST
+        }
+
         fun loseNextPrepareAcknowledgement() {
             files.losePrepare = true
             afterNextPreparation(::failNextCleanupRead)
@@ -884,6 +935,7 @@ class StudioApplyCoordinatorTest {
     private class Faults(
         private val delegate: StudioFiles,
     ) : StudioFiles by delegate {
+        var rejectCleanup = false
         var loseCleanup = false
         var losePrepare = false
         var readFailurePath: String? = null
@@ -922,6 +974,10 @@ class StudioApplyCoordinatorTest {
         }
 
         override fun remove(name: String) {
+            if (rejectCleanup && name == "pending.xml") {
+                rejectCleanup = false
+                throw IOException("Journal removal unavailable")
+            }
             delegate.remove(name)
             if (loseCleanup && name == "pending.xml") {
                 loseCleanup = false

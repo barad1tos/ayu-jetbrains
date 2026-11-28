@@ -30,7 +30,7 @@ internal sealed interface RotationCommandOutcome {
 /** Runs emitted commands outside the scheduler callback, through the shared Apply lane. */
 internal class StudioRotationCommands(
     private val store: StudioAppearanceStore,
-    private val submitSchedule: suspend (execute: suspend () -> RotationCommandOutcome) -> RotationCommandOutcome,
+    private val submitSchedule: suspend (write: suspend () -> RotationScheduleWrite?) -> RotationCommandOutcome,
     private val ioDispatcher: CoroutineDispatcher,
     private val observe: suspend () -> RotationObservation?,
     private val submitStep: suspend (prepare: suspend () -> RotationStepAdmission) -> RotationCommandOutcome,
@@ -45,19 +45,16 @@ internal class StudioRotationCommands(
 
     private suspend fun persist(command: RotationRuntimeCommand.PersistCheckpoint): RotationCommandOutcome =
         submitSchedule {
-            val current =
-                observe() ?: return@submitSchedule RotationCommandOutcome.Rejected(RotationStepAdmission.Stale)
-            val execution =
-                withContext(ioDispatcher) {
-                    commitRotationSchedule(
-                        store,
-                        command,
-                        current.snapshot,
-                        current.lease.documentRevision,
-                        operationId(),
-                    )
-                }
-            RotationCommandOutcome.Executed(execution)
+            val current = observe() ?: return@submitSchedule null
+            withContext(ioDispatcher) {
+                commitRotationSchedule(
+                    store,
+                    command,
+                    current.snapshot,
+                    current.lease.documentRevision,
+                    operationId(),
+                )
+            }
         }
 
     private suspend fun prepareStep(command: RotationRuntimeCommand.StepDue): RotationStepAdmission {
