@@ -1,10 +1,25 @@
 package dev.ayuislands.studio.runtime
 
 import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.rotation.ClockSample
+import dev.ayuislands.rotation.FullIntervalReason
+import dev.ayuislands.rotation.RotationAvailability
 import dev.ayuislands.rotation.RotationIntent
+import dev.ayuislands.rotation.RotationResume
+import dev.ayuislands.rotation.RotationRuntimeCommand
+import dev.ayuislands.rotation.RotationRuntimeEvent
+import dev.ayuislands.rotation.RotationRuntimeSnapshot
+import dev.ayuislands.rotation.RotationRuntimeState
 import dev.ayuislands.rotation.RotationStepInputs
 import dev.ayuislands.rotation.RotationStepPlan
 import dev.ayuislands.rotation.RotationStepPlanner
+import dev.ayuislands.rotation.RotationTimerGeneration
+import dev.ayuislands.rotation.transitionRotationRuntime
+import dev.ayuislands.studio.FaultingStudioFiles
+import dev.ayuislands.studio.IoBoundary
+import dev.ayuislands.studio.IoEvent
+import dev.ayuislands.studio.IoOperation
 import dev.ayuislands.studio.migration.MigrationResult
 import dev.ayuislands.studio.migration.StudioLegacyMigration
 import dev.ayuislands.studio.model.AcceptanceLease
@@ -29,12 +44,17 @@ import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioLegacyCapture
 import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.session.ApplyExecution
+import dev.ayuislands.studio.session.ApplyFailure
+import dev.ayuislands.studio.session.ApplySettlement
+import dev.ayuislands.studio.session.SettlementProblem
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class StudioRotationSettlementTest {
@@ -217,9 +237,162 @@ class StudioRotationSettlementTest {
         }
     }
 
+    @Test
+    fun `schedule acceptance saves only the appointment and rejects an already consumed request`() {
+        open().use { store ->
+            val accepted = initialize(store, RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM))
+            val request = scheduleRequest(accepted)
+            val attempt = UUID(0, 10)
+
+            val execution = commitRotationSchedule(store, request, request.source, attempt)
+            assertNull(execution.failure)
+            val committed = assertIs<ApplySettlement.Accepted>(execution.settlement).document
+            assertEquals(
+                accepted.header.copy(revision = accepted.header.revision + 1, transactionId = attempt.toString()),
+                committed.header,
+            )
+            assertEquals(accepted.runtime.copy(rotation = request.proposed.checkpoint), committed.runtime)
+            assertEquals(accepted, committed.copy(header = accepted.header, runtime = accepted.runtime))
+            assertEquals(StoreLoad.Ready(committed), store.load())
+
+            assertEquals(
+                ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost),
+                commitRotationSchedule(store, request, request.source, UUID(0, 11)),
+            )
+            assertEquals(StoreLoad.Ready(committed), store.load())
+        }
+    }
+
+    @Test
+    fun `a schedule request loses admission when a fresh observation no longer allows rotation`() {
+        open().use { store ->
+            val accepted = initialize(store, RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM))
+            val request = scheduleRequest(accepted)
+            val disabled = request.source.copy(intent = request.source.intent.copy(enabled = false))
+
+            assertEquals(
+                ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost),
+                commitRotationSchedule(store, request, disabled, UUID(0, 12)),
+            )
+            assertEquals(StoreLoad.Ready(accepted), store.load())
+        }
+    }
+
+    @Test
+    fun `a proved failed checkpoint write removes its empty journal and preserves the previous appointment`() {
+        val files = FaultingStudioFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val accepted = initialize(store, RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM))
+            val request = scheduleRequest(accepted)
+            files.arm(IoEvent(IoOperation.REPLACE, "state.xml", IoBoundary.BEFORE))
+
+            assertEquals(
+                ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.Commit(StoreIssue.IO)),
+                commitRotationSchedule(store, request, request.source, UUID(0, 13)),
+            )
+            assertEquals(StoreLoad.Ready(accepted), store.load())
+        }
+    }
+
+    @Test
+    fun `an unconfirmed checkpoint readback retains its journal for recovery`() {
+        val files = FaultingStudioFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val accepted = initialize(store, RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM))
+            val request = scheduleRequest(accepted)
+            val attempt = UUID(0, 14)
+            files.arm(
+                IoEvent(IoOperation.REPLACE, "state.xml", IoBoundary.AFTER),
+                IoEvent(IoOperation.READ, "state.xml", IoBoundary.BEFORE),
+            )
+
+            val execution = commitRotationSchedule(store, request, request.source, attempt)
+            assertIs<ApplySettlement.RecoveryRequired>(execution.settlement)
+            assertIs<ApplyFailure.Commit>(execution.failure)
+            val observed = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(RecoveryPurpose.RotationSchedule(attempt), observed.journal.recovery.purpose)
+            assertEquals(emptyList(), observed.journal.receipts)
+            assertEquals(request.proposed.checkpoint, observed.document?.runtime?.rotation)
+            assertEquals(CommitResolution.Committed, store.resolveOutcome(observed.journal.token))
+        }
+    }
+
+    @Test
+    fun `a lost preparation acknowledgement retains the runtime journal without writing the appointment`() {
+        val files = FaultingStudioFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val accepted = initialize(store, RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM))
+            val request = scheduleRequest(accepted)
+            val attempt = UUID(0, 16)
+            files.arm(IoEvent(IoOperation.REPLACE, "pending.xml", IoBoundary.AFTER))
+
+            val execution = commitRotationSchedule(store, request, request.source, attempt)
+            assertEquals(
+                ApplyExecution(
+                    ApplySettlement.RecoveryRequired(SettlementProblem.Journal(StoreIssue.IO)),
+                    ApplyFailure.Prepare(StoreIssue.IO),
+                ),
+                execution,
+            )
+            val retained = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(accepted, retained.document)
+            assertEquals(RecoveryPurpose.RotationSchedule(attempt), retained.journal.recovery.purpose)
+            assertEquals(CommitResolution.NotCommitted, store.resolveOutcome(retained.journal.token))
+        }
+    }
+
+    @Test
+    fun `a confirmed appointment with a pending journal is not reported as fully settled`() {
+        val files = FaultingStudioFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val accepted = initialize(store, RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM))
+            val request = scheduleRequest(accepted)
+            files.arm(IoEvent(IoOperation.REMOVE, "pending.xml", IoBoundary.BEFORE))
+
+            val execution = commitRotationSchedule(store, request, request.source, UUID(0, 15))
+            assertNull(execution.failure)
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(execution.settlement)
+            assertEquals(SettlementProblem.Journal(StoreIssue.IO), pending.problem)
+            assertEquals(request.proposed.checkpoint, pending.document.runtime.rotation)
+            val observed = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(pending.document, observed.document)
+            val blocked = commitRotationSchedule(store, request, request.source, UUID(0, 17))
+            assertEquals(
+                ApplyExecution(
+                    ApplySettlement.RecoveryRequired(SettlementProblem.Journal(StoreIssue.RECOVERY_REQUIRED)),
+                    ApplyFailure.Prepare(StoreIssue.RECOVERY_REQUIRED),
+                ),
+                blocked,
+            )
+            assertEquals(observed, store.load())
+            assertEquals(JournalResult.Acknowledged, store.finishAccepted(observed.journal.token))
+            assertEquals(StoreLoad.Ready(pending.document), store.load())
+        }
+    }
+
+    private fun scheduleRequest(document: StudioDocument): RotationRuntimeCommand.PersistCheckpoint {
+        val snapshot =
+            RotationRuntimeSnapshot(
+                checkpoint = requireNotNull(document.runtime.rotation),
+                intent = RotationIntent(true, "PRESET", 6),
+                availability = RotationAvailability(LicenseEntitlement.LICENSED, false, AyuVariant.MIRAGE, true, false),
+                generation = RotationTimerGeneration(service = 2, target = 3),
+            )
+        val transition =
+            transitionRotationRuntime(
+                RotationRuntimeState.Loading,
+                RotationRuntimeEvent.Reconcile(snapshot),
+                ClockSample(3_600_000L, 0),
+            )
+        return assertIs<RotationRuntimeCommand.PersistCheckpoint>(transition.commands.single())
+    }
+
     private fun open(): StudioAppearanceStore = StudioAppearanceStore(openStudioFiles(directory))
 
-    private fun initialize(store: StudioAppearanceStore): StudioDocument {
+    private fun initialize(
+        store: StudioAppearanceStore,
+        resume: RotationResume? = null,
+    ): StudioDocument {
         val settings =
             """
             <application>
@@ -248,7 +421,14 @@ class StudioRotationSettlementTest {
                 ),
             )
         val capture = assertIs<LegacyCapture.Ready>(StudioLegacyCapture.read(source, "initial", "/work"))
-        val document = assertIs<MigrationResult.Ready>(StudioLegacyMigration.plan(capture.snapshot)).document
+        val migrated = assertIs<MigrationResult.Ready>(StudioLegacyMigration.plan(capture.snapshot)).document
+        val document =
+            if (resume == null) {
+                migrated
+            } else {
+                val checkpoint = requireNotNull(migrated.runtime.rotation).copy(resume = resume)
+                migrated.copy(runtime = migrated.runtime.copy(rotation = checkpoint))
+            }
         val target = requireNotNull(document.runtime.rotation).owner.target
         assertEquals(StoreLoad.Empty, store.load())
         assertEquals(JournalResult.Acknowledged, store.preserveSource(source))
