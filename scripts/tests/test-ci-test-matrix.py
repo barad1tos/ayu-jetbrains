@@ -197,6 +197,7 @@ class TestMatrixBenchmark(unittest.TestCase):
             )
             result = self.run_cli("coverage", report, output)
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((output / "report.xml").read_bytes(), report.read_bytes())
         mismatch = self.run_cli("compare", baseline, candidate)
         self.assertNotEqual(mismatch.returncode, 0)
         self.assertIn("coverage", mismatch.stderr)

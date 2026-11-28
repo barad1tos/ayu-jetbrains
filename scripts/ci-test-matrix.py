@@ -271,6 +271,7 @@ def coverage(report: Path, output: Path) -> None:
         output / "coverage.json",
         {"digest": digest(sorted(lines.items())), "covered": hits, "missed": missed},
     )
+    shutil.copyfile(report, output / "report.xml")
 
 
 def compare(baseline: Path, candidate: Path) -> None:

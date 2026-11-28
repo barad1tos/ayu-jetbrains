@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BENCHMARK_UNIT_SHARDS: "4"
+  BENCHMARK_UNIT_SHARDS: "2"
 
 jobs:
   baseline:
@@ -170,9 +170,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: benchmark-candidate-${{ github.run_attempt }}
-          path: |
-            benchmark/candidate/inventory.json
-            benchmark/candidate/coverage.json
+          path: benchmark/candidate/*.* # Top-level results, including the Kover XML.
           if-no-files-found: error
           retention-days: 5
 
