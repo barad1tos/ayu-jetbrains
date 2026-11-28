@@ -2223,11 +2223,16 @@ class StudioOwnerJournalTest {
                 }
             }
         } finally {
-            withContext(glowEdt) {
-                mount.manager.dispose()
-                KeyboardFocusManager.setCurrentKeyboardFocusManager(previousFocus)
+            try {
+                withContext(glowEdt) {
+                    mount.manager.dispose()
+                    KeyboardFocusManager.setCurrentKeyboardFocusManager(previousFocus)
+                }
+                // Disposal queues pane removal and stops the panes' fade timers on the EDT.
+                withContext(glowEdt) { mount.verifyEmpty() }
+            } finally {
+                unmockkObject(AyuIslandsSettings.Companion)
             }
-            unmockkObject(AyuIslandsSettings.Companion)
         }
     }
 
