@@ -37,15 +37,11 @@ internal data class RotationCandidate(
 
 internal const val ROTATION_FAILURE_LIMIT = 3
 
-/** Keeps the selected color and the number of attempts whose writes have been restored. */
+/** Keeps the selected color and the actual attempt whose native writes were restored. */
 internal data class RotationRetry(
     val candidate: RotationCandidate,
-    val failures: Int = 0,
-) {
-    init {
-        require(failures in 0..ROTATION_FAILURE_LIMIT) { "Invalid restored rotation failure count" }
-    }
-}
+    val restoredAttempt: UUID? = null,
+)
 
 internal enum class FullIntervalReason { FOLLOW_SYSTEM, INTERRUPTED_HANDOFF, REPAIRED_SCHEDULE, RESTORED_RETRY }
 
@@ -73,6 +69,8 @@ internal sealed interface RuntimeFault {
     data object CommandRejected : RuntimeFault
 
     data object RecoveryPending : RuntimeFault
+
+    data object SessionCircuitBreaker : RuntimeFault
 
     data class DurableRecovery(
         val code: String,

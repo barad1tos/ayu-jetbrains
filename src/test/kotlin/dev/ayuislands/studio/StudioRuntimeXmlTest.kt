@@ -66,10 +66,26 @@ class StudioRuntimeXmlTest {
     fun `previous retry XML loads without claiming any earlier restored failures`() {
         val saved = checkpoint()
         val retry = requireNotNull(saved.retry)
-        val legacy = saved.copy(retry = retry.copy(failures = 0))
+        val legacy = saved.copy(retry = retry.copy(restoredAttempt = null))
         val encoded = StudioRotationXml.write(legacy)
+        val legacyRetry = encoded.child("retry")
+        val counted = legacyRetry.copy(attributes = legacyRetry.attributes + ("failures" to "2"))
+        val oldCheckpoint =
+            StudioXmlNode(
+                encoded.name,
+                encoded.attributes,
+                encoded.children.map {
+                    if (it ==
+                        legacyRetry
+                    ) {
+                        counted
+                    } else {
+                        it
+                    }
+                },
+            )
         assertEquals(false, encoded.child("retry").attributes.containsKey("failures"))
-        assertEquals(legacy, StudioRotationXml.read(StudioXml.parse(StudioXml.write(encoded))))
+        assertEquals(legacy, StudioRotationXml.read(StudioXml.parse(StudioXml.write(oldCheckpoint))))
     }
 
     @Test
@@ -131,7 +147,7 @@ class StudioRuntimeXmlTest {
             lastSuccessfulStepEpochMillis = 1000,
             output = RotationOutput(owner, AyuVariant.DARK, "#FFCC66"),
             schedule = RotationSchedule(1000, 10_801_000, 10_800_000, 11),
-            retry = RotationRetry(retry, failures = 2),
+            retry = RotationRetry(retry, restoredAttempt = UUID(0, 2)),
             recoveryFault = RuntimeFault.DurableRecovery("interrupted"),
         )
     }

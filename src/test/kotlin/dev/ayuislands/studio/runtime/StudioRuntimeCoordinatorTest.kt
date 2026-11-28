@@ -5,12 +5,16 @@ import dev.ayuislands.licensing.LicenseEntitlement
 import dev.ayuislands.rotation.ClockSample
 import dev.ayuislands.rotation.FullIntervalReason
 import dev.ayuislands.rotation.RotationAvailability
+import dev.ayuislands.rotation.RotationCompletionPlan
 import dev.ayuislands.rotation.RotationIntent
 import dev.ayuislands.rotation.RotationResume
 import dev.ayuislands.rotation.RotationRuntimeCheckpoint
 import dev.ayuislands.rotation.RotationRuntimeCommand
 import dev.ayuislands.rotation.RotationRuntimeSnapshot
 import dev.ayuislands.rotation.RotationSchedule
+import dev.ayuislands.rotation.RotationStepInputs
+import dev.ayuislands.rotation.RotationStepPlan
+import dev.ayuislands.rotation.RotationStepPlanner
 import dev.ayuislands.rotation.RotationTimerGeneration
 import dev.ayuislands.rotation.RuntimeFault
 import dev.ayuislands.rotation.RuntimeOwner
@@ -33,6 +37,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import java.util.UUID
 import java.util.concurrent.Delayed
 import java.util.concurrent.FutureTask
 import java.util.concurrent.RejectedExecutionException
@@ -46,6 +51,64 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class StudioRuntimeCoordinatorTest {
+    @Test
+    fun `three restored failures stop this service and a new service resumes the saved appointment`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            val start = fixture.accepted
+            val inputs = RotationStepInputs(start.checkpoint.owner, start.intent, AyuVariant.MIRAGE)
+            val candidate =
+                assertIs<RotationStepPlan.Ready>(
+                    RotationStepPlanner.planStep(start.checkpoint, inputs, UUID(0, 1)),
+                ).candidate
+            var attempts = 0L
+            fixture.execute = { command ->
+                val source = assertIs<RotationRuntimeCommand.StepDue>(command).source
+                attempts++
+                val restored =
+                    assertIs<RotationCompletionPlan.Ready>(
+                        RotationStepPlanner.planRestoredRetry(
+                            source.checkpoint,
+                            inputs,
+                            candidate,
+                            attempts * 6 * HOUR,
+                            UUID(0, attempts),
+                        ),
+                    ).checkpoint
+                fixture.accepted = source.copy(checkpoint = restored)
+                fixture.acceptedResult()
+            }
+            fixture.coordinator.refreshRotation()
+            for (interval in 1L..3L) {
+                fixture.moveTime(6 * interval, 6 * interval)
+                fixture.scheduler.wakes
+                    .last()
+                    .run()
+                drainCommands()
+                fixture.coordinator.refreshRotation()
+            }
+            assertEquals(3L, attempts)
+            assertEquals(3, fixture.scheduler.wakes.size)
+            assertEquals(
+                listOf(RotationRuntimeCommand.ReportFault(RuntimeFault.SessionCircuitBreaker)),
+                fixture.delivered.filterIsInstance<RotationRuntimeCommand.ReportFault>(),
+            )
+            fixture.coordinator.disposeRotation()
+
+            val restarted = Fixture(this)
+            restarted.accepted = fixture.accepted
+            restarted.moveTime(18L, 0L)
+            restarted.coordinator.refreshRotation()
+            assertEquals(
+                6 * HOUR,
+                restarted.scheduler.wakes
+                    .single()
+                    .delayMillis,
+            )
+            assertTrue(restarted.delivered.isEmpty())
+            restarted.coordinator.disposeRotation()
+        }
+
     @Test
     fun `duplicate observations retain one appointment and a wake is consumed once`() =
         runBlocking {
@@ -512,7 +575,7 @@ class StudioRuntimeCoordinatorTest {
         private val commands = mutableListOf<RotationRuntimeCommand>()
         private var currentClock = ClockSample(0, 0)
 
-        val delivered: List<RotationRuntimeCommand> get() = commands
+        val delivered: List<RotationRuntimeCommand> get() = commands.toList()
 
         val coordinator =
             StudioRuntimeCoordinator(
@@ -596,7 +659,14 @@ class StudioRuntimeCoordinatorTest {
                         schedule = RotationSchedule(0, 6 * HOUR, 6 * HOUR, 1),
                     ),
                 intent = RotationIntent(enabled = true, modeRaw = null, intervalHoursRaw = 6),
-                availability = RotationAvailability(LicenseEntitlement.LICENSED, false, AyuVariant.MIRAGE, true, false),
+                availability =
+                    RotationAvailability(
+                        LicenseEntitlement.LICENSED,
+                        effectiveFollowSystem = false,
+                        variant = AyuVariant.MIRAGE,
+                        targetValid = true,
+                        recoveryPending = false,
+                    ),
                 generation = RotationTimerGeneration(service = 4, target = 8),
             )
     }

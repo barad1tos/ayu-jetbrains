@@ -303,7 +303,9 @@ internal class StudioApplyCoordinator(
         completedAt: () -> Long,
     ): ApplyFailure? {
         if (!qualifies(lease)) return ApplyFailure.LeaseLost
-        applyOwners(work, lease)?.let { return it }
+        applyOwners(work, lease)?.let { failure ->
+            return if (failure.canRetryRotation() && !qualifies(lease)) ApplyFailure.LeaseLost else failure
+        }
         val outcome = RotationEffectsOutcome.Applied(completedAt())
         return when (val proposal = settleRotationEffects(phase, phase.token, outcome, phase.work.context)) {
             is RotationStepPhase.Committing -> {

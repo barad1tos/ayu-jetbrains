@@ -757,7 +757,14 @@ class StudioRotationSettlementTest {
             RotationRuntimeSnapshot(
                 checkpoint = requireNotNull(document.runtime.rotation),
                 intent = RotationIntent(true, mode.name, 6),
-                availability = RotationAvailability(LicenseEntitlement.LICENSED, false, AyuVariant.MIRAGE, true, false),
+                availability =
+                    RotationAvailability(
+                        LicenseEntitlement.LICENSED,
+                        effectiveFollowSystem = false,
+                        variant = AyuVariant.MIRAGE,
+                        targetValid = true,
+                        recoveryPending = false,
+                    ),
                 generation = RotationTimerGeneration(service = 2, target = 3),
             )
         val transition =

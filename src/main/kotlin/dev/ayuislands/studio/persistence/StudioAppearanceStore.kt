@@ -114,10 +114,14 @@ internal class StudioAppearanceStore(
         return journalChange {
             val journal = requireJournal(token)
             if (journal.hasRotationRetry()) return@journalChange
-            if (observeDecision(journal).resolution != CommitResolution.NotCommitted) {
+            val decision = observeDecision(journal)
+            if (decision.resolution != CommitResolution.NotCommitted) {
                 throw StoreDataException(StoreIssue.RECOVERY_REQUIRED)
             }
-            val staged = journal.planRotationRetry(restoredAt) ?: throw StoreDataException(StoreIssue.INVALID_CANDIDATE)
+            val previous = decision.current?.document?.runtime
+            val staged =
+                previous?.let { journal.planRotationRetry(it, restoredAt) }
+                    ?: throw StoreDataException(StoreIssue.INVALID_CANDIDATE)
             phase = io.retainJournal(phase as StorePhase.Loaded, staged)
         }
     }

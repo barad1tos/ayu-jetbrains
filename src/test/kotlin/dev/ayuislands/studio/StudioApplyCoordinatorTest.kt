@@ -287,6 +287,41 @@ class StudioApplyCoordinatorTest {
         }
 
     @Test
+    fun `a failed Accent write whose lease was lost does not admit a retry`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.loseLeaseBeforeCommit = true
+            fixture.failApply = true
+
+            val result = fixture.applyRotation(prepared)
+            assertEquals(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost), result)
+            assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+        }
+
+    @Test
+    fun `a rejected rotation commit retries without recording a successful step`() =
+        exercise(document = rotationDocument(retainAccent = true)) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.publicationFault = PublicationFault.REJECTED
+
+            val execution = fixture.applyRotation(prepared)
+            val accepted = assertIs<ApplySettlement.Accepted>(execution.settlement).document
+            val before = requireNotNull(fixture.initial.runtime.rotation)
+            val restored = requireNotNull(accepted.runtime.rotation)
+            assertEquals(prepared.phase.work.candidate, restored.retry?.candidate)
+            assertEquals(before.sequenceCursorRaw, restored.sequenceCursorRaw)
+            assertEquals(before.successfulStepSerial, restored.successfulStepSerial)
+            assertEquals(before.lastSuccessfulStepEpochMillis, restored.lastSuccessfulStepEpochMillis)
+            assertEquals(before.output, restored.output)
+            assertEquals(fixture.initial.runtime.effectiveContinuation, accepted.runtime.effectiveContinuation)
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+        }
+
+    @Test
     fun `a journaled Accent step whose lease has expired releases it before the first write`() =
         exercise(document = rotationDocument()) { fixture ->
             val prepared = fixture.prepareRotation()
@@ -463,7 +498,7 @@ class StudioApplyCoordinatorTest {
             val rotation = requireNotNull(accepted.runtime.rotation)
             val retry = requireNotNull(rotation.retry)
             assertEquals(restored.step?.candidate, retry.candidate)
-            assertEquals(1, retry.failures)
+            assertEquals(APPLY, retry.restoredAttempt)
             assertEquals(due.source.checkpoint.sequenceCursorRaw, rotation.sequenceCursorRaw)
             assertEquals(due.source.checkpoint.output, rotation.output)
             assertEquals(fixture.initial.currents, accepted.currents)
@@ -979,8 +1014,8 @@ class StudioApplyCoordinatorTest {
                             LicenseEntitlement.LICENSED,
                             followingSystem,
                             AyuVariant.MIRAGE,
-                            true,
-                            false,
+                            targetValid = true,
+                            recoveryPending = false,
                         ),
                     generation = RotationTimerGeneration(service = 1, target = 1),
                 )
@@ -1086,9 +1121,9 @@ class StudioApplyCoordinatorTest {
                         assertEquals(receipt, pending.journal.receipts.single())
                         events.add("apply")
                         native = true
+                        if (owner == EffectOwner.ACCENT && loseLeaseBeforeCommit) leaseValid = false
                         if (failApply) error("Native mutation failed after changing the value")
                         receipt = receipt.copy(status = RestoreStatus.OWNED)
-                        if (owner == EffectOwner.ACCENT && loseLeaseBeforeCommit) leaseValid = false
                     }
 
                 override suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation {
