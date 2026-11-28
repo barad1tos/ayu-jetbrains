@@ -1,6 +1,23 @@
 package dev.ayuislands.studio
 
+import dev.ayuislands.accent.AccentResolver
+import dev.ayuislands.accent.AyuVariant
+import dev.ayuislands.accent.ResolvedAccent
+import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.rotation.ClockSample
+import dev.ayuislands.rotation.RotationAvailability
+import dev.ayuislands.rotation.RotationIntent
+import dev.ayuislands.rotation.RotationResume
+import dev.ayuislands.rotation.RotationRuntimeCheckpoint
+import dev.ayuislands.rotation.RotationRuntimeCommand
+import dev.ayuislands.rotation.RotationRuntimeEvent
+import dev.ayuislands.rotation.RotationRuntimeSnapshot
+import dev.ayuislands.rotation.RotationRuntimeState
+import dev.ayuislands.rotation.RotationTimerGeneration
+import dev.ayuislands.rotation.RuntimeOwner
+import dev.ayuislands.rotation.transitionRotationRuntime
 import dev.ayuislands.studio.model.AcceptanceBlock
+import dev.ayuislands.studio.model.AcceptanceLease
 import dev.ayuislands.studio.model.AcceptanceObservation
 import dev.ayuislands.studio.model.ApplyContext
 import dev.ayuislands.studio.model.ApplyRequest
@@ -9,8 +26,11 @@ import dev.ayuislands.studio.model.DraftTracking
 import dev.ayuislands.studio.model.EffectObservation
 import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.RawValue
+import dev.ayuislands.studio.model.StudioAccentContinuation
 import dev.ayuislands.studio.model.StudioDocument
+import dev.ayuislands.studio.model.StudioEffectiveContinuation
 import dev.ayuislands.studio.model.StudioList
+import dev.ayuislands.studio.model.StudioProjectKey
 import dev.ayuislands.studio.model.StudioRuntimeState
 import dev.ayuislands.studio.model.StudioSessionRecord
 import dev.ayuislands.studio.model.StudioTarget
@@ -30,6 +50,9 @@ import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioDraftStore
 import dev.ayuislands.studio.persistence.StudioFiles
 import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.runtime.RotationStepAdmission
+import dev.ayuislands.studio.runtime.RotationStepAttempt
+import dev.ayuislands.studio.runtime.prepareRotationStep
 import dev.ayuislands.studio.session.ApplyExecution
 import dev.ayuislands.studio.session.ApplyFailure
 import dev.ayuislands.studio.session.ApplyInputs
@@ -179,6 +202,139 @@ class StudioApplyCoordinatorTest {
         }
 
     @Test
+    fun `a journaled rotation keeps its output after a lost commit acknowledgement and applies once`() =
+        exercise(document = rotationDocument(retainAccent = true)) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.publicationFault = PublicationFault.ACKNOWLEDGEMENT_LOST
+
+            val execution = fixture.applyRotation(prepared)
+            val accepted = assertIs<ApplySettlement.Accepted>(execution.settlement).document
+            assertNull(execution.failure)
+            val rotation = requireNotNull(accepted.runtime.rotation)
+            val candidate = prepared.phase.work.candidate
+            assertEquals(candidate.hex, rotation.output?.hex)
+            assertEquals(candidate.nextCursor, rotation.sequenceCursorRaw)
+            assertEquals(1L, rotation.successfulStepSerial)
+            assertEquals(ROTATION_COMPLETED_AT, rotation.lastSuccessfulStepEpochMillis)
+            assertEquals(ROTATION_COMPLETED_AT, rotation.schedule?.scheduledAtEpochMillis)
+            assertEquals(
+                fixture.initial,
+                accepted.copy(header = fixture.initial.header, runtime = fixture.initial.runtime),
+            )
+            assertEquals(
+                requireNotNull(fixture.initial.runtime.effectiveContinuation).copy(accent = null),
+                accepted.runtime.effectiveContinuation,
+            )
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertEquals(execution, fixture.applyRotation(prepared))
+            assertTrue(fixture.native)
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+        }
+
+    @Test
+    fun `a failed Accent write restores the recorded field and leaves accepted rotation history alone`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.failApply = true
+
+            val execution = fixture.applyRotation(prepared)
+            assertEquals(ApplySettlement.NotAccepted, execution.settlement)
+            assertIs<ApplyFailure.Effects>(execution.failure)
+            assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+        }
+
+    @Test
+    fun `a journaled Accent step whose lease has expired releases it before the first write`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.expireLeaseBeforePrepare = true
+
+            val execution = fixture.applyRotation(prepared)
+            assertEquals(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost), execution)
+            assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "release"), fixture.events)
+        }
+
+    @Test
+    fun `pending rotation cleanup settles the same commit without reacquiring its Accent operation`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.loseApplyCleanup = true
+            val first = fixture.applyRotation(prepared)
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(first.settlement)
+            assertFalse(fixture.coordinator.acknowledge(APPLY))
+
+            val finished = assertIs<ApplySettlement.Accepted>(fixture.applyRotation(prepared).settlement)
+            assertEquals(pending.document, finished.document)
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+            assertEquals(StoreLoad.Ready(finished.document), fixture.store.load())
+        }
+
+    @Test
+    fun `a previously aborted journal cannot reacquire the Accent lease`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            assertEquals(JournalResult.Acknowledged, fixture.store.finishRollback(prepared.journal.token))
+
+            assertIs<ApplySettlement.RecoveryRequired>(fixture.applyRotation(prepared).settlement)
+            assertEquals(emptyList(), fixture.events)
+            assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+        }
+
+    @Test
+    fun `closing the owner during post-commit settlement keeps the accepted rotation`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.cancelAcceptance = true
+
+            assertFailsWith<CancellationException> { fixture.applyRotation(prepared) }
+            val accepted = assertIs<ApplySettlement.Accepted>(fixture.coordinator.outcome(APPLY)?.settlement).document
+            assertEquals(
+                prepared.phase.work.candidate.hex,
+                accepted.runtime.rotation
+                    ?.output
+                    ?.hex,
+            )
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertTrue(fixture.native)
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+        }
+
+    @Test
+    fun `failure to capture an Accent lease rolls back the untouched journal`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            val failure = IllegalStateException("The captured window closed before acquiring the lease")
+            val execution =
+                fixture.coordinator.submitPreparedRotation(
+                    prepared,
+                    acquire = { throw failure },
+                    completedAt = { error("An unstarted step cannot complete") },
+                )
+            assertEquals(ApplySettlement.NotAccepted, execution.settlement)
+            val reported = assertIs<ApplyFailure.Native>(execution.failure).cause
+            assertEquals(failure.message, assertIs<IllegalStateException>(reported).message)
+            assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+            assertEquals(emptyList(), fixture.events)
+        }
+
+    @Test
+    fun `focus moving after the Accent write restores that field before committing rotation history`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.loseLeaseBeforeCommit = true
+
+            val execution = fixture.applyRotation(prepared)
+            assertEquals(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost), execution)
+            assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+        }
+
+    @Test
     fun `expired lease keeps its draft when the state file is temporarily unreadable`() =
         exercise { fixture ->
             fixture.expireLeaseBeforePrepare = true
@@ -243,9 +399,12 @@ class StudioApplyCoordinatorTest {
         )
     }
 
-    private fun exercise(block: suspend (Fixture) -> Unit) {
+    private fun exercise(
+        document: StudioDocument = catalogTestDocument(),
+        block: suspend (Fixture) -> Unit,
+    ) {
         Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { dispatcher ->
-            Fixture(directory, dispatcher).use { fixture ->
+            Fixture(directory, dispatcher, document).use { fixture ->
                 runBlocking { withTimeout(5.seconds) { block(fixture) } }
             }
         }
@@ -280,8 +439,8 @@ class StudioApplyCoordinatorTest {
     private class Fixture(
         directory: Path,
         private val dispatcher: CoroutineDispatcher,
+        val initial: StudioDocument,
     ) : AutoCloseable {
-        val initial = catalogTestDocument()
         private val files = Faults(openStudioFiles(directory))
         val store = StudioAppearanceStore(files)
         val events = mutableListOf<String>()
@@ -367,13 +526,55 @@ class StudioApplyCoordinatorTest {
                 )
         }
 
-        private fun lease(): StudioApplyLease =
+        fun prepareRotation(): RotationStepAdmission.Prepared {
+            val snapshot =
+                RotationRuntimeSnapshot(
+                    checkpoint = requireNotNull(initial.runtime.rotation),
+                    intent = RotationIntent(true, "PRESET", 6),
+                    availability =
+                        RotationAvailability(
+                            LicenseEntitlement.LICENSED,
+                            false,
+                            AyuVariant.MIRAGE,
+                            true,
+                            false,
+                        ),
+                    generation = RotationTimerGeneration(service = 1, target = 1),
+                )
+            val transition =
+                transitionRotationRuntime(
+                    RotationRuntimeState.Loading,
+                    RotationRuntimeEvent.Reconcile(snapshot),
+                    ClockSample(0L, 0L),
+                )
+            val request = assertIs<RotationRuntimeCommand.StepDue>(transition.commands.single())
+            val stamp = AcceptanceLease(initial.header.revision, targetGeneration = 1, capabilityRevision = 1)
+            return assertIs<RotationStepAdmission.Prepared>(
+                prepareRotationStep(store, request, snapshot, stamp, RotationStepAttempt(APPLY)),
+            )
+        }
+
+        suspend fun applyRotation(prepared: RotationStepAdmission.Prepared): ApplyExecution =
+            coordinator.submitPreparedRotation(
+                prepared,
+                acquire = { work ->
+                    assertTrue(queue.isLocked)
+                    assertEquals(prepared.phase.work, work)
+                    events.add("acquire")
+                    files.publicationFault = publicationFault
+                    leaseValid = !expireLeaseBeforePrepare
+                    lease(EffectOwner.ACCENT)
+                },
+                completedAt = { ROTATION_COMPLETED_AT },
+            )
+
+        private fun lease(effect: EffectOwner = EffectOwner.GLOW): StudioApplyLease =
             object : StudioApplyLease {
                 override suspend fun qualifies(): Boolean = leaseValid
 
                 override suspend fun capture(owner: EffectOwner): StudioOwnerOperation {
-                    assertEquals(EffectOwner.GLOW, owner)
-                    return nativeOperation()
+                    assertEquals(effect, owner)
+                    return nativeOperation(owner)
                 }
 
                 override suspend fun settledRuntime(candidate: StudioDocument): StudioRuntimeState {
@@ -393,13 +594,13 @@ class StudioApplyCoordinatorTest {
                 }
             }
 
-        private fun nativeOperation(): StudioOwnerOperation =
+        private fun nativeOperation(owner: EffectOwner): StudioOwnerOperation =
             object : StudioOwnerOperation {
                 private var receipt =
                     PortableReceipt(
-                        id = "glow",
-                        owner = EffectOwner.GLOW,
-                        identity = NativeFieldIdentity("editor", "glow", "test-window"),
+                        id = owner.name.lowercase(),
+                        owner = owner,
+                        identity = NativeFieldIdentity("editor", owner.name.lowercase(), "test-window"),
                         before = NativeValue.Present(RawValue.BooleanValue(false)),
                         lastWritten = NativeValue.Present(RawValue.BooleanValue(true)),
                         status = RestoreStatus.PENDING,
@@ -414,6 +615,7 @@ class StudioApplyCoordinatorTest {
                         native = true
                         if (failApply) error("Native mutation failed after changing the value")
                         receipt = receipt.copy(status = RestoreStatus.OWNED)
+                        if (owner == EffectOwner.ACCENT && loseLeaseBeforeCommit) leaseValid = false
                     }
 
                 override suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation {
@@ -491,7 +693,34 @@ class StudioApplyCoordinatorTest {
     }
 
     private companion object {
+        const val ROTATION_COMPLETED_AT = 2_000L
         val APPLY: UUID = UUID.fromString("0b4677ae-29f5-4c0d-993d-63e0122c2839")
         val NEXT: UUID = UUID.fromString("1b4677ae-29f5-4c0d-993d-63e0122c2839")
+
+        fun rotationDocument(retainAccent: Boolean = false): StudioDocument {
+            val document = catalogTestDocument()
+            val checkpoint =
+                RotationRuntimeCheckpoint(
+                    owner = RuntimeOwner(StudioTarget.Global, document.currents.global.revision),
+                    sequenceCursorRaw = 0,
+                    successfulStepSerial = 0,
+                    resume = RotationResume.NoHistory,
+                )
+            val runtime = document.runtime.copy(rotation = checkpoint)
+            if (!retainAccent) return document.copy(runtime = runtime)
+            val retainedAccent =
+                StudioAccentContinuation(
+                    AyuVariant.MIRAGE,
+                    ResolvedAccent(AccentResolver.Source.PROJECT_OVERRIDE, "#5CCFE6"),
+                    StudioList(emptyList()),
+                )
+            val continuation =
+                StudioEffectiveContinuation(
+                    RuntimeOwner(StudioTarget.Project(StudioProjectKey("previous-project")), 1),
+                    document.currents.global.appearance,
+                    retainedAccent,
+                )
+            return document.copy(runtime = runtime.copy(effectiveContinuation = continuation))
+        }
     }
 }

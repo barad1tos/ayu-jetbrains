@@ -14,11 +14,19 @@ import dev.ayuislands.studio.persistence.CommitResult
 import dev.ayuislands.studio.persistence.PendingJournal
 import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.PrepareResult
+import dev.ayuislands.studio.persistence.PreparedToken
 import dev.ayuislands.studio.persistence.RecoveryPurpose
 import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.recoveryPlanFor
+import dev.ayuislands.studio.runtime.RotationEffectsOutcome
+import dev.ayuislands.studio.runtime.RotationStepAdmission
+import dev.ayuislands.studio.runtime.RotationStepPhase
+import dev.ayuislands.studio.runtime.RotationStepRestoration
+import dev.ayuislands.studio.runtime.RotationStepWork
+import dev.ayuislands.studio.runtime.admitRotationEffects
+import dev.ayuislands.studio.runtime.settleRotationEffects
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
@@ -58,6 +66,46 @@ internal class StudioApplyCoordinator(
             consume = { plan -> execute(request, operation, plan) },
             beforeAdmission = { settlePrior(request, operation) },
         )
+
+    suspend fun submitPreparedRotation(
+        prepared: RotationStepAdmission.Prepared,
+        acquire: suspend (RotationStepWork) -> StudioApplyLease,
+        completedAt: () -> Long,
+    ): ApplyExecution =
+        queue.withLock {
+            val operation = prepared.phase.work.operationId
+            val retained = activeApply
+            if (retained != null) {
+                return@withLock if (retained is ActiveRotation && retained.token == prepared.journal.token) {
+                    settle(retained)
+                } else {
+                    unsettledRotation()
+                }
+            }
+            outcomes[operation]?.let { recorded ->
+                return@withLock if (recorded.request == null) recorded.execution else unsettledRotation()
+            }
+            val observed = withContext(ioDispatcher) { store.load() }
+            if (observed is StoreLoad.ReadOnly) {
+                return@withLock unsettledRotation(SettlementProblem.Journal(observed.issue))
+            }
+            if (observed !is StoreLoad.Recovering ||
+                observed.journal != prepared.journal ||
+                observed.document?.header?.revision != observed.journal.token.baseRevision
+            ) {
+                return@withLock unsettledRotation()
+            }
+            val checkpoint = observed.document.runtime.rotation ?: return@withLock unsettledRotation()
+            val context =
+                prepared.phase.work.context
+                    .copy(checkpoint = checkpoint)
+            val phase = admitRotationEffects(prepared.phase, observed.journal, context)
+            if (phase !is RotationStepPhase.Applying) return@withLock unsettledRotation()
+            executeRotation(phase, observed.journal, acquire, completedAt)
+        }
+
+    private fun unsettledRotation(problem: SettlementProblem = SettlementProblem.Unconfirmed): ApplyExecution =
+        ApplyExecution(ApplySettlement.RecoveryRequired(problem), null)
 
     suspend fun outcome(operation: UUID): ApplyExecution? = queue.withLock { outcomes[operation]?.execution }
 
@@ -138,19 +186,84 @@ internal class StudioApplyCoordinator(
                 is PrepareResult.Rejected -> return ApplyFailure.Prepare(result.issue)
             }
         val work = bind(active, journal)
-        val result = owners.apply(work, active.lease::qualifies, active.lease::capture)
+        applyOwners(work, active.lease)?.let { return it }
+        return commit(journal.token, active.lease, active.lease.settledRuntime(journal.candidate))
+    }
+
+    private suspend fun executeRotation(
+        phase: RotationStepPhase.Applying,
+        journal: PendingJournal,
+        acquire: suspend (RotationStepWork) -> StudioApplyLease,
+        completedAt: () -> Long,
+    ): ApplyExecution {
+        val work = StudioOwnerWork(journal)
+        var captured: StudioApplyLease? = null
+        val settlement =
+            StudioApplySettlement(store, owners, ioDispatcher, work) { accepted -> captured?.release(accepted) }
+        val active = ActiveRotation(phase.work.operationId, journal.token, settlement)
+        activeApply = active
+        return try {
+            val lease = withContext(NonCancellable) { acquire(phase.work).also { captured = it } }
+            active.failure = applyRotation(phase, work, lease, completedAt)
+            settle(active)
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                active.failure = ApplyFailure.Cancelled
+                settleCancelled(active)
+            }
+            throw cancelled
+        } catch (failure: RuntimeException) {
+            active.failure = ApplyFailure.Native(failure)
+            settle(active)
+        }
+    }
+
+    private suspend fun applyRotation(
+        phase: RotationStepPhase.Applying,
+        work: StudioOwnerWork,
+        lease: StudioApplyLease,
+        completedAt: () -> Long,
+    ): ApplyFailure? {
+        if (!qualifies(lease)) return ApplyFailure.LeaseLost
+        applyOwners(work, lease)?.let { return it }
+        val outcome = RotationEffectsOutcome.Applied(completedAt())
+        return when (val proposal = settleRotationEffects(phase, phase.token, outcome, phase.work.context)) {
+            is RotationStepPhase.Committing -> {
+                val current = work.journal.candidate.runtime
+                val runtime =
+                    current.copy(
+                        rotation = proposal.checkpoint,
+                        effectiveContinuation = current.effectiveContinuation?.copy(accent = null),
+                    )
+                commit(phase.token, lease, runtime)
+            }
+            is RotationStepPhase.Restoring -> ApplyFailure.Rotation(proposal.reason)
+            else -> error("Applied rotation did not produce a settlement plan")
+        }
+    }
+
+    private suspend fun applyOwners(
+        work: StudioOwnerWork,
+        lease: StudioApplyLease,
+    ): ApplyFailure? {
+        val result = owners.apply(work, lease::qualifies, lease::capture)
         if (result != OwnerApply.Completed) return ApplyFailure.Effects(result)
-        if (!qualifies(active.lease)) return ApplyFailure.LeaseLost
-        val runtime = active.lease.settledRuntime(journal.candidate)
-        return withContext(ioDispatcher) {
-            if (!qualifies(active.lease)) return@withContext ApplyFailure.LeaseLost
-            when (val committed = store.commit(journal.token, runtime)) {
+        return if (qualifies(lease)) null else ApplyFailure.LeaseLost
+    }
+
+    private suspend fun commit(
+        token: PreparedToken,
+        lease: StudioApplyLease,
+        runtime: StudioRuntimeState,
+    ): ApplyFailure? =
+        withContext(ioDispatcher) {
+            if (!qualifies(lease)) return@withContext ApplyFailure.LeaseLost
+            when (val committed = store.commit(token, runtime)) {
                 is CommitResult.Committed -> null
                 is CommitResult.NotCommitted -> ApplyFailure.Commit(committed.issue)
                 is CommitResult.OutcomeUnknown -> ApplyFailure.Commit(committed.issue)
             }
         }
-    }
 
     private suspend fun qualifies(lease: StudioApplyLease): Boolean {
         currentCoroutineContext().ensureActive()
@@ -172,12 +285,7 @@ internal class StudioApplyCoordinator(
                 StoreLoad.Empty, is StoreLoad.Ready -> return null
             }
         val journal = observed.journal
-        if (journal.token.transactionId != operation.toString() ||
-            journal.token.baseRevision < 0 ||
-            journal.recovery.purpose != RecoveryPurpose.UserAcceptance
-        ) {
-            return null
-        }
+        if (!journal.matchesApplyRecovery(operation)) return null
         val decision = withContext(ioDispatcher) { store.resolveOutcome(journal.token) }
         val outcome =
             when (decision) {
@@ -213,12 +321,13 @@ internal class StudioApplyCoordinator(
         val result =
             when (work) {
                 is ActiveApply -> work.settlement?.settle() ?: settleUnbound(work)
+                is ActiveRotation -> work.settlement.settle()
                 is RecoveredApply -> work.settlement.settle()
             }
         return recordSettlement(work, result)
     }
 
-    private suspend fun settleCancelled(work: ActiveApply) {
+    private suspend fun settleCancelled(work: ActiveOperation) {
         val result = withTimeoutOrNull(cancelSettlementTimeout) { settle(work) }
         if (result == null && activeApply === work) {
             val problem = SettlementProblem.TimedOut
@@ -232,7 +341,7 @@ internal class StudioApplyCoordinator(
         result: ApplySettlement,
     ): ApplyExecution {
         val failure =
-            (work as? ActiveApply)?.failure.takeUnless {
+            work.failure.takeUnless {
                 result is ApplySettlement.Accepted ||
                     result is ApplySettlement.AcceptedCleanupPending
             }
@@ -291,6 +400,8 @@ internal class StudioApplyCoordinator(
     private sealed interface ActiveOperation {
         val operation: UUID
         val request: ApplyRequest?
+        val settlement: StudioApplySettlement?
+        val failure: ApplyFailure? get() = null
     }
 
     private class ActiveApply(
@@ -299,13 +410,22 @@ internal class StudioApplyCoordinator(
         val plan: AcceptancePlan.Commit,
         val lease: StudioApplyLease,
     ) : ActiveOperation {
-        var failure: ApplyFailure? = null
-        var settlement: StudioApplySettlement? = null
+        override var failure: ApplyFailure? = null
+        override var settlement: StudioApplySettlement? = null
+    }
+
+    private class ActiveRotation(
+        override val operation: UUID,
+        val token: PreparedToken,
+        override val settlement: StudioApplySettlement,
+    ) : ActiveOperation {
+        override val request: ApplyRequest? get() = null
+        override var failure: ApplyFailure? = null
     }
 
     private class RecoveredApply(
         override val operation: UUID,
-        val settlement: StudioApplySettlement,
+        override val settlement: StudioApplySettlement,
     ) : ActiveOperation {
         override val request: ApplyRequest? get() = null
     }
@@ -314,6 +434,15 @@ internal class StudioApplyCoordinator(
         val request: ApplyRequest?,
         val execution: ApplyExecution,
     )
+}
+
+private fun PendingJournal.matchesApplyRecovery(operation: UUID): Boolean {
+    if (token.transactionId != operation.toString() || token.baseRevision < 0) return false
+    return when (val purpose = recovery.purpose) {
+        RecoveryPurpose.UserAcceptance -> true
+        is RecoveryPurpose.RotationStep -> purpose.operationId == operation
+        else -> false
+    }
 }
 
 /** Reattaches durable handles without preparing or applying a new effect. */
@@ -357,6 +486,10 @@ internal sealed interface ApplyFailure {
 
     data class Effects(
         val result: OwnerApply,
+    ) : ApplyFailure
+
+    data class Rotation(
+        val reason: RotationStepRestoration,
     ) : ApplyFailure
 
     data class Native(
