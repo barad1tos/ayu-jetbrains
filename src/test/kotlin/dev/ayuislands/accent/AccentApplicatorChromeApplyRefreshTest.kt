@@ -112,6 +112,7 @@ class AccentApplicatorChromeApplyRefreshTest {
         restoreOriginalEpName()
         unmockkAll()
         clearAllMocks()
+        SwingUtilities.invokeAndWait { uiDefaultsOwner.restore() }
     }
 
     @Test
