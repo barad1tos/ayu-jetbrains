@@ -109,17 +109,14 @@ internal class StudioRuntimeCoordinator(
     private fun startTransaction(command: RotationRuntimeCommand.Transaction) {
         val job =
             scope.launch(start = CoroutineStart.LAZY) {
-                val fault =
-                    try {
-                        execute(command).fault()
-                    } catch (cancelled: CancellationException) {
-                        withContext(NonCancellable) { finishTransaction(command, RuntimeFault.RecoveryPending) }
-                        throw cancelled
-                    } catch (failure: RuntimeException) {
-                        LOG.warn("Studio rotation command failed", failure)
-                        RuntimeFault.RecoveryPending
+                try {
+                    finishTransaction(command, executeCommand(command))
+                } catch (cancelled: CancellationException) {
+                    withContext(NonCancellable) {
+                        finishTransaction(command, RuntimeFault.RecoveryPending) { null }
                     }
-                finishTransaction(command, fault)
+                    throw cancelled
+                }
             }
         check(commandSlot.get() !is CommandSlot.Running) { "A Studio rotation command is already running" }
         if (commandSlot.compareAndSet(CommandSlot.Idle, CommandSlot.Running(command, job))) {
@@ -129,14 +126,25 @@ internal class StudioRuntimeCoordinator(
         }
     }
 
+    private suspend fun executeCommand(command: RotationRuntimeCommand.Transaction): RuntimeFault? =
+        try {
+            execute(command).fault()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: RuntimeException) {
+            LOG.warn("Studio rotation command failed", failure)
+            RuntimeFault.RecoveryPending
+        }
+
     private suspend fun finishTransaction(
         command: RotationRuntimeCommand.Transaction,
         fault: RuntimeFault?,
+        readback: suspend () -> RotationRuntimeSnapshot? = ::readAuthority,
     ) {
         queue.withLock {
             val running = commandSlot.get() as? CommandSlot.Running ?: return@withLock
             if (running.command !== command) return@withLock
-            val current = readAuthority()
+            val current = readback()
             if (!commandSlot.compareAndSet(running, CommandSlot.Idle)) return@withLock
             val requested = refreshPending
             refreshPending = false

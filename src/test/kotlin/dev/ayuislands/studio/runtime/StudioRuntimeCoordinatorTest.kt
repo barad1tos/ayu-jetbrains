@@ -22,6 +22,7 @@ import dev.ayuislands.studio.session.ApplyExecution
 import dev.ayuislands.studio.session.ApplyFailure
 import dev.ayuislands.studio.session.ApplySettlement
 import dev.ayuislands.studio.session.SettlementProblem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -333,12 +334,19 @@ class StudioRuntimeCoordinatorTest {
 
     @Test
     fun `a failed post-command read can recover from the same accepted checkpoint`() =
+        assertReadRecovery(IllegalStateException("Authority read interrupted"))
+
+    @Test
+    fun `a cancelled post-command read can recover from the same accepted checkpoint`() =
+        assertReadRecovery(CancellationException("Authority read cancelled"))
+
+    private fun assertReadRecovery(failure: RuntimeException) =
         runBlocking {
             val fixture = Fixture(this)
             fixture.accepted =
                 fixture.accepted.copy(checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory))
             fixture.execute = {
-                fixture.readFailure = IllegalStateException("Authority read interrupted")
+                fixture.readFailure = failure
                 RotationCommandOutcome.Rejected(RotationStepAdmission.Stale)
             }
             fixture.coordinator.refreshRotation()
