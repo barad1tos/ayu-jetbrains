@@ -3,6 +3,7 @@ package dev.ayuislands.studio
 import dev.ayuislands.studio.migration.LegacySnapshot
 import dev.ayuislands.studio.migration.MigrationResult
 import dev.ayuislands.studio.migration.StudioLegacyMigration
+import dev.ayuislands.studio.model.EffectOwner
 import dev.ayuislands.studio.model.MigrationSource
 import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
@@ -55,10 +56,9 @@ internal class StudioBootstrap(
             StoreLoad.Empty -> migrate(transactionId)
             is StoreLoad.Ready -> StudioBootstrapResult.Ready(loaded.document)
             is StoreLoad.Recovering ->
-                if (loaded.journal.recovery.purpose is RecoveryPurpose.RotationSchedule) {
-                    recoverSchedule(loaded)
-                } else {
-                    recoverInitial(loaded)
+                when (loaded.journal.recovery.purpose) {
+                    is RecoveryPurpose.RotationSchedule, is RecoveryPurpose.RotationStep -> recoverRotation(loaded)
+                    else -> recoverInitial(loaded)
                 }
             is StoreLoad.ReadOnly -> StudioBootstrapResult.ReadOnly(loaded)
         }
@@ -131,13 +131,11 @@ internal class StudioBootstrap(
         }
     }
 
-    private fun recoverSchedule(state: StoreLoad.Recovering): StudioBootstrapResult {
+    private fun recoverRotation(state: StoreLoad.Recovering): StudioBootstrapResult {
         val journal = state.journal
         val document = state.document ?: return StudioBootstrapResult.Recovering(state)
-        if (journal.recovery.owners.isNotEmpty() ||
-            journal.receipts.isNotEmpty() ||
-            journal.recovery.rotationStep != null
-        ) {
+        // Native writes require an acknowledged receipt. Leave those journals to the effect owner.
+        if (journal.receipts.isNotEmpty() || !canRecoverRotation(journal.recovery)) {
             return StudioBootstrapResult.Recovering(state)
         }
         val result =
@@ -154,6 +152,15 @@ internal class StudioBootstrap(
             is JournalResult.Rejected -> StudioBootstrapResult.Recovering(state)
         }
     }
+
+    private fun canRecoverRotation(plan: RecoveryPlan): Boolean =
+        when (plan.purpose) {
+            is RecoveryPurpose.RotationSchedule -> plan.owners.isEmpty() && plan.rotationStep == null
+            is RecoveryPurpose.RotationStep ->
+                plan.owners.singleOrNull() == EffectOwner.ACCENT &&
+                    plan.rotationStep != null
+            else -> false
+        }
 
     private fun finishAccepted(state: StoreLoad.Recovering): StudioBootstrapResult =
         when (store.finishAccepted(state.journal.token)) {
