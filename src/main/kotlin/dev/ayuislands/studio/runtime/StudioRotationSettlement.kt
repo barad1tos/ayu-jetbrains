@@ -2,7 +2,8 @@ package dev.ayuislands.studio.runtime
 
 import dev.ayuislands.rotation.RotationCompletionPlan
 import dev.ayuislands.rotation.RotationStepPlanner
-import dev.ayuislands.studio.persistence.CommitResolution
+import dev.ayuislands.studio.model.StudioDocument
+import dev.ayuislands.studio.persistence.CommitResult
 import dev.ayuislands.studio.persistence.PendingJournal
 import dev.ayuislands.studio.persistence.PreparedToken
 import dev.ayuislands.studio.persistence.RecoveryPurpose
@@ -41,7 +42,7 @@ internal fun settleRotationEffects(
 internal fun settleRotationCommit(
     phase: RotationStepPhase,
     token: PreparedToken,
-    outcome: CommitResolution,
+    outcome: CommitResult,
 ): RotationStepPhase {
     val commit =
         when (phase) {
@@ -50,23 +51,24 @@ internal fun settleRotationCommit(
             else -> return phase
         }
     if (commit.effect.token != token) return phase
+    val pending = if (phase is RotationStepPhase.Recovering) phase else RotationStepPhase.Recovering(commit)
     return when (outcome) {
-        CommitResolution.Committed -> RotationStepPhase.Accepted(commit)
-        CommitResolution.NotCommitted ->
+        is CommitResult.Committed -> {
+            if (commit.matchesCommit(outcome.document)) RotationStepPhase.Accepted(commit) else pending
+        }
+        is CommitResult.NotCommitted ->
             RotationStepPhase.Restoring(
                 commit.effect,
                 RotationStepRestoration.CommitRejected,
             )
-        CommitResolution.Unknown ->
-            if (phase is RotationStepPhase.Recovering) {
-                phase
-            } else {
-                RotationStepPhase.Recovering(
-                    commit,
-                )
-            }
+        is CommitResult.OutcomeUnknown -> pending
     }
 }
+
+private fun RotationStepPhase.Committing.matchesCommit(document: StudioDocument): Boolean =
+    document.header.transactionId == effect.token.transactionId &&
+        document.header.revision == effect.token.targetRevision &&
+        document.runtime.rotation == checkpoint
 
 private fun PendingJournal.matches(work: RotationStepWork): Boolean =
     recovery.purpose == RecoveryPurpose.RotationStep(work.operationId) &&

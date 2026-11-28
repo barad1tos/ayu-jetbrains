@@ -24,6 +24,7 @@ import dev.ayuislands.studio.persistence.PendingJournal
 import dev.ayuislands.studio.persistence.PrepareResult
 import dev.ayuislands.studio.persistence.RecoveryPlan
 import dev.ayuislands.studio.persistence.RecoveryPurpose
+import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioLegacyCapture
@@ -68,22 +69,54 @@ class StudioRotationSettlementTest {
                 assertIs<CommitResult.Committed>(
                     store.commit(prepared.token, accepted.runtime.copy(rotation = committing.checkpoint)),
                 )
+            val missingAck = CommitResult.OutcomeUnknown(StoreIssue.IO)
             val waiting =
                 assertIs<RotationStepPhase.Recovering>(
-                    settleRotationCommit(committing, prepared.token, CommitResolution.Unknown),
+                    settleRotationCommit(committing, prepared.token, missingAck),
                 )
-            assertSame(waiting, settleRotationCommit(waiting, prepared.token, CommitResolution.Unknown))
+            assertSame(waiting, settleRotationCommit(waiting, prepared.token, missingAck))
+            assertEquals(CommitResolution.Committed, store.resolveOutcome(prepared.token))
+            val readback = assertIs<StoreLoad.Recovering>(store.load())
+            val acknowledged = CommitResult.Committed(requireNotNull(readback.document))
             val finished =
                 assertIs<RotationStepPhase.Accepted>(
-                    settleRotationCommit(waiting, prepared.token, store.resolveOutcome(prepared.token)),
+                    settleRotationCommit(waiting, prepared.token, acknowledged),
                 )
             assertEquals(committing, finished.commit)
             assertEquals(committing.checkpoint, written.document.runtime.rotation)
             assertEquals(accepted.currents, written.document.currents)
             assertEquals(accepted.catalog, written.document.catalog)
-            assertSame(finished, settleRotationCommit(finished, prepared.token, CommitResolution.Committed))
+            assertSame(finished, settleRotationCommit(finished, prepared.token, acknowledged))
             assertEquals(JournalResult.Acknowledged, store.finishAccepted(prepared.token))
             assertEquals(StoreLoad.Ready(written.document), store.load())
+        }
+    }
+
+    @Test
+    fun `a committed token with different runtime history leaves rotation recovery pending`() {
+        open().use { store ->
+            val accepted = initialize(store)
+            val work = work(accepted)
+            val journal = prepare(store, accepted, work)
+            val applying =
+                assertIs<RotationStepPhase.Applying>(
+                    admitRotationEffects(RotationStepPhase.Preparing(work), journal, work.context),
+                )
+            val committing =
+                assertIs<RotationStepPhase.Committing>(
+                    settleRotationEffects(
+                        applying,
+                        journal.token,
+                        RotationEffectsOutcome.Applied(24_000),
+                        work.context,
+                    ),
+                )
+
+            val written = assertIs<CommitResult.Committed>(store.commit(journal.token, accepted.runtime))
+            assertEquals(accepted.runtime.rotation, written.document.runtime.rotation)
+            val recovered = settleRotationCommit(committing, journal.token, written)
+            assertIs<RotationStepPhase.Recovering>(recovered)
+            assertEquals(written.document, assertIs<StoreLoad.Recovering>(store.load()).document)
         }
     }
 
@@ -107,7 +140,8 @@ class StudioRotationSettlementTest {
                     settleRotationEffects(applying, retryJournal.token, outcome, retry.context),
                 )
             assertEquals(first.candidate.hex, committing.checkpoint.output?.hex)
-            assertSame(committing, settleRotationCommit(committing, firstJournal.token, CommitResolution.Committed))
+            val stale = CommitResult.NotCommitted(StoreIssue.STALE)
+            assertSame(committing, settleRotationCommit(committing, firstJournal.token, stale))
         }
     }
 
@@ -171,9 +205,10 @@ class StudioRotationSettlementTest {
                         retry.context,
                     ),
                 )
+            assertEquals(CommitResolution.NotCommitted, store.resolveOutcome(retryJournal.token))
             val rejected =
                 assertIs<RotationStepPhase.Restoring>(
-                    settleRotationCommit(committing, retryJournal.token, store.resolveOutcome(retryJournal.token)),
+                    settleRotationCommit(committing, retryJournal.token, CommitResult.NotCommitted(StoreIssue.IO)),
                 )
             assertEquals(RotationStepRestoration.CommitRejected, rejected.reason)
             assertEquals(accepted, assertIs<StoreLoad.Recovering>(store.load()).document)
