@@ -73,8 +73,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
@@ -130,7 +132,27 @@ class StudioApplyCoordinatorTest {
             fixture.cancelAcceptance = true
             val edit = editedJournalRecord(fixture.initial)
             assertFailsWith<CancellationException> { fixture.coordinator.submit(ApplyRequest(edit, 1), APPLY) }
-            fixture.assertAccepted(edit, requireNotNull(fixture.coordinator.outcome(APPLY)))
+            val outcome = requireNotNull(fixture.coordinator.outcome(APPLY))
+            val settlement = outcome.settlement
+            val completed =
+                if (settlement is ApplySettlement.AcceptedCleanupPending) {
+                    fixture.finishTimedOutCleanup(settlement)
+                } else {
+                    outcome
+                }
+            fixture.assertAccepted(edit, completed)
+        }
+
+    @Test
+    fun `cancelled cleanup can finish after the pending journal is already gone`() =
+        exercise { fixture ->
+            fixture.cancelAfterJournalRemoval = true
+            val edit = editedJournalRecord(fixture.initial)
+            assertFailsWith<CancellationException> { fixture.coordinator.submit(ApplyRequest(edit, 1), APPLY) }
+            val pending =
+                assertIs<ApplySettlement.AcceptedCleanupPending>(fixture.coordinator.outcome(APPLY)?.settlement)
+            assertEquals(StoreLoad.Ready(pending.document), fixture.store.load())
+            fixture.assertAccepted(edit, fixture.finishTimedOutCleanup(pending))
         }
 
     @Test
@@ -653,14 +675,19 @@ class StudioApplyCoordinatorTest {
                 fixture.resumeRelease.complete(Unit)
                 assertEquals(true, finished)
             }
-            assertIs<ApplySettlement.AcceptedCleanupPending>(fixture.coordinator.outcome(APPLY)?.settlement)
-            assertFalse(fixture.coordinator.acknowledge(APPLY))
+            val pending =
+                assertIs<ApplySettlement.AcceptedCleanupPending>(fixture.coordinator.outcome(APPLY)?.settlement)
             fixture.pauseRelease = false
-            assertIs<ApplySettlement.Accepted>(fixture.coordinator.retry(APPLY)?.settlement)
-            assertTrue(fixture.native)
-            assertEquals(1, fixture.events.count { it == "accept" })
-            assertEquals(1, fixture.events.count { it == "apply" })
+            fixture.assertAccepted(edit, fixture.finishTimedOutCleanup(pending))
         }
+
+    private suspend fun Fixture.finishTimedOutCleanup(pending: ApplySettlement.AcceptedCleanupPending): ApplyExecution {
+        assertEquals(SettlementProblem.TimedOut, pending.problem)
+        assertFalse(coordinator.acknowledge(APPLY))
+        val completed = requireNotNull(coordinator.retry(APPLY))
+        assertEquals(ApplySettlement.Accepted(pending.document), completed.settlement)
+        return completed
+    }
 
     private class Fixture(
         directory: Path,
@@ -680,6 +707,8 @@ class StudioApplyCoordinatorTest {
         var expireLeaseBeforePrepare = false
         var projectionFailure: RuntimeException? = null
         var publicationFault: PublicationFault? = null
+        var cancelAfterJournalRemoval = false
+        private val holdCleanupRetry = AtomicBoolean()
         var pauseRelease = false
         val releaseStarted = CompletableDeferred<Unit>()
         val resumeRelease = CompletableDeferred<Unit>()
@@ -694,6 +723,11 @@ class StudioApplyCoordinatorTest {
                     block: Runnable,
                 ) {
                     dispatcher.dispatch(context) {
+                        if (holdCleanupRetry.getAndSet(false)) {
+                            val cancellation = Job(context.job)
+                            runBlocking { withTimeoutOrNull(2.seconds) { cancellation.join() } }
+                            cancellation.cancel()
+                        }
                         if (invalidateOnNextIo.getAndSet(false)) leaseValid = false
                         block.run()
                     }
@@ -904,6 +938,12 @@ class StudioApplyCoordinatorTest {
                         throw CancellationException("Host closed after commit")
                     }
                     events.add("accept")
+                    if (cancelAfterJournalRemoval) {
+                        files.onJournalRemoved = {
+                            holdCleanupRetry.set(true)
+                            throw CancellationException("Host closed after journal removal")
+                        }
+                    }
                     files.loseCleanup = loseApplyCleanup
                 }
             }
@@ -941,6 +981,7 @@ class StudioApplyCoordinatorTest {
         var readFailurePath: String? = null
         var publicationFault: PublicationFault? = null
         var onPrepared: (() -> Unit)? = null
+        var onJournalRemoved: (() -> Unit)? = null
 
         override fun read(name: String): ByteArray? {
             if (name == readFailurePath) {
@@ -979,6 +1020,7 @@ class StudioApplyCoordinatorTest {
                 throw IOException("Journal removal unavailable")
             }
             delegate.remove(name)
+            if (name == "pending.xml") onJournalRemoved?.invoke()
             if (loseCleanup && name == "pending.xml") {
                 loseCleanup = false
                 throw IOException("Lost deletion acknowledgement")
