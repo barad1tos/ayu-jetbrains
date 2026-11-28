@@ -2281,10 +2281,19 @@ class GlowOverlayManagerLifecycleTest {
     }
 
     private fun stopOverlayAnimations(manager: GlowOverlayManager) {
-        readOverlaysMap(manager).values.forEach { entry ->
-            val field = entry?.javaClass?.getDeclaredField("glassPane") ?: return@forEach
-            field.isAccessible = true
-            (field.get(entry) as GlowGlassPane).stopAnimation()
+        // Dispose clears the same map on the real EDT, even when SwingUtilities is mocked.
+        val stopAnimations =
+            Runnable {
+                readOverlaysMap(manager).values.forEach { entry ->
+                    val field = entry?.javaClass?.getDeclaredField("glassPane") ?: return@forEach
+                    field.isAccessible = true
+                    (field.get(entry) as GlowGlassPane).stopAnimation()
+                }
+            }
+        if (EventQueue.isDispatchThread()) {
+            stopAnimations.run()
+        } else {
+            EventQueue.invokeAndWait(stopAnimations)
         }
     }
 
