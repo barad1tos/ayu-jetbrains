@@ -35,6 +35,18 @@ internal data class RotationCandidate(
     val nextCursor: Int,
 )
 
+internal const val ROTATION_FAILURE_LIMIT = 3
+
+/** Keeps the selected color and the number of attempts whose writes have been restored. */
+internal data class RotationRetry(
+    val candidate: RotationCandidate,
+    val failures: Int = 0,
+) {
+    init {
+        require(failures in 0..ROTATION_FAILURE_LIMIT) { "Invalid restored rotation failure count" }
+    }
+}
+
 internal enum class FullIntervalReason { FOLLOW_SYSTEM, INTERRUPTED_HANDOFF, REPAIRED_SCHEDULE, RESTORED_RETRY }
 
 internal sealed interface RotationResume {
@@ -72,7 +84,7 @@ internal data class RotationRuntimeCheckpoint(
     val output: RotationOutput? = null,
     val schedule: RotationSchedule? = null,
     val resume: RotationResume = RotationResume.KeepDeadline,
-    val retryCandidate: RotationCandidate? = null,
+    val retry: RotationRetry? = null,
     val recoveryFault: RuntimeFault.DurableRecovery? = null,
 ) {
     val schemaVersion: Int get() = 1

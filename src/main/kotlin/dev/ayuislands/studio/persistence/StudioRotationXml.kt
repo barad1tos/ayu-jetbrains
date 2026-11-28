@@ -7,6 +7,7 @@ import dev.ayuislands.rotation.RotationCandidate
 import dev.ayuislands.rotation.RotationIntent
 import dev.ayuislands.rotation.RotationOutput
 import dev.ayuislands.rotation.RotationResume
+import dev.ayuislands.rotation.RotationRetry
 import dev.ayuislands.rotation.RotationRuntimeCheckpoint
 import dev.ayuislands.rotation.RotationSchedule
 import dev.ayuislands.rotation.RuntimeFault
@@ -20,6 +21,7 @@ internal object StudioRotationXml {
     private const val SCHEDULED_AT = "scheduled-at"
     private const val NEXT_CURSOR = "next-cursor"
     private const val INTERVAL_HOURS = "interval-hours"
+    private const val FAILURES = "failures"
 
     fun write(checkpoint: RotationRuntimeCheckpoint): StudioXmlNode =
         StudioXmlNode(
@@ -33,7 +35,7 @@ internal object StudioRotationXml {
                 listOfNotNull(
                     checkpoint.output?.let(::writeOutput),
                     checkpoint.schedule?.let(::writeSchedule),
-                    checkpoint.retryCandidate?.let { writeCandidate(it, "retry") },
+                    checkpoint.retry?.let(::writeRetry),
                     checkpoint.recoveryFault?.let {
                         StudioXmlNode(
                             "fault",
@@ -58,13 +60,25 @@ internal object StudioRotationXml {
             output = node.optionalChild("output")?.let(::readOutput),
             schedule = node.optionalChild("schedule")?.let(::readSchedule),
             resume = readResume(node.child("resume")),
-            retryCandidate = node.optionalChild("retry")?.let(::readCandidate),
+            retry = node.optionalChild("retry")?.let(::readRetry),
             recoveryFault =
                 node.optionalChild("fault")?.let {
                     RuntimeFault.DurableRecovery(StudioXml.decodeText(it.requireShape(setOf("code")).attribute("code")))
                 },
         )
     }
+
+    private fun writeRetry(retry: RotationRetry): StudioXmlNode {
+        val node = writeCandidate(retry.candidate, "retry")
+        if (retry.failures == 0) return node
+        return node.copy(attributes = node.attributes + (FAILURES to retry.failures.toString()))
+    }
+
+    private fun readRetry(node: StudioXmlNode): RotationRetry =
+        RotationRetry(
+            readCandidate(node.copy(attributes = node.attributes - FAILURES)),
+            node.attributes[FAILURES]?.toInt() ?: 0,
+        )
 
     fun writeOwner(owner: RuntimeOwner): StudioXmlNode =
         StudioXmlNode(

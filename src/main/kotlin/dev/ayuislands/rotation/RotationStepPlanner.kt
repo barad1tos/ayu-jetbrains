@@ -16,7 +16,7 @@ internal object RotationStepPlanner {
         val mode = AccentRotationMode.fromName(intent.modeRaw)
         val interval = rotationIntervalMillis(intent.intervalHoursRaw)
         val variant = checkNotNull(inputs.eligibleVariant)
-        val retry = checkpoint.retryCandidate?.takeIf { matches(it, inputs) }
+        val retry = checkpoint.retry?.candidate?.takeIf { matches(it, inputs) }
         if (retry != null) {
             if (AccentHex.of(retry.hex) == null) return RotationStepPlan.Blocked(RotationStepBlock.INVALID_COLOR)
             return RotationStepPlan.Ready(retry, interval)
@@ -47,9 +47,7 @@ internal object RotationStepPlanner {
         candidate: RotationCandidate,
         completedAtEpochMillis: Long,
     ): RotationCompletionPlan {
-        blocked(checkpoint, inputs)?.let { return RotationCompletionPlan.Blocked(it) }
-        if (!matches(candidate, inputs)) return RotationCompletionPlan.Blocked(RotationStepBlock.STALE_CANDIDATE)
-        if (AccentHex.of(candidate.hex) == null) return RotationCompletionPlan.Blocked(RotationStepBlock.INVALID_COLOR)
+        candidateBlock(checkpoint, inputs, candidate)?.let { return RotationCompletionPlan.Blocked(it) }
         val interval = rotationIntervalMillis(inputs.intent.intervalHoursRaw)
         val cursor =
             if (candidate.mode == AccentRotationMode.PRESET) candidate.nextCursor else checkpoint.sequenceCursorRaw
@@ -62,10 +60,30 @@ internal object RotationStepPlanner {
                         successfulStepSerial = checkpoint.successfulStepSerial + 1,
                         lastSuccessfulStepEpochMillis = completedAtEpochMillis,
                         output = RotationOutput(candidate.owner, candidate.variant, candidate.hex),
-                        retryCandidate = null,
+                        retry = null,
                     ),
                 )
         }
+    }
+
+    /** Plan a retry only after the caller confirms restoration of the automatic attempt. */
+    fun planRestoredRetry(
+        checkpoint: RotationRuntimeCheckpoint,
+        inputs: RotationStepInputs,
+        candidate: RotationCandidate,
+        restoredAtEpochMillis: Long,
+    ): RotationCompletionPlan {
+        candidateBlock(checkpoint, inputs, candidate)?.let { return RotationCompletionPlan.Blocked(it) }
+        val priorFailures = checkpoint.retry?.takeIf { it.candidate == candidate }?.failures ?: 0
+        val failures = (priorFailures + 1).coerceAtMost(ROTATION_FAILURE_LIMIT)
+        val proposed = checkpoint.copy(retry = RotationRetry(candidate, failures))
+        if (failures == ROTATION_FAILURE_LIMIT) {
+            return RotationCompletionPlan.Ready(
+                proposed.copy(recoveryFault = RuntimeFault.DurableRecovery(FAILURE_LIMIT)),
+            )
+        }
+        val interval = rotationIntervalMillis(inputs.intent.intervalHoursRaw)
+        return planSchedule(proposed, interval, restoredAtEpochMillis)
     }
 
     fun planSchedule(
@@ -92,6 +110,17 @@ internal object RotationStepPlanner {
             candidate.mode == AccentRotationMode.fromName(inputs.intent.modeRaw) &&
             candidate.variant == inputs.eligibleVariant
 
+    private fun candidateBlock(
+        checkpoint: RotationRuntimeCheckpoint,
+        inputs: RotationStepInputs,
+        candidate: RotationCandidate,
+    ): RotationStepBlock? =
+        blocked(checkpoint, inputs) ?: when {
+            !matches(candidate, inputs) -> RotationStepBlock.STALE_CANDIDATE
+            AccentHex.of(candidate.hex) == null -> RotationStepBlock.INVALID_COLOR
+            else -> null
+        }
+
     private fun blocked(
         checkpoint: RotationRuntimeCheckpoint,
         inputs: RotationStepInputs,
@@ -105,4 +134,6 @@ internal object RotationStepPlanner {
                 checkpoint.schedule?.scheduleSerial == Long.MAX_VALUE -> RotationStepBlock.SERIAL_OVERFLOW
             else -> null
         }
+
+    private const val FAILURE_LIMIT = "rotation-failure-limit"
 }
