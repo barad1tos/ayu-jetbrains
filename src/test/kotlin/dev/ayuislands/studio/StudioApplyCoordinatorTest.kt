@@ -400,6 +400,7 @@ class StudioApplyCoordinatorTest {
             )
             assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
             assertEquals(RotationCommandOutcome.Rejected(RotationStepAdmission.Stale), commands.execute(command))
+            assertNull(fixture.coordinator.outcome(APPLY))
             assertEquals(1, drawn)
             assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
         }
@@ -444,6 +445,49 @@ class StudioApplyCoordinatorTest {
             assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
             assertFalse(fixture.native)
             assertEquals(listOf("acquire", "release"), fixture.events)
+        }
+
+    @Test
+    fun `rotation waits for retained Settings cleanup and admits work once it settles`() =
+        exercise(document = rotationDocument()) { fixture ->
+            fixture.loseApplyCleanup = true
+            val prior = fixture.applyDraft(editedJournalRecord(fixture.initial))
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(prior.settlement)
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) }, operationId = { NEXT })
+            val earlierEvents = fixture.events.toList()
+
+            fixture.failNextCleanupRead()
+            assertEquals(
+                RotationCommandOutcome.Rejected(RotationStepAdmission.StoreUnavailable(StoreIssue.RECOVERY_REQUIRED)),
+                commands.execute(command),
+            )
+            assertEquals(earlierEvents, fixture.events)
+            fixture.loseApplyCleanup = false
+            val result = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val accepted = assertIs<ApplySettlement.Accepted>(result.execution.settlement).document
+            assertEquals(pending.document.currents, accepted.currents)
+            assertEquals(ApplySettlement.Accepted(pending.document), fixture.coordinator.outcome(APPLY)?.settlement)
+            assertNull(fixture.coordinator.outcome(NEXT))
+            assertEquals(2, fixture.events.count { it == "apply" })
+        }
+
+    @Test
+    fun `an unresolved rotation stays reachable until a later command settles it without replay`() =
+        exercise(document = rotationDocument()) { fixture ->
+            fixture.loseApplyCleanup = true
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+            val result = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(result.execution.settlement)
+            assertEquals(pending, fixture.coordinator.outcome(APPLY)?.settlement)
+
+            assertEquals(RotationCommandOutcome.Rejected(RotationStepAdmission.Stale), commands.execute(command))
+            assertEquals(StoreLoad.Ready(pending.document), fixture.store.load())
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
         }
 
     private suspend fun Fixture.applyDraft(edit: StudioSessionRecord): ApplyExecution =
@@ -673,6 +717,7 @@ class StudioApplyCoordinatorTest {
         fun rotationCommands(
             observe: suspend () -> RotationObservation?,
             randomColor: (AyuVariant) -> String = { error("Preset rotation does not require a color draw") },
+            operationId: () -> UUID = { APPLY },
         ): StudioRotationCommands =
             StudioRotationCommands(
                 store = store,
@@ -686,7 +731,7 @@ class StudioApplyCoordinatorTest {
                         completedAt = { ROTATION_COMPLETED_AT },
                     )
                 },
-                operationId = { APPLY },
+                operationId = operationId,
                 randomColor = randomColor,
             )
 

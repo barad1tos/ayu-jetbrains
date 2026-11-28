@@ -112,14 +112,24 @@ internal class StudioApplyCoordinator(
         completedAt: () -> Long,
     ): RotationCommandOutcome =
         queue.withLock {
-            if (activeApply != null) {
-                val unavailable = RotationStepAdmission.StoreUnavailable(StoreIssue.RECOVERY_REQUIRED)
-                return@withLock RotationCommandOutcome.Rejected(unavailable)
+            val retained = activeApply
+            if (retained != null) {
+                val settled = settle(retained)
+                if (settled.settlement !is ApplySettlement.Finished) {
+                    val unavailable = RotationStepAdmission.StoreUnavailable(StoreIssue.RECOVERY_REQUIRED)
+                    return@withLock RotationCommandOutcome.Rejected(unavailable)
+                }
+                if (retained is ActiveRotation ||
+                    (retained is RecoveredApply && retained.purpose is RecoveryPurpose.RotationStep)
+                ) {
+                    outcomes.remove(retained.operation)
+                }
             }
             val prepared = withContext(NonCancellable) { prepare() }
             if (prepared !is RotationStepAdmission.Prepared) return@withLock RotationCommandOutcome.Rejected(prepared)
             val phase = RotationStepPhase.Applying(prepared.phase.work, prepared.journal.token)
             val execution = executeRotation(phase, prepared.journal, acquire, completedAt)
+            if (execution.settlement is ApplySettlement.Finished) outcomes.remove(phase.work.operationId)
             RotationCommandOutcome.Executed(execution, phase.work)
         }
 
@@ -333,7 +343,7 @@ internal class StudioApplyCoordinator(
         val lease = recover(journal, decision) ?: return null
         val work = StudioOwnerWork(journal, lease::recover)
         val settlement = StudioApplySettlement(store, owners, ioDispatcher, work, lease::release)
-        return RecoveredApply(operation, settlement).also { activeApply = it }
+        return RecoveredApply(operation, journal.recovery.purpose, settlement).also { activeApply = it }
     }
 
     private suspend fun settle(work: ActiveOperation): ApplyExecution {
@@ -444,6 +454,7 @@ internal class StudioApplyCoordinator(
 
     private class RecoveredApply(
         override val operation: UUID,
+        val purpose: RecoveryPurpose,
         override val settlement: StudioApplySettlement,
     ) : ActiveOperation {
         override val request: ApplyRequest? get() = null

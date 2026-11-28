@@ -54,6 +54,7 @@ import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioFiles
 import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.runtime.RotationCommandOutcome
 import dev.ayuislands.studio.runtime.RotationStepAdmission
 import dev.ayuislands.studio.runtime.RotationStepAttempt
 import dev.ayuislands.studio.runtime.prepareRotationStep
@@ -131,6 +132,28 @@ class StudioApplyRestartTest {
             assertEquals(StoreLoad.Ready(accepted), store.load())
             assertEquals(1, effects.values.getValue(receipt.id))
             assertEquals(1L, accepted.runtime.rotation?.successfulStepSerial)
+            assertEquals(listOf("resume-accepted", "accept-ACCENT", "release-accepted"), effects.events)
+        }
+    }
+
+    @Test
+    fun `a new automatic command consumes the completed recovery of an older rotation`() {
+        val receipt = receipt(EffectOwner.ACCENT)
+        val accepted = prepareRotationRestart(receipt, committed = true)
+        val effects = NativeState(receipt to 1)
+        reopen(effects::resume, loseCleanup = true) { coordinator, store ->
+            assertIs<ApplySettlement.AcceptedCleanupPending>(coordinator.retry(APPLY)?.settlement)
+            val next =
+                coordinator.submitRotation(
+                    prepare = {
+                        assertEquals(StoreLoad.Ready(accepted), store.load())
+                        RotationStepAdmission.Stale
+                    },
+                    acquire = { error("The old rotation must not acquire native effects again") },
+                    completedAt = { error("No new step was applied") },
+                )
+            assertEquals(RotationCommandOutcome.Rejected(RotationStepAdmission.Stale), next)
+            assertNull(coordinator.outcome(APPLY))
             assertEquals(listOf("resume-accepted", "accept-ACCENT", "release-accepted"), effects.events)
         }
     }
