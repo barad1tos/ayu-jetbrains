@@ -89,13 +89,15 @@ private fun selectRotationResume(
     interrupted: Boolean,
 ): RotationResume {
     val starting = requested == RotationResume.ImmediateEnable
+    val eligible = availability.pauseReasons.isEmpty()
     val retained = if (starting) RotationResume.KeepDeadline else saved
     return when {
-        starting && availability.pauseReasons.isEmpty() -> RotationResume.ImmediateEnable
+        starting && eligible -> RotationResume.ImmediateEnable
         availability.effectiveFollowSystem -> RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM)
         interrupted -> RotationResume.FullInterval(FullIntervalReason.INTERRUPTED_HANDOFF)
         retained is RotationResume.FullInterval -> retained
-        availability.variant == null || retained == RotationResume.ExternalCadence -> RotationResume.ExternalCadence
+        availability.variant == null || (retained == RotationResume.ExternalCadence && !eligible) ->
+            RotationResume.ExternalCadence
         else -> requested ?: retained
     }
 }

@@ -174,6 +174,21 @@ class RotationResumePolicyTest {
         assertEquals(ExternalCadencePlan.KEEP, unchanged.externalCadence)
     }
 
+    @Test
+    fun `a new eligible edit steps immediately after an external pause while a deferred edit retains the cadence`() {
+        val withoutPro = eligible.copy(entitlement = LicenseEntitlement.UNLICENSED)
+        val external = withoutPro.copy(variant = null)
+        val paused = decide(RotationResume.KeepDeadline, input(on), input(on, external))
+        val returned = decide(paused.resume, input(on, external), input(on, withoutPro))
+        val oneHour = on.copy(intervalHoursRaw = 1)
+
+        val deferred = decide(returned.resume, input(on, withoutPro), input(oneHour, withoutPro), configure)
+        assertEquals(RotationResume.ExternalCadence, deferred.resume)
+
+        val accepted = decide(returned.resume, input(on, withoutPro), input(oneHour), configure)
+        assertEquals(RotationResume.ImmediateConfiguration, accepted.resume)
+    }
+
     private fun input(
         intent: RotationIntent,
         availability: RotationAvailability = eligible,
