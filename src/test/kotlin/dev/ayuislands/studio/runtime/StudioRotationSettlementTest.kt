@@ -12,6 +12,7 @@ import dev.ayuislands.rotation.RotationRuntimeCommand
 import dev.ayuislands.rotation.RotationRuntimeEvent
 import dev.ayuislands.rotation.RotationRuntimeSnapshot
 import dev.ayuislands.rotation.RotationRuntimeState
+import dev.ayuislands.rotation.RotationStepBlock
 import dev.ayuislands.rotation.RotationStepInputs
 import dev.ayuislands.rotation.RotationStepPlan
 import dev.ayuislands.rotation.RotationStepPlanner
@@ -39,10 +40,14 @@ import dev.ayuislands.studio.persistence.CommitResolution
 import dev.ayuislands.studio.persistence.CommitResult
 import dev.ayuislands.studio.persistence.JournalResult
 import dev.ayuislands.studio.persistence.LegacyCapture
+import dev.ayuislands.studio.persistence.NativeFieldIdentity
+import dev.ayuislands.studio.persistence.NativeValue
 import dev.ayuislands.studio.persistence.PendingJournal
+import dev.ayuislands.studio.persistence.PortableReceipt
 import dev.ayuislands.studio.persistence.PrepareResult
 import dev.ayuislands.studio.persistence.RecoveryPlan
 import dev.ayuislands.studio.persistence.RecoveryPurpose
+import dev.ayuislands.studio.persistence.RestoreStatus
 import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
@@ -585,6 +590,11 @@ class StudioRotationSettlementTest {
                 admission,
             )
             assertEquals(StoreLoad.Ready(accepted), store.load())
+            assertEquals(
+                RotationStepAdmission.Blocked(RotationStepBlock.INVALID_COLOR),
+                prepareRotationStep(store, request, request.source, lease, attempt.copy(randomHex = "")),
+            )
+            assertEquals(StoreLoad.Ready(accepted), store.load())
 
             val prepared =
                 assertIs<RotationStepAdmission.Prepared>(
@@ -626,6 +636,63 @@ class StudioRotationSettlementTest {
             )
             assertEquals(retained, store.load())
         }
+    }
+
+    @Test
+    fun `restart retires an interrupted preparation before any Accent receipts were written`() {
+        val accepted =
+            open().use { store ->
+                val initial = initialize(store)
+                prepareRestartStep(store, initial)
+                initial
+            }
+
+        open().use { reopened ->
+            assertIs<StoreLoad.Recovering>(reopened.load())
+            assertEquals(
+                StudioBootstrapResult.Ready(accepted),
+                StudioBootstrap(reopened, directory, "/work").load("restart"),
+            )
+            assertEquals(StoreLoad.Ready(accepted), reopened.load())
+        }
+    }
+
+    @Test
+    fun `restart retains a pending Accent receipt for its native recovery owner`() {
+        open().use { store ->
+            val initial = initialize(store)
+            val prepared = prepareRestartStep(store, initial)
+            val receipt =
+                PortableReceipt(
+                    id = "accent-tab",
+                    owner = EffectOwner.ACCENT,
+                    identity = NativeFieldIdentity("accent-ui-defaults", "EditorTabs.underlineColor", "laf"),
+                    before = NativeValue.Present(RawValue.Text("#5CCFE6")),
+                    lastWritten = NativeValue.Present(RawValue.Text(prepared.phase.work.candidate.hex)),
+                    status = RestoreStatus.PENDING,
+                )
+            assertEquals(JournalResult.Acknowledged, store.recordRecovery(prepared.journal.token, listOf(receipt)))
+        }
+
+        open().use { reopened ->
+            val retained = assertIs<StoreLoad.Recovering>(reopened.load())
+            assertEquals(
+                StudioBootstrapResult.Recovering(retained),
+                StudioBootstrap(reopened, directory, "/work").load("restart"),
+            )
+            assertEquals(retained, reopened.load())
+        }
+    }
+
+    private fun prepareRestartStep(
+        store: StudioAppearanceStore,
+        accepted: StudioDocument,
+    ): RotationStepAdmission.Prepared {
+        val request = stepRequest(accepted)
+        val lease = AcceptanceLease(accepted.header.revision, targetGeneration = 3, capabilityRevision = 1)
+        return assertIs<RotationStepAdmission.Prepared>(
+            prepareRotationStep(store, request, request.source, lease, RotationStepAttempt(UUID(0, 28))),
+        )
     }
 
     private fun scheduleRequest(document: StudioDocument): RotationRuntimeCommand.PersistCheckpoint =
