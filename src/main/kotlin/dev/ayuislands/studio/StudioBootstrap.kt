@@ -14,6 +14,7 @@ import dev.ayuislands.studio.persistence.LegacyCapture
 import dev.ayuislands.studio.persistence.LegacyCaptureIssue
 import dev.ayuislands.studio.persistence.PrepareResult
 import dev.ayuislands.studio.persistence.RecoveryPlan
+import dev.ayuislands.studio.persistence.RecoveryPurpose
 import dev.ayuislands.studio.persistence.StoreDataException
 import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
@@ -53,7 +54,12 @@ internal class StudioBootstrap(
         when (val loaded = store.load()) {
             StoreLoad.Empty -> migrate(transactionId)
             is StoreLoad.Ready -> StudioBootstrapResult.Ready(loaded.document)
-            is StoreLoad.Recovering -> recoverInitial(loaded)
+            is StoreLoad.Recovering ->
+                if (loaded.journal.recovery.purpose is RecoveryPurpose.RotationSchedule) {
+                    recoverSchedule(loaded)
+                } else {
+                    recoverInitial(loaded)
+                }
             is StoreLoad.ReadOnly -> StudioBootstrapResult.ReadOnly(loaded)
         }
 
@@ -122,6 +128,30 @@ internal class StudioBootstrap(
             CommitResolution.Committed -> finishAccepted(state)
             CommitResolution.NotCommitted -> finishRollback(state, prepareIssue)
             CommitResolution.Unknown -> StudioBootstrapResult.Recovering(state)
+        }
+    }
+
+    private fun recoverSchedule(state: StoreLoad.Recovering): StudioBootstrapResult {
+        val journal = state.journal
+        val document = state.document ?: return StudioBootstrapResult.Recovering(state)
+        if (journal.recovery.owners.isNotEmpty() ||
+            journal.receipts.isNotEmpty() ||
+            journal.recovery.rotationStep != null
+        ) {
+            return StudioBootstrapResult.Recovering(state)
+        }
+        val result =
+            when (store.resolveOutcome(journal.token)) {
+                CommitResolution.Committed -> {
+                    if (document != journal.candidate) return StudioBootstrapResult.Recovering(state)
+                    store.finishAccepted(journal.token)
+                }
+                CommitResolution.NotCommitted -> store.finishRollback(journal.token)
+                CommitResolution.Unknown -> return StudioBootstrapResult.Recovering(state)
+            }
+        return when (result) {
+            JournalResult.Acknowledged -> StudioBootstrapResult.Ready(document)
+            is JournalResult.Rejected -> StudioBootstrapResult.Recovering(state)
         }
     }
 
