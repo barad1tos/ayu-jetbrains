@@ -1,7 +1,5 @@
 package dev.ayuislands.rotation
 
-import java.util.concurrent.TimeUnit
-
 internal fun rotationTimerKey(
     accepted: RotationRuntimeCheckpoint,
     generation: RotationTimerGeneration,
@@ -33,7 +31,7 @@ internal fun advanceRotationWait(
     monotonicNanos: Long,
 ): RotationWakePlan {
     if (pending != callback || current != callback.key) return RotationWakePlan.Ignored
-    val elapsedMillis = TimeUnit.NANOSECONDS.toMillis(maxOf(0L, monotonicNanos - callback.armedAtNanos))
+    val elapsedMillis = callback.elapsedMillis(monotonicNanos)
     if (elapsedMillis >= callback.remainingMillis) return RotationWakePlan.Due
     val next = callback.copy(armedAtNanos = monotonicNanos, remainingMillis = callback.remainingMillis - elapsedMillis)
     return RotationWakePlan.Arm(next)

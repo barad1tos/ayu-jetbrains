@@ -21,6 +21,8 @@ internal data class RotationWaitTicket(
 ) {
     val delayMillis: Long get() = minOf(remainingMillis, MAX_WAKE_DELAY_MILLIS)
 
+    fun elapsedMillis(nowNanos: Long): Long = TimeUnit.NANOSECONDS.toMillis(maxOf(0L, nowNanos - armedAtNanos))
+
     private companion object {
         val MAX_WAKE_DELAY_MILLIS: Long = TimeUnit.DAYS.toMillis(1)
     }
