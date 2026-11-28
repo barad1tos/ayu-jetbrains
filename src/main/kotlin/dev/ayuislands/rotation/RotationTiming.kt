@@ -6,6 +6,8 @@ internal sealed interface RotationTimingPlan {
     data object StepDue : RotationTimingPlan
 
     data class Wait(
+        val owner: RuntimeOwner,
+        val schedule: RotationSchedule,
         val delayMillis: Long,
     ) : RotationTimingPlan
 
@@ -68,7 +70,7 @@ private fun planRetainedAppointment(
     return if (now >= schedule.deadlineEpochMillis) {
         RotationTimingPlan.StepDue
     } else {
-        RotationTimingPlan.Wait(schedule.deadlineEpochMillis - now)
+        RotationTimingPlan.Wait(checkpoint.owner, schedule, schedule.deadlineEpochMillis - now)
     }
 }
 

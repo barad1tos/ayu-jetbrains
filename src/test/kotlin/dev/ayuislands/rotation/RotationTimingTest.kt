@@ -10,7 +10,8 @@ class RotationTimingTest {
     @Test
     fun `keep the appointment made with the former profile's interval`() {
         val checkpoint = checkpoint()
-        assertEquals(RotationTimingPlan.Wait(5 * HOUR), planRotationTiming(checkpoint, 1, 13 * HOUR))
+        val wait = assertIs<RotationTimingPlan.Wait>(planRotationTiming(checkpoint, 1, 13 * HOUR))
+        assertEquals(RotationTimingPlan.Wait(checkpoint.owner, requireNotNull(checkpoint.schedule), 5 * HOUR), wait)
         assertEquals(RotationTimingPlan.StepDue, planRotationTiming(checkpoint, 1, 18 * HOUR))
         assertEquals(RotationTimingPlan.StepDue, planRotationTiming(checkpoint, 1, 21 * HOUR))
     }
@@ -85,7 +86,8 @@ class RotationTimingTest {
                 planRotationTiming(checkpoint, 1, 13 * HOUR),
             )
         assertEquals(checkpoint.copy(resume = RotationResume.KeepDeadline), planned.checkpoint)
-        assertEquals(RotationTimingPlan.Wait(5 * HOUR), planRotationTiming(planned.checkpoint, 1, 13 * HOUR))
+        val wait = assertIs<RotationTimingPlan.Wait>(planRotationTiming(planned.checkpoint, 1, 13 * HOUR))
+        assertEquals(RotationTimingPlan.Wait(checkpoint.owner, requireNotNull(checkpoint.schedule), 5 * HOUR), wait)
     }
 
     @Test
