@@ -28,6 +28,7 @@ import dev.ayuislands.studio.runtime.RotationStepPhase
 import dev.ayuislands.studio.runtime.RotationStepRestoration
 import dev.ayuislands.studio.runtime.RotationStepWork
 import dev.ayuislands.studio.runtime.admitRotationEffects
+import dev.ayuislands.studio.runtime.commitRotationRetry
 import dev.ayuislands.studio.runtime.settleRotationEffects
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -271,7 +272,13 @@ internal class StudioApplyCoordinator(
         var captured: StudioApplyLease? = null
         val settlement =
             StudioApplySettlement(store, owners, ioDispatcher, work) { accepted -> captured?.release(accepted) }
-        val active = ActiveRotation(phase.work.operationId, journal.token, settlement)
+        val active =
+            ActiveRotation(phase.work.operationId, journal.token, settlement) { failure ->
+                withContext(ioDispatcher) {
+                    val canRetry = captured != null && failure.canRetryRotation()
+                    commitRotationRetry(store, journal.token, canRetry, completedAt)
+                }
+            }
         activeApply = active
         return try {
             val lease = withContext(NonCancellable) { acquire(phase.work).also { captured = it } }
@@ -392,7 +399,7 @@ internal class StudioApplyCoordinator(
         val result =
             when (work) {
                 is ActiveApply -> work.settlement?.settle() ?: settleUnbound(work)
-                is ActiveRotation -> work.settlement.settle()
+                is ActiveRotation -> work.settlement.settle { work.retry(work.failure) }
                 is PendingRotationWrite -> work.settle(store, owners, ioDispatcher)
                 is RecoveredApply -> work.settlement.settle()
             }
@@ -497,6 +504,7 @@ internal class StudioApplyCoordinator(
         override val operation: UUID,
         val token: PreparedToken,
         override val settlement: StudioApplySettlement,
+        val retry: suspend (ApplyFailure?) -> ApplySettlement,
     ) : ActiveOperation {
         override val request: ApplyRequest? get() = null
         override var failure: ApplyFailure? = null
@@ -554,6 +562,13 @@ internal class StudioApplyCoordinator(
 
 private fun unsettledRotation(problem: SettlementProblem = SettlementProblem.Unconfirmed): ApplyExecution =
     ApplyExecution(ApplySettlement.RecoveryRequired(problem), null)
+
+private fun ApplyFailure?.canRetryRotation(): Boolean =
+    when (this) {
+        is ApplyFailure.Native, is ApplyFailure.Commit -> true
+        is ApplyFailure.Effects -> result is OwnerApply.OwnerFailed || result is OwnerApply.ReceiptFailed
+        else -> false
+    }
 
 private fun PendingJournal.matchesApplyRecovery(operation: UUID): Boolean {
     if (token.transactionId != operation.toString() || token.baseRevision < 0) return false

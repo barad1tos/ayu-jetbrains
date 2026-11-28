@@ -100,10 +100,25 @@ internal class StudioAppearanceStore(
         return journalChange {
             val journal = requireJournal(token)
             if (!retainsReceipts(journal.receipts, receipts)) throw StoreDataException(StoreIssue.CONFLICT)
-            val updated = journal.copy(receipts = StudioList(receipts))
-            io.writeJournal(updated)
-            val loaded = phase as StorePhase.Loaded
-            phase = loaded.copy(status = StoreLoad.Recovering(loaded.accepted?.document, updated))
+            phase = io.retainJournal(phase as StorePhase.Loaded, journal.copy(receipts = StudioList(receipts)))
+        }
+    }
+
+    /** Keep the restored attempt under the same token until its runtime-only retry is published. */
+    @Synchronized
+    fun recordRotationRetry(
+        token: PreparedToken,
+        restoredAt: Long,
+    ): JournalResult {
+        writeProblem()?.let { return JournalResult.Rejected(it) }
+        return journalChange {
+            val journal = requireJournal(token)
+            if (journal.hasRotationRetry()) return@journalChange
+            if (observeDecision(journal).resolution != CommitResolution.NotCommitted) {
+                throw StoreDataException(StoreIssue.RECOVERY_REQUIRED)
+            }
+            val staged = journal.planRotationRetry(restoredAt) ?: throw StoreDataException(StoreIssue.INVALID_CANDIDATE)
+            phase = io.retainJournal(phase as StorePhase.Loaded, staged)
         }
     }
 
@@ -289,6 +304,14 @@ private data class StoreDecision(
     val current: StoredDocument?,
     val resolution: CommitResolution,
 )
+
+private fun StudioStoreIo.retainJournal(
+    loaded: StorePhase.Loaded,
+    journal: PendingJournal,
+): StorePhase.Loaded {
+    writeJournal(journal)
+    return loaded.copy(status = StoreLoad.Recovering(loaded.accepted?.document, journal))
+}
 
 private data class FinishedTransaction(
     val token: PreparedToken,

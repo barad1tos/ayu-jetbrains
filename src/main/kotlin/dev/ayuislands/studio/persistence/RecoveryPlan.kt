@@ -31,6 +31,10 @@ internal sealed interface RecoveryPurpose {
         override val operationId: UUID,
     ) : Automatic
 
+    data class RotationRetry(
+        override val operationId: UUID,
+    ) : Automatic
+
     data class NativeChange(
         override val operationId: UUID,
         val change: StudioNativeChange,

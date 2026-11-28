@@ -712,6 +712,12 @@ class StudioRotationSettlementTest {
                     status = RestoreStatus.PENDING,
                 )
             assertEquals(JournalResult.Acknowledged, store.recordRecovery(prepared.journal.token, listOf(receipt)))
+            val recorded = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(
+                JournalResult.Rejected(StoreIssue.INVALID_CANDIDATE),
+                store.recordRotationRetry(prepared.journal.token, 2_000L),
+            )
+            assertEquals(recorded, store.load())
         }
 
         open().use { reopened ->
