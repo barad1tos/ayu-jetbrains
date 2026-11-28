@@ -3,6 +3,7 @@ package dev.ayuislands.studio.persistence
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.FullIntervalReason
+import dev.ayuislands.rotation.ROTATION_FAILURE_LIMIT
 import dev.ayuislands.rotation.RotationCandidate
 import dev.ayuislands.rotation.RotationIntent
 import dev.ayuislands.rotation.RotationOutput
@@ -21,7 +22,8 @@ internal object StudioRotationXml {
     private const val SCHEDULED_AT = "scheduled-at"
     private const val NEXT_CURSOR = "next-cursor"
     private const val INTERVAL_HOURS = "interval-hours"
-    private const val FAILURES = "failures"
+    private const val LEGACY_FAILURES = "failures"
+    private const val RESTORED_ATTEMPT = "restored-attempt"
 
     fun write(checkpoint: RotationRuntimeCheckpoint): StudioXmlNode =
         StudioXmlNode(
@@ -70,15 +72,17 @@ internal object StudioRotationXml {
 
     private fun writeRetry(retry: RotationRetry): StudioXmlNode {
         val node = writeCandidate(retry.candidate, "retry")
-        if (retry.failures == 0) return node
-        return node.copy(attributes = node.attributes + (FAILURES to retry.failures.toString()))
+        val attempt = retry.restoredAttempt ?: return node
+        return node.copy(attributes = node.attributes + (RESTORED_ATTEMPT to attempt.toString()))
     }
 
-    private fun readRetry(node: StudioXmlNode): RotationRetry =
-        RotationRetry(
-            readCandidate(node.copy(attributes = node.attributes - FAILURES)),
-            node.attributes[FAILURES]?.toInt() ?: 0,
+    private fun readRetry(node: StudioXmlNode): RotationRetry {
+        node.attributes[LEGACY_FAILURES]?.let { require(it.toInt() in 0..ROTATION_FAILURE_LIMIT) }
+        return RotationRetry(
+            readCandidate(node.copy(attributes = node.attributes - LEGACY_FAILURES - RESTORED_ATTEMPT)),
+            node.attributes[RESTORED_ATTEMPT]?.let(UUID::fromString),
         )
+    }
 
     fun writeOwner(owner: RuntimeOwner): StudioXmlNode =
         StudioXmlNode(

@@ -62,7 +62,7 @@ internal object StudioRecoveryXml {
                 require(owners.isEmpty() && limitations.isEmpty() && plan.rotationStep == null) {
                     "Metadata cannot own native effects"
                 }
-            is RecoveryPurpose.RotationStep -> {
+            is RecoveryPurpose.RotationStep, is RecoveryPurpose.RotationRetry -> {
                 requireNotNull(plan.rotationStep) { "Missing automatic rotation candidate" }
             }
             else -> Unit
@@ -91,6 +91,7 @@ internal object StudioRecoveryXml {
             RecoveryPurpose.UserAcceptance -> null
             RecoveryPurpose.Metadata -> StudioXmlNode(METADATA_PURPOSE)
             is RecoveryPurpose.RotationStep -> writeRuntime("step", purpose.operationId)
+            is RecoveryPurpose.RotationRetry -> writeRuntime("retry", purpose.operationId)
             is RecoveryPurpose.RotationSchedule -> writeRuntime("schedule", purpose.operationId)
             is RecoveryPurpose.ContextHandoff ->
                 writeRuntime(
@@ -126,6 +127,7 @@ internal object StudioRecoveryXml {
         runtime.requireShape(setOf("kind", "operation"))
         return when (kind) {
             "step" -> RecoveryPurpose.RotationStep(operation)
+            "retry" -> RecoveryPurpose.RotationRetry(operation)
             "schedule" -> RecoveryPurpose.RotationSchedule(operation)
             "focus" -> RecoveryPurpose.ContextHandoff(operation, RotationHandoffKind.FOCUS)
             "continuity" -> RecoveryPurpose.ContextHandoff(operation, RotationHandoffKind.CONTINUITY)

@@ -21,6 +21,7 @@ import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioLegacyCapture
+import dev.ayuislands.studio.persistence.hasRotationRetry
 import dev.ayuislands.studio.persistence.readLegacyFiles
 import java.io.IOException
 import java.nio.file.Path
@@ -58,6 +59,7 @@ internal class StudioBootstrap(
             is StoreLoad.Recovering ->
                 when (loaded.journal.recovery.purpose) {
                     is RecoveryPurpose.RotationSchedule, is RecoveryPurpose.RotationStep -> recoverRotation(loaded)
+                    is RecoveryPurpose.RotationRetry -> recoverRotationRetry(loaded)
                     else -> recoverInitial(loaded)
                 }
             is StoreLoad.ReadOnly -> StudioBootstrapResult.ReadOnly(loaded)
@@ -161,6 +163,17 @@ internal class StudioBootstrap(
                     plan.rotationStep != null
             else -> false
         }
+
+    private fun recoverRotationRetry(state: StoreLoad.Recovering): StudioBootstrapResult {
+        val journal = state.journal
+        if (journal.hasRotationRetry()) {
+            val result = store.commit(journal.token, journal.candidate.runtime)
+            if (result is CommitResult.Committed && result.document == journal.candidate) {
+                return finishAccepted(state.copy(document = result.document))
+            }
+        }
+        return StudioBootstrapResult.Recovering(state)
+    }
 
     private fun finishAccepted(state: StoreLoad.Recovering): StudioBootstrapResult =
         when (store.finishAccepted(state.journal.token)) {

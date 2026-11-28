@@ -39,12 +39,13 @@ internal class StudioApplySettlement(
             Stage.Inspecting -> ApplySettlement.RecoveryRequired(problem)
             is Stage.Owners -> current.outcome.pending(problem)
             is Stage.Release -> current.outcome.pending(problem)
+            Stage.Restored -> ApplySettlement.RecoveryRequired(problem)
             is Stage.Cleanup -> current.outcome.pending(problem)
             is Stage.Done -> current.outcome
         }
 
     /** A failed release may be retried, so the adapter must tolerate an interrupted release. */
-    suspend fun settle(): ApplySettlement {
+    suspend fun settle(afterRestore: suspend () -> ApplySettlement = { ApplySettlement.NotAccepted }): ApplySettlement {
         while (true) {
             when (val current = stage) {
                 Stage.Inspecting -> {
@@ -57,7 +58,17 @@ internal class StudioApplySettlement(
                 }
                 is Stage.Release -> {
                     releaseScope(current.outcome)?.let { return current.outcome.pending(it) }
-                    stage = Stage.Cleanup(current.outcome)
+                    stage =
+                        if (current.outcome == ApplySettlement.NotAccepted) {
+                            Stage.Restored
+                        } else {
+                            Stage.Cleanup(current.outcome)
+                        }
+                }
+                Stage.Restored -> {
+                    val outcome = afterRestore()
+                    if (outcome !is ApplySettlement.Finished) return outcome
+                    stage = Stage.Cleanup(outcome)
                 }
                 is Stage.Cleanup -> {
                     cleanup(current.outcome)?.let { return current.outcome.pending(it) }
@@ -122,6 +133,8 @@ internal class StudioApplySettlement(
 
     private sealed interface Stage {
         data object Inspecting : Stage
+
+        data object Restored : Stage
 
         data class Owners(
             val outcome: ApplySettlement.Finished,

@@ -2,6 +2,7 @@ package dev.ayuislands.studio.runtime
 
 import com.intellij.openapi.diagnostic.Logger
 import dev.ayuislands.rotation.ClockSample
+import dev.ayuislands.rotation.RotationFailureBudget
 import dev.ayuislands.rotation.RotationRuntimeCommand
 import dev.ayuislands.rotation.RotationRuntimeEvent
 import dev.ayuislands.rotation.RotationRuntimeSnapshot
@@ -37,13 +38,15 @@ internal class StudioRuntimeCoordinator(
     private val reportFault: (RuntimeFault) -> Unit,
 ) {
     private var rotation: RotationRuntimeState = RotationRuntimeState.Loading
+    private var restoredFailureBudget: RotationFailureBudget? = null
     private var scheduledWake: ScheduledWake? = null
     private val commandSlot = AtomicReference<CommandSlot>(CommandSlot.Idle)
     private var refreshPending = false
 
     suspend fun refreshRotation() {
         queue.withLock {
-            when (commandSlot.get()) {
+            val slot: CommandSlot = commandSlot.get()
+            when (slot) {
                 CommandSlot.Idle -> reconcileRotation()
                 is CommandSlot.Running -> refreshPending = true
                 CommandSlot.Disposed -> Unit
@@ -95,7 +98,19 @@ internal class StudioRuntimeCoordinator(
         }
 
     private fun dispatchRotation(event: RotationRuntimeEvent) {
-        val transition = transitionRotationRuntime(rotation, event, clock())
+        val readback =
+            when (event) {
+                is RotationRuntimeEvent.Reconcile -> event.current
+                is RotationRuntimeEvent.CommandFinished ->
+                    event.current.takeIf { (rotation as? RotationRuntimeState.Applying)?.current == event.source }
+                else -> null
+            }
+        if (readback !=
+            null
+        ) {
+            restoredFailureBudget = RotationFailureBudget.afterReadback(restoredFailureBudget, readback)
+        }
+        val transition = transitionRotationRuntime(rotation, event, clock(), restoredFailureBudget?.fault)
         rotation = transition.state
         transition.commands.forEach(::executeRotation)
     }

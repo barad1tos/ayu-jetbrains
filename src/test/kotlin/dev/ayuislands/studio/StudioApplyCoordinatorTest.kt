@@ -270,9 +270,53 @@ class StudioApplyCoordinatorTest {
             fixture.failApply = true
 
             val execution = fixture.applyRotation(prepared)
-            assertEquals(ApplySettlement.NotAccepted, execution.settlement)
-            assertIs<ApplyFailure.Effects>(execution.failure)
+            val accepted = assertIs<ApplySettlement.Accepted>(execution.settlement).document
+            val rotation = requireNotNull(accepted.runtime.rotation)
+            val previous = requireNotNull(fixture.initial.runtime.rotation)
+            assertEquals(
+                previous,
+                rotation.copy(schedule = previous.schedule, resume = previous.resume, retry = previous.retry),
+            )
+            assertEquals(
+                fixture.initial,
+                accepted.copy(header = fixture.initial.header, runtime = accepted.runtime.copy(rotation = previous)),
+            )
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+        }
+
+    @Test
+    fun `a failed Accent write whose lease was lost does not admit a retry`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.loseLeaseBeforeCommit = true
+            fixture.failApply = true
+
+            val result = fixture.applyRotation(prepared)
+            assertEquals(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost), result)
             assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+        }
+
+    @Test
+    fun `a rejected rotation commit retries without recording a successful step`() =
+        exercise(document = rotationDocument(retainAccent = true)) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.publicationFault = PublicationFault.REJECTED
+
+            val execution = fixture.applyRotation(prepared)
+            val accepted = assertIs<ApplySettlement.Accepted>(execution.settlement).document
+            val before = requireNotNull(fixture.initial.runtime.rotation)
+            val restored = requireNotNull(accepted.runtime.rotation)
+            assertEquals(prepared.phase.work.candidate, restored.retry?.candidate)
+            assertEquals(before.sequenceCursorRaw, restored.sequenceCursorRaw)
+            assertEquals(before.successfulStepSerial, restored.successfulStepSerial)
+            assertEquals(before.lastSuccessfulStepEpochMillis, restored.lastSuccessfulStepEpochMillis)
+            assertEquals(before.output, restored.output)
+            assertEquals(fixture.initial.runtime.effectiveContinuation, accepted.runtime.effectiveContinuation)
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
             assertFalse(fixture.native)
             assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
         }
@@ -303,6 +347,26 @@ class StudioApplyCoordinatorTest {
             assertEquals(pending.document, finished.document)
             assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
             assertEquals(StoreLoad.Ready(finished.document), fixture.store.load())
+        }
+
+    @Test
+    fun `a committed Accent step cannot become a retry while its journal still needs cleanup`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.rejectNextCleanup()
+            val first = fixture.applyRotation(prepared)
+            val accepted = assertIs<ApplySettlement.AcceptedCleanupPending>(first.settlement).document
+            val pending = assertIs<StoreLoad.Recovering>(fixture.store.load())
+
+            assertEquals(
+                JournalResult.Rejected(StoreIssue.RECOVERY_REQUIRED),
+                fixture.store.recordRotationRetry(prepared.journal.token, ROTATION_COMPLETED_AT + 1_000),
+            )
+            assertEquals(pending, fixture.store.load())
+            assertEquals(ApplySettlement.Accepted(accepted), fixture.applyRotation(prepared).settlement)
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertTrue(fixture.native)
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
         }
 
     @Test
@@ -429,6 +493,186 @@ class StudioApplyCoordinatorTest {
             assertNull(fixture.coordinator.outcome(APPLY))
             assertEquals(1, drawn)
             assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+        }
+
+    @Test
+    fun `a restored random step saves its candidate and retries it on the next appointment`() =
+        exercise(document = rotationDocument(retainAccent = true)) { fixture ->
+            val mode = AccentRotationMode.RANDOM
+            var operation = APPLY
+            var draws = 0
+            val commands =
+                fixture.rotationCommands(
+                    observe = { fixture.observeRotation(mode) },
+                    operationId = { operation },
+                    randomColor = {
+                        draws++
+                        "#AABBCC"
+                    },
+                )
+            fixture.failApply = true
+            val due = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+
+            val restored = assertIs<RotationCommandOutcome.Executed>(commands.execute(due))
+            val accepted = assertIs<ApplySettlement.Accepted>(restored.execution.settlement).document
+            val rotation = requireNotNull(accepted.runtime.rotation)
+            val retry = requireNotNull(rotation.retry)
+            assertEquals(restored.step?.candidate, retry.candidate)
+            assertEquals(APPLY, retry.restoredAttempt)
+            assertEquals(due.source.checkpoint.sequenceCursorRaw, rotation.sequenceCursorRaw)
+            assertEquals(due.source.checkpoint.output, rotation.output)
+            assertEquals(fixture.initial.currents, accepted.currents)
+            assertEquals(fixture.initial.runtime.effectiveContinuation, accepted.runtime.effectiveContinuation)
+            assertFalse(fixture.native)
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+
+            operation = NEXT
+            fixture.failApply = false
+            val appointment = requireNotNull(rotation.schedule)
+            val next =
+                assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode, appointment.deadlineEpochMillis))
+            val completed = assertIs<RotationCommandOutcome.Executed>(commands.execute(next))
+            val saved = assertIs<ApplySettlement.Accepted>(completed.execution.settlement).document
+            assertEquals(retry.candidate, completed.step?.candidate)
+            assertEquals(
+                "#AABBCC",
+                saved.runtime.rotation
+                    ?.output
+                    ?.hex,
+            )
+            assertNull(saved.runtime.rotation?.retry)
+            assertEquals(1, draws)
+        }
+
+    @Test
+    fun `retrying failed publication reuses the same restored attempt`() =
+        exercisePendingRotationRetry { fixture, expected ->
+            val pending = assertIs<StoreLoad.Recovering>(fixture.store.load())
+            assertEquals(
+                JournalResult.Acknowledged,
+                fixture.store.recordRotationRetry(pending.journal.token, ROTATION_COMPLETED_AT + 1_000),
+            )
+            assertEquals(pending, fixture.store.load())
+            val execution = requireNotNull(fixture.coordinator.retry(APPLY))
+            assertEquals(ApplySettlement.Accepted(expected), execution.settlement)
+            assertEquals(StoreLoad.Ready(expected), fixture.store.load())
+        }
+
+    @Test
+    fun `a failed read after native rollback leaves the same rotation ready for recovery`() =
+        verifyRotationRetryRecovery(SettlementProblem.Unconfirmed) {
+            arm(IoEvent(IoOperation.READ, "state.xml", IoBoundary.BEFORE))
+        }
+
+    @Test
+    fun `a failed retry journal write keeps the preceding Accent and can resume`() =
+        verifyRotationRetryRecovery(SettlementProblem.Journal(StoreIssue.IO)) {
+            arm(IoEvent(IoOperation.REPLACE, "pending.xml", IoBoundary.BEFORE))
+        }
+
+    @Test
+    fun `a written retry survives the readback between journal and state publication`() =
+        verifyRotationRetryRecovery(SettlementProblem.Unconfirmed) {
+            armAfter(
+                IoEvent(IoOperation.REPLACE, "pending.xml", IoBoundary.AFTER),
+                IoEvent(IoOperation.READ, "state.xml", IoBoundary.BEFORE),
+            )
+        }
+
+    @Test
+    fun `a lost acknowledgement after retry publication keeps the same accepted appointment`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val prepared = fixture.prepareRotation()
+            fixture.failApply = true
+            fixture.publicationFault = PublicationFault.ACKNOWLEDGEMENT_LOST
+
+            val first = fixture.applyRotation(prepared)
+            assertEquals(ApplySettlement.RecoveryRequired(SettlementProblem.Journal(StoreIssue.IO)), first.settlement)
+            val published = requireNotNull(assertIs<StoreLoad.Recovering>(fixture.store.load()).document)
+            assertEquals(
+                prepared.phase.work.candidate,
+                published.runtime.rotation
+                    ?.retry
+                    ?.candidate,
+            )
+
+            val recovered = requireNotNull(fixture.coordinator.retry(APPLY))
+            assertEquals(ApplySettlement.Accepted(published), recovered.settlement)
+            assertEquals(StoreLoad.Ready(published), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+        }
+
+    private fun verifyRotationRetryRecovery(
+        expected: SettlementProblem,
+        inject: FaultingStudioFiles.() -> Unit,
+    ) = exercise(document = rotationDocument(retainAccent = true)) { fixture ->
+        val prepared = fixture.prepareRotation()
+        fixture.failApply = true
+        fixture.afterRelease = inject
+
+        val first = fixture.applyRotation(prepared)
+        assertEquals(ApplySettlement.RecoveryRequired(expected), first.settlement)
+        assertEquals(fixture.initial, assertIs<StoreLoad.Recovering>(fixture.store.load()).document)
+        assertFalse(fixture.native)
+
+        val recovered = requireNotNull(fixture.coordinator.retry(APPLY))
+        val accepted = assertIs<ApplySettlement.Accepted>(recovered.settlement).document
+        assertEquals(
+            prepared.phase.work.candidate,
+            accepted.runtime.rotation
+                ?.retry
+                ?.candidate,
+        )
+        assertEquals(fixture.initial.runtime.effectiveContinuation, accepted.runtime.effectiveContinuation)
+        assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+        assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
+    }
+
+    @Test
+    fun `starting Studio can finish a restored retry whose state replacement was interrupted`() =
+        exercisePendingRotationRetry { fixture, expected ->
+            fixture.close()
+            val files = FaultingStudioFiles(openStudioFiles(directory))
+            StudioAppearanceStore(files).use { reopened ->
+                val bootstrap = StudioBootstrap(reopened, directory, "/work")
+                files.arm(IoEvent(IoOperation.REPLACE, "state.xml", IoBoundary.BEFORE))
+                val blocked = assertIs<StudioBootstrapResult.Recovering>(bootstrap.load("retry"))
+                assertEquals(expected, blocked.state.journal.candidate)
+
+                val boot = assertIs<StudioBootstrapResult.Ready>(bootstrap.load("retry"))
+                assertEquals(expected, boot.document)
+                assertEquals(StoreLoad.Ready(expected), reopened.load())
+            }
+        }
+
+    private fun exercisePendingRotationRetry(recover: suspend (Fixture, StudioDocument) -> Unit) =
+        exercise(document = rotationDocument()) { fixture ->
+            val mode = AccentRotationMode.RANDOM
+            fixture.failApply = true
+            fixture.publicationFault = PublicationFault.REJECTED
+            val due = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            val commands =
+                fixture.rotationCommands(
+                    observe = { fixture.observeRotation(mode) },
+                    randomColor = { "#AABBCC" },
+                )
+
+            val attempted = assertIs<RotationCommandOutcome.Executed>(commands.execute(due))
+            assertIs<ApplySettlement.RecoveryRequired>(attempted.execution.settlement)
+            val pending = assertIs<StoreLoad.Recovering>(fixture.store.load())
+            assertEquals(fixture.initial, pending.document)
+            val expected = pending.journal.candidate
+            assertEquals(
+                attempted.step?.candidate,
+                expected.runtime.rotation
+                    ?.retry
+                    ?.candidate,
+            )
+            assertFalse(fixture.native)
+            recover(fixture, expected)
+            assertEquals(listOf("acquire", "apply", "restore", "release"), fixture.events)
         }
 
     @Test
@@ -747,7 +991,8 @@ class StudioApplyCoordinatorTest {
         private val dispatcher: CoroutineDispatcher,
         val initial: StudioDocument,
     ) : AutoCloseable {
-        private val files = Faults(openStudioFiles(directory))
+        private val faultingFiles = FaultingStudioFiles(openStudioFiles(directory))
+        private val files = Faults(faultingFiles)
         val store = StudioAppearanceStore(files)
         val events = mutableListOf<String>()
         var native = false
@@ -760,6 +1005,7 @@ class StudioApplyCoordinatorTest {
         var expireLeaseBeforePrepare = false
         var projectionFailure: RuntimeException? = null
         var publicationFault: PublicationFault? = null
+        var afterRelease: (FaultingStudioFiles.() -> Unit)? = null
         var cancelAfterJournalRemoval = false
         private val holdCleanupRetry = AtomicBoolean()
         var pauseRelease = false
@@ -867,8 +1113,8 @@ class StudioApplyCoordinatorTest {
                             LicenseEntitlement.LICENSED,
                             followingSystem,
                             AyuVariant.MIRAGE,
-                            true,
-                            false,
+                            targetValid = true,
+                            recoveryPending = false,
                         ),
                     generation = RotationTimerGeneration(service = 1, target = 1),
                 )
@@ -876,13 +1122,16 @@ class StudioApplyCoordinatorTest {
             return RotationObservation(snapshot, stamp)
         }
 
-        fun issueRotation(mode: AccentRotationMode): RotationRuntimeCommand {
+        fun issueRotation(
+            mode: AccentRotationMode,
+            epochMillis: Long = 0L,
+        ): RotationRuntimeCommand {
             val snapshot = requireNotNull(observeRotation(mode)).snapshot
             val transition =
                 transitionRotationRuntime(
                     RotationRuntimeState.Loading,
                     RotationRuntimeEvent.Reconcile(snapshot),
-                    ClockSample(0L, 0L),
+                    ClockSample(epochMillis, 0L),
                 )
             return transition.commands.single()
         }
@@ -949,6 +1198,7 @@ class StudioApplyCoordinatorTest {
                         resumeRelease.await()
                     }
                     events.add("release")
+                    afterRelease?.invoke(faultingFiles)
                 }
             }
 
@@ -971,9 +1221,9 @@ class StudioApplyCoordinatorTest {
                         assertEquals(receipt, pending.journal.receipts.single())
                         events.add("apply")
                         native = true
+                        if (owner == EffectOwner.ACCENT && loseLeaseBeforeCommit) leaseValid = false
                         if (failApply) error("Native mutation failed after changing the value")
                         receipt = receipt.copy(status = RestoreStatus.OWNED)
-                        if (owner == EffectOwner.ACCENT && loseLeaseBeforeCommit) leaseValid = false
                     }
 
                 override suspend fun restore(blocked: List<PortableReceipt>): RestoreContinuation {

@@ -712,6 +712,12 @@ class StudioRotationSettlementTest {
                     status = RestoreStatus.PENDING,
                 )
             assertEquals(JournalResult.Acknowledged, store.recordRecovery(prepared.journal.token, listOf(receipt)))
+            val recorded = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(
+                JournalResult.Rejected(StoreIssue.INVALID_CANDIDATE),
+                store.recordRotationRetry(prepared.journal.token, 2_000L),
+            )
+            assertEquals(recorded, store.load())
         }
 
         open().use { reopened ->
@@ -751,7 +757,14 @@ class StudioRotationSettlementTest {
             RotationRuntimeSnapshot(
                 checkpoint = requireNotNull(document.runtime.rotation),
                 intent = RotationIntent(true, mode.name, 6),
-                availability = RotationAvailability(LicenseEntitlement.LICENSED, false, AyuVariant.MIRAGE, true, false),
+                availability =
+                    RotationAvailability(
+                        LicenseEntitlement.LICENSED,
+                        effectiveFollowSystem = false,
+                        variant = AyuVariant.MIRAGE,
+                        targetValid = true,
+                        recoveryPending = false,
+                    ),
                 generation = RotationTimerGeneration(service = 2, target = 3),
             )
         val transition =

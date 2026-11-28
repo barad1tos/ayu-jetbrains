@@ -4,12 +4,13 @@ internal fun transitionRotationRuntime(
     state: RotationRuntimeState,
     event: RotationRuntimeEvent,
     clock: ClockSample,
+    sessionFault: RuntimeFault.SessionCircuitBreaker? = null,
 ): RotationTransition {
     if (state == RotationRuntimeState.Disposed) return RotationTransition(state)
     return when (event) {
-        is RotationRuntimeEvent.Reconcile -> reconcileRotation(state, event.current, clock)
+        is RotationRuntimeEvent.Reconcile -> reconcileRotation(state, event.current, clock, sessionFault)
         is RotationRuntimeEvent.TimerDue -> consumeRotationWake(state, event.ticket, clock.monotonicNanos)
-        is RotationRuntimeEvent.CommandFinished -> reconcileReadback(state, event, clock)
+        is RotationRuntimeEvent.CommandFinished -> reconcileReadback(state, event, clock, sessionFault)
         is RotationRuntimeEvent.CommandBlocked ->
             if (state is RotationRuntimeState.Applying && state.current == event.source) {
                 faultedRotation(state, state.current, event.fault)
@@ -32,18 +33,20 @@ private fun reconcileReadback(
     state: RotationRuntimeState,
     event: RotationRuntimeEvent.CommandFinished,
     clock: ClockSample,
+    sessionFault: RuntimeFault.SessionCircuitBreaker?,
 ): RotationTransition =
     when {
         (state as? RotationRuntimeState.Applying)?.current != event.source -> RotationTransition(state)
         // Wait for another refresh before retrying a command whose source is still current.
         event.current == event.source -> RotationTransition(RotationRuntimeState.Loading)
-        else -> reconcileRotation(state, event.current, clock)
+        else -> reconcileRotation(state, event.current, clock, sessionFault)
     }
 
 private fun reconcileRotation(
     state: RotationRuntimeState,
     current: RotationRuntimeSnapshot,
     clock: ClockSample,
+    sessionFault: RuntimeFault.SessionCircuitBreaker?,
 ): RotationTransition {
     val awaitingRecovery = (state as? RotationRuntimeState.Faulted)?.fault == RuntimeFault.RecoveryPending
     if (!awaitingRecovery &&
@@ -51,7 +54,7 @@ private fun reconcileRotation(
     ) {
         return RotationTransition(state)
     }
-    val fault = current.checkpoint.recoveryFault
+    val fault = current.checkpoint.recoveryFault ?: sessionFault
     val next =
         when {
             fault != null -> faultedRotation(state, current, fault)

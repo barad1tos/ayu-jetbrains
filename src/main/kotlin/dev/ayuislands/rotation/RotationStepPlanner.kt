@@ -72,16 +72,10 @@ internal object RotationStepPlanner {
         inputs: RotationStepInputs,
         candidate: RotationCandidate,
         restoredAtEpochMillis: Long,
+        restoredAttempt: UUID,
     ): RotationCompletionPlan {
         candidateBlock(checkpoint, inputs, candidate)?.let { return RotationCompletionPlan.Blocked(it) }
-        val priorFailures = checkpoint.retry?.takeIf { it.candidate == candidate }?.failures ?: 0
-        val failures = (priorFailures + 1).coerceAtMost(ROTATION_FAILURE_LIMIT)
-        val proposed = checkpoint.copy(retry = RotationRetry(candidate, failures))
-        if (failures == ROTATION_FAILURE_LIMIT) {
-            return RotationCompletionPlan.Ready(
-                proposed.copy(recoveryFault = RuntimeFault.DurableRecovery(FAILURE_LIMIT)),
-            )
-        }
+        val proposed = checkpoint.copy(retry = RotationRetry(candidate, restoredAttempt))
         val interval = rotationIntervalMillis(inputs.intent.intervalHoursRaw)
         return planSchedule(proposed, interval, restoredAtEpochMillis)
     }
@@ -134,6 +128,4 @@ internal object RotationStepPlanner {
                 checkpoint.schedule?.scheduleSerial == Long.MAX_VALUE -> RotationStepBlock.SERIAL_OVERFLOW
             else -> null
         }
-
-    private const val FAILURE_LIMIT = "rotation-failure-limit"
 }
