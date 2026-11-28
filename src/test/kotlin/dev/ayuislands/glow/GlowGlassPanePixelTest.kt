@@ -1,5 +1,6 @@
 package dev.ayuislands.glow
 
+import com.intellij.testFramework.LoggedErrorProcessor
 import dev.ayuislands.glow.waveform.BeatMorphology
 import dev.ayuislands.glow.waveform.FrameTrace
 import dev.ayuislands.glow.waveform.TravelDirection
@@ -13,6 +14,7 @@ import dev.ayuislands.glow.waveform.waveformBrightness
 import java.awt.Color
 import java.awt.event.ActionEvent
 import java.awt.image.BufferedImage
+import java.util.function.LongSupplier
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 import kotlin.random.Random
@@ -73,6 +75,43 @@ class GlowGlassPanePixelTest {
 
     private fun BufferedImage.rowHasGlow(y: Int): Boolean =
         (0 until width).any { x -> (getRGB(x, y) ushr 24) and 0xFF > ALPHA_FLOOR }
+
+    @Test
+    fun `waveform painting and preparation share one warning for work over the frame budget`() {
+        val config = WaveformConfig()
+        val frame = WaveformFrame(direction = TravelDirection.CLOCKWISE, config = config)
+        val paintFrame: (GlowGlassPane) -> Unit = { paint(it) }
+        val prepareFrame: (GlowGlassPane) -> Unit = { it.showWaveformFrame(frame) }
+
+        for ((firstPath, otherPath) in listOf(paintFrame to prepareFrame, prepareFrame to paintFrame)) {
+            val pane = waveformPane(config)
+            var nowNanos = 0L
+            var elapsedNanos = 16_000_000L
+            pane.frameClock = LongSupplier { nowNanos.also { nowNanos += elapsedNanos } }
+            val warnings = mutableListOf<String>()
+            val processor =
+                object : LoggedErrorProcessor() {
+                    override fun processWarn(
+                        category: String,
+                        message: String,
+                        throwable: Throwable?,
+                    ): Boolean {
+                        if (!message.startsWith("Waveform glow frame work exceeded 16ms")) return true
+                        warnings += message
+                        return false
+                    }
+                }
+            LoggedErrorProcessor.executeWith<RuntimeException>(processor) {
+                firstPath(pane)
+                assertTrue(warnings.isEmpty(), "A frame at exactly 16 ms is within budget")
+                elapsedNanos = 17_000_000L
+                firstPath(pane)
+                assertEquals(1, warnings.size, "The first over-budget frame must warn")
+                otherPath(pane)
+                assertEquals(1, warnings.size, "The other rendering path must share the warning limit")
+            }
+        }
+    }
 
     @Test
     fun `side edges paints both left and right vertical strips`() {
