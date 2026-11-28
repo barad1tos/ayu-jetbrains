@@ -449,19 +449,24 @@ class StudioApplyCoordinatorTest {
                     }
                 val mode = AccentRotationMode.PRESET
                 val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+                var now = ROTATION_COMPLETED_AT
                 val runtime =
                     StudioRuntimeCoordinator(
                         queue = fixture.queue,
                         scope = this,
                         observeRotation = { fixture.observeRotation(mode) },
-                        clock = { ClockSample(ROTATION_COMPLETED_AT, 0L) },
+                        clock = { ClockSample(now, 0L) },
                         scheduler = scheduler,
-                        execute = commands::execute,
+                        execute = { command ->
+                            val outcome = commands.execute(command)
+                            now += TimeUnit.HOURS.toMillis(1)
+                            outcome
+                        },
                         reportFault = { error("Unexpected rotation fault: $it") },
                     )
                 try {
                     runtime.refreshRotation()
-                    assertEquals(TimeUnit.HOURS.toMillis(6), armed.await())
+                    assertEquals(TimeUnit.HOURS.toMillis(5), armed.await())
                     val accepted = assertIs<StoreLoad.Ready>(fixture.store.load()).document
                     val rotation = requireNotNull(accepted.runtime.rotation)
                     assertEquals(1L, rotation.successfulStepSerial)

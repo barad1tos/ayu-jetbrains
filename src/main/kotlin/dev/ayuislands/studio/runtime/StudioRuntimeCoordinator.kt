@@ -13,6 +13,7 @@ import dev.ayuislands.studio.session.ApplyFailure
 import dev.ayuislands.studio.session.ApplySettlement
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -23,6 +24,7 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /** Drives rotation from the same serialized lane as accepted appearance changes. */
 internal class StudioRuntimeCoordinator(
@@ -36,42 +38,58 @@ internal class StudioRuntimeCoordinator(
 ) {
     private var rotation: RotationRuntimeState = RotationRuntimeState.Loading
     private var scheduledWake: ScheduledWake? = null
-    private var active: RunningTransaction? = null
+    private val commandSlot = AtomicReference<CommandSlot>(CommandSlot.Idle)
+    private var refreshPending = false
 
     suspend fun refreshRotation() {
         queue.withLock {
-            if (rotation != RotationRuntimeState.Disposed && active == null) reconcileRotation()
+            when (commandSlot.get()) {
+                CommandSlot.Idle -> reconcileRotation()
+                is CommandSlot.Running -> refreshPending = true
+                CommandSlot.Disposed -> Unit
+            }
         }
     }
 
     suspend fun disposeRotation() {
+        val previous = commandSlot.getAndSet(CommandSlot.Disposed)
+        (previous as? CommandSlot.Running)?.job?.cancel()
         queue.withLock {
-            val transaction = active
-            active = null
-            transaction?.job?.cancel()
+            refreshPending = false
             dispatchRotation(RotationRuntimeEvent.Dispose)
         }
     }
 
     private suspend fun onWake(ticket: RotationWaitTicket) {
         queue.withLock {
-            if (scheduledWake?.ticket != ticket) return@withLock
+            if (commandSlot.get() == CommandSlot.Disposed || scheduledWake?.ticket != ticket) return@withLock
             scheduledWake = null
             reconcileRotation()
             dispatchRotation(RotationRuntimeEvent.TimerDue(ticket))
         }
     }
 
-    private suspend fun reconcileRotation(completedSource: RotationRuntimeSnapshot? = null) {
-        val current = observeRotation()?.snapshot
+    private suspend fun reconcileRotation() {
+        val current = readAuthority()
+        if (commandSlot.get() == CommandSlot.Disposed) return
         val event =
-            when {
-                current == null -> RotationRuntimeEvent.AuthorityUnavailable
-                completedSource == null -> RotationRuntimeEvent.Reconcile(current)
-                else -> RotationRuntimeEvent.CommandFinished(completedSource, current)
+            if (current == null) {
+                RotationRuntimeEvent.AuthorityUnavailable
+            } else {
+                RotationRuntimeEvent.Reconcile(current)
             }
         dispatchRotation(event)
     }
+
+    private suspend fun readAuthority(): RotationRuntimeSnapshot? =
+        try {
+            observeRotation()?.snapshot
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: RuntimeException) {
+            LOG.warn("Studio rotation authority read failed", failure)
+            null
+        }
 
     private fun dispatchRotation(event: RotationRuntimeEvent) {
         val transition = transitionRotationRuntime(rotation, event, clock())
@@ -89,22 +107,26 @@ internal class StudioRuntimeCoordinator(
     }
 
     private fun startTransaction(command: RotationRuntimeCommand.Transaction) {
-        check(active == null) { "A Studio rotation command is already running" }
         val job =
-            scope.launch {
+            scope.launch(start = CoroutineStart.LAZY) {
                 val fault =
                     try {
                         execute(command).fault()
                     } catch (cancelled: CancellationException) {
-                        withContext(NonCancellable) { finishTransaction(command, RuntimeFault.CommandRejected) }
+                        withContext(NonCancellable) { finishTransaction(command, RuntimeFault.RecoveryPending) }
                         throw cancelled
                     } catch (failure: RuntimeException) {
                         LOG.warn("Studio rotation command failed", failure)
-                        RuntimeFault.CommandRejected
+                        RuntimeFault.RecoveryPending
                     }
                 finishTransaction(command, fault)
             }
-        active = RunningTransaction(command, job)
+        check(commandSlot.get() !is CommandSlot.Running) { "A Studio rotation command is already running" }
+        if (commandSlot.compareAndSet(CommandSlot.Idle, CommandSlot.Running(command, job))) {
+            job.start()
+        } else {
+            job.cancel()
+        }
     }
 
     private suspend fun finishTransaction(
@@ -112,12 +134,20 @@ internal class StudioRuntimeCoordinator(
         fault: RuntimeFault?,
     ) {
         queue.withLock {
-            if (active?.command !== command) return@withLock
-            active = null
-            if (fault == null) {
-                reconcileRotation(command.source)
-            } else {
-                dispatchRotation(RotationRuntimeEvent.CommandBlocked(command.source, fault))
+            val running = commandSlot.get() as? CommandSlot.Running ?: return@withLock
+            if (running.command !== command) return@withLock
+            val current = readAuthority()
+            if (!commandSlot.compareAndSet(running, CommandSlot.Idle)) return@withLock
+            val requested = refreshPending
+            refreshPending = false
+            if (current != null && (fault == null || current != command.source)) {
+                dispatchRotation(RotationRuntimeEvent.CommandFinished(command.source, current))
+                return@withLock
+            }
+            val reason = fault ?: RuntimeFault.RecoveryPending
+            dispatchRotation(RotationRuntimeEvent.CommandBlocked(command.source, reason))
+            if (requested && current != null && reason == RuntimeFault.RecoveryPending) {
+                dispatchRotation(RotationRuntimeEvent.Reconcile(current))
             }
         }
     }
@@ -145,10 +175,16 @@ internal class StudioRuntimeCoordinator(
         val future: ScheduledFuture<*>,
     )
 
-    private data class RunningTransaction(
-        val command: RotationRuntimeCommand.Transaction,
-        val job: Job,
-    )
+    private sealed interface CommandSlot {
+        data object Idle : CommandSlot
+
+        data object Disposed : CommandSlot
+
+        data class Running(
+            val command: RotationRuntimeCommand.Transaction,
+            val job: Job,
+        ) : CommandSlot
+    }
 
     private companion object {
         val LOG = Logger.getInstance(StudioRuntimeCoordinator::class.java)
