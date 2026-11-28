@@ -29,6 +29,7 @@ internal sealed interface PrepareResult {
 
     data class Rejected(
         val issue: StoreIssue,
+        val attemptedJournal: PendingJournal? = null,
     ) : PrepareResult
 }
 

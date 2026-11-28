@@ -60,6 +60,7 @@ internal class StudioAppearanceStore(
     ): PrepareResult {
         prepareProblem()?.let { return PrepareResult.Rejected(it) }
         val loaded = phase as StorePhase.Loaded
+        var attemptedJournal: PendingJournal? = null
         return try {
             val current = io.readState()
             if (current == null && io.hasPrevious()) return PrepareResult.Rejected(StoreIssue.INVALID_DATA)
@@ -79,13 +80,14 @@ internal class StudioAppearanceStore(
                     candidate.header.revision,
                 )
             val journal = PendingJournal(token, current?.bytes, candidate, recoveryPlan, StudioList(emptyList()))
+            attemptedJournal = journal
             io.writeJournal(journal)
             phase = StorePhase.Loaded(StoreLoad.Recovering(current?.document, journal), current)
             finished = null
             PrepareResult.Prepared(journal)
         } catch (failure: IOException) {
             phase = StorePhase.Unloaded
-            PrepareResult.Rejected(storeIssue(failure))
+            PrepareResult.Rejected(storeIssue(failure), attemptedJournal)
         }
     }
 

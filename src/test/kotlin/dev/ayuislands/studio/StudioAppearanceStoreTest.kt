@@ -154,8 +154,10 @@ class StudioAppearanceStoreTest {
             val latest = assertIs<StoreLoad.Ready>(store.load()).document
             val plan = applyPlan(latest, edit)
             losePrepare = true
-            assertEquals(PrepareResult.Rejected(StoreIssue.IO), store.prepare(plan))
+            val unconfirmed = assertIs<PrepareResult.Rejected>(store.prepare(plan))
+            assertEquals(StoreIssue.IO, unconfirmed.issue)
             val pending = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(pending.journal, unconfirmed.attemptedJournal)
             assertEquals(latest, pending.document)
             assertEquals(plan.document, pending.journal.candidate)
             assertEquals(CommitResolution.NotCommitted, store.resolveOutcome(pending.journal.token))

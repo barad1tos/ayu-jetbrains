@@ -616,11 +616,13 @@ class StudioRotationSettlementTest {
             val operation = UUID(0, 24)
             files.arm(IoEvent(IoOperation.REPLACE, "pending.xml", IoBoundary.AFTER))
 
-            assertEquals(
-                RotationStepAdmission.StoreUnavailable(StoreIssue.IO),
-                prepareRotationStep(store, request, request.source, lease, RotationStepAttempt(operation)),
-            )
+            val unconfirmed =
+                assertIs<RotationStepAdmission.StoreUnavailable>(
+                    prepareRotationStep(store, request, request.source, lease, RotationStepAttempt(operation)),
+                )
+            assertEquals(StoreIssue.IO, unconfirmed.issue)
             val retained = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(retained.journal, unconfirmed.attemptedJournal)
             assertEquals(accepted, retained.document)
             assertEquals(RecoveryPurpose.RotationStep(operation), retained.journal.recovery.purpose)
             assertEquals(

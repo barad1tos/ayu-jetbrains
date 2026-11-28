@@ -8,8 +8,6 @@ import dev.ayuislands.studio.model.AcceptanceLease
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.session.ApplyExecution
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -32,7 +30,7 @@ internal sealed interface RotationCommandOutcome {
 /** Runs emitted commands outside the scheduler callback, through the shared Apply lane. */
 internal class StudioRotationCommands(
     private val store: StudioAppearanceStore,
-    private val queue: Mutex,
+    private val submitSchedule: suspend (execute: suspend () -> RotationCommandOutcome) -> RotationCommandOutcome,
     private val ioDispatcher: CoroutineDispatcher,
     private val observe: suspend () -> RotationObservation?,
     private val submitStep: suspend (prepare: suspend () -> RotationStepAdmission) -> RotationCommandOutcome,
@@ -46,8 +44,9 @@ internal class StudioRotationCommands(
         }
 
     private suspend fun persist(command: RotationRuntimeCommand.PersistCheckpoint): RotationCommandOutcome =
-        queue.withLock {
-            val current = observe() ?: return@withLock RotationCommandOutcome.Rejected(RotationStepAdmission.Stale)
+        submitSchedule {
+            val current =
+                observe() ?: return@submitSchedule RotationCommandOutcome.Rejected(RotationStepAdmission.Stale)
             val execution =
                 withContext(ioDispatcher) {
                     commitRotationSchedule(

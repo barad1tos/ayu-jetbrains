@@ -474,6 +474,49 @@ class StudioApplyCoordinatorTest {
         }
 
     @Test
+    fun `an appointment settles retained Settings Apply cleanup before reading authority`() =
+        exercise(
+            document = rotationDocument(resume = RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM)),
+        ) { fixture ->
+            fixture.loseApplyCleanup = true
+            val prior = fixture.applyDraft(editedJournalRecord(fixture.initial))
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(prior.settlement)
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.PersistCheckpoint>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) }, operationId = { NEXT })
+            val earlierEvents = fixture.events.toList()
+
+            val result = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val accepted = assertIs<ApplySettlement.Accepted>(result.execution.settlement).document
+            assertEquals(command.proposed.checkpoint, accepted.runtime.rotation)
+            assertEquals(pending.document.currents, accepted.currents)
+            assertEquals(ApplySettlement.Accepted(pending.document), fixture.coordinator.outcome(APPLY)?.settlement)
+            assertEquals(earlierEvents, fixture.events)
+        }
+
+    @Test
+    fun `rotation retains an unreadable preparation and rolls it back before the next command`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+            fixture.loseNextPrepareAcknowledgement()
+
+            val first = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            assertIs<ApplySettlement.RecoveryRequired>(first.execution.settlement)
+            assertIs<ApplyFailure.Prepare>(first.execution.failure)
+            val pending = assertIs<StoreLoad.Recovering>(fixture.store.load())
+            assertEquals(fixture.initial, pending.document)
+            assertEquals(emptyList(), fixture.events)
+
+            val second = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val accepted = assertIs<ApplySettlement.Accepted>(second.execution.settlement).document
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+        }
+
+    @Test
     fun `an unresolved rotation stays reachable until a later command settles it without replay`() =
         exercise(document = rotationDocument()) { fixture ->
             fixture.loseApplyCleanup = true
@@ -721,7 +764,7 @@ class StudioApplyCoordinatorTest {
         ): StudioRotationCommands =
             StudioRotationCommands(
                 store = store,
-                queue = queue,
+                submitSchedule = coordinator::submitRotationCommand,
                 ioDispatcher = ioDispatcher,
                 observe = observe,
                 submitStep = { prepare ->
@@ -824,6 +867,11 @@ class StudioApplyCoordinatorTest {
 
         fun failNextCleanupRead() {
             files.readFailurePath = "pending.xml"
+        }
+
+        fun loseNextPrepareAcknowledgement() {
+            files.losePrepare = true
+            afterNextPreparation(::failNextCleanupRead)
         }
 
         fun afterNextPreparation(onPrepared: () -> Unit) {

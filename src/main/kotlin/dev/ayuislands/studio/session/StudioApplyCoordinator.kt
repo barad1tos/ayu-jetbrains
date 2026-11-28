@@ -111,6 +111,30 @@ internal class StudioApplyCoordinator(
         acquire: suspend (RotationStepWork) -> StudioApplyLease,
         completedAt: () -> Long,
     ): RotationCommandOutcome =
+        submitRotationCommand {
+            when (val prepared = withContext(NonCancellable) { prepare() }) {
+                is RotationStepAdmission.Prepared -> {
+                    val phase = RotationStepPhase.Applying(prepared.phase.work, prepared.journal.token)
+                    val execution = executeRotation(phase, prepared.journal, acquire, completedAt)
+                    if (execution.settlement is ApplySettlement.Finished) outcomes.remove(phase.work.operationId)
+                    RotationCommandOutcome.Executed(execution, phase.work)
+                }
+                is RotationStepAdmission.StoreUnavailable -> {
+                    val journal =
+                        prepared.attemptedJournal
+                            ?: return@submitRotationCommand RotationCommandOutcome.Rejected(prepared)
+                    val active = UnconfirmedRotation(journal, ApplyFailure.Prepare(prepared.issue))
+                    activeApply = active
+                    val execution = settle(active)
+                    if (execution.settlement is ApplySettlement.Finished) outcomes.remove(active.operation)
+                    RotationCommandOutcome.Executed(execution)
+                }
+                else -> RotationCommandOutcome.Rejected(prepared)
+            }
+        }
+
+    /** All automatic commands settle earlier Apply work before reading authority. */
+    suspend fun submitRotationCommand(execute: suspend () -> RotationCommandOutcome): RotationCommandOutcome =
         queue.withLock {
             val retained = activeApply
             if (retained != null) {
@@ -119,22 +143,16 @@ internal class StudioApplyCoordinator(
                     val unavailable = RotationStepAdmission.StoreUnavailable(StoreIssue.RECOVERY_REQUIRED)
                     return@withLock RotationCommandOutcome.Rejected(unavailable)
                 }
-                if (retained is ActiveRotation ||
-                    (retained is RecoveredApply && retained.purpose is RecoveryPurpose.RotationStep)
-                ) {
-                    outcomes.remove(retained.operation)
-                }
+                val automatic =
+                    when (retained) {
+                        is ActiveRotation, is UnconfirmedRotation -> true
+                        is RecoveredApply -> retained.purpose is RecoveryPurpose.RotationStep
+                        is ActiveApply -> false
+                    }
+                if (automatic) outcomes.remove(retained.operation)
             }
-            val prepared = withContext(NonCancellable) { prepare() }
-            if (prepared !is RotationStepAdmission.Prepared) return@withLock RotationCommandOutcome.Rejected(prepared)
-            val phase = RotationStepPhase.Applying(prepared.phase.work, prepared.journal.token)
-            val execution = executeRotation(phase, prepared.journal, acquire, completedAt)
-            if (execution.settlement is ApplySettlement.Finished) outcomes.remove(phase.work.operationId)
-            RotationCommandOutcome.Executed(execution, phase.work)
+            execute()
         }
-
-    private fun unsettledRotation(problem: SettlementProblem = SettlementProblem.Unconfirmed): ApplyExecution =
-        ApplyExecution(ApplySettlement.RecoveryRequired(problem), null)
 
     suspend fun outcome(operation: UUID): ApplyExecution? = queue.withLock { outcomes[operation]?.execution }
 
@@ -351,6 +369,7 @@ internal class StudioApplyCoordinator(
             when (work) {
                 is ActiveApply -> work.settlement?.settle() ?: settleUnbound(work)
                 is ActiveRotation -> work.settlement.settle()
+                is UnconfirmedRotation -> work.settlement?.settle() ?: settleUnconfirmedRotation(work)
                 is RecoveredApply -> work.settlement.settle()
             }
         return recordSettlement(work, result)
@@ -408,6 +427,22 @@ internal class StudioApplyCoordinator(
         }
     }
 
+    private suspend fun settleUnconfirmedRotation(work: UnconfirmedRotation): ApplySettlement =
+        when (val observed = withContext(ioDispatcher) { store.load() }) {
+            is StoreLoad.ReadOnly -> ApplySettlement.RecoveryRequired(SettlementProblem.Journal(observed.issue))
+            is StoreLoad.Recovering -> {
+                if (observed.journal != work.journal) {
+                    ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed)
+                } else {
+                    val settlement =
+                        StudioApplySettlement(store, owners, ioDispatcher, StudioOwnerWork(observed.journal)) {}
+                    work.settlement = settlement
+                    settlement.settle()
+                }
+            }
+            StoreLoad.Empty, is StoreLoad.Ready -> ApplySettlement.NotAccepted
+        }
+
     private fun bind(
         active: ActiveApply,
         journal: PendingJournal,
@@ -452,6 +487,15 @@ internal class StudioApplyCoordinator(
         override var failure: ApplyFailure? = null
     }
 
+    private class UnconfirmedRotation(
+        val journal: PendingJournal,
+        override val failure: ApplyFailure.Prepare,
+    ) : ActiveOperation {
+        override val operation: UUID = UUID.fromString(journal.token.transactionId)
+        override val request: ApplyRequest? get() = null
+        override var settlement: StudioApplySettlement? = null
+    }
+
     private class RecoveredApply(
         override val operation: UUID,
         val purpose: RecoveryPurpose,
@@ -465,6 +509,9 @@ internal class StudioApplyCoordinator(
         val execution: ApplyExecution,
     )
 }
+
+private fun unsettledRotation(problem: SettlementProblem = SettlementProblem.Unconfirmed): ApplyExecution =
+    ApplyExecution(ApplySettlement.RecoveryRequired(problem), null)
 
 private fun PendingJournal.matchesApplyRecovery(operation: UUID): Boolean {
     if (token.transactionId != operation.toString() || token.baseRevision < 0) return false
