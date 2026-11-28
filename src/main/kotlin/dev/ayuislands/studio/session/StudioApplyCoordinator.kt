@@ -20,6 +20,7 @@ import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.recoveryPlanFor
+import dev.ayuislands.studio.runtime.RotationCommandOutcome
 import dev.ayuislands.studio.runtime.RotationEffectsOutcome
 import dev.ayuislands.studio.runtime.RotationStepAdmission
 import dev.ayuislands.studio.runtime.RotationStepPhase
@@ -102,6 +103,24 @@ internal class StudioApplyCoordinator(
             val phase = admitRotationEffects(prepared.phase, observed.journal, context)
             if (phase !is RotationStepPhase.Applying) return@withLock unsettledRotation()
             executeRotation(phase, observed.journal, acquire, completedAt)
+        }
+
+    /** Keep preparation and ownership handoff on the same lane, including during cancellation. */
+    suspend fun submitRotation(
+        prepare: suspend () -> RotationStepAdmission,
+        acquire: suspend (RotationStepWork) -> StudioApplyLease,
+        completedAt: () -> Long,
+    ): RotationCommandOutcome =
+        queue.withLock {
+            if (activeApply != null) {
+                val unavailable = RotationStepAdmission.StoreUnavailable(StoreIssue.RECOVERY_REQUIRED)
+                return@withLock RotationCommandOutcome.Rejected(unavailable)
+            }
+            val prepared = withContext(NonCancellable) { prepare() }
+            if (prepared !is RotationStepAdmission.Prepared) return@withLock RotationCommandOutcome.Rejected(prepared)
+            val phase = RotationStepPhase.Applying(prepared.phase.work, prepared.journal.token)
+            val execution = executeRotation(phase, prepared.journal, acquire, completedAt)
+            RotationCommandOutcome.Executed(execution, phase.work)
         }
 
     private fun unsettledRotation(problem: SettlementProblem = SettlementProblem.Unconfirmed): ApplyExecution =
