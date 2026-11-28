@@ -25,6 +25,7 @@ internal fun commitRotationSchedule(
     store: StudioAppearanceStore,
     request: RotationRuntimeCommand.PersistCheckpoint,
     current: RotationRuntimeSnapshot,
+    expectedRevision: Long,
     operation: UUID,
 ): ApplyExecution {
     if (current != request.source) return staleSchedule()
@@ -35,9 +36,11 @@ internal fun commitRotationSchedule(
             is StoreLoad.Recovering -> return prepareFailed(StoreIssue.RECOVERY_REQUIRED)
             StoreLoad.Empty -> return staleSchedule()
         }
-    if (accepted.runtime.rotation != current.checkpoint) return staleSchedule()
-    if (accepted.header.revision == Long.MAX_VALUE) return prepareFailed(StoreIssue.INVALID_CANDIDATE)
-
+    if (accepted.header.revision != expectedRevision ||
+        accepted.runtime.rotation != current.checkpoint
+    ) {
+        return staleSchedule()
+    }
     val candidate =
         accepted.copy(
             header =
@@ -53,9 +56,9 @@ internal fun commitRotationSchedule(
             owners = StudioList(emptyList()),
             purpose = RecoveryPurpose.RotationSchedule(operation),
         )
-    return when (val prepared = store.prepare(accepted.header.revision, candidate, recovery)) {
+    return when (val prepared = store.prepare(expectedRevision, candidate, recovery)) {
         is PrepareResult.Prepared -> settleScheduleWrite(store, prepared.token, candidate)
-        is PrepareResult.Rejected -> prepareFailed(prepared.issue)
+        is PrepareResult.Rejected -> observeScheduleRejection(store, prepared.issue)
     }
 }
 
@@ -94,6 +97,16 @@ private fun finishSchedule(
     }
 
 private fun staleSchedule(): ApplyExecution = ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost)
+
+private fun observeScheduleRejection(
+    store: StudioAppearanceStore,
+    issue: StoreIssue,
+): ApplyExecution =
+    if (store.load() is StoreLoad.Ready) {
+        ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.Prepare(issue))
+    } else {
+        prepareFailed(issue)
+    }
 
 private fun prepareFailed(issue: StoreIssue): ApplyExecution =
     ApplyExecution(ApplySettlement.RecoveryRequired(SettlementProblem.Journal(issue)), ApplyFailure.Prepare(issue))
