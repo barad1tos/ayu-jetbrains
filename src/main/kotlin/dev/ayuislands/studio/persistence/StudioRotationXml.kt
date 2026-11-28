@@ -124,6 +124,7 @@ internal object StudioRotationXml {
                 RotationResume.NoHistory -> mapOf("kind" to "no-history")
                 RotationResume.ImmediateEnable -> mapOf("kind" to "immediate-enable")
                 RotationResume.ImmediateConfiguration -> mapOf("kind" to "immediate-configuration")
+                RotationResume.ExternalCadence -> mapOf("kind" to "external-cadence")
                 is RotationResume.FullInterval -> mapOf("kind" to "full-interval", "reason" to resume.reason.name)
             },
         )
@@ -148,6 +149,11 @@ internal object StudioRotationXml {
             "immediate-configuration" -> {
                 node.requireShape(setOf("kind"))
                 RotationResume.ImmediateConfiguration
+            }
+
+            "external-cadence" -> {
+                node.requireShape(setOf("kind"))
+                RotationResume.ExternalCadence
             }
 
             "full-interval" -> {

@@ -49,6 +49,7 @@ class StudioRuntimeXmlTest {
                 RotationResume.NoHistory,
                 RotationResume.ImmediateEnable,
                 RotationResume.ImmediateConfiguration,
+                RotationResume.ExternalCadence,
                 RotationResume.FullInterval(FullIntervalReason.INTERRUPTED_HANDOFF),
             )
         for (resume in obligations) {

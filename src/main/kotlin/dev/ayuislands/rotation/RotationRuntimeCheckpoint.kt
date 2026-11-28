@@ -46,6 +46,8 @@ internal sealed interface RotationResume {
 
     data object ImmediateConfiguration : RotationResume
 
+    data object ExternalCadence : RotationResume
+
     data class FullInterval(
         val reason: FullIntervalReason,
     ) : RotationResume
