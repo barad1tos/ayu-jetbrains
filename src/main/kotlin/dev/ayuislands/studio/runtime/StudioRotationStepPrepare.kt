@@ -68,6 +68,6 @@ private fun prepareAccentStep(
         )
     return when (val prepared = store.prepare(accepted.header.revision, accepted.copy(header = header), recovery)) {
         is PrepareResult.Prepared -> RotationStepAdmission.Prepared(RotationStepPhase.Preparing(work), prepared.journal)
-        is PrepareResult.Rejected -> RotationStepAdmission.StoreUnavailable(prepared.issue)
+        is PrepareResult.Rejected -> RotationStepAdmission.StoreUnavailable(prepared.issue, prepared.attemptedJournal)
     }
 }

@@ -27,6 +27,7 @@ internal sealed interface RotationStepAdmission {
 
     data class StoreUnavailable(
         val issue: StoreIssue,
+        val attemptedJournal: PendingJournal? = null,
     ) : RotationStepAdmission
 
     data object Stale : RotationStepAdmission

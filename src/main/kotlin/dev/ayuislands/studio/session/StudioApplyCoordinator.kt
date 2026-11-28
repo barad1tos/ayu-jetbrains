@@ -20,7 +20,9 @@ import dev.ayuislands.studio.persistence.StoreIssue
 import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.recoveryPlanFor
+import dev.ayuislands.studio.runtime.RotationCommandOutcome
 import dev.ayuislands.studio.runtime.RotationEffectsOutcome
+import dev.ayuislands.studio.runtime.RotationScheduleWrite
 import dev.ayuislands.studio.runtime.RotationStepAdmission
 import dev.ayuislands.studio.runtime.RotationStepPhase
 import dev.ayuislands.studio.runtime.RotationStepRestoration
@@ -104,8 +106,77 @@ internal class StudioApplyCoordinator(
             executeRotation(phase, observed.journal, acquire, completedAt)
         }
 
-    private fun unsettledRotation(problem: SettlementProblem = SettlementProblem.Unconfirmed): ApplyExecution =
-        ApplyExecution(ApplySettlement.RecoveryRequired(problem), null)
+    /** Keep preparation and ownership handoff on the same lane, including during cancellation. */
+    suspend fun submitRotation(
+        prepare: suspend () -> RotationStepAdmission,
+        acquire: suspend (RotationStepWork) -> StudioApplyLease,
+        completedAt: () -> Long,
+    ): RotationCommandOutcome =
+        submitRotationCommand {
+            when (val prepared = withContext(NonCancellable) { prepare() }) {
+                is RotationStepAdmission.Prepared -> {
+                    val phase = RotationStepPhase.Applying(prepared.phase.work, prepared.journal.token)
+                    val execution = executeRotation(phase, prepared.journal, acquire, completedAt)
+                    if (execution.settlement is ApplySettlement.Finished) outcomes.remove(phase.work.operationId)
+                    RotationCommandOutcome.Executed(execution, phase.work)
+                }
+                is RotationStepAdmission.StoreUnavailable -> {
+                    val journal =
+                        prepared.attemptedJournal
+                            ?: return@submitRotationCommand RotationCommandOutcome.Rejected(prepared)
+                    val active = PendingRotationWrite(journal, ApplyFailure.Prepare(prepared.issue))
+                    activeApply = active
+                    RotationCommandOutcome.Executed(settle(active))
+                }
+                else -> RotationCommandOutcome.Rejected(prepared)
+            }
+        }
+
+    suspend fun submitRotationSchedule(write: suspend () -> RotationScheduleWrite?): RotationCommandOutcome =
+        submitRotationCommand {
+            withContext(NonCancellable) {
+                val result = write() ?: return@withContext RotationCommandOutcome.Rejected(RotationStepAdmission.Stale)
+                val recovery = result.recovery
+                if (recovery != null) {
+                    val journal = recovery.journal
+                    val active = PendingRotationWrite(journal, result.execution.failure)
+                    if (recovery.cleanup != null) {
+                        active.settlement =
+                            StudioApplySettlement(
+                                store,
+                                owners,
+                                ioDispatcher,
+                                StudioOwnerWork(journal),
+                                confirmedCleanup = recovery.cleanup,
+                            ) {}
+                    }
+                    activeApply = active
+                    record(null, active.operation, result.execution)
+                }
+                RotationCommandOutcome.Executed(result.execution)
+            }
+        }
+
+    /** All automatic commands settle earlier Apply work before reading authority. */
+    private suspend fun submitRotationCommand(execute: suspend () -> RotationCommandOutcome): RotationCommandOutcome =
+        queue.withLock {
+            val retained = activeApply
+            if (retained != null) {
+                val settled = settle(retained)
+                if (settled.settlement !is ApplySettlement.Finished) {
+                    val unavailable = RotationStepAdmission.StoreUnavailable(StoreIssue.RECOVERY_REQUIRED)
+                    return@withLock RotationCommandOutcome.Rejected(unavailable)
+                }
+                val automatic =
+                    when (retained) {
+                        is ActiveRotation -> true
+                        is RecoveredApply -> retained.purpose is RecoveryPurpose.RotationStep
+                        is ActiveApply, is PendingRotationWrite -> false
+                    }
+                if (automatic) outcomes.remove(retained.operation)
+            }
+            execute()
+        }
 
     suspend fun outcome(operation: UUID): ApplyExecution? = queue.withLock { outcomes[operation]?.execution }
 
@@ -313,8 +384,8 @@ internal class StudioApplyCoordinator(
     ): RecoveredApply? {
         val lease = recover(journal, decision) ?: return null
         val work = StudioOwnerWork(journal, lease::recover)
-        val settlement = StudioApplySettlement(store, owners, ioDispatcher, work, lease::release)
-        return RecoveredApply(operation, settlement).also { activeApply = it }
+        val settlement = StudioApplySettlement(store, owners, ioDispatcher, work, release = lease::release)
+        return RecoveredApply(operation, journal.recovery.purpose, settlement).also { activeApply = it }
     }
 
     private suspend fun settle(work: ActiveOperation): ApplyExecution {
@@ -322,6 +393,7 @@ internal class StudioApplyCoordinator(
             when (work) {
                 is ActiveApply -> work.settlement?.settle() ?: settleUnbound(work)
                 is ActiveRotation -> work.settlement.settle()
+                is PendingRotationWrite -> work.settle(store, owners, ioDispatcher)
                 is RecoveredApply -> work.settlement.settle()
             }
         return recordSettlement(work, result)
@@ -345,8 +417,15 @@ internal class StudioApplyCoordinator(
                 result is ApplySettlement.Accepted ||
                     result is ApplySettlement.AcceptedCleanupPending
             }
-        if (result is ApplySettlement.Finished) activeApply = null
-        return record(work.request, work.operation, ApplyExecution(result, failure))
+        val execution = ApplyExecution(result, failure)
+        if (result is ApplySettlement.Finished) {
+            activeApply = null
+            if (work is PendingRotationWrite) {
+                outcomes.remove(work.operation)
+                return execution
+            }
+        }
+        return record(work.request, work.operation, execution)
     }
 
     private suspend fun settleUnbound(work: ActiveApply): ApplySettlement {
@@ -384,7 +463,7 @@ internal class StudioApplyCoordinator(
         journal: PendingJournal,
     ): StudioOwnerWork {
         val work = StudioOwnerWork(journal)
-        active.settlement = StudioApplySettlement(store, owners, ioDispatcher, work, active.lease::release)
+        active.settlement = StudioApplySettlement(store, owners, ioDispatcher, work, release = active.lease::release)
         return work
     }
 
@@ -423,8 +502,45 @@ internal class StudioApplyCoordinator(
         override var failure: ApplyFailure? = null
     }
 
+    private class PendingRotationWrite(
+        private val journal: PendingJournal,
+        override val failure: ApplyFailure?,
+    ) : ActiveOperation {
+        override val operation: UUID = UUID.fromString(journal.token.transactionId)
+        override val request: ApplyRequest? get() = null
+        override var settlement: StudioApplySettlement? = null
+
+        suspend fun settle(
+            store: StudioAppearanceStore,
+            owners: StudioOwnerJournal,
+            ioDispatcher: CoroutineDispatcher,
+        ): ApplySettlement {
+            settlement?.let { return it.settle() }
+            return when (val observed = withContext(ioDispatcher) { store.load() }) {
+                is StoreLoad.ReadOnly -> ApplySettlement.RecoveryRequired(SettlementProblem.Journal(observed.issue))
+                is StoreLoad.Recovering -> {
+                    if (observed.journal !=
+                        journal
+                    ) {
+                        return ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed)
+                    }
+                    val attached = StudioApplySettlement(store, owners, ioDispatcher, StudioOwnerWork(journal)) {}
+                    settlement = attached
+                    attached.settle()
+                }
+                StoreLoad.Empty, is StoreLoad.Ready ->
+                    if (failure is ApplyFailure.Prepare) {
+                        ApplySettlement.NotAccepted
+                    } else {
+                        ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed)
+                    }
+            }
+        }
+    }
+
     private class RecoveredApply(
         override val operation: UUID,
+        val purpose: RecoveryPurpose,
         override val settlement: StudioApplySettlement,
     ) : ActiveOperation {
         override val request: ApplyRequest? get() = null
@@ -435,6 +551,9 @@ internal class StudioApplyCoordinator(
         val execution: ApplyExecution,
     )
 }
+
+private fun unsettledRotation(problem: SettlementProblem = SettlementProblem.Unconfirmed): ApplyExecution =
+    ApplyExecution(ApplySettlement.RecoveryRequired(problem), null)
 
 private fun PendingJournal.matchesApplyRecovery(operation: UUID): Boolean {
     if (token.transactionId != operation.toString() || token.baseRevision < 0) return false

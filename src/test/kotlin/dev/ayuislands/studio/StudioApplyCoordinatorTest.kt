@@ -4,7 +4,9 @@ import dev.ayuislands.accent.AccentResolver
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.accent.ResolvedAccent
 import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.ClockSample
+import dev.ayuislands.rotation.FullIntervalReason
 import dev.ayuislands.rotation.RotationAvailability
 import dev.ayuislands.rotation.RotationIntent
 import dev.ayuislands.rotation.RotationResume
@@ -50,8 +52,11 @@ import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioDraftStore
 import dev.ayuislands.studio.persistence.StudioFiles
 import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.runtime.RotationCommandOutcome
+import dev.ayuislands.studio.runtime.RotationObservation
 import dev.ayuislands.studio.runtime.RotationStepAdmission
 import dev.ayuislands.studio.runtime.RotationStepAttempt
+import dev.ayuislands.studio.runtime.StudioRotationCommands
 import dev.ayuislands.studio.runtime.prepareRotationStep
 import dev.ayuislands.studio.session.ApplyExecution
 import dev.ayuislands.studio.session.ApplyFailure
@@ -67,6 +72,7 @@ import dev.ayuislands.studio.session.Submission
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -350,6 +356,226 @@ class StudioApplyCoordinatorTest {
             assertNull(fixture.coordinator.retry(APPLY))
         }
 
+    @Test
+    fun `a reducer appointment command writes its checkpoint without acquiring native effects`() =
+        exercise(
+            document = rotationDocument(resume = RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM)),
+        ) { fixture ->
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.PersistCheckpoint>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+
+            val result = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            assertNull(result.step)
+            val accepted = assertIs<ApplySettlement.Accepted>(result.execution.settlement).document
+            assertEquals(command.proposed.checkpoint, accepted.runtime.rotation)
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertEquals(emptyList(), fixture.events)
+        }
+
+    @Test
+    fun `a due random command uses one draw and applies the frozen candidate through shared Apply`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val mode = AccentRotationMode.RANDOM
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            var drawn = 0
+            val commands =
+                fixture.rotationCommands(
+                    observe = { fixture.observeRotation(mode) },
+                    randomColor = { variant ->
+                        assertEquals(AyuVariant.MIRAGE, variant)
+                        drawn++
+                        "#AABBCC"
+                    },
+                )
+
+            val result = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            assertEquals("#AABBCC", result.step?.candidate?.hex)
+            val accepted = assertIs<ApplySettlement.Accepted>(result.execution.settlement).document
+            assertEquals(
+                "#AABBCC",
+                accepted.runtime.rotation
+                    ?.output
+                    ?.hex,
+            )
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertEquals(RotationCommandOutcome.Rejected(RotationStepAdmission.Stale), commands.execute(command))
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(1, drawn)
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+        }
+
+    @Test
+    fun `a changed effective context during color generation rejects the old command before writing`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val mode = AccentRotationMode.RANDOM
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            var followingSystem = false
+            val commands =
+                fixture.rotationCommands(
+                    observe = { fixture.observeRotation(mode, followingSystem) },
+                    randomColor = {
+                        followingSystem = true
+                        "#AABBCC"
+                    },
+                )
+            assertEquals(RotationCommandOutcome.Rejected(RotationStepAdmission.Stale), commands.execute(command))
+            assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+            assertEquals(emptyList(), fixture.events)
+        }
+
+    @Test
+    fun `cancellation just after preparing a command settles its untouched journal`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+
+            coroutineScope {
+                val running = launch(start = CoroutineStart.LAZY) { commands.execute(command) }
+                fixture.afterNextPreparation { running.cancel() }
+                running.start()
+                running.join()
+                assertTrue(running.isCancelled)
+            }
+            assertEquals(
+                ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.Cancelled),
+                fixture.coordinator.outcome(APPLY),
+            )
+            assertEquals(StoreLoad.Ready(fixture.initial), fixture.store.load())
+            assertFalse(fixture.native)
+            assertEquals(listOf("acquire", "release"), fixture.events)
+        }
+
+    @Test
+    fun `rotation waits for retained Settings cleanup and admits work once it settles`() =
+        exercise(document = rotationDocument()) { fixture ->
+            fixture.loseApplyCleanup = true
+            val prior = fixture.applyDraft(editedJournalRecord(fixture.initial))
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(prior.settlement)
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) }, operationId = { NEXT })
+            val earlierEvents = fixture.events.toList()
+
+            fixture.failNextCleanupRead()
+            assertEquals(
+                RotationCommandOutcome.Rejected(RotationStepAdmission.StoreUnavailable(StoreIssue.RECOVERY_REQUIRED)),
+                commands.execute(command),
+            )
+            assertEquals(earlierEvents, fixture.events)
+            fixture.loseApplyCleanup = false
+            val result = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val accepted = assertIs<ApplySettlement.Accepted>(result.execution.settlement).document
+            assertEquals(pending.document.currents, accepted.currents)
+            assertEquals(ApplySettlement.Accepted(pending.document), fixture.coordinator.outcome(APPLY)?.settlement)
+            assertNull(fixture.coordinator.outcome(NEXT))
+            assertEquals(2, fixture.events.count { it == "apply" })
+        }
+
+    @Test
+    fun `an appointment settles retained Settings Apply cleanup before reading authority`() =
+        exercise(
+            document = rotationDocument(resume = RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM)),
+        ) { fixture ->
+            fixture.loseApplyCleanup = true
+            val prior = fixture.applyDraft(editedJournalRecord(fixture.initial))
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(prior.settlement)
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.PersistCheckpoint>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) }, operationId = { NEXT })
+            val earlierEvents = fixture.events.toList()
+
+            val result = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val accepted = assertIs<ApplySettlement.Accepted>(result.execution.settlement).document
+            assertEquals(command.proposed.checkpoint, accepted.runtime.rotation)
+            assertEquals(pending.document.currents, accepted.currents)
+            assertEquals(ApplySettlement.Accepted(pending.document), fixture.coordinator.outcome(APPLY)?.settlement)
+            assertEquals(earlierEvents, fixture.events)
+        }
+
+    @Test
+    fun `the next command settles an accepted appointment with a retained journal`() =
+        exercise(
+            document = rotationDocument(resume = RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM)),
+        ) { fixture ->
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.PersistCheckpoint>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+            fixture.rejectNextCleanup()
+
+            val first = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(first.execution.settlement)
+            val surviving = assertIs<StoreLoad.Recovering>(fixture.store.load())
+            assertEquals(pending.document, surviving.document)
+            val repeat = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            assertEquals(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost), repeat.execution)
+            val ready = assertIs<StoreLoad.Ready>(fixture.store.load())
+            assertEquals(pending.document, ready.document)
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(emptyList(), fixture.events)
+        }
+
+    @Test
+    fun `retry settles an appointment whose commit acknowledgement was lost`() =
+        exercise(
+            document = rotationDocument(resume = RotationResume.FullInterval(FullIntervalReason.FOLLOW_SYSTEM)),
+        ) { fixture ->
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.PersistCheckpoint>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+            fixture.loseNextCommitAcknowledgement()
+
+            val first = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            assertIs<ApplySettlement.RecoveryRequired>(first.execution.settlement)
+            val retried = requireNotNull(fixture.coordinator.retry(APPLY))
+            val accepted = assertIs<ApplySettlement.Accepted>(retried.settlement).document
+            assertEquals(command.proposed.checkpoint, accepted.runtime.rotation)
+            assertEquals(fixture.initial.currents, accepted.currents)
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(emptyList(), fixture.events)
+        }
+
+    @Test
+    fun `rotation retains an unreadable preparation and rolls it back before the next command`() =
+        exercise(document = rotationDocument()) { fixture ->
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+            fixture.loseNextPrepareAcknowledgement()
+
+            val first = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            assertIs<ApplySettlement.RecoveryRequired>(first.execution.settlement)
+            assertIs<ApplyFailure.Prepare>(first.execution.failure)
+            val pending = assertIs<StoreLoad.Recovering>(fixture.store.load())
+            assertEquals(fixture.initial, pending.document)
+            assertEquals(emptyList(), fixture.events)
+
+            val second = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val accepted = assertIs<ApplySettlement.Accepted>(second.execution.settlement).document
+            assertEquals(StoreLoad.Ready(accepted), fixture.store.load())
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+        }
+
+    @Test
+    fun `an unresolved rotation stays reachable until a later command settles it without replay`() =
+        exercise(document = rotationDocument()) { fixture ->
+            fixture.loseApplyCleanup = true
+            val mode = AccentRotationMode.PRESET
+            val command = assertIs<RotationRuntimeCommand.StepDue>(fixture.issueRotation(mode))
+            val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+            val result = assertIs<RotationCommandOutcome.Executed>(commands.execute(command))
+            val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(result.execution.settlement)
+            assertEquals(pending, fixture.coordinator.outcome(APPLY)?.settlement)
+
+            assertEquals(RotationCommandOutcome.Rejected(RotationStepAdmission.Stale), commands.execute(command))
+            assertEquals(StoreLoad.Ready(pending.document), fixture.store.load())
+            assertNull(fixture.coordinator.outcome(APPLY))
+            assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+        }
+
     private suspend fun Fixture.applyDraft(edit: StudioSessionRecord): ApplyExecution =
         assertIs<Submission.Admitted<ApplyExecution>>(coordinator.submit(ApplyRequest(edit, 1), APPLY)).result
 
@@ -527,46 +753,91 @@ class StudioApplyCoordinatorTest {
         }
 
         fun prepareRotation(): RotationStepAdmission.Prepared {
+            val observation = requireNotNull(observeRotation(AccentRotationMode.PRESET))
+            val request = assertIs<RotationRuntimeCommand.StepDue>(issueRotation(AccentRotationMode.PRESET))
+            return assertIs<RotationStepAdmission.Prepared>(
+                prepareRotationStep(
+                    store,
+                    request,
+                    observation.snapshot,
+                    observation.lease,
+                    RotationStepAttempt(APPLY),
+                ),
+            )
+        }
+
+        fun observeRotation(
+            mode: AccentRotationMode,
+            followingSystem: Boolean = false,
+        ): RotationObservation? {
+            val accepted = (store.load() as? StoreLoad.Ready)?.document ?: return null
             val snapshot =
                 RotationRuntimeSnapshot(
-                    checkpoint = requireNotNull(initial.runtime.rotation),
-                    intent = RotationIntent(true, "PRESET", 6),
+                    checkpoint = requireNotNull(accepted.runtime.rotation),
+                    intent = RotationIntent(true, mode.name, 6),
                     availability =
                         RotationAvailability(
                             LicenseEntitlement.LICENSED,
-                            false,
+                            followingSystem,
                             AyuVariant.MIRAGE,
                             true,
                             false,
                         ),
                     generation = RotationTimerGeneration(service = 1, target = 1),
                 )
+            val stamp = AcceptanceLease(accepted.header.revision, targetGeneration = 1, capabilityRevision = 1)
+            return RotationObservation(snapshot, stamp)
+        }
+
+        fun issueRotation(mode: AccentRotationMode): RotationRuntimeCommand {
+            val snapshot = requireNotNull(observeRotation(mode)).snapshot
             val transition =
                 transitionRotationRuntime(
                     RotationRuntimeState.Loading,
                     RotationRuntimeEvent.Reconcile(snapshot),
                     ClockSample(0L, 0L),
                 )
-            val request = assertIs<RotationRuntimeCommand.StepDue>(transition.commands.single())
-            val stamp = AcceptanceLease(initial.header.revision, targetGeneration = 1, capabilityRevision = 1)
-            return assertIs<RotationStepAdmission.Prepared>(
-                prepareRotationStep(store, request, snapshot, stamp, RotationStepAttempt(APPLY)),
-            )
+            return transition.commands.single()
         }
+
+        fun rotationCommands(
+            observe: suspend () -> RotationObservation?,
+            randomColor: (AyuVariant) -> String = { error("Preset rotation does not require a color draw") },
+            operationId: () -> UUID = { APPLY },
+        ): StudioRotationCommands =
+            StudioRotationCommands(
+                store = store,
+                submitSchedule = coordinator::submitRotationSchedule,
+                ioDispatcher = ioDispatcher,
+                observe = observe,
+                submitStep = { prepare ->
+                    coordinator.submitRotation(
+                        prepare,
+                        acquire = { rotationLease() },
+                        completedAt = { ROTATION_COMPLETED_AT },
+                    )
+                },
+                operationId = operationId,
+                randomColor = randomColor,
+            )
 
         suspend fun applyRotation(prepared: RotationStepAdmission.Prepared): ApplyExecution =
             coordinator.submitPreparedRotation(
                 prepared,
                 acquire = { work ->
-                    assertTrue(queue.isLocked)
                     assertEquals(prepared.phase.work, work)
-                    events.add("acquire")
-                    files.publicationFault = publicationFault
-                    leaseValid = !expireLeaseBeforePrepare
-                    lease(EffectOwner.ACCENT)
+                    rotationLease()
                 },
                 completedAt = { ROTATION_COMPLETED_AT },
             )
+
+        private fun rotationLease(): StudioApplyLease {
+            assertTrue(queue.isLocked)
+            events.add("acquire")
+            files.publicationFault = publicationFault
+            leaseValid = !expireLeaseBeforePrepare
+            return lease(EffectOwner.ACCENT)
+        }
 
         private fun lease(effect: EffectOwner = EffectOwner.GLOW): StudioApplyLease =
             object : StudioApplyLease {
@@ -641,16 +912,35 @@ class StudioApplyCoordinatorTest {
             files.readFailurePath = "pending.xml"
         }
 
+        fun rejectNextCleanup() {
+            files.rejectCleanup = true
+        }
+
+        fun loseNextCommitAcknowledgement() {
+            files.publicationFault = PublicationFault.ACKNOWLEDGEMENT_LOST
+        }
+
+        fun loseNextPrepareAcknowledgement() {
+            files.losePrepare = true
+            afterNextPreparation(::failNextCleanupRead)
+        }
+
+        fun afterNextPreparation(onPrepared: () -> Unit) {
+            files.onPrepared = onPrepared
+        }
+
         override fun close() = store.close()
     }
 
     private class Faults(
         private val delegate: StudioFiles,
     ) : StudioFiles by delegate {
+        var rejectCleanup = false
         var loseCleanup = false
         var losePrepare = false
         var readFailurePath: String? = null
         var publicationFault: PublicationFault? = null
+        var onPrepared: (() -> Unit)? = null
 
         override fun read(name: String): ByteArray? {
             if (name == readFailurePath) {
@@ -668,6 +958,11 @@ class StudioApplyCoordinatorTest {
             if (fault != null) publicationFault = null
             if (fault == PublicationFault.REJECTED) throw IOException("State replacement unavailable")
             delegate.replace(source, destination)
+            if (destination == "pending.xml") {
+                val prepared = onPrepared
+                onPrepared = null
+                prepared?.invoke()
+            }
             if (fault == PublicationFault.ACKNOWLEDGEMENT_LOST) {
                 readFailurePath = destination
                 throw IOException("Lost state replacement acknowledgement")
@@ -679,6 +974,10 @@ class StudioApplyCoordinatorTest {
         }
 
         override fun remove(name: String) {
+            if (rejectCleanup && name == "pending.xml") {
+                rejectCleanup = false
+                throw IOException("Journal removal unavailable")
+            }
             delegate.remove(name)
             if (loseCleanup && name == "pending.xml") {
                 loseCleanup = false
@@ -697,14 +996,17 @@ class StudioApplyCoordinatorTest {
         val APPLY: UUID = UUID.fromString("0b4677ae-29f5-4c0d-993d-63e0122c2839")
         val NEXT: UUID = UUID.fromString("1b4677ae-29f5-4c0d-993d-63e0122c2839")
 
-        fun rotationDocument(retainAccent: Boolean = false): StudioDocument {
+        fun rotationDocument(
+            retainAccent: Boolean = false,
+            resume: RotationResume = RotationResume.NoHistory,
+        ): StudioDocument {
             val document = catalogTestDocument()
             val checkpoint =
                 RotationRuntimeCheckpoint(
                     owner = RuntimeOwner(StudioTarget.Global, document.currents.global.revision),
                     sequenceCursorRaw = 0,
                     successfulStepSerial = 0,
-                    resume = RotationResume.NoHistory,
+                    resume = resume,
                 )
             val runtime = document.runtime.copy(rotation = checkpoint)
             if (!retainAccent) return document.copy(runtime = runtime)

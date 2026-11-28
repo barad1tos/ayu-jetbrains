@@ -253,7 +253,14 @@ class StudioRotationSettlementTest {
             val request = scheduleRequest(accepted)
             val attempt = UUID(0, 10)
 
-            val execution = commitRotationSchedule(store, request, request.source, accepted.header.revision, attempt)
+            val execution =
+                commitRotationSchedule(
+                    store,
+                    request,
+                    request.source,
+                    accepted.header.revision,
+                    attempt,
+                ).execution
             assertNull(execution.failure)
             val committed = assertIs<ApplySettlement.Accepted>(execution.settlement).document
             assertEquals(
@@ -266,7 +273,13 @@ class StudioRotationSettlementTest {
 
             assertEquals(
                 ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost),
-                commitRotationSchedule(store, request, request.source, committed.header.revision, UUID(0, 11)),
+                commitRotationSchedule(
+                    store,
+                    request,
+                    request.source,
+                    committed.header.revision,
+                    UUID(0, 11),
+                ).execution,
             )
             assertEquals(StoreLoad.Ready(committed), store.load())
         }
@@ -281,7 +294,7 @@ class StudioRotationSettlementTest {
 
             assertEquals(
                 ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost),
-                commitRotationSchedule(store, request, disabled, accepted.header.revision, UUID(0, 12)),
+                commitRotationSchedule(store, request, disabled, accepted.header.revision, UUID(0, 12)).execution,
             )
             assertEquals(StoreLoad.Ready(accepted), store.load())
         }
@@ -326,7 +339,7 @@ class StudioRotationSettlementTest {
 
             assertEquals(
                 ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost),
-                commitRotationSchedule(store, request, request.source, revision, UUID(0, 20)),
+                commitRotationSchedule(store, request, request.source, revision, UUID(0, 20)).execution,
             )
             assertEquals(StoreLoad.Ready(edited), store.load())
         }
@@ -342,7 +355,7 @@ class StudioRotationSettlementTest {
 
             assertEquals(
                 ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.Commit(StoreIssue.IO)),
-                commitRotationSchedule(store, request, request.source, accepted.header.revision, UUID(0, 13)),
+                commitRotationSchedule(store, request, request.source, accepted.header.revision, UUID(0, 13)).execution,
             )
             assertEquals(StoreLoad.Ready(accepted), store.load())
         }
@@ -360,7 +373,14 @@ class StudioRotationSettlementTest {
                 IoEvent(IoOperation.READ, "state.xml", IoBoundary.BEFORE),
             )
 
-            val execution = commitRotationSchedule(store, request, request.source, accepted.header.revision, attempt)
+            val execution =
+                commitRotationSchedule(
+                    store,
+                    request,
+                    request.source,
+                    accepted.header.revision,
+                    attempt,
+                ).execution
             assertIs<ApplySettlement.RecoveryRequired>(execution.settlement)
             assertIs<ApplyFailure.Commit>(execution.failure)
             val observed = assertIs<StoreLoad.Recovering>(store.load())
@@ -382,7 +402,7 @@ class StudioRotationSettlementTest {
                 files.arm(IoEvent(IoOperation.REPLACE, "pending.xml", IoBoundary.AFTER))
 
                 val execution =
-                    commitRotationSchedule(store, request, request.source, accepted.header.revision, attempt)
+                    commitRotationSchedule(store, request, request.source, accepted.header.revision, attempt).execution
                 assertEquals(
                     ApplyExecution(
                         ApplySettlement.RecoveryRequired(SettlementProblem.Journal(StoreIssue.IO)),
@@ -427,7 +447,13 @@ class StudioRotationSettlementTest {
                 files.arm(IoEvent(IoOperation.REMOVE, "pending.xml", IoBoundary.BEFORE))
 
                 val execution =
-                    commitRotationSchedule(store, request, request.source, accepted.header.revision, UUID(0, 15))
+                    commitRotationSchedule(
+                        store,
+                        request,
+                        request.source,
+                        accepted.header.revision,
+                        UUID(0, 15),
+                    ).execution
                 assertNull(execution.failure)
                 val pending = assertIs<ApplySettlement.AcceptedCleanupPending>(execution.settlement)
                 assertEquals(SettlementProblem.Journal(StoreIssue.IO), pending.problem)
@@ -435,7 +461,13 @@ class StudioRotationSettlementTest {
                 val observed = assertIs<StoreLoad.Recovering>(store.load())
                 assertEquals(pending.document, observed.document)
                 val blocked =
-                    commitRotationSchedule(store, request, request.source, accepted.header.revision, UUID(0, 17))
+                    commitRotationSchedule(
+                        store,
+                        request,
+                        request.source,
+                        accepted.header.revision,
+                        UUID(0, 17),
+                    ).execution
                 assertEquals(
                     ApplyExecution(
                         ApplySettlement.RecoveryRequired(SettlementProblem.Journal(StoreIssue.RECOVERY_REQUIRED)),
@@ -474,7 +506,7 @@ class StudioRotationSettlementTest {
 
             assertEquals(
                 ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.Prepare(StoreIssue.INVALID_CANDIDATE)),
-                commitRotationSchedule(store, request, request.source, accepted.header.revision, operation),
+                commitRotationSchedule(store, request, request.source, accepted.header.revision, operation).execution,
             )
             assertEquals(StoreLoad.Ready(accepted), store.load())
         }
@@ -487,7 +519,13 @@ class StudioRotationSettlementTest {
             val request = scheduleRequest(accepted)
             open().use { readOnly ->
                 val result =
-                    commitRotationSchedule(readOnly, request, request.source, accepted.header.revision, UUID(0, 26))
+                    commitRotationSchedule(
+                        readOnly,
+                        request,
+                        request.source,
+                        accepted.header.revision,
+                        UUID(0, 26),
+                    ).execution
                 assertEquals(
                     ApplyExecution(
                         ApplySettlement.RecoveryRequired(SettlementProblem.Journal(StoreIssue.LOCKED)),
@@ -616,11 +654,13 @@ class StudioRotationSettlementTest {
             val operation = UUID(0, 24)
             files.arm(IoEvent(IoOperation.REPLACE, "pending.xml", IoBoundary.AFTER))
 
-            assertEquals(
-                RotationStepAdmission.StoreUnavailable(StoreIssue.IO),
-                prepareRotationStep(store, request, request.source, lease, RotationStepAttempt(operation)),
-            )
+            val unconfirmed =
+                assertIs<RotationStepAdmission.StoreUnavailable>(
+                    prepareRotationStep(store, request, request.source, lease, RotationStepAttempt(operation)),
+                )
+            assertEquals(StoreIssue.IO, unconfirmed.issue)
             val retained = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(retained.journal, unconfirmed.attemptedJournal)
             assertEquals(accepted, retained.document)
             assertEquals(RecoveryPurpose.RotationStep(operation), retained.journal.recovery.purpose)
             assertEquals(

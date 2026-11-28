@@ -64,6 +64,8 @@ internal sealed interface RotationRuntimeEvent {
 }
 
 internal sealed interface RotationRuntimeCommand {
+    sealed interface Transaction : RotationRuntimeCommand
+
     data class CancelSchedule(
         val ticket: RotationWaitTicket,
     ) : RotationRuntimeCommand
@@ -75,11 +77,11 @@ internal sealed interface RotationRuntimeCommand {
     data class PersistCheckpoint(
         val source: RotationRuntimeSnapshot,
         val proposed: RotationTimingPlan.Persist,
-    ) : RotationRuntimeCommand
+    ) : Transaction
 
     data class StepDue(
         val source: RotationRuntimeSnapshot,
-    ) : RotationRuntimeCommand
+    ) : Transaction
 
     data class ReportFault(
         val fault: RuntimeFault,

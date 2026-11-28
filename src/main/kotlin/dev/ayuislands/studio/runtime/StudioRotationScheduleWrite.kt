@@ -6,8 +6,8 @@ import dev.ayuislands.studio.model.StudioDocument
 import dev.ayuislands.studio.model.StudioList
 import dev.ayuislands.studio.persistence.CommitResult
 import dev.ayuislands.studio.persistence.JournalResult
+import dev.ayuislands.studio.persistence.PendingJournal
 import dev.ayuislands.studio.persistence.PrepareResult
-import dev.ayuislands.studio.persistence.PreparedToken
 import dev.ayuislands.studio.persistence.RecoveryPlan
 import dev.ayuislands.studio.persistence.RecoveryPurpose
 import dev.ayuislands.studio.persistence.StoreIssue
@@ -20,6 +20,16 @@ import dev.ayuislands.studio.session.SettlementProblem
 import dev.ayuislands.studio.session.pending
 import java.util.UUID
 
+internal data class RotationScheduleWrite(
+    val execution: ApplyExecution,
+    val recovery: RotationScheduleRecovery? = null,
+)
+
+internal data class RotationScheduleRecovery(
+    val journal: PendingJournal,
+    val cleanup: ApplySettlement.Finished? = null,
+)
+
 /** Write a runtime-only appointment from a fresh observation on the shared I/O lane. */
 internal fun commitRotationSchedule(
     store: StudioAppearanceStore,
@@ -27,7 +37,7 @@ internal fun commitRotationSchedule(
     current: RotationRuntimeSnapshot,
     expectedRevision: Long,
     operation: UUID,
-): ApplyExecution {
+): RotationScheduleWrite {
     if (current != request.source) return staleSchedule()
     val accepted =
         when (val load = store.load()) {
@@ -57,56 +67,79 @@ internal fun commitRotationSchedule(
             purpose = RecoveryPurpose.RotationSchedule(operation),
         )
     return when (val prepared = store.prepare(expectedRevision, candidate, recovery)) {
-        is PrepareResult.Prepared -> settleScheduleWrite(store, prepared.token, candidate)
-        is PrepareResult.Rejected -> observeScheduleRejection(store, prepared.issue)
+        is PrepareResult.Prepared -> settleScheduleWrite(store, prepared.journal, candidate)
+        is PrepareResult.Rejected -> observeScheduleRejection(store, prepared)
     }
 }
 
 private fun settleScheduleWrite(
     store: StudioAppearanceStore,
-    token: PreparedToken,
+    journal: PendingJournal,
     proposed: StudioDocument,
-): ApplyExecution =
-    when (val result = store.commit(token, proposed.runtime)) {
+): RotationScheduleWrite =
+    when (val result = store.commit(journal.token, proposed.runtime)) {
         is CommitResult.Committed ->
             if (result.document == proposed) {
-                finishSchedule(ApplySettlement.Accepted(result.document), store.finishAccepted(token))
+                finishSchedule(ApplySettlement.Accepted(result.document), journal, store.finishAccepted(journal.token))
             } else {
-                ApplyExecution(
-                    ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed),
-                    ApplyFailure.Commit(StoreIssue.CONFLICT),
+                RotationScheduleWrite(
+                    ApplyExecution(
+                        ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed),
+                        ApplyFailure.Commit(StoreIssue.CONFLICT),
+                    ),
+                    RotationScheduleRecovery(journal),
                 )
             }
         is CommitResult.NotCommitted ->
-            finishSchedule(ApplySettlement.NotAccepted, store.finishRollback(token), ApplyFailure.Commit(result.issue))
-        is CommitResult.OutcomeUnknown ->
-            ApplyExecution(
-                ApplySettlement.RecoveryRequired(SettlementProblem.Journal(result.issue)),
+            finishSchedule(
+                ApplySettlement.NotAccepted,
+                journal,
+                store.finishRollback(journal.token),
                 ApplyFailure.Commit(result.issue),
+            )
+        is CommitResult.OutcomeUnknown ->
+            RotationScheduleWrite(
+                ApplyExecution(
+                    ApplySettlement.RecoveryRequired(SettlementProblem.Journal(result.issue)),
+                    ApplyFailure.Commit(result.issue),
+                ),
+                RotationScheduleRecovery(journal),
             )
     }
 
 private fun finishSchedule(
     settled: ApplySettlement.Finished,
+    journal: PendingJournal,
     result: JournalResult,
     failure: ApplyFailure? = null,
-): ApplyExecution =
+): RotationScheduleWrite =
     when (result) {
-        JournalResult.Acknowledged -> ApplyExecution(settled, failure)
-        is JournalResult.Rejected -> ApplyExecution(settled.pending(SettlementProblem.Journal(result.issue)), failure)
+        JournalResult.Acknowledged -> RotationScheduleWrite(ApplyExecution(settled, failure))
+        is JournalResult.Rejected ->
+            RotationScheduleWrite(
+                ApplyExecution(settled.pending(SettlementProblem.Journal(result.issue)), failure),
+                RotationScheduleRecovery(journal, cleanup = settled),
+            )
     }
 
-private fun staleSchedule(): ApplyExecution = ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost)
+private fun staleSchedule(): RotationScheduleWrite =
+    RotationScheduleWrite(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost))
 
 private fun observeScheduleRejection(
     store: StudioAppearanceStore,
-    issue: StoreIssue,
-): ApplyExecution =
+    rejected: PrepareResult.Rejected,
+): RotationScheduleWrite =
     if (store.load() is StoreLoad.Ready) {
-        ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.Prepare(issue))
+        RotationScheduleWrite(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.Prepare(rejected.issue)))
     } else {
-        prepareFailed(issue)
+        prepareFailed(rejected.issue, rejected.attemptedJournal)
     }
 
-private fun prepareFailed(issue: StoreIssue): ApplyExecution =
-    ApplyExecution(ApplySettlement.RecoveryRequired(SettlementProblem.Journal(issue)), ApplyFailure.Prepare(issue))
+private fun prepareFailed(
+    issue: StoreIssue,
+    journal: PendingJournal? = null,
+): RotationScheduleWrite =
+    RotationScheduleWrite(
+        ApplyExecution(ApplySettlement.RecoveryRequired(SettlementProblem.Journal(issue)), ApplyFailure.Prepare(issue)),
+        journal?.let { RotationScheduleRecovery(it) },
+    )

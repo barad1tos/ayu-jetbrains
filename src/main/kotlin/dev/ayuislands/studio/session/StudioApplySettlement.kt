@@ -18,9 +18,21 @@ internal class StudioApplySettlement(
     private val owners: StudioOwnerJournal,
     private val ioDispatcher: CoroutineDispatcher,
     private val work: StudioOwnerWork,
+    confirmedCleanup: ApplySettlement.Finished? = null,
     private val release: suspend (StudioDocument?) -> Unit,
 ) {
-    private var stage: Stage = Stage.Inspecting
+    init {
+        require(
+            confirmedCleanup == null ||
+                (
+                    work.journal.recovery.owners
+                        .isEmpty() &&
+                        work.journal.receipts.isEmpty()
+                ),
+        )
+    }
+
+    private var stage: Stage = confirmedCleanup?.let { Stage.Cleanup(it) } ?: Stage.Inspecting
 
     fun interrupted(problem: SettlementProblem): ApplySettlement =
         when (val current = stage) {
