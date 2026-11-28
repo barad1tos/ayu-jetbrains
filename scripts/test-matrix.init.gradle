@@ -1,0 +1,12 @@
+// Used only by the benchmark's report job with verified external coverage files.
+gradle.projectsEvaluated {
+    def root = gradle.rootProject
+    def directory = root.providers.gradleProperty("benchmarkCoverageDir").get()
+    def reports = root.fileTree(directory) { include "*.ic" }.files
+    if (reports.isEmpty()) {
+        throw new GradleException("Expected coverage reports from the benchmark workers")
+    }
+    def kover = root.extensions.getByName("kover")
+    kover.currentProject.instrumentation.disabledForAll.set(true)
+    kover.reports.total.additionalBinaryReports.addAll(reports)
+}

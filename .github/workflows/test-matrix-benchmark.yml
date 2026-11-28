@@ -1,0 +1,200 @@
+name: Test matrix benchmark
+
+# Benchmarks run on this dedicated branch, independently of the required CI.
+on:
+  push:
+    branches: [ci/test-matrix-benchmark]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-matrix-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BENCHMARK_UNIT_SHARDS: "4"
+
+jobs:
+  baseline:
+    name: Baseline (two JVMs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: ./.github/actions/test-benchmark-setup
+      - name: Run complete baseline
+        run: xvfb-run -a scripts/gradle-retry.sh test --rerun integrationTest --rerun koverXmlReport koverVerify
+      - name: Capture baseline results
+        run: uv run --project scripts --locked --no-dev python scripts/ci-test-matrix.py capture baseline build benchmark/baseline
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-baseline-${{ github.run_attempt }}
+          path: benchmark/baseline/
+          if-no-files-found: error
+          retention-days: 5
+
+  plan:
+    name: Discover and balance unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read # Read the latest successful main run and its timing artifact.
+    outputs:
+      workers: ${{ steps.groups.outputs.workers }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: ./.github/actions/test-benchmark-setup
+      - name: Discover tests from this commit
+        run: xvfb-run -a scripts/gradle-retry.sh test --test-dry-run --rerun
+      - name: Download recent timings from main if available
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          last_run=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/runs" \
+            -f branch=main -f event=push -f status=success -f per_page=1 \
+            --jq '.workflow_runs[0] | select(. != null) | [.id, .run_attempt] | @tsv')
+          if [[ -z "$last_run" ]]; then
+            exit 0
+          fi
+          read -r run attempt <<< "$last_run"
+          artifact="ci-test-timings-$attempt"
+          available=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" \
+            -f name="$artifact" --jq 'any(.artifacts[]; .expired == false)')
+          if [[ "$available" == true ]]; then
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir benchmark/seed
+          fi
+      - name: Create the matrix plan
+        id: groups
+        run: |
+          timing_args=()
+          if [[ -f benchmark/seed/ci-test-timings.json ]]; then
+            timing_args+=(--timings benchmark/seed/ci-test-timings.json)
+          fi
+          workers=$(uv run --project scripts --locked --no-dev python scripts/ci-test-matrix.py \
+            plan build/test-results/test "$BENCHMARK_UNIT_SHARDS" benchmark/plan/plan.json "${timing_args[@]}")
+          printf 'workers=%s\n' "$workers" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-plan-${{ github.run_attempt }}
+          path: benchmark/plan/plan.json
+          if-no-files-found: error
+          retention-days: 5
+
+  workers:
+    name: Worker (${{ matrix.role }})
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BENCHMARK_ROLE: ${{ matrix.role }}
+    strategy:
+      fail-fast: false
+      matrix:
+        role: ${{ fromJSON(needs.plan.outputs.workers) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: ./.github/actions/test-benchmark-setup
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: benchmark-plan-${{ github.run_attempt }}
+          path: benchmark/plan/
+      - name: Run assigned unit tests
+        run: |
+          uv run --project scripts --locked --no-dev python scripts/ci-test-matrix.py \
+            select benchmark/plan/plan.json "$BENCHMARK_ROLE" > "$RUNNER_TEMP/benchmark-classes"
+          mapfile -t suites < "$RUNNER_TEMP/benchmark-classes"
+          gradle_args=(test --rerun)
+          for suite in "${suites[@]}"; do
+            gradle_args+=(--tests "$suite")
+          done
+          xvfb-run -a scripts/gradle-retry.sh "${gradle_args[@]}"
+      - name: Capture JUnit inventory and coverage binary
+        run: uv run --project scripts --locked --no-dev python scripts/ci-test-matrix.py capture "$BENCHMARK_ROLE" build benchmark/worker
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-worker-${{ github.run_attempt }}-${{ env.BENCHMARK_ROLE }}
+          path: benchmark/worker/
+          if-no-files-found: error
+          retention-days: 5
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BENCHMARK_ROLE: integration
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: ./.github/actions/test-benchmark-setup
+      - run: xvfb-run -a scripts/gradle-retry.sh integrationTest --rerun
+      - name: Capture JUnit inventory and coverage binary
+        run: uv run --project scripts --locked --no-dev python scripts/ci-test-matrix.py capture "$BENCHMARK_ROLE" build benchmark/worker
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-worker-${{ github.run_attempt }}-${{ env.BENCHMARK_ROLE }}
+          path: benchmark/worker/
+          if-no-files-found: error
+          retention-days: 5
+
+  candidate:
+    name: Candidate (combined Kover)
+    needs: [plan, workers, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: ./.github/actions/test-benchmark-setup
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: benchmark-plan-${{ github.run_attempt }}
+          path: benchmark/plan/
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: benchmark-worker-${{ github.run_attempt }}-*
+          path: benchmark/workers/
+      - name: Check artifact scope and combine inventories
+        run: uv run --project scripts --locked --no-dev python scripts/ci-test-matrix.py collect benchmark/plan/plan.json benchmark/workers benchmark/candidate
+      - name: Verify merged Kover report
+        run: >-
+          scripts/gradle-retry.sh --init-script scripts/test-matrix.init.gradle
+          -PbenchmarkCoverageDir=benchmark/candidate/coverage koverXmlReport koverVerify
+      - name: Capture candidate coverage
+        run: uv run --project scripts --locked --no-dev python scripts/ci-test-matrix.py coverage build/reports/kover/report.xml benchmark/candidate
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-candidate-${{ github.run_attempt }}
+          path: |
+            benchmark/candidate/inventory.json
+            benchmark/candidate/coverage.json
+          if-no-files-found: error
+          retention-days: 5
+
+  parity:
+    name: Benchmark parity
+    needs: [baseline, candidate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: scripts/uv.lock
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: benchmark-baseline-${{ github.run_attempt }}
+          path: benchmark/baseline/
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: benchmark-candidate-${{ github.run_attempt }}
+          path: benchmark/candidate/
+      - name: Verify equal inventories and coverage
+        run: uv run --project scripts --locked --no-dev python scripts/ci-test-matrix.py compare benchmark/baseline benchmark/candidate
