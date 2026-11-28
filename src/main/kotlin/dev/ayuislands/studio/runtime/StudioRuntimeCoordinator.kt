@@ -62,16 +62,18 @@ internal class StudioRuntimeCoordinator(
 
     private suspend fun onWake(ticket: RotationWaitTicket) {
         queue.withLock {
-            if (commandSlot.get() == CommandSlot.Disposed || scheduledWake?.ticket != ticket) return@withLock
-            scheduledWake = null
+            val armed = scheduledWake as? ScheduledWake.Armed
+            if (commandSlot.get() == CommandSlot.Disposed || armed?.ticket != ticket) return@withLock
+            scheduledWake = ScheduledWake.Delivered(ticket)
             reconcileRotation()
-            dispatchRotation(RotationRuntimeEvent.TimerDue(ticket))
         }
     }
 
     private suspend fun reconcileRotation() {
         val current = readAuthority()
         if (commandSlot.get() == CommandSlot.Disposed) return
+        val delivered = scheduledWake as? ScheduledWake.Delivered
+        if (delivered != null) scheduledWake = null
         val event =
             if (current == null) {
                 RotationRuntimeEvent.AuthorityUnavailable
@@ -79,6 +81,7 @@ internal class StudioRuntimeCoordinator(
                 RotationRuntimeEvent.Reconcile(current)
             }
         dispatchRotation(event)
+        if (delivered != null) dispatchRotation(RotationRuntimeEvent.TimerDue(delivered.ticket))
     }
 
     private suspend fun readAuthority(): RotationRuntimeSnapshot? =
@@ -165,7 +168,7 @@ internal class StudioRuntimeCoordinator(
         val delay = (ticket.delayMillis - ticket.elapsedMillis(clock().monotonicNanos)).coerceAtLeast(0L)
         val callback = Runnable { scope.launch { onWake(ticket) } }
         try {
-            scheduledWake = ScheduledWake(ticket, scheduler.schedule(callback, delay, TimeUnit.MILLISECONDS))
+            scheduledWake = ScheduledWake.Armed(ticket, scheduler.schedule(callback, delay, TimeUnit.MILLISECONDS))
         } catch (_: RejectedExecutionException) {
             dispatchRotation(RotationRuntimeEvent.ArmRejected(ticket))
         }
@@ -175,13 +178,21 @@ internal class StudioRuntimeCoordinator(
         val current = scheduledWake ?: return
         if (current.ticket != ticket) return
         scheduledWake = null
-        current.future.cancel(false)
+        if (current is ScheduledWake.Armed) current.future.cancel(false)
     }
 
-    private data class ScheduledWake(
-        val ticket: RotationWaitTicket,
-        val future: ScheduledFuture<*>,
-    )
+    private sealed interface ScheduledWake {
+        val ticket: RotationWaitTicket
+
+        data class Armed(
+            override val ticket: RotationWaitTicket,
+            val future: ScheduledFuture<*>,
+        ) : ScheduledWake
+
+        data class Delivered(
+            override val ticket: RotationWaitTicket,
+        ) : ScheduledWake
+    }
 
     private sealed interface CommandSlot {
         data object Idle : CommandSlot

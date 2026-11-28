@@ -66,6 +66,26 @@ class StudioRuntimeCoordinatorTest {
         }
 
     @Test
+    fun `refresh consumes a wake whose authority read was cancelled`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            fixture.coordinator.refreshRotation()
+            val wake = fixture.scheduler.wakes.single()
+            fixture.moveTime(wallHours = 0, elapsedHours = 6)
+            fixture.readFailure = CancellationException("Wake authority read cancelled")
+            wake.run()
+            drainCommands()
+            wake.run()
+            drainCommands()
+            assertEquals(emptyList(), fixture.delivered)
+
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertEquals(listOf(RotationRuntimeCommand.StepDue(fixture.accepted)), fixture.delivered)
+            assertEquals(1, fixture.scheduler.wakes.size)
+        }
+
+    @Test
     fun `a callback queued during Apply reads the newly accepted Off setting`() =
         runBlocking {
             val fixture = Fixture(this)
