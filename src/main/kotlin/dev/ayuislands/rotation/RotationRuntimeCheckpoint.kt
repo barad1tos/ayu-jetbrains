@@ -54,6 +54,8 @@ internal sealed interface RotationResume {
 }
 
 internal sealed interface RuntimeFault {
+    data object UnrepresentableAppointment : RuntimeFault
+
     data class DurableRecovery(
         val code: String,
     ) : RuntimeFault
