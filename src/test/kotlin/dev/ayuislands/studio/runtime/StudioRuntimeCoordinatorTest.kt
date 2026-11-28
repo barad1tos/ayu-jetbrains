@@ -52,7 +52,16 @@ import kotlin.time.Duration.Companion.seconds
 
 class StudioRuntimeCoordinatorTest {
     @Test
-    fun `three restored failures stop this service and a new service resumes the saved appointment`() =
+    fun `turning rotation off resets the session limit without discarding the saved appointment`() =
+        verifyCircuitRecovery { saved -> saved.copy(intent = saved.intent.copy(enabled = false)) }
+
+    @Test
+    fun `following the system pauses rotation and resets the session limit`() =
+        verifyCircuitRecovery { saved ->
+            saved.copy(availability = saved.availability.copy(effectiveFollowSystem = true))
+        }
+
+    private fun verifyCircuitRecovery(pause: (RotationRuntimeSnapshot) -> RotationRuntimeSnapshot) =
         runBlocking {
             val fixture = Fixture(this)
             val start = fixture.accepted
@@ -93,6 +102,19 @@ class StudioRuntimeCoordinatorTest {
                 listOf(RotationRuntimeCommand.ReportFault(RuntimeFault.SessionCircuitBreaker)),
                 fixture.delivered.filterIsInstance<RotationRuntimeCommand.ReportFault>(),
             )
+            val saved = fixture.accepted
+            fixture.accepted = pause(saved)
+            fixture.coordinator.refreshRotation()
+            assertEquals(3, fixture.scheduler.wakes.size)
+            fixture.accepted = saved
+            fixture.coordinator.refreshRotation()
+            assertEquals(
+                6 * HOUR,
+                fixture.scheduler.wakes
+                    .last()
+                    .delayMillis,
+            )
+            assertEquals(4, fixture.scheduler.wakes.size)
             fixture.coordinator.disposeRotation()
 
             val restarted = Fixture(this)
