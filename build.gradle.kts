@@ -272,6 +272,9 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     exclude("**/integration/**")
+    if (providers.environmentVariable("GITHUB_ACTIONS").orNull == "true") {
+        maxParallelForks = 2
+    }
 }
 
 tasks.register<Test>("integrationTest") {
