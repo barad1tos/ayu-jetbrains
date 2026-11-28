@@ -24,6 +24,7 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.Rectangle
 import java.awt.RenderingHints
+import java.util.function.LongSupplier
 import javax.swing.JPanel
 import javax.swing.Timer
 import javax.swing.UIManager
@@ -70,6 +71,7 @@ class GlowGlassPane(
         }
     internal var topSpansProvider: (() -> List<IntRange>)? = null
     internal var timeSource: () -> Long = System::currentTimeMillis
+    internal var frameClock: LongSupplier = LongSupplier(System::nanoTime)
     private var topSpansRefreshAtMs = 0L
     private var waveformConfig = WaveformConfig()
     private var glowShape = GlowShape.SOLID
@@ -318,7 +320,7 @@ class GlowGlassPane(
         bounds: Rectangle,
         arcWidth: Int,
     ) {
-        val startNanos = System.nanoTime()
+        val startNanos = frameClock.asLong
         val nowMs = timeSource()
         if (nowMs >= topSpansRefreshAtMs) {
             try {
@@ -346,7 +348,7 @@ class GlowGlassPane(
             return
         }
 
-        val elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MILLISECOND
+        val elapsedMs = (frameClock.asLong - startNanos) / NANOS_PER_MILLISECOND
         if (elapsedMs > FRAME_BUDGET_MS && !slowWaveformLogged) {
             slowWaveformLogged = true
             log.warn("Waveform glow frame work exceeded 16ms: %.2fms".format(elapsedMs))
@@ -381,9 +383,9 @@ class GlowGlassPane(
         try {
             val bounds = Rectangle(0, 0, width, height)
             val arcWidth = UIManager.getInt(ISLAND_ARC_KEY).let { if (it > 0) it else DEFAULT_ARC_FALLBACK }
-            val startNanos = System.nanoTime()
+            val startNanos = frameClock.asLong
             val nextPlan = waveformPainter.prepare(waveformPaintState.request(bounds, arcWidth))
-            val elapsedMs = (System.nanoTime() - startNanos) / NANOS_PER_MILLISECOND
+            val elapsedMs = (frameClock.asLong - startNanos) / NANOS_PER_MILLISECOND
             if (elapsedMs > FRAME_BUDGET_MS && !slowWaveformLogged) {
                 slowWaveformLogged = true
                 log.warn("Waveform glow frame work exceeded 16ms: %.2fms".format(elapsedMs))
