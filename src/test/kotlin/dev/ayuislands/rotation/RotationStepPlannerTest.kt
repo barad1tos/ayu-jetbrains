@@ -66,7 +66,7 @@ class RotationStepPlannerTest {
             assertIs<RotationStepPlan.Ready>(
                 RotationStepPlanner.planStep(checkpoint, random, operation, randomHex = "#AABBCC"),
             ).candidate
-        val saved = checkpoint.copy(retryCandidate = original)
+        val saved = checkpoint.copy(retry = RotationRetry(original))
         val nextOperation = UUID(0L, 2L)
 
         val retry = assertIs<RotationStepPlan.Ready>(RotationStepPlanner.planStep(saved, random, nextOperation))
@@ -76,12 +76,12 @@ class RotationStepPlannerTest {
             RotationStepPlan.RandomRequired(nextOperation, AyuVariant.DARK),
             RotationStepPlanner.planStep(saved, changed, nextOperation),
         )
-        val invalid = saved.copy(retryCandidate = original.copy(hex = "invalid"))
+        val invalid = saved.copy(retry = RotationRetry(original.copy(hex = "invalid")))
         assertEquals(
             RotationStepPlan.Blocked(RotationStepBlock.INVALID_COLOR),
             RotationStepPlanner.planStep(invalid, random, nextOperation),
         )
-        assertEquals(original, saved.retryCandidate)
+        assertEquals(original, saved.retry?.candidate)
     }
 
     @Test
@@ -135,7 +135,7 @@ class RotationStepPlannerTest {
             assertIs<RotationStepPlan.Ready>(
                 RotationStepPlanner.planStep(checkpoint, random, operation, randomHex = "#AABBCC"),
             ).candidate
-        val saved = checkpoint.copy(retryCandidate = chosen)
+        val saved = checkpoint.copy(retry = RotationRetry(chosen, failures = 2))
         val changed = random.copy(intent = random.intent.copy(intervalHoursRaw = 1))
 
         assertEquals(
@@ -147,8 +147,72 @@ class RotationStepPlannerTest {
                 RotationStepPlanner.planCompletion(saved, random, chosen, completedAtEpochMillis = 1_000),
             ).checkpoint
         assertEquals(saved.sequenceCursorRaw, next.sequenceCursorRaw)
-        assertNull(next.retryCandidate)
-        assertEquals(chosen, saved.retryCandidate)
+        assertNull(next.retry)
+        assertEquals(RotationRetry(chosen, failures = 2), saved.retry)
+    }
+
+    @Test
+    fun `cleanly restored random attempts keep one candidate and stop after the third failure`() {
+        val random = inputs.copy(intent = intent.copy(modeRaw = AccentRotationMode.RANDOM.name))
+        val accepted =
+            checkpoint.copy(
+                output = RotationOutput(owner, variant, "#5CCFE6"),
+                lastSuccessfulStepEpochMillis = 400,
+            )
+        val first =
+            assertIs<RotationStepPlan.Ready>(
+                RotationStepPlanner.planStep(accepted, random, operation, randomHex = "#AABBCC"),
+            ).candidate
+
+        var restored = accepted
+        for (failure in 1..3) {
+            val restoredAt = failure * 8_000_000L
+            restored =
+                assertIs<RotationCompletionPlan.Ready>(
+                    RotationStepPlanner.planRestoredRetry(restored, random, first, restoredAt),
+                ).checkpoint
+            assertEquals(RotationRetry(first, failure), restored.retry)
+            assertEquals(accepted.sequenceCursorRaw, restored.sequenceCursorRaw)
+            assertEquals(accepted.successfulStepSerial, restored.successfulStepSerial)
+            assertEquals(accepted.lastSuccessfulStepEpochMillis, restored.lastSuccessfulStepEpochMillis)
+            assertEquals(accepted.output, restored.output)
+            val next = RotationStepPlanner.planStep(restored, random, UUID(0L, failure + 1L))
+            if (failure < 3) {
+                assertEquals(
+                    RotationSchedule(restoredAt, restoredAt + 7_200_000, 7_200_000, failure.toLong()),
+                    restored.schedule,
+                )
+                assertEquals(first, assertIs<RotationStepPlan.Ready>(next).candidate)
+                assertNull(restored.recoveryFault)
+            } else {
+                assertIs<RuntimeFault.DurableRecovery>(restored.recoveryFault)
+                assertEquals(RotationStepPlan.Blocked(RotationStepBlock.RECOVERY_PENDING), next)
+            }
+        }
+    }
+
+    @Test
+    fun `a change of accepted mode starts a new budget and never reschedules the old candidate`() {
+        val old =
+            assertIs<RotationStepPlan.Ready>(
+                RotationStepPlanner.planStep(checkpoint, inputs, operation),
+            ).candidate
+        val saved = checkpoint.copy(retry = RotationRetry(old, failures = 2))
+        val random = inputs.copy(intent = intent.copy(modeRaw = AccentRotationMode.RANDOM.name))
+        assertEquals(
+            RotationCompletionPlan.Blocked(RotationStepBlock.STALE_CANDIDATE),
+            RotationStepPlanner.planRestoredRetry(saved, random, old, 7_200_000),
+        )
+        val next =
+            assertIs<RotationStepPlan.Ready>(
+                RotationStepPlanner.planStep(saved, random, UUID(0, 2), randomHex = "#AABBCC"),
+            ).candidate
+        val retry =
+            assertIs<RotationCompletionPlan.Ready>(
+                RotationStepPlanner.planRestoredRetry(saved, random, next, 7_200_000),
+            ).checkpoint
+        assertEquals(RotationRetry(next, failures = 1), retry.retry)
+        assertNull(retry.recoveryFault)
     }
 
     @Test

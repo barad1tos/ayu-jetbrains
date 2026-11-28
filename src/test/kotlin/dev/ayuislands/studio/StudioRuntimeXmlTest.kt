@@ -9,6 +9,7 @@ import dev.ayuislands.rotation.RotationCandidate
 import dev.ayuislands.rotation.RotationIntent
 import dev.ayuislands.rotation.RotationOutput
 import dev.ayuislands.rotation.RotationResume
+import dev.ayuislands.rotation.RotationRetry
 import dev.ayuislands.rotation.RotationRuntimeCheckpoint
 import dev.ayuislands.rotation.RotationSchedule
 import dev.ayuislands.rotation.RuntimeFault
@@ -59,6 +60,16 @@ class StudioRuntimeXmlTest {
         }
         val empty = RotationRuntimeCheckpoint(saved.owner, sequenceCursorRaw = -1, successfulStepSerial = 0)
         assertEquals(empty, StudioRotationXml.read(StudioXml.parse(StudioXml.write(StudioRotationXml.write(empty)))))
+    }
+
+    @Test
+    fun `previous retry XML loads without claiming any earlier restored failures`() {
+        val saved = checkpoint()
+        val retry = requireNotNull(saved.retry)
+        val legacy = saved.copy(retry = retry.copy(failures = 0))
+        val encoded = StudioRotationXml.write(legacy)
+        assertEquals(false, encoded.child("retry").attributes.containsKey("failures"))
+        assertEquals(legacy, StudioRotationXml.read(StudioXml.parse(StudioXml.write(encoded))))
     }
 
     @Test
@@ -120,7 +131,7 @@ class StudioRuntimeXmlTest {
             lastSuccessfulStepEpochMillis = 1000,
             output = RotationOutput(owner, AyuVariant.DARK, "#FFCC66"),
             schedule = RotationSchedule(1000, 10_801_000, 10_800_000, 11),
-            retryCandidate = retry,
+            retry = RotationRetry(retry, failures = 2),
             recoveryFault = RuntimeFault.DurableRecovery("interrupted"),
         )
     }
