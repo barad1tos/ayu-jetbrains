@@ -56,15 +56,29 @@ internal sealed interface RotationRuntimeEvent {
         val ticket: RotationWaitTicket,
     ) : RotationRuntimeEvent
 
+    data class CommandFinished(
+        val source: RotationRuntimeSnapshot,
+        val current: RotationRuntimeSnapshot,
+    ) : RotationRuntimeEvent
+
+    data class CommandBlocked(
+        val source: RotationRuntimeSnapshot,
+        val fault: RuntimeFault,
+    ) : RotationRuntimeEvent
+
     data class ArmRejected(
         val ticket: RotationWaitTicket,
     ) : RotationRuntimeEvent
 
     data object Dispose : RotationRuntimeEvent
+
+    data object AuthorityUnavailable : RotationRuntimeEvent
 }
 
 internal sealed interface RotationRuntimeCommand {
-    sealed interface Transaction : RotationRuntimeCommand
+    sealed interface Transaction : RotationRuntimeCommand {
+        val source: RotationRuntimeSnapshot
+    }
 
     data class CancelSchedule(
         val ticket: RotationWaitTicket,
@@ -75,12 +89,12 @@ internal sealed interface RotationRuntimeCommand {
     ) : RotationRuntimeCommand
 
     data class PersistCheckpoint(
-        val source: RotationRuntimeSnapshot,
+        override val source: RotationRuntimeSnapshot,
         val proposed: RotationTimingPlan.Persist,
     ) : Transaction
 
     data class StepDue(
-        val source: RotationRuntimeSnapshot,
+        override val source: RotationRuntimeSnapshot,
     ) : Transaction
 
     data class ReportFault(
@@ -91,4 +105,9 @@ internal sealed interface RotationRuntimeCommand {
 internal data class RotationTransition(
     val state: RotationRuntimeState,
     val commands: List<RotationRuntimeCommand> = emptyList(),
-)
+) {
+    companion object {
+        fun applying(command: RotationRuntimeCommand.Transaction): RotationTransition =
+            RotationTransition(RotationRuntimeState.Applying(command.source), listOf(command))
+    }
+}

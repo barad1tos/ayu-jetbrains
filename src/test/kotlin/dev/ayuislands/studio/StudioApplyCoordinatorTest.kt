@@ -57,6 +57,7 @@ import dev.ayuislands.studio.runtime.RotationObservation
 import dev.ayuislands.studio.runtime.RotationStepAdmission
 import dev.ayuislands.studio.runtime.RotationStepAttempt
 import dev.ayuislands.studio.runtime.StudioRotationCommands
+import dev.ayuislands.studio.runtime.StudioRuntimeCoordinator
 import dev.ayuislands.studio.runtime.prepareRotationStep
 import dev.ayuislands.studio.session.ApplyExecution
 import dev.ayuislands.studio.session.ApplyFailure
@@ -88,6 +89,9 @@ import java.io.IOException
 import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
@@ -428,6 +432,50 @@ class StudioApplyCoordinatorTest {
         }
 
     @Test
+    fun `the scheduler reads the accepted Accent step before arming its next wake`() =
+        exercise(document = rotationDocument()) { fixture ->
+            coroutineScope {
+                val armed = CompletableDeferred<Long>()
+                val scheduler =
+                    object : ScheduledThreadPoolExecutor(1) {
+                        override fun schedule(
+                            command: Runnable,
+                            delay: Long,
+                            unit: TimeUnit,
+                        ): ScheduledFuture<*> =
+                            super.schedule(command, delay, unit).also {
+                                armed.complete(unit.toMillis(delay))
+                            }
+                    }
+                val mode = AccentRotationMode.PRESET
+                val commands = fixture.rotationCommands(observe = { fixture.observeRotation(mode) })
+                val runtime =
+                    StudioRuntimeCoordinator(
+                        queue = fixture.queue,
+                        scope = this,
+                        observeRotation = { fixture.observeRotation(mode) },
+                        clock = { ClockSample(ROTATION_COMPLETED_AT, 0L) },
+                        scheduler = scheduler,
+                        execute = commands::execute,
+                        reportFault = { error("Unexpected rotation fault: $it") },
+                    )
+                try {
+                    runtime.refreshRotation()
+                    assertEquals(TimeUnit.HOURS.toMillis(6), armed.await())
+                    val accepted = assertIs<StoreLoad.Ready>(fixture.store.load()).document
+                    val rotation = requireNotNull(accepted.runtime.rotation)
+                    assertEquals(1L, rotation.successfulStepSerial)
+                    assertEquals(ROTATION_COMPLETED_AT, rotation.schedule?.scheduledAtEpochMillis)
+                    assertEquals(fixture.initial.currents, accepted.currents)
+                    assertEquals(listOf("acquire", "apply", "accept", "release"), fixture.events)
+                } finally {
+                    runtime.disposeRotation()
+                    scheduler.shutdownNow()
+                }
+            }
+        }
+
+    @Test
     fun `a changed effective context during color generation rejects the old command before writing`() =
         exercise(document = rotationDocument()) { fixture ->
             val mode = AccentRotationMode.RANDOM
@@ -713,7 +761,7 @@ class StudioApplyCoordinatorTest {
         val releaseStarted = CompletableDeferred<Unit>()
         val resumeRelease = CompletableDeferred<Unit>()
         var expectPriorSettledOnFlush = false
-        private val queue = Mutex()
+        val queue = Mutex()
         private var leaseValid = true
         private val invalidateOnNextIo = AtomicBoolean()
         private val ioDispatcher =
