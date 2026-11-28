@@ -14,12 +14,24 @@ import dev.ayuislands.rotation.RotationSchedule
 import dev.ayuislands.rotation.RotationTimerGeneration
 import dev.ayuislands.rotation.RuntimeFault
 import dev.ayuislands.rotation.RuntimeOwner
+import dev.ayuislands.studio.catalogTestDocument
+import dev.ayuislands.studio.model.AcceptanceLease
 import dev.ayuislands.studio.model.StudioProjectKey
 import dev.ayuislands.studio.model.StudioTarget
+import dev.ayuislands.studio.session.ApplyExecution
+import dev.ayuislands.studio.session.ApplyFailure
+import dev.ayuislands.studio.session.ApplySettlement
+import dev.ayuislands.studio.session.SettlementProblem
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import java.util.concurrent.Delayed
 import java.util.concurrent.FutureTask
@@ -31,6 +43,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class StudioRuntimeCoordinatorTest {
     @Test
@@ -45,10 +58,30 @@ class StudioRuntimeCoordinatorTest {
             fixture.moveTime(wallHours = 48, elapsedHours = 6)
             wake.run()
             wake.run()
-            yield()
+            drainCommands()
 
             assertEquals(listOf(RotationRuntimeCommand.StepDue(fixture.accepted)), fixture.delivered)
-            assertEquals(3, fixture.reads)
+            assertEquals(4, fixture.reads)
+            assertEquals(1, fixture.scheduler.wakes.size)
+        }
+
+    @Test
+    fun `refresh consumes a wake whose authority read was cancelled`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            fixture.coordinator.refreshRotation()
+            val wake = fixture.scheduler.wakes.single()
+            fixture.moveTime(wallHours = 0, elapsedHours = 6)
+            fixture.readFailure = CancellationException("Wake authority read cancelled")
+            wake.run()
+            drainCommands()
+            wake.run()
+            drainCommands()
+            assertEquals(emptyList(), fixture.delivered)
+
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertEquals(listOf(RotationRuntimeCommand.StepDue(fixture.accepted)), fixture.delivered)
             assertEquals(1, fixture.scheduler.wakes.size)
         }
 
@@ -96,8 +129,8 @@ class StudioRuntimeCoordinatorTest {
             fixture.moveTime(48, 6)
             old.run()
             successor.run()
-            yield()
-            assertEquals(3, fixture.reads)
+            drainCommands()
+            assertEquals(4, fixture.reads)
             assertEquals(listOf(RotationRuntimeCommand.StepDue(fixture.accepted)), fixture.delivered)
         }
 
@@ -144,7 +177,7 @@ class StudioRuntimeCoordinatorTest {
             fixture.moveTime(48, 48)
             guard.run()
             finalWake.run()
-            yield()
+            drainCommands()
             assertEquals(listOf(RotationRuntimeCommand.StepDue(fixture.accepted)), fixture.delivered)
         }
 
@@ -152,6 +185,8 @@ class StudioRuntimeCoordinatorTest {
     fun `checkpoint proposals are handed off and only a later accepted appointment arms a wake`() =
         runBlocking {
             val fixture = Fixture(this)
+            val settlement = CompletableDeferred<RotationCommandOutcome>()
+            fixture.execute = { settlement.await() }
             fixture.accepted =
                 fixture.accepted.copy(
                     checkpoint =
@@ -161,11 +196,49 @@ class StudioRuntimeCoordinatorTest {
                 )
             fixture.coordinator.refreshRotation()
             fixture.coordinator.refreshRotation()
+            drainCommands()
             assertEquals(0, fixture.scheduler.wakes.size)
             val requested = assertIs<RotationRuntimeCommand.PersistCheckpoint>(fixture.delivered.single())
             assertEquals(fixture.accepted, requested.source)
 
             fixture.accepted = fixture.accepted.copy(checkpoint = requested.proposed.checkpoint)
+            fixture.coordinator.refreshRotation()
+            assertEquals(emptyList(), fixture.scheduler.wakes)
+            settlement.complete(fixture.acceptedResult())
+            drainCommands()
+            assertEquals(
+                6 * HOUR,
+                fixture.scheduler.wakes
+                    .single()
+                    .delayMillis,
+            )
+        }
+
+    @Test
+    fun `an unresolved transaction keeps the timer stopped until authority is ready`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            fixture.accepted =
+                fixture.accepted.copy(checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory))
+            fixture.execute = {
+                fixture.available = false
+                RotationCommandOutcome.Executed(
+                    ApplyExecution(ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed), null),
+                )
+            }
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertIs<RotationRuntimeCommand.StepDue>(fixture.delivered.first())
+            assertEquals(
+                RotationRuntimeCommand.ReportFault(RuntimeFault.RecoveryPending),
+                fixture.delivered.last(),
+            )
+            assertEquals(emptyList(), fixture.scheduler.wakes)
+
+            fixture.accepted = acceptedSnapshot()
+            fixture.coordinator.refreshRotation()
+            assertEquals(emptyList(), fixture.scheduler.wakes)
+            fixture.available = true
             fixture.coordinator.refreshRotation()
             assertEquals(
                 6 * HOUR,
@@ -173,6 +246,220 @@ class StudioRuntimeCoordinatorTest {
                     .single()
                     .delayMillis,
             )
+        }
+
+    @Test
+    fun `a stale command waits for the next refresh when accepted appearance has not changed`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            fixture.accepted =
+                fixture.accepted.copy(checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory))
+            fixture.execute = {
+                RotationCommandOutcome.Executed(ApplyExecution(ApplySettlement.NotAccepted, ApplyFailure.LeaseLost))
+            }
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertIs<RotationRuntimeCommand.StepDue>(fixture.delivered.single())
+            assertEquals(emptyList(), fixture.scheduler.wakes)
+
+            fixture.execute = {
+                fixture.accepted = acceptedSnapshot()
+                fixture.acceptedResult()
+            }
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertEquals(2, fixture.delivered.filterIsInstance<RotationRuntimeCommand.StepDue>().size)
+            assertEquals(
+                6 * HOUR,
+                fixture.scheduler.wakes
+                    .single()
+                    .delayMillis,
+            )
+        }
+
+    @Test
+    fun `confirmed recovery can resume from the same accepted checkpoint`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            fixture.accepted =
+                fixture.accepted.copy(checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory))
+            fixture.execute = {
+                RotationCommandOutcome.Executed(
+                    ApplyExecution(ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed), null),
+                )
+            }
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertEquals(RotationRuntimeCommand.ReportFault(RuntimeFault.RecoveryPending), fixture.delivered.last())
+            assertEquals(emptyList(), fixture.scheduler.wakes)
+
+            fixture.execute = {
+                fixture.accepted = acceptedSnapshot()
+                fixture.acceptedResult()
+            }
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertEquals(2, fixture.delivered.filterIsInstance<RotationRuntimeCommand.StepDue>().size)
+            assertEquals(
+                6 * HOUR,
+                fixture.scheduler.wakes
+                    .single()
+                    .delayMillis,
+            )
+        }
+
+    @Test
+    fun `a refresh during unresolved rotation is delivered once after the command returns`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            val original =
+                fixture.accepted.copy(
+                    checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory),
+                )
+            val pending = CompletableDeferred<RotationCommandOutcome>()
+            fixture.accepted = original
+            fixture.execute = { pending.await() }
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertIs<RotationRuntimeCommand.StepDue>(fixture.delivered.single())
+
+            repeat(2) { fixture.coordinator.refreshRotation() }
+            fixture.execute = {
+                fixture.accepted = acceptedSnapshot()
+                fixture.acceptedResult()
+            }
+            pending.complete(
+                RotationCommandOutcome.Executed(
+                    ApplyExecution(ApplySettlement.RecoveryRequired(SettlementProblem.Unconfirmed), null),
+                ),
+            )
+            drainCommands()
+            drainCommands()
+            assertEquals(
+                listOf(
+                    original,
+                    original,
+                ),
+                fixture.delivered.filterIsInstance<RotationRuntimeCommand.StepDue>().map {
+                    it.source
+                },
+            )
+            assertEquals(
+                6 * HOUR,
+                fixture.scheduler.wakes
+                    .single()
+                    .delayMillis,
+            )
+        }
+
+    @Test
+    fun `a failed post-command read can recover from the same accepted checkpoint`() =
+        assertReadRecovery(IllegalStateException("Authority read interrupted"))
+
+    @Test
+    fun `a cancelled post-command read can recover from the same accepted checkpoint`() =
+        assertReadRecovery(CancellationException("Authority read cancelled"))
+
+    private fun assertReadRecovery(failure: RuntimeException) =
+        runBlocking {
+            val fixture = Fixture(this)
+            fixture.accepted =
+                fixture.accepted.copy(checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory))
+            fixture.execute = {
+                fixture.readFailure = failure
+                RotationCommandOutcome.Rejected(RotationStepAdmission.Stale)
+            }
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertEquals(RotationRuntimeCommand.ReportFault(RuntimeFault.RecoveryPending), fixture.delivered.last())
+            assertEquals(emptyList(), fixture.scheduler.wakes)
+
+            fixture.execute = {
+                fixture.accepted = acceptedSnapshot()
+                fixture.acceptedResult()
+            }
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertEquals(2, fixture.delivered.filterIsInstance<RotationRuntimeCommand.StepDue>().size)
+            assertEquals(
+                6 * HOUR,
+                fixture.scheduler.wakes
+                    .single()
+                    .delayMillis,
+            )
+        }
+
+    @Test
+    fun `an executor error after acceptance reconciles the confirmed checkpoint`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            fixture.accepted =
+                fixture.accepted.copy(checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory))
+            fixture.execute = {
+                fixture.accepted = acceptedSnapshot()
+                error("Interrupted result delivery")
+            }
+
+            fixture.coordinator.refreshRotation()
+            drainCommands()
+            assertIs<RotationRuntimeCommand.StepDue>(fixture.delivered.single())
+            assertEquals(
+                6 * HOUR,
+                fixture.scheduler.wakes
+                    .single()
+                    .delayMillis,
+            )
+        }
+
+    @Test
+    fun `disposal cancels a command that currently owns the Apply queue`() =
+        runBlocking {
+            val fixture = Fixture(this)
+            val entered = CompletableDeferred<Unit>()
+            val released = CompletableDeferred<Unit>()
+            fixture.accepted =
+                fixture.accepted.copy(checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory))
+            fixture.execute = {
+                fixture.applyQueue.withLock {
+                    entered.complete(Unit)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        released.complete(Unit)
+                    }
+                }
+            }
+            fixture.coordinator.refreshRotation()
+            entered.await()
+            withTimeout(2.seconds) { fixture.coordinator.disposeRotation() }
+            assertTrue(released.isCompleted)
+            assertEquals(emptyList(), fixture.scheduler.wakes)
+        }
+
+    @Test
+    fun `disposal cancels the command and ignores its late successful acknowledgement`() =
+        runBlocking<Unit> {
+            val fixture = Fixture(this)
+            val started = CompletableDeferred<Unit>()
+            val finished = CompletableDeferred<Unit>()
+            fixture.accepted =
+                fixture.accepted.copy(checkpoint = fixture.accepted.checkpoint.copy(resume = RotationResume.NoHistory))
+            fixture.execute = {
+                withContext(NonCancellable) {
+                    started.complete(Unit)
+                    finished.await()
+                    fixture.accepted = acceptedSnapshot()
+                    fixture.acceptedResult()
+                }
+            }
+            fixture.coordinator.refreshRotation()
+            started.await()
+            fixture.coordinator.disposeRotation()
+            finished.complete(Unit)
+            drainCommands()
+            assertEquals(1, fixture.reads)
+            assertEquals(emptyList(), fixture.scheduler.wakes)
+            assertIs<RotationRuntimeCommand.StepDue>(fixture.delivered.single())
         }
 
     @Test
@@ -216,7 +503,12 @@ class StudioRuntimeCoordinatorTest {
         val scheduler = RecordedScheduler()
         val clockSamples = ArrayDeque<ClockSample>()
         var reads = 0
+        var readFailure: RuntimeException? = null
         var accepted = acceptedSnapshot()
+        var available = true
+        var execute: suspend (RotationRuntimeCommand.Transaction) -> RotationCommandOutcome = {
+            RotationCommandOutcome.Rejected(RotationStepAdmission.Stale)
+        }
         private val commands = mutableListOf<RotationRuntimeCommand>()
         private var currentClock = ClockSample(0, 0)
 
@@ -226,11 +518,28 @@ class StudioRuntimeCoordinatorTest {
             StudioRuntimeCoordinator(
                 queue = applyQueue,
                 scope = scope,
-                observeRotation = { accepted.also { reads++ } },
+                observeRotation = {
+                    reads++
+                    readFailure?.let { failure ->
+                        readFailure = null
+                        throw failure
+                    }
+                    if (available) RotationObservation(accepted, AcceptanceLease(1, 1, 1)) else null
+                },
                 clock = { clockSamples.removeFirstOrNull() ?: currentClock },
                 scheduler = scheduler,
-                publishRotation = { commands.add(it) },
+                execute = {
+                    commands.add(it)
+                    execute(it)
+                },
+                reportFault = { commands.add(RotationRuntimeCommand.ReportFault(it)) },
             )
+
+        fun acceptedResult(): RotationCommandOutcome.Executed {
+            val document = catalogTestDocument()
+            val acceptedDocument = document.copy(runtime = document.runtime.copy(rotation = accepted.checkpoint))
+            return RotationCommandOutcome.Executed(ApplyExecution(ApplySettlement.Accepted(acceptedDocument), null))
+        }
 
         fun moveTime(
             wallHours: Long,
@@ -238,6 +547,11 @@ class StudioRuntimeCoordinatorTest {
         ) {
             currentClock = ClockSample(wallHours * HOUR, TimeUnit.HOURS.toNanos(elapsedHours))
         }
+    }
+
+    private suspend fun drainCommands() {
+        yield()
+        yield()
     }
 
     private class RecordedScheduler : ScheduledThreadPoolExecutor(1) {

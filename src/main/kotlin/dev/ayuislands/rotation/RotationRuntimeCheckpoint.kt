@@ -70,6 +70,10 @@ internal sealed interface RuntimeFault {
 
     data object SchedulerUnavailable : RuntimeFault
 
+    data object CommandRejected : RuntimeFault
+
+    data object RecoveryPending : RuntimeFault
+
     data class DurableRecovery(
         val code: String,
     ) : RuntimeFault

@@ -9,6 +9,13 @@ internal fun transitionRotationRuntime(
     return when (event) {
         is RotationRuntimeEvent.Reconcile -> reconcileRotation(state, event.current, clock)
         is RotationRuntimeEvent.TimerDue -> consumeRotationWake(state, event.ticket, clock.monotonicNanos)
+        is RotationRuntimeEvent.CommandFinished -> reconcileReadback(state, event, clock)
+        is RotationRuntimeEvent.CommandBlocked ->
+            if (state is RotationRuntimeState.Applying && state.current == event.source) {
+                faultedRotation(state, state.current, event.fault)
+            } else {
+                RotationTransition(state)
+            }
         is RotationRuntimeEvent.ArmRejected ->
             if (state is RotationRuntimeState.Waiting && state.ticket == event.ticket) {
                 faultedRotation(state, state.current, RuntimeFault.SchedulerUnavailable)
@@ -16,15 +23,34 @@ internal fun transitionRotationRuntime(
                 RotationTransition(state)
             }
         RotationRuntimeEvent.Dispose -> cancelPreviousWait(state, RotationTransition(RotationRuntimeState.Disposed))
+        RotationRuntimeEvent.AuthorityUnavailable ->
+            cancelPreviousWait(state, RotationTransition(RotationRuntimeState.Loading))
     }
 }
+
+private fun reconcileReadback(
+    state: RotationRuntimeState,
+    event: RotationRuntimeEvent.CommandFinished,
+    clock: ClockSample,
+): RotationTransition =
+    when {
+        (state as? RotationRuntimeState.Applying)?.current != event.source -> RotationTransition(state)
+        // Wait for another refresh before retrying a command whose source is still current.
+        event.current == event.source -> RotationTransition(RotationRuntimeState.Loading)
+        else -> reconcileRotation(state, event.current, clock)
+    }
 
 private fun reconcileRotation(
     state: RotationRuntimeState,
     current: RotationRuntimeSnapshot,
     clock: ClockSample,
 ): RotationTransition {
-    if ((state as? RotationRuntimeState.Loaded)?.current == current) return RotationTransition(state)
+    val awaitingRecovery = (state as? RotationRuntimeState.Faulted)?.fault == RuntimeFault.RecoveryPending
+    if (!awaitingRecovery &&
+        (state as? RotationRuntimeState.Loaded)?.current == current
+    ) {
+        return RotationTransition(state)
+    }
     val fault = current.checkpoint.recoveryFault
     val next =
         when {
@@ -58,10 +84,7 @@ private fun reconcileEligibleRotation(
             waitForRotation(current, ticket)
         }
         is RotationTimingPlan.Persist ->
-            issuedRotationCommand(
-                current,
-                RotationRuntimeCommand.PersistCheckpoint(current, timing),
-            )
+            RotationTransition.applying(RotationRuntimeCommand.PersistCheckpoint(current, timing))
         RotationTimingPlan.Unrepresentable -> faultedRotation(state, current, RuntimeFault.UnrepresentableAppointment)
     }
 }
@@ -123,12 +146,7 @@ private fun waitForRotation(
     )
 
 private fun stepDue(current: RotationRuntimeSnapshot): RotationTransition =
-    issuedRotationCommand(current, RotationRuntimeCommand.StepDue(current))
-
-private fun issuedRotationCommand(
-    current: RotationRuntimeSnapshot,
-    command: RotationRuntimeCommand,
-): RotationTransition = RotationTransition(RotationRuntimeState.Applying(current), listOf(command))
+    RotationTransition.applying(RotationRuntimeCommand.StepDue(current))
 
 private fun faultedRotation(
     previous: RotationRuntimeState,
