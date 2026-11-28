@@ -285,12 +285,7 @@ internal class StudioApplyCoordinator(
                 StoreLoad.Empty, is StoreLoad.Ready -> return null
             }
         val journal = observed.journal
-        if (journal.token.transactionId != operation.toString() ||
-            journal.token.baseRevision < 0 ||
-            journal.recovery.purpose != RecoveryPurpose.UserAcceptance
-        ) {
-            return null
-        }
+        if (!journal.matchesApplyRecovery(operation)) return null
         val decision = withContext(ioDispatcher) { store.resolveOutcome(journal.token) }
         val outcome =
             when (decision) {
@@ -439,6 +434,15 @@ internal class StudioApplyCoordinator(
         val request: ApplyRequest?,
         val execution: ApplyExecution,
     )
+}
+
+private fun PendingJournal.matchesApplyRecovery(operation: UUID): Boolean {
+    if (token.transactionId != operation.toString() || token.baseRevision < 0) return false
+    return when (val purpose = recovery.purpose) {
+        RecoveryPurpose.UserAcceptance -> true
+        is RecoveryPurpose.RotationStep -> purpose.operationId == operation
+        else -> false
+    }
 }
 
 /** Reattaches durable handles without preparing or applying a new effect. */

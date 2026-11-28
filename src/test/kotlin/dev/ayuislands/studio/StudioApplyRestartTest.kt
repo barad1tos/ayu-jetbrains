@@ -1,5 +1,6 @@
 package dev.ayuislands.studio
 
+import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.glow.GlowCheckpointPhase
 import dev.ayuislands.glow.GlowFieldState
 import dev.ayuislands.glow.GlowFocusAppearance
@@ -13,7 +14,19 @@ import dev.ayuislands.glow.GlowPlacement
 import dev.ayuislands.glow.GlowShape
 import dev.ayuislands.glow.GlowStyle
 import dev.ayuislands.glow.waveform.WaveformConfig
+import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.rotation.RotationAvailability
+import dev.ayuislands.rotation.RotationCompletionPlan
+import dev.ayuislands.rotation.RotationIntent
+import dev.ayuislands.rotation.RotationResume
+import dev.ayuislands.rotation.RotationRuntimeCheckpoint
+import dev.ayuislands.rotation.RotationRuntimeCommand
+import dev.ayuislands.rotation.RotationRuntimeSnapshot
+import dev.ayuislands.rotation.RotationStepPlanner
+import dev.ayuislands.rotation.RotationTimerGeneration
+import dev.ayuislands.rotation.RuntimeOwner
 import dev.ayuislands.studio.model.AcceptanceBlock
+import dev.ayuislands.studio.model.AcceptanceLease
 import dev.ayuislands.studio.model.ApplyRequest
 import dev.ayuislands.studio.model.DraftId
 import dev.ayuislands.studio.model.EffectOwner
@@ -41,6 +54,9 @@ import dev.ayuislands.studio.persistence.StoreLoad
 import dev.ayuislands.studio.persistence.StudioAppearanceStore
 import dev.ayuislands.studio.persistence.StudioFiles
 import dev.ayuislands.studio.persistence.openStudioFiles
+import dev.ayuislands.studio.runtime.RotationStepAdmission
+import dev.ayuislands.studio.runtime.RotationStepAttempt
+import dev.ayuislands.studio.runtime.prepareRotationStep
 import dev.ayuislands.studio.session.ApplySettlement
 import dev.ayuislands.studio.session.RestoreContinuation
 import dev.ayuislands.studio.session.SettlementProblem
@@ -90,6 +106,34 @@ class StudioApplyRestartTest {
     @Test
     fun `a new IDE process completes committed Glow cleanup with the accepted document`() =
         verifyGlowRecovery(committed = true)
+
+    @Test
+    fun `restart restores a written Accent field after interrupted rotation without advancing history`() {
+        val receipt = receipt(EffectOwner.ACCENT)
+        val accepted = prepareRotationRestart(receipt)
+        val effects = NativeState(receipt to 1)
+        reopen(effects::resume) { coordinator, store ->
+            assertNull(coordinator.retry(OTHER))
+            assertEquals(ApplySettlement.NotAccepted, coordinator.retry(APPLY)?.settlement)
+            assertEquals(StoreLoad.Ready(accepted), store.load())
+            assertEquals(0, effects.values.getValue(receipt.id))
+            assertEquals(listOf("resume-rollback", "restore-ACCENT", "release-rollback"), effects.events)
+        }
+    }
+
+    @Test
+    fun `restart cleans up committed rotation receipts without applying another step`() {
+        val receipt = receipt(EffectOwner.ACCENT)
+        val accepted = prepareRotationRestart(receipt, committed = true)
+        val effects = NativeState(receipt to 1)
+        reopen(effects::resume) { coordinator, store ->
+            assertEquals(ApplySettlement.Accepted(accepted), coordinator.retry(APPLY)?.settlement)
+            assertEquals(StoreLoad.Ready(accepted), store.load())
+            assertEquals(1, effects.values.getValue(receipt.id))
+            assertEquals(1L, accepted.runtime.rotation?.successfulStepSerial)
+            assertEquals(listOf("resume-accepted", "accept-ACCENT", "release-accepted"), effects.events)
+        }
+    }
 
     @Test
     fun `a lost Glow handle does not settle until a different process is confirmed`() {
@@ -510,18 +554,67 @@ class StudioApplyRestartTest {
                 sessions = StudioList(listOf(saved)),
             )
         StudioAppearanceStore(openStudioFiles(directory)).use { store ->
-            assertEquals(StoreLoad.Empty, store.load())
-            assertEquals(JournalResult.Acknowledged, store.preserveSource(initial.header.migration))
-            val bootstrap = RecoveryPlan(StudioTarget.Global, StudioList(emptyList()))
-            val first = assertIs<PrepareResult.Prepared>(store.prepare(-1, initial, bootstrap)).token
-            assertIs<CommitResult.Committed>(store.commit(first, initial.runtime))
-            assertEquals(JournalResult.Acknowledged, store.finishAccepted(first))
-            val plan = bootstrap.copy(owners = StudioList(receipts.map { it.owner }.distinct()), purpose = purpose)
+            persistInitial(store, initial)
+            val plan =
+                RecoveryPlan(StudioTarget.Global, StudioList(receipts.map { it.owner }.distinct()), purpose = purpose)
             val pending = assertIs<PrepareResult.Prepared>(store.prepare(0, accepted, plan)).token
             assertEquals(JournalResult.Acknowledged, store.recordRecovery(pending, receipts))
             if (committed) assertIs<CommitResult.Committed>(store.commit(pending, accepted.runtime))
         }
         return initial to accepted
+    }
+
+    private fun prepareRotationRestart(
+        receipt: PortableReceipt,
+        committed: Boolean = false,
+    ): StudioDocument {
+        val fresh = catalogTestDocument()
+        val checkpoint =
+            RotationRuntimeCheckpoint(
+                owner = RuntimeOwner(StudioTarget.Global, fresh.currents.global.revision),
+                sequenceCursorRaw = 0,
+                successfulStepSerial = 0,
+                resume = RotationResume.NoHistory,
+            )
+        val initial = fresh.copy(runtime = fresh.runtime.copy(rotation = checkpoint))
+        val snapshot =
+            RotationRuntimeSnapshot(
+                checkpoint = checkpoint,
+                intent = RotationIntent(true, "PRESET", 6),
+                availability = RotationAvailability(LicenseEntitlement.LICENSED, false, AyuVariant.MIRAGE, true, false),
+                generation = RotationTimerGeneration(service = 1, target = 1),
+            )
+        val request = RotationRuntimeCommand.StepDue(snapshot)
+        val lease = AcceptanceLease(initial.header.revision, targetGeneration = 1, capabilityRevision = 1)
+        return StudioAppearanceStore(openStudioFiles(directory)).use { store ->
+            persistInitial(store, initial)
+            val prepared =
+                assertIs<RotationStepAdmission.Prepared>(
+                    prepareRotationStep(store, request, snapshot, lease, RotationStepAttempt(APPLY)),
+                )
+            val token = prepared.journal.token
+            assertEquals(JournalResult.Acknowledged, store.recordRecovery(token, listOf(receipt)))
+            if (!committed) return@use initial
+            val work = prepared.phase.work
+            val proposal =
+                assertIs<RotationCompletionPlan.Ready>(
+                    RotationStepPlanner.planCompletion(checkpoint, work.context.inputs, work.candidate, 2_000L),
+                )
+            assertIs<CommitResult.Committed>(store.commit(token, initial.runtime.copy(rotation = proposal.checkpoint)))
+                .document
+        }
+    }
+
+    private fun persistInitial(
+        store: StudioAppearanceStore,
+        initial: StudioDocument,
+    ) {
+        assertEquals(StoreLoad.Empty, store.load())
+        assertEquals(JournalResult.Acknowledged, store.preserveSource(initial.header.migration))
+        val bootstrap = RecoveryPlan(StudioTarget.Global, StudioList(emptyList()))
+        val first = assertIs<PrepareResult.Prepared>(store.prepare(-1, initial, bootstrap)).token
+        assertIs<CommitResult.Committed>(store.commit(first, initial.runtime))
+        assertEquals(JournalResult.Acknowledged, store.finishAccepted(first))
     }
 
     private fun reopen(
