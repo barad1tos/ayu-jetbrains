@@ -2,6 +2,7 @@ package dev.ayuislands.syntax
 
 import com.intellij.openapi.diagnostic.logger
 import java.util.Collections
+import java.util.Optional
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 
@@ -54,8 +55,8 @@ object SyntaxKeyRoleRegistry {
     private val log = logger<SyntaxKeyRoleRegistry>()
     private val warnedUnknownSuffixes = ConcurrentHashMap.newKeySet<String>()
 
-    // Reuse successful suffix matches without retaining external key names.
-    private val primitiveCache = Collections.synchronizedMap(WeakHashMap<String, PrimitiveCategory>())
+    // An empty Optional caches unmatched names too. Weak keys let unused names expire.
+    private val primitiveCache = Collections.synchronizedMap(WeakHashMap<String, Optional<PrimitiveCategory>>())
     private val excludedLanguageKeys =
         mapOf(
             "COFFEESCRIPT.CLASS_NAME" to "Provider emits JS.EXPORTED.CLASS for class names",
@@ -356,11 +357,14 @@ object SyntaxKeyRoleRegistry {
     }
 
     private fun primitiveFor(keyName: String): PrimitiveCategory? =
-        primitiveCache.computeIfAbsent(keyName) { candidate ->
-            suffixRules.firstNotNullOfOrNull { (regex, category) ->
-                category.takeIf { regex.containsMatchIn(candidate) }
-            }
-        }
+        primitiveCache
+            .computeIfAbsent(keyName) { candidate ->
+                val primitive =
+                    suffixRules.firstNotNullOfOrNull { (regex, category) ->
+                        category.takeIf { regex.containsMatchIn(candidate) }
+                    }
+                Optional.ofNullable(primitive)
+            }.orElse(null)
 
     private fun logUnknownSuffix(keyName: String) {
         val suffix =
