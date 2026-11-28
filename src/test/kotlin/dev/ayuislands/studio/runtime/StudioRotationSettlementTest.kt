@@ -2,6 +2,7 @@ package dev.ayuislands.studio.runtime
 
 import dev.ayuislands.accent.AyuVariant
 import dev.ayuislands.licensing.LicenseEntitlement
+import dev.ayuislands.rotation.AccentRotationMode
 import dev.ayuislands.rotation.ClockSample
 import dev.ayuislands.rotation.FullIntervalReason
 import dev.ayuislands.rotation.RotationAvailability
@@ -494,11 +495,155 @@ class StudioRotationSettlementTest {
         }
     }
 
-    private fun scheduleRequest(document: StudioDocument): RotationRuntimeCommand.PersistCheckpoint {
+    @Test
+    fun `a due step journals the frozen preset before exposing an admitted Accent effect`() {
+        open().use { store ->
+            val accepted = initialize(store)
+            val request = stepRequest(accepted)
+            val lease = AcceptanceLease(accepted.header.revision, targetGeneration = 3, capabilityRevision = 1)
+            val operation = UUID(0, 20)
+
+            val prepared =
+                assertIs<RotationStepAdmission.Prepared>(
+                    prepareRotationStep(store, request, request.source, lease, RotationStepAttempt(operation)),
+                )
+            val context = prepared.phase.work.context
+            assertEquals(operation, prepared.phase.work.operationId)
+            assertEquals(lease, context.lease)
+            assertEquals(request.source.checkpoint, context.checkpoint)
+            val expectedCandidate =
+                assertIs<RotationStepPlan.Ready>(
+                    RotationStepPlanner.planStep(context.checkpoint, context.inputs, operation),
+                )
+            assertEquals(expectedCandidate.candidate, prepared.phase.work.candidate)
+            assertEquals(RecoveryPurpose.RotationStep(operation), prepared.journal.recovery.purpose)
+            assertEquals(StudioList(listOf(EffectOwner.ACCENT)), prepared.journal.recovery.owners)
+            assertEquals(expectedCandidate.candidate, prepared.journal.recovery.rotationStep)
+            assertEquals(accepted, prepared.journal.candidate.copy(header = accepted.header))
+            assertEquals(StoreLoad.Recovering(accepted, prepared.journal), store.load())
+            assertEquals(CommitResolution.NotCommitted, store.resolveOutcome(prepared.journal.token))
+            assertIs<RotationStepPhase.Applying>(admitRotationEffects(prepared.phase, prepared.journal, context))
+        }
+    }
+
+    @Test
+    fun `a stale context or document revision cannot reserve the next Accent effect`() {
+        open().use { store ->
+            val accepted = initialize(store)
+            val request = stepRequest(accepted)
+            val lease = AcceptanceLease(accepted.header.revision, targetGeneration = 3, capabilityRevision = 1)
+            val paused =
+                request.source.copy(
+                    availability = request.source.availability.copy(effectiveFollowSystem = true),
+                )
+            assertEquals(
+                RotationStepAdmission.Stale,
+                prepareRotationStep(store, request, paused, lease, RotationStepAttempt(UUID(0, 21))),
+            )
+            assertEquals(
+                RotationStepAdmission.Stale,
+                prepareRotationStep(
+                    store,
+                    request,
+                    request.source,
+                    lease.copy(documentRevision = lease.documentRevision - 1),
+                    RotationStepAttempt(UUID(0, 22)),
+                ),
+            )
+            assertEquals(StoreLoad.Ready(accepted), store.load())
+        }
+    }
+
+    @Test
+    fun `a second IDE process cannot reserve Accent effects while the store is locked`() {
+        open().use { owner ->
+            val accepted = initialize(owner)
+            val request = stepRequest(accepted)
+            val lease = AcceptanceLease(accepted.header.revision, targetGeneration = 3, capabilityRevision = 1)
+            open().use { readOnly ->
+                assertEquals(
+                    RotationStepAdmission.StoreUnavailable(StoreIssue.LOCKED),
+                    prepareRotationStep(readOnly, request, request.source, lease, RotationStepAttempt(UUID(0, 27))),
+                )
+            }
+            assertEquals(StoreLoad.Ready(accepted), owner.load())
+        }
+    }
+
+    @Test
+    fun `random selection leaves the store alone until the same request has its color`() {
+        open().use { store ->
+            val accepted = initialize(store, mode = AccentRotationMode.RANDOM)
+            val request = stepRequest(accepted, AccentRotationMode.RANDOM)
+            val lease = AcceptanceLease(accepted.header.revision, targetGeneration = 3, capabilityRevision = 1)
+            val operation = UUID(0, 23)
+
+            val attempt = RotationStepAttempt(operation)
+            val admission = prepareRotationStep(store, request, request.source, lease, attempt)
+            assertEquals(
+                RotationStepAdmission.NeedsRandom(RotationStepPlan.RandomRequired(operation, AyuVariant.MIRAGE)),
+                admission,
+            )
+            assertEquals(StoreLoad.Ready(accepted), store.load())
+
+            val prepared =
+                assertIs<RotationStepAdmission.Prepared>(
+                    prepareRotationStep(store, request, request.source, lease, attempt.copy(randomHex = "#5CCFE6")),
+                )
+            assertEquals("#5CCFE6", prepared.phase.work.candidate.hex)
+            assertEquals(operation, prepared.phase.work.operationId)
+            assertEquals(accepted, assertIs<StoreLoad.Recovering>(store.load()).document)
+        }
+    }
+
+    @Test
+    fun `lost preparation acknowledgement retains one frozen candidate and leaves the accepted history alone`() {
+        val files = FaultingStudioFiles(openStudioFiles(directory))
+        StudioAppearanceStore(files).use { store ->
+            val accepted = initialize(store)
+            val request = stepRequest(accepted)
+            val lease = AcceptanceLease(accepted.header.revision, targetGeneration = 3, capabilityRevision = 1)
+            val operation = UUID(0, 24)
+            files.arm(IoEvent(IoOperation.REPLACE, "pending.xml", IoBoundary.AFTER))
+
+            assertEquals(
+                RotationStepAdmission.StoreUnavailable(StoreIssue.IO),
+                prepareRotationStep(store, request, request.source, lease, RotationStepAttempt(operation)),
+            )
+            val retained = assertIs<StoreLoad.Recovering>(store.load())
+            assertEquals(accepted, retained.document)
+            assertEquals(RecoveryPurpose.RotationStep(operation), retained.journal.recovery.purpose)
+            assertEquals(
+                operation,
+                retained.journal.recovery.rotationStep
+                    ?.operationId,
+            )
+            assertEquals(CommitResolution.NotCommitted, store.resolveOutcome(retained.journal.token))
+
+            assertEquals(
+                RotationStepAdmission.StoreUnavailable(StoreIssue.RECOVERY_REQUIRED),
+                prepareRotationStep(store, request, request.source, lease, RotationStepAttempt(UUID(0, 25))),
+            )
+            assertEquals(retained, store.load())
+        }
+    }
+
+    private fun scheduleRequest(document: StudioDocument): RotationRuntimeCommand.PersistCheckpoint =
+        assertIs<RotationRuntimeCommand.PersistCheckpoint>(initialRotationCommand(document, AccentRotationMode.PRESET))
+
+    private fun stepRequest(
+        document: StudioDocument,
+        mode: AccentRotationMode = AccentRotationMode.PRESET,
+    ): RotationRuntimeCommand.StepDue = assertIs<RotationRuntimeCommand.StepDue>(initialRotationCommand(document, mode))
+
+    private fun initialRotationCommand(
+        document: StudioDocument,
+        mode: AccentRotationMode,
+    ): RotationRuntimeCommand {
         val snapshot =
             RotationRuntimeSnapshot(
                 checkpoint = requireNotNull(document.runtime.rotation),
-                intent = RotationIntent(true, "PRESET", 6),
+                intent = RotationIntent(true, mode.name, 6),
                 availability = RotationAvailability(LicenseEntitlement.LICENSED, false, AyuVariant.MIRAGE, true, false),
                 generation = RotationTimerGeneration(service = 2, target = 3),
             )
@@ -508,7 +653,7 @@ class StudioRotationSettlementTest {
                 RotationRuntimeEvent.Reconcile(snapshot),
                 ClockSample(3_600_000L, 0),
             )
-        return assertIs<RotationRuntimeCommand.PersistCheckpoint>(transition.commands.single())
+        return transition.commands.single()
     }
 
     private fun open(): StudioAppearanceStore = StudioAppearanceStore(openStudioFiles(directory))
@@ -517,13 +662,14 @@ class StudioRotationSettlementTest {
         store: StudioAppearanceStore,
         resume: RotationResume? = null,
         transactionId: String = "initial",
+        mode: AccentRotationMode = AccentRotationMode.PRESET,
     ): StudioDocument {
         val settings =
             """
             <application>
               <component name="AyuIslandsSettings">
                 <option name="accentRotationEnabled" value="true"/>
-                <option name="accentRotationMode" value="PRESET"/>
+                <option name="accentRotationMode" value="${mode.name}"/>
                 <option name="accentRotationIntervalHours" value="6"/>
               </component>
             </application>
