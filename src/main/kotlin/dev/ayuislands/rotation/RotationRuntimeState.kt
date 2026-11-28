@@ -56,6 +56,10 @@ internal sealed interface RotationRuntimeEvent {
         val ticket: RotationWaitTicket,
     ) : RotationRuntimeEvent
 
+    data class ArmRejected(
+        val ticket: RotationWaitTicket,
+    ) : RotationRuntimeEvent
+
     data object Dispose : RotationRuntimeEvent
 }
 

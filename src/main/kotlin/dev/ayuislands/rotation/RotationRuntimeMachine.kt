@@ -9,6 +9,12 @@ internal fun transitionRotationRuntime(
     return when (event) {
         is RotationRuntimeEvent.Reconcile -> reconcileRotation(state, event.current, clock)
         is RotationRuntimeEvent.TimerDue -> consumeRotationWake(state, event.ticket, clock.monotonicNanos)
+        is RotationRuntimeEvent.ArmRejected ->
+            if (state is RotationRuntimeState.Waiting && state.ticket == event.ticket) {
+                faultedRotation(state, state.current, RuntimeFault.SchedulerUnavailable)
+            } else {
+                RotationTransition(state)
+            }
         RotationRuntimeEvent.Dispose -> cancelPreviousWait(state, RotationTransition(RotationRuntimeState.Disposed))
     }
 }
